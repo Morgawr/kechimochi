@@ -1,5 +1,5 @@
 import { ScrapedMetadata, MetadataImporter } from './index';
-import { invoke } from '@tauri-apps/api/core';
+import { fetchExternalJson } from '../api';
 
 export class VndbImporter implements MetadataImporter {
     matchUrl(url: string, contentType: string): boolean {
@@ -31,11 +31,11 @@ export class VndbImporter implements MetadataImporter {
             fields: "id, description, image.url, platforms"
         };
         
-        const resStr1 = await invoke<string>('fetch_external_json', {
-            url: "https://api.vndb.org/kana/vn",
-            method: "POST",
-            body: JSON.stringify(vnPayload)
-        });
+        const resStr1 = await fetchExternalJson(
+            "https://api.vndb.org/kana/vn",
+            "POST",
+            JSON.stringify(vnPayload)
+        );
         
         const vnData = JSON.parse(resStr1);
         if (!vnData.results || vnData.results.length === 0) {
@@ -51,11 +51,11 @@ export class VndbImporter implements MetadataImporter {
             reverse: false
         };
 
-        const resStr2 = await invoke<string>('fetch_external_json', {
-            url: "https://api.vndb.org/kana/release",
-            method: "POST",
-            body: JSON.stringify(relPayload)
-        });
+        const resStr2 = await fetchExternalJson(
+            "https://api.vndb.org/kana/release",
+            "POST",
+            JSON.stringify(relPayload)
+        );
 
         const relData = JSON.parse(resStr2);
         

@@ -6,8 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:web": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "server": "npm run build:web && cd src-tauri && cargo run -p kechimochi-server -- --frontend-dir ../dist"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

@@ -1,8 +1,8 @@
-import { getAllMedia, getLogsForMedia, updateMedia, uploadCoverImage, readFileBytes, Media } from '../api';
-import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-dialog';
+import { getAllMedia, getLogsForMedia, updateMedia, uploadCoverImage, readFileBytes, Media, getCoverImageUrl, downloadAndSaveImage } from '../api';
 import { customPrompt, showImportMergeModal, customAlert } from '../modals';
 import { fetchMetadataForUrl } from '../importers';
+
+const isTauri = typeof (window as any).__TAURI_INTERNALS__ !== 'undefined';
 
 export class MediaView {
   private container: HTMLElement;
@@ -89,12 +89,16 @@ export class MediaView {
       // Handle Image
       let imgSrc = '';
       if (media.cover_image && media.cover_image.trim() !== '') {
-          try {
-             const bytes = await readFileBytes(media.cover_image);
-             const blob = new Blob([new Uint8Array(bytes)]);
-             imgSrc = URL.createObjectURL(blob);
-          } catch (e) {
-             console.error("Failed to load image bytes", e);
+          if (isTauri) {
+            try {
+               const bytes = await readFileBytes(media.cover_image);
+               const blob = new Blob([new Uint8Array(bytes)]);
+               imgSrc = URL.createObjectURL(blob);
+            } catch (e) {
+               console.error("Failed to load image bytes", e);
+            }
+          } else {
+            imgSrc = getCoverImageUrl(media.id!);
           }
       }
 
@@ -226,18 +230,38 @@ export class MediaView {
   private setupEditableListeners(media: Media) {
       // Image Upload
       document.getElementById('media-cover-img')?.addEventListener('dblclick', async () => {
-          const selected = await open({
-              multiple: false,
-              filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }]
-          });
-          if (selected && typeof selected === 'string') {
-              try {
-                  const newPath = await uploadCoverImage(media.id!, selected);
-                  media.cover_image = newPath;
-                  await this.renderCurrentMedia();
-              } catch (e) {
-                  alert("Failed to upload image: " + e);
-              }
+          if (isTauri) {
+            const { open } = await import('@tauri-apps/plugin-dialog');
+            const selected = await open({
+                multiple: false,
+                filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }]
+            });
+            if (selected && typeof selected === 'string') {
+                try {
+                    const newPath = await uploadCoverImage(media.id!, selected);
+                    media.cover_image = newPath;
+                    await this.renderCurrentMedia();
+                } catch (e) {
+                    alert("Failed to upload image: " + e);
+                }
+            }
+          } else {
+            // Web mode: use file input
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/png,image/jpeg,image/webp';
+            input.onchange = async () => {
+                const file = input.files?.[0];
+                if (!file) return;
+                try {
+                    const newPath = await uploadCoverImage(media.id!, file);
+                    media.cover_image = newPath;
+                    await this.renderCurrentMedia();
+                } catch (e) {
+                    alert("Failed to upload image: " + e);
+                }
+            };
+            input.click();
           }
       });
 
@@ -444,10 +468,7 @@ export class MediaView {
                   if (selected.description !== undefined) media.description = selected.description;
                   
                   if (selected.coverImageUrl) {
-                      const newCoverPath = await invoke<string>('download_and_save_image', { 
-                          mediaId: media.id, 
-                          url: selected.coverImageUrl 
-                      });
+                      const newCoverPath = await downloadAndSaveImage(media.id!, selected.coverImageUrl);
                       media.cover_image = newCoverPath;
                   }
                   

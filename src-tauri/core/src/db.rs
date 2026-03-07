@@ -1,0 +1,446 @@
+use rusqlite::{params, Connection, Result};
+use std::fs;
+use std::path::Path;
+
+use crate::models::{ActivityLog, ActivitySummary, DailyHeatmap, Media};
+
+pub fn create_tables(conn: &Connection) -> Result<()> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS media (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL UNIQUE,
+            media_type TEXT NOT NULL,
+            status TEXT NOT NULL,
+            language TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            cover_image TEXT DEFAULT '',
+            extra_data TEXT DEFAULT '{}',
+            content_type TEXT DEFAULT 'Unknown'
+        )",
+        [],
+    )?;
+
+    // Try to add the columns to existing tables (fails gracefully if they already exist)
+    let _ = conn.execute("ALTER TABLE media ADD COLUMN description TEXT DEFAULT ''", []);
+    let _ = conn.execute("ALTER TABLE media ADD COLUMN cover_image TEXT DEFAULT ''", []);
+    let _ = conn.execute("ALTER TABLE media ADD COLUMN extra_data TEXT DEFAULT '{}'", []);
+    let _ = conn.execute("ALTER TABLE media ADD COLUMN content_type TEXT DEFAULT 'Unknown'", []);
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS activity_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            media_id INTEGER NOT NULL,
+            duration_minutes INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            FOREIGN KEY(media_id) REFERENCES media(id)
+        )",
+        [],
+    )?;
+
+    Ok(())
+}
+
+/// Initialize a database at the given data directory for the given profile.
+/// Returns the opened Connection with tables created.
+pub fn init_db(data_dir: &Path, profile_name: &str) -> Result<Connection> {
+    fs::create_dir_all(data_dir).expect("Failed to create data dir");
+    let file_name = format!("kechimochi_{}.db", profile_name);
+    let db_path = data_dir.join(file_name);
+
+    let conn = Connection::open(db_path)?;
+    create_tables(&conn)?;
+
+    Ok(conn)
+}
+
+/// Delete the database file for a profile.
+pub fn wipe_profile(data_dir: &Path, profile_name: &str) -> std::result::Result<(), String> {
+    let file_name = format!("kechimochi_{}.db", profile_name);
+    let db_path = data_dir.join(file_name);
+
+    if db_path.exists() {
+        fs::remove_file(db_path).map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+/// List all profile names found in the data directory.
+pub fn list_profiles(data_dir: &Path) -> std::result::Result<Vec<String>, String> {
+    let mut profiles = Vec::new();
+    if let Ok(entries) = fs::read_dir(data_dir) {
+        for entry in entries.filter_map(std::result::Result::ok) {
+            let path = entry.path();
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if name.starts_with("kechimochi_") && name.ends_with(".db") {
+                    let profile_name = name
+                        .trim_start_matches("kechimochi_")
+                        .trim_end_matches(".db");
+                    profiles.push(profile_name.to_string());
+                }
+            }
+        }
+    }
+    Ok(profiles)
+}
+
+// Media Operations
+pub fn get_all_media(conn: &Connection) -> Result<Vec<Media>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, title, media_type, status, language, description, cover_image, extra_data, content_type FROM media",
+    )?;
+    let media_iter = stmt.query_map([], |row| {
+        Ok(Media {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            media_type: row.get(2)?,
+            status: row.get(3)?,
+            language: row.get(4)?,
+            description: row.get(5).unwrap_or_default(),
+            cover_image: row.get(6).unwrap_or_default(),
+            extra_data: row.get(7).unwrap_or_else(|_| "{}".to_string()),
+            content_type: row.get(8).unwrap_or_else(|_| "Unknown".to_string()),
+        })
+    })?;
+
+    let mut media_list = Vec::new();
+    for media in media_iter {
+        media_list.push(media?);
+    }
+    Ok(media_list)
+}
+
+pub fn add_media_with_id(conn: &Connection, media: &Media) -> Result<i64> {
+    conn.execute(
+        "INSERT INTO media (title, media_type, status, language, description, cover_image, extra_data, content_type) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![
+            media.title,
+            media.media_type,
+            media.status,
+            media.language,
+            media.description,
+            media.cover_image,
+            media.extra_data,
+            media.content_type
+        ],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+pub fn update_media(conn: &Connection, media: &Media) -> Result<()> {
+    conn.execute(
+        "UPDATE media SET title = ?1, media_type = ?2, status = ?3, language = ?4, description = ?5, cover_image = ?6, extra_data = ?7, content_type = ?8 WHERE id = ?9",
+        params![
+            media.title,
+            media.media_type,
+            media.status,
+            media.language,
+            media.description,
+            media.cover_image,
+            media.extra_data,
+            media.content_type,
+            media.id.unwrap() // Must have an ID
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn delete_media(conn: &Connection, id: i64) -> Result<()> {
+    // Also delete associated logs
+    conn.execute(
+        "DELETE FROM activity_logs WHERE media_id = ?1",
+        params![id],
+    )?;
+    conn.execute("DELETE FROM media WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+// Activity Log Operations
+pub fn add_log(conn: &Connection, log: &ActivityLog) -> Result<i64> {
+    conn.execute(
+        "INSERT INTO activity_logs (media_id, duration_minutes, date) VALUES (?1, ?2, ?3)",
+        params![log.media_id, log.duration_minutes, log.date],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+pub fn delete_log(conn: &Connection, id: i64) -> Result<()> {
+    conn.execute("DELETE FROM activity_logs WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+pub fn get_logs(conn: &Connection) -> Result<Vec<ActivitySummary>> {
+    let mut stmt = conn.prepare(
+        "SELECT a.id, a.media_id, m.title, m.media_type, a.duration_minutes, a.date, m.language 
+         FROM activity_logs a 
+         JOIN media m ON a.media_id = m.id
+         ORDER BY a.date DESC",
+    )?;
+    let logs_iter = stmt.query_map([], |row| {
+        Ok(ActivitySummary {
+            id: row.get(0)?,
+            media_id: row.get(1)?,
+            title: row.get(2)?,
+            media_type: row.get(3)?,
+            duration_minutes: row.get(4)?,
+            date: row.get(5)?,
+            language: row.get(6)?,
+        })
+    })?;
+
+    let mut log_list = Vec::new();
+    for log in logs_iter {
+        log_list.push(log?);
+    }
+    Ok(log_list)
+}
+
+pub fn get_logs_for_media(conn: &Connection, media_id: i64) -> Result<Vec<ActivitySummary>> {
+    let mut stmt = conn.prepare(
+        "SELECT a.id, a.media_id, m.title, m.media_type, a.duration_minutes, a.date, m.language 
+         FROM activity_logs a 
+         JOIN media m ON a.media_id = m.id
+         WHERE a.media_id = ?1
+         ORDER BY a.date DESC",
+    )?;
+    let logs_iter = stmt.query_map(params![media_id], |row| {
+        Ok(ActivitySummary {
+            id: row.get(0)?,
+            media_id: row.get(1)?,
+            title: row.get(2)?,
+            media_type: row.get(3)?,
+            duration_minutes: row.get(4)?,
+            date: row.get(5)?,
+            language: row.get(6)?,
+        })
+    })?;
+
+    let mut log_list = Vec::new();
+    for log in logs_iter {
+        log_list.push(log?);
+    }
+    Ok(log_list)
+}
+
+pub fn get_heatmap(conn: &Connection) -> Result<Vec<DailyHeatmap>> {
+    let mut stmt = conn.prepare(
+        "SELECT date, SUM(duration_minutes) as total_minutes 
+         FROM activity_logs 
+         GROUP BY date 
+         ORDER BY date ASC",
+    )?;
+    let heatmap_iter = stmt.query_map([], |row| {
+        Ok(DailyHeatmap {
+            date: row.get(0)?,
+            total_minutes: row.get(1)?,
+        })
+    })?;
+
+    let mut heatmap_list = Vec::new();
+    for hm in heatmap_iter {
+        heatmap_list.push(hm?);
+    }
+    Ok(heatmap_list)
+}
+
+/// Get the current cover image path for a media entry.
+pub fn get_cover_image(conn: &Connection, media_id: i64) -> String {
+    conn.query_row(
+        "SELECT cover_image FROM media WHERE id = ?1",
+        params![media_id],
+        |row| row.get(0),
+    )
+    .unwrap_or_default()
+}
+
+/// Update only the cover_image field for a media entry.
+pub fn set_cover_image(
+    conn: &Connection,
+    media_id: i64,
+    cover_path: &str,
+) -> std::result::Result<(), String> {
+    conn.execute(
+        "UPDATE media SET cover_image = ?1 WHERE id = ?2",
+        params![cover_path, media_id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::Connection;
+
+    fn setup_test_db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        create_tables(&conn).unwrap();
+        conn
+    }
+
+    fn sample_media(title: &str) -> Media {
+        Media {
+            id: None,
+            title: title.to_string(),
+            media_type: "Reading".to_string(),
+            status: "Active".to_string(),
+            language: "Japanese".to_string(),
+            description: "".to_string(),
+            cover_image: "".to_string(),
+            extra_data: "{}".to_string(),
+            content_type: "Unknown".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_create_tables() {
+        let conn = setup_test_db();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('media', 'activity_logs')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn test_add_and_get_media() {
+        let conn = setup_test_db();
+        let media = sample_media("Test Media");
+        let id = add_media_with_id(&conn, &media).unwrap();
+        assert!(id > 0);
+
+        let all = get_all_media(&conn).unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].title, "Test Media");
+        assert_eq!(all[0].id, Some(id));
+    }
+
+    #[test]
+    fn test_add_duplicate_media_fails() {
+        let conn = setup_test_db();
+        let media = sample_media("Duplicate");
+        add_media_with_id(&conn, &media).unwrap();
+        let result = add_media_with_id(&conn, &media);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_update_media() {
+        let conn = setup_test_db();
+        let media = sample_media("Updatable");
+        let id = add_media_with_id(&conn, &media).unwrap();
+
+        let updated = Media {
+            id: Some(id),
+            title: "Updatable".to_string(),
+            media_type: "Watching".to_string(),
+            status: "Completed".to_string(),
+            language: "Japanese".to_string(),
+            description: "".to_string(),
+            cover_image: "".to_string(),
+            extra_data: "{}".to_string(),
+            content_type: "Unknown".to_string(),
+        };
+        update_media(&conn, &updated).unwrap();
+
+        let all = get_all_media(&conn).unwrap();
+        assert_eq!(all[0].media_type, "Watching");
+        assert_eq!(all[0].status, "Completed");
+    }
+
+    #[test]
+    fn test_delete_media_cascades_logs() {
+        let conn = setup_test_db();
+        let media = sample_media("Deletable");
+        let media_id = add_media_with_id(&conn, &media).unwrap();
+
+        let log = ActivityLog {
+            id: None,
+            media_id,
+            duration_minutes: 60,
+            date: "2024-01-15".to_string(),
+        };
+        add_log(&conn, &log).unwrap();
+
+        let logs = get_logs(&conn).unwrap();
+        assert_eq!(logs.len(), 1);
+
+        delete_media(&conn, media_id).unwrap();
+
+        let media_list = get_all_media(&conn).unwrap();
+        assert_eq!(media_list.len(), 0);
+
+        let logs = get_logs(&conn).unwrap();
+        assert_eq!(logs.len(), 0);
+    }
+
+    #[test]
+    fn test_add_and_get_logs() {
+        let conn = setup_test_db();
+        let media = sample_media("Loggable");
+        let media_id = add_media_with_id(&conn, &media).unwrap();
+
+        let log = ActivityLog {
+            id: None,
+            media_id,
+            duration_minutes: 45,
+            date: "2024-03-01".to_string(),
+        };
+        let log_id = add_log(&conn, &log).unwrap();
+        assert!(log_id > 0);
+
+        let logs = get_logs(&conn).unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].title, "Loggable");
+        assert_eq!(logs[0].duration_minutes, 45);
+        assert_eq!(logs[0].date, "2024-03-01");
+    }
+
+    #[test]
+    fn test_get_heatmap_aggregation() {
+        let conn = setup_test_db();
+        let media = sample_media("Heatmappable");
+        let media_id = add_media_with_id(&conn, &media).unwrap();
+
+        add_log(
+            &conn,
+            &ActivityLog {
+                id: None,
+                media_id,
+                duration_minutes: 30,
+                date: "2024-06-01".to_string(),
+            },
+        )
+        .unwrap();
+        add_log(
+            &conn,
+            &ActivityLog {
+                id: None,
+                media_id,
+                duration_minutes: 45,
+                date: "2024-06-01".to_string(),
+            },
+        )
+        .unwrap();
+        add_log(
+            &conn,
+            &ActivityLog {
+                id: None,
+                media_id,
+                duration_minutes: 20,
+                date: "2024-06-02".to_string(),
+            },
+        )
+        .unwrap();
+
+        let heatmap = get_heatmap(&conn).unwrap();
+        assert_eq!(heatmap.len(), 2);
+        assert_eq!(heatmap[0].date, "2024-06-01");
+        assert_eq!(heatmap[0].total_minutes, 75);
+        assert_eq!(heatmap[1].date, "2024-06-02");
+        assert_eq!(heatmap[1].total_minutes, 20);
+    }
+}

@@ -1,0 +1,20 @@
+[package]
+name = "kechimochi-server"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "kechimochi-server"
+path = "src/main.rs"
+
+[dependencies]
+kechimochi-core = { path = "../core" }
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.6", features = ["cors", "fs"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.38.0", features = ["bundled"] }
+clap = { version = "4", features = ["derive"] }
+axum-extra = { version = "0.10", features = ["multipart"] }
+reqwest = { version = "0.12", features = ["rustls-tls"] }

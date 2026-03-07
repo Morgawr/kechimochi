@@ -1,5 +1,5 @@
 import { ScrapedMetadata, MetadataImporter } from './index';
-import { invoke } from '@tauri-apps/api/core';
+import { fetchExternalJson } from '../api';
 
 export class BackloggdImporter implements MetadataImporter {
     matchUrl(url: string, contentType: string): boolean {
@@ -13,10 +13,10 @@ export class BackloggdImporter implements MetadataImporter {
     }
 
     async fetch(url: string): Promise<ScrapedMetadata> {
-        const html = await invoke<string>('fetch_external_json', {
+        const html = await fetchExternalJson(
             url,
-            method: "GET"
-        });
+            "GET"
+        );
 
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
