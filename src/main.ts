@@ -16,11 +16,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.getElementById('win-close')?.addEventListener('click', () => appWindow.close());
     });
   } else {
-    // Hide window controls in web mode
-    const winControls = document.querySelector('.window-controls') as HTMLElement;
-    if (winControls) winControls.style.display = 'none';
-    const logo = document.querySelector('.logo') as HTMLElement;
-    if (logo) logo.removeAttribute('data-tauri-drag-region');
+    // Hide title bar in web mode
+    const titleBar = document.querySelector('.title-bar') as HTMLElement;
+    if (titleBar) titleBar.style.display = 'none';
   }
 
   const viewContainer = document.getElementById('view-container')!;
