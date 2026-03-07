@@ -9,6 +9,7 @@ export interface Media {
   description: string;
   cover_image: string;
   extra_data: string;
+  content_type: string;
 }
 
 export interface ActivityLog {

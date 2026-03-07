@@ -211,7 +211,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             language: "Japanese",
             description: "",
             cover_image: "",
-            extra_data: "{}"
+            extra_data: "{}",
+            content_type: "Unknown"
         });
     }
 

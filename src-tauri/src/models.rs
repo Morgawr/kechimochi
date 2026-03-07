@@ -10,6 +10,7 @@ pub struct Media {
     pub description: String,
     pub cover_image: String,
     pub extra_data: String,
+    pub content_type: String, // "Visual Novel", "Anime", etc., or "Unknown"
 }
 
 #[derive(Debug, Serialize, Deserialize)]

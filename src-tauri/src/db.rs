@@ -14,7 +14,8 @@ pub fn create_tables(conn: &Connection) -> Result<()> {
             language TEXT NOT NULL,
             description TEXT DEFAULT '',
             cover_image TEXT DEFAULT '',
-            extra_data TEXT DEFAULT '{}'
+            extra_data TEXT DEFAULT '{}',
+            content_type TEXT DEFAULT 'Unknown'
         )",
         [],
     )?;
@@ -23,6 +24,7 @@ pub fn create_tables(conn: &Connection) -> Result<()> {
     let _ = conn.execute("ALTER TABLE media ADD COLUMN description TEXT DEFAULT ''", []);
     let _ = conn.execute("ALTER TABLE media ADD COLUMN cover_image TEXT DEFAULT ''", []);
     let _ = conn.execute("ALTER TABLE media ADD COLUMN extra_data TEXT DEFAULT '{}'", []);
+    let _ = conn.execute("ALTER TABLE media ADD COLUMN content_type TEXT DEFAULT 'Unknown'", []);
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS activity_logs (
@@ -92,7 +94,7 @@ pub fn list_profiles(app_handle: &tauri::AppHandle) -> std::result::Result<Vec<S
 
 // Media Operations
 pub fn get_all_media(conn: &Connection) -> Result<Vec<Media>> {
-    let mut stmt = conn.prepare("SELECT id, title, media_type, status, language, description, cover_image, extra_data FROM media")?;
+    let mut stmt = conn.prepare("SELECT id, title, media_type, status, language, description, cover_image, extra_data, content_type FROM media")?;
     let media_iter = stmt.query_map([], |row| {
         Ok(Media {
             id: row.get(0)?,
@@ -103,6 +105,7 @@ pub fn get_all_media(conn: &Connection) -> Result<Vec<Media>> {
             description: row.get(5).unwrap_or_default(),
             cover_image: row.get(6).unwrap_or_default(),
             extra_data: row.get(7).unwrap_or_else(|_| "{}".to_string()),
+            content_type: row.get(8).unwrap_or_else(|_| "Unknown".to_string()),
         })
     })?;
 
@@ -115,15 +118,15 @@ pub fn get_all_media(conn: &Connection) -> Result<Vec<Media>> {
 
 pub fn add_media_with_id(conn: &Connection, media: &Media) -> Result<i64> {
     conn.execute(
-        "INSERT INTO media (title, media_type, status, language, description, cover_image, extra_data) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![media.title, media.media_type, media.status, media.language, media.description, media.cover_image, media.extra_data],
+        "INSERT INTO media (title, media_type, status, language, description, cover_image, extra_data, content_type) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![media.title, media.media_type, media.status, media.language, media.description, media.cover_image, media.extra_data, media.content_type],
     )?;
     Ok(conn.last_insert_rowid())
 }
 
 pub fn update_media(conn: &Connection, media: &Media) -> Result<()> {
     conn.execute(
-        "UPDATE media SET title = ?1, media_type = ?2, status = ?3, language = ?4, description = ?5, cover_image = ?6, extra_data = ?7 WHERE id = ?8",
+        "UPDATE media SET title = ?1, media_type = ?2, status = ?3, language = ?4, description = ?5, cover_image = ?6, extra_data = ?7, content_type = ?8 WHERE id = ?9",
         params![
             media.title,
             media.media_type,
@@ -132,6 +135,7 @@ pub fn update_media(conn: &Connection, media: &Media) -> Result<()> {
             media.description,
             media.cover_image,
             media.extra_data,
+            media.content_type,
             media.id.unwrap() // Must have an ID
         ],
     )?;
@@ -254,6 +258,7 @@ mod tests {
             description: "".to_string(),
             cover_image: "".to_string(),
             extra_data: "{}".to_string(),
+            content_type: "Unknown".to_string(),
         }
     }
 
@@ -308,6 +313,7 @@ mod tests {
             description: "".to_string(),
             cover_image: "".to_string(),
             extra_data: "{}".to_string(),
+            content_type: "Unknown".to_string(),
         };
         update_media(&conn, &updated).unwrap();
 

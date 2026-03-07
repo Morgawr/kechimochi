@@ -128,7 +128,8 @@ export class MediaView {
             <div>
                <h1 id="media-title" title="Double click to edit title" style="margin: 0; font-size: 2rem; cursor: pointer;">${media.title}</h1>
                <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem; align-items: center;">
-                 <span class="badge" id="media-type" title="Double click to edit" style="cursor: pointer; background: var(--accent); color: white; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.8rem;">${media.media_type}</span>
+                 <span class="badge" id="media-type" title="Double click to edit media type" style="cursor: pointer; background: var(--accent); color: white; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.8rem;">${media.media_type}</span>
+                 <span class="badge" id="media-content-type" title="Double click to edit content type" style="cursor: pointer; background: rgba(245, 192, 192, 0.15); color: var(--accent-purple); border: 1px solid rgba(245, 192, 192, 0.3); padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.8rem;">${media.content_type || 'Unknown'}</span>
                  <span class="badge" style="background: var(--bg-lighter); color: var(--text-secondary); padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.8rem;">${media.language}</span>
                  <span class="badge" style="background: var(--bg-lighter); color: var(--text-secondary); padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.8rem;">${media.status}</span>
                </div>
@@ -295,6 +296,68 @@ export class MediaView {
       makeEditable('media-title', 'title', false);
       makeEditable('media-desc', 'description', true);
       makeEditable('media-type', 'media_type', false);
+
+      // Content Type Dropdown Editor
+      const contentTypeBadge = document.getElementById('media-content-type');
+      if (contentTypeBadge) {
+          contentTypeBadge.addEventListener('dblclick', () => {
+              const select = document.createElement('select');
+              select.style.background = 'var(--bg-darker)';
+              select.style.color = 'var(--text-primary)';
+              select.style.border = '1px solid var(--accent)';
+              select.style.padding = '0.2rem 0.5rem';
+              select.style.borderRadius = '12px';
+              select.style.outline = 'none';
+
+              let validOptions: string[] = ['Unknown'];
+              const mType = media.media_type;
+              if (mType === 'Reading') validOptions.push('Visual Novel', 'Manga', 'Novel');
+              else if (mType === 'Playing') validOptions.push('Videogame');
+              else if (mType === 'Listening') validOptions.push('Podcast');
+              else if (mType === 'Watching') validOptions.push('Anime', 'Movie', 'Youtube Video', 'Livestream', 'Drama');
+
+              select.innerHTML = validOptions.map(opt => `<option value="${opt}" ${opt === media.content_type ? 'selected' : ''}>${opt}</option>`).join('');
+
+              let isSaving = false;
+              const save = async () => {
+                  if (isSaving) return;
+                  isSaving = true;
+                  
+                  const newValue = select.value;
+                  if (newValue && newValue !== media.content_type) {
+                      media.content_type = newValue;
+                      try {
+                          await updateMedia(media);
+                      } catch (e) {
+                          alert("Database Error: Restart Kechimochi so the new architecture loads! " + String(e));
+                      }
+                  }
+                  
+                  await this.renderCurrentMedia();
+              };
+
+              select.addEventListener('change', save);
+              
+              select.addEventListener('keydown', (e: KeyboardEvent) => {
+                  if (e.key === 'Escape') this.renderCurrentMedia();
+              });
+
+              // Instead of blur (which randomly triggers when Tauri opens the OS-level dropdown window),
+              // we detect outside clicks globally.
+              setTimeout(() => {
+                  const outsideClick = (e: MouseEvent) => {
+                      if (document.body.contains(select) && e.target !== select) {
+                          window.removeEventListener('click', outsideClick);
+                          if (!isSaving) this.renderCurrentMedia();
+                      }
+                  };
+                  window.addEventListener('click', outsideClick);
+              }, 100);
+
+              contentTypeBadge.replaceWith(select);
+              select.focus();
+          });
+      }
 
       // Extra Data handling
       document.querySelectorAll('.editable-extra').forEach(el => {

@@ -148,8 +148,7 @@ export class Library {
        const result = await showAddMediaModal();
        if (!result) return;
        
-       addMedia({ title: result.title, media_type: result.type, status: "Active", language: "Japanese", description: "", cover_image: "", extra_data: "{}" }).then(() => this.loadData());
+       addMedia({ title: result.title, media_type: result.type, status: "Active", language: "Japanese", description: "", cover_image: "", extra_data: "{}", content_type: "Unknown" }).then(() => this.loadData());
     });
   }
 }
-
