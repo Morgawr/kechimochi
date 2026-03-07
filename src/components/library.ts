@@ -17,7 +17,7 @@ export class Library {
           <button class="btn btn-ghost" id="btn-add-media">+ New Media</button>
         </div>
 
-        <div id="media-kanban" style="display: flex; gap: 1rem; overflow-x: auto; flex: 1; min-height: 400px; padding-bottom: 1rem;">
+        <div id="media-kanban" class="kanban-board">
           <!-- Kanban columns -->
         </div>
 

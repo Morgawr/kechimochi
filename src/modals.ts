@@ -110,7 +110,7 @@ export function buildCalendar(containerId: string, initialDate: string, onSelect
         const daysInMonth = new Date(vY, vM + 1, 0).getDate();
         
         let html = `
-            <div style="background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 0.5rem; width: 230px; user-select: none;">
+            <div style="background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 0.5rem; width: 230px; max-width: 100%; user-select: none;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
                     <button type="button" class="btn btn-ghost" style="padding: 0 0.5rem; height: 24px; min-width: 24px; font-size: 0.8rem;" id="c-p-${containerId}">&lt;</button>
                     <span style="font-size: 0.9rem; font-weight: 500;">${vY} / ${vM + 1}</span>
@@ -169,7 +169,7 @@ export async function showExportCsvModal(): Promise<{mode: 'all' | 'range', star
         const todayStr = `${todayD.getFullYear()}-${pad(todayD.getMonth() + 1)}-${pad(todayD.getDate())}`;
         
         overlay.innerHTML = `
-            <div class="modal-content" style="max-width: 90vw; width: max-content;">
+            <div class="modal-content export-modal-body">
                 <h3>Export CSV</h3>
                 
                 <div style="margin-top: 1rem;">
@@ -181,7 +181,7 @@ export async function showExportCsvModal(): Promise<{mode: 'all' | 'range', star
                     </label>
                 </div>
                 
-                <div id="export-range-inputs" style="display: none; align-items: flex-start; gap: 1.5rem; margin-top: 1rem; padding: 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: #1a151f;">
+                <div id="export-range-inputs" class="export-calendars">
                     <div style="display: flex; flex-direction: column; gap: 0.5rem; align-items: center;">
                         <label style="font-size: 0.85rem; color: var(--text-secondary);">Start Date</label>
                         <div id="cal-start-container"></div>

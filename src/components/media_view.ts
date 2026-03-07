@@ -19,18 +19,18 @@ export class MediaView {
       <div class="animate-fade-in" style="display: flex; flex-direction: column; height: 100%; gap: 1rem;">
         
         <!-- Header Carousel Controls -->
-        <div style="display: flex; justify-content: space-between; align-items: center; background: var(--bg-dark); padding: 0.5rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-color);">
-            <button class="btn btn-ghost" id="media-prev" style="font-size: 1.2rem; padding: 0.2rem 1rem;">&lt;&lt;</button>
+        <div style="display: flex; justify-content: space-between; align-items: center; background: var(--bg-dark); padding: 0.5rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-color); min-width: 0;">
+            <button class="btn btn-ghost" id="media-prev" style="font-size: 1.2rem; padding: 0.2rem 1rem; flex-shrink: 0;">&lt;&lt;</button>
             
             <!-- Search / Select dropdown -->
-            <select id="media-select" style="flex: 1; max-width: 400px; text-align: center; border: none; background: transparent; font-size: 1.1rem; color: var(--text-primary); outline: none; appearance: none; cursor: pointer; text-align-last: center;">
+            <select id="media-select" style="flex: 1; min-width: 0; max-width: 400px; text-align: center; border: none; background: transparent; font-size: 1.1rem; color: var(--text-primary); outline: none; appearance: none; cursor: pointer; text-align-last: center; overflow: hidden; text-overflow: ellipsis;">
             </select>
             
-            <button class="btn btn-ghost" id="media-next" style="font-size: 1.2rem; padding: 0.2rem 1rem;">&gt;&gt;</button>
+            <button class="btn btn-ghost" id="media-next" style="font-size: 1.2rem; padding: 0.2rem 1rem; flex-shrink: 0;">&gt;&gt;</button>
         </div>
 
         <!-- Main Media Content area -->
-        <div id="media-content-area" style="display: flex; gap: 2rem; flex: 1; overflow-y: auto;">
+        <div id="media-content-area" class="media-content-area">
             <!-- Loading placeholder -->
             <div style="margin: auto;">Loading...</div>
         </div>
@@ -102,9 +102,9 @@ export class MediaView {
           }
       }
 
-      const imgPlaceholderStyles = "width: 100%; aspect-ratio: 2/3; background: var(--bg-dark); border: 2px dashed var(--border-color); border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-secondary);";
+      const imgPlaceholderStyles = "width: 100%; height: 100%; background: var(--bg-dark); border: 2px dashed var(--border-color); border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-secondary); font-size: 0.8rem;";
       const imageHtml = imgSrc !== '' 
-        ? `<img src="${imgSrc}" style="width: 100%; aspect-ratio: 2/3; object-fit: cover; border-radius: var(--radius-md); cursor: pointer;" id="media-cover-img" alt="Cover" title="Double click to change image" />`
+        ? `<img src="${imgSrc}" style="width: 100%; height: 100%; object-fit: cover; border-radius: var(--radius-md); cursor: pointer;" id="media-cover-img" alt="Cover" title="Double click to change image" />`
         : `<div style="${imgPlaceholderStyles}" id="media-cover-img" title="Double click to add image">No Image</div>`;
 
       // Read extra_data JSON safely
@@ -124,45 +124,47 @@ export class MediaView {
       `).join('');
 
       area.innerHTML = `
-        <!-- Left Column: Cover -->
-        <div style="flex: 0 0 300px; display: flex; flex-direction: column;">
-            ${imageHtml}
+        <!-- Hero header: cover + title side by side -->
+        <div class="media-hero">
+            <div class="media-hero-cover">
+                ${imageHtml}
+            </div>
+            <div class="media-hero-info">
+                <h1 id="media-title" title="Double click to edit title" style="margin: 0; font-size: 1.6rem; cursor: pointer; line-height: 1.2;">${media.title}</h1>
+                <div class="media-badges">
+                  <span class="badge" id="media-type" title="Double click to edit media type" style="cursor: pointer; background: var(--accent); color: white; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.8rem;">${media.media_type}</span>
+                  <span class="badge" id="media-content-type" title="Double click to edit content type" style="cursor: pointer; background: rgba(245, 192, 192, 0.15); color: var(--accent-purple); border: 1px solid rgba(245, 192, 192, 0.3); padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.8rem;">${media.content_type || 'Unknown'}</span>
+                  <span class="badge" style="background: var(--bg-lighter); color: var(--text-secondary); padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.8rem;">${media.language}</span>
+                  <span class="badge" style="background: var(--bg-lighter); color: var(--text-secondary); padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.8rem;">${media.status}</span>
+                </div>
+                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: auto;">
+                    <button class="btn btn-ghost" id="btn-add-extra" style="padding: 0.3rem 0.6rem; font-size: 0.75rem;">+ Field</button>
+                    <button class="btn btn-ghost" id="btn-import-meta" style="padding: 0.3rem 0.6rem; font-size: 0.75rem; color: var(--accent-purple);">Fetch Metadata</button>
+                </div>
+            </div>
         </div>
 
-        <!-- Right Column: Details -->
-        <div style="flex: 1; display: flex; flex-direction: column; gap: 1rem;">
-            <div>
-               <h1 id="media-title" title="Double click to edit title" style="margin: 0; font-size: 2rem; cursor: pointer;">${media.title}</h1>
-               <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem; align-items: center;">
-                 <span class="badge" id="media-type" title="Double click to edit media type" style="cursor: pointer; background: var(--accent); color: white; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.8rem;">${media.media_type}</span>
-                 <span class="badge" id="media-content-type" title="Double click to edit content type" style="cursor: pointer; background: rgba(245, 192, 192, 0.15); color: var(--accent-purple); border: 1px solid rgba(245, 192, 192, 0.3); padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.8rem;">${media.content_type || 'Unknown'}</span>
-                 <span class="badge" style="background: var(--bg-lighter); color: var(--text-secondary); padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.8rem;">${media.language}</span>
-                 <span class="badge" style="background: var(--bg-lighter); color: var(--text-secondary); padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.8rem;">${media.status}</span>
-               </div>
-            </div>
-
+        <!-- Scrollable detail content -->
+        <div class="media-detail-scroll">
             <div class="card" style="display: flex; flex-direction: column; gap: 0.5rem;">
                 <h4 style="margin: 0; color: var(--text-secondary);">Description</h4>
                 <div id="media-desc" title="Double click to edit description" style="cursor: pointer; white-space: pre-wrap;">${media.description || 'No description provided. Double click here to add one.'}</div>
             </div>
 
-            <!-- Custom fields -->
-            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;">
-                <div class="card" id="media-first-last-stats" style="grid-column: span 3; display: none; justify-content: flex-start; gap: 2rem; padding: 0.5rem 1rem; font-size: 0.85rem;"></div>
+            <!-- Stats + custom fields -->
+            <div class="media-extra-grid">
+                <div class="card media-stats-row" id="media-first-last-stats"></div>
                 ${extraDataHtml}
             </div>
             
-            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                <button class="btn btn-ghost" id="btn-add-extra" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">+ Add Extra Field</button>
-                <button class="btn btn-ghost" id="btn-import-meta" style="padding: 0.4rem 0.8rem; font-size: 0.8rem; color: var(--accent-purple);">Fetch Metadata from URL</button>
-            </div>
-            
             <!-- Activity Logs Section -->
-            <div class="card" style="margin-top: 1rem; flex: 1; display: flex; flex-direction: column; min-height: 200px;">
+            <div class="card" style="flex: 1; display: flex; flex-direction: column; min-height: 200px;">
                 <h4 style="margin: 0 0 1rem 0; color: var(--text-secondary);">Recent Activity</h4>
                 <div id="media-logs-container" style="display: flex; flex-direction: column; gap: 0.5rem; flex: 1; overflow-y: auto;">
                     Loading logs...
                 </div>
+            </div>
+        </div>
             </div>
         </div>
       `;

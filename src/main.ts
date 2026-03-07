@@ -51,6 +51,19 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   await ensureProfilesList();
 
+  // Overflow menu toggle
+  const overflowTrigger = document.getElementById('btn-overflow-menu')!;
+  const overflowMenu = document.getElementById('overflow-menu')!;
+  overflowTrigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    overflowMenu.classList.toggle('open');
+  });
+  document.addEventListener('click', (e) => {
+    if (!overflowMenu.contains(e.target as Node) && e.target !== overflowTrigger) {
+      overflowMenu.classList.remove('open');
+    }
+  });
+
   if (currentProfile !== 'default') {
       await switchProfile(currentProfile);
   }

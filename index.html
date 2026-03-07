@@ -38,20 +38,30 @@
         
         <div style="flex: 1"></div>
         
-        <div style="display: flex; gap: 0.75rem; align-items: center;">
-          <div style="display: flex; gap: 0.5rem;">
-             <button class="btn btn-ghost" id="btn-import-csv" style="padding: 0.3rem 0.6rem; font-size: 0.8rem;">Import CSV</button>
-             <button class="btn btn-ghost" id="btn-export-csv" style="padding: 0.3rem 0.6rem; font-size: 0.8rem;">Export CSV</button>
+        <div class="nav-actions">
+          <button class="btn btn-primary" id="btn-add-activity" style="padding: 0.35rem 0.9rem; font-size: 0.85rem;">+ Log</button>
+
+          <!-- Overflow menu -->
+          <div class="overflow-menu-wrapper">
+            <button class="btn btn-ghost overflow-menu-trigger" id="btn-overflow-menu" title="More options" style="padding: 0.35rem 0.5rem; font-size: 1.1rem; line-height: 1;">⋮</button>
+            <div class="overflow-menu" id="overflow-menu">
+              <div class="overflow-menu-section">
+                <label class="overflow-menu-label">Profile</label>
+                <div class="overflow-menu-profile-row">
+                  <select id="select-profile" style="flex: 1; border: none; background: var(--bg-dark); padding: 0.3rem 0.5rem; outline: none; font-size: 0.85rem; font-weight: 500; cursor: pointer; border-radius: var(--radius-sm);">
+                    <option value="default">default</option>
+                  </select>
+                  <button class="btn btn-ghost" id="btn-add-profile" style="padding: 0.15rem 0.45rem; font-size: 0.75rem;" title="Add user">+</button>
+                  <button class="btn btn-ghost" id="btn-delete-profile" style="padding: 0.15rem 0.45rem; font-size: 0.75rem;" title="Delete user">−</button>
+                </div>
+              </div>
+              <div class="overflow-menu-divider"></div>
+              <button class="overflow-menu-item" id="btn-import-csv">Import CSV</button>
+              <button class="overflow-menu-item" id="btn-export-csv">Export CSV</button>
+              <div class="overflow-menu-divider"></div>
+              <button class="overflow-menu-item overflow-menu-item-danger" id="btn-wipe-profile">Wipe All Data</button>
+            </div>
           </div>
-          <div style="display: flex; align-items: center; gap: 0.5rem; background: var(--bg-dark); padding: 0.2rem 0.5rem; border-radius: var(--radius-md); border: 1px solid var(--border-color);">
-             <select id="select-profile" style="border: none; background: transparent; padding: 0; outline: none; font-size: 0.9rem; font-weight: 500; cursor: pointer;">
-                 <option value="default">default</option>
-             </select>
-             <button class="btn btn-ghost" id="btn-add-profile" style="padding: 0.1rem 0.4rem; font-size: 0.75rem;" title="Add new user">+</button>
-             <button class="btn btn-ghost" id="btn-delete-profile" style="padding: 0.1rem 0.4rem; font-size: 0.75rem;" title="Delete current user">-</button>
-          </div>
-          <button class="btn btn-danger btn-sm" id="btn-wipe-profile" style="background-color: #ff4757 !important; color: #ffffff !important; font-size: 0.8rem; padding: 0.3rem 0.6rem; border: none;">Wipe Data</button>
-          <button class="btn btn-primary" id="btn-add-activity">+ Activity Log</button>
         </div>
       </header>
 

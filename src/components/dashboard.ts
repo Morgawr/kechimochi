@@ -21,7 +21,7 @@ export class Dashboard {
       <div class="animate-fade-in" style="display: flex; flex-direction: column; gap: 2rem;">
         
         <!-- Heatmap Section -->
-        <div style="display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 2rem;">
+        <div class="dashboard-top-grid">
           <!-- Stats Box -->
           <div class="card" id="stats-box-container" style="display: flex; flex-direction: column;">
              <div style="display: flex; justify-content: center; align-items: center; height: 100%;">
@@ -44,7 +44,7 @@ export class Dashboard {
         </div>
 
         <!-- Charts Section -->
-        <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 2rem;">
+        <div class="charts-grid">
           <div class="card" style="display: flex; flex-direction: column; min-width: 0;">
             <h3 style="text-align: center; margin-bottom: 1rem;">Activity Breakdown</h3>
             <div class="chart-container-wrapper" style="flex: 1; min-height: 0;">
@@ -52,13 +52,13 @@ export class Dashboard {
             </div>
           </div>
           <div class="card" style="display: flex; flex-direction: column; min-width: 0;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <div class="chart-controls-row">
               <div style="display: flex; align-items: center; gap: 0.5rem;">
                  <button class="btn btn-ghost" style="padding: 0.1rem 0.4rem;" id="btn-chart-prev">&lt;</button>
                  <h3 style="margin: 0;">Activity visualization</h3>
                  <button class="btn btn-ghost" style="padding: 0.1rem 0.4rem;" id="btn-chart-next">&gt;</button>
               </div>
-              <div style="display: flex; gap: 0.5rem;">
+              <div class="chart-selects">
                 <select id="select-chart-type" style="font-size: 0.8rem; padding: 0.4rem 0.6rem;">
                   <option value="bar" ${this.chartType === 'bar' ? 'selected' : ''}>Bar</option>
                   <option value="line" ${this.chartType === 'line' ? 'selected' : ''}>Line</option>
@@ -560,7 +560,7 @@ export class Dashboard {
     const currentProfile = localStorage.getItem('kechimochi_profile') || 'default';
 
     list.innerHTML = logs.slice(0, 20).map(log => `
-      <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem; background: var(--bg-dark); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+      <div class="log-entry">
         <div>
           <span style="color: var(--accent-green); font-weight: 500;">${currentProfile}</span> 
           <span style="color: var(--text-secondary);">logged</span> 
@@ -568,7 +568,7 @@ export class Dashboard {
           <span style="color: var(--text-secondary);">of ${log.media_type}</span> 
           <a class="dashboard-media-link" data-media-id="${log.media_id}" style="color: var(--text-primary); font-weight: 600; cursor: pointer; text-decoration: underline; text-decoration-color: var(--accent-blue);">${log.title}</a>
         </div>
-        <div style="display: flex; align-items: center; gap: 1rem;">
+        <div class="log-entry-meta">
           <div style="color: var(--text-secondary);">${log.date}</div>
            <button class="btn btn-danger btn-sm delete-log-btn" data-id="${log.id}" style="padding: 0.3rem 0.6rem; font-size: 0.75rem; background-color: #ff4757 !important; color: #ffffff !important; border: none; cursor: pointer;">Delete</button>
         </div>
