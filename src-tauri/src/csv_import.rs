@@ -91,3 +91,91 @@ pub fn import_csv(conn: &mut Connection, file_path: &str) -> Result<usize, Strin
     tx.commit().map_err(|e| e.to_string())?;
     Ok(imported_count)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db;
+    use rusqlite::Connection;
+    use std::io::Write;
+
+    fn setup_test_db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_tables(&conn).unwrap();
+        conn
+    }
+
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+    fn write_csv(content: &str) -> String {
+        let dir = std::env::temp_dir();
+        let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let path = dir.join(format!("kechimochi_test_{}_{}.csv", std::process::id(), id));
+        let mut f = File::create(&path).unwrap();
+        f.write_all(content.as_bytes()).unwrap();
+        path.to_str().unwrap().to_string()
+    }
+
+    #[test]
+    fn test_import_csv_basic() {
+        let mut conn = setup_test_db();
+        let csv_path = write_csv(
+            "Date,Log Name,Media Type,Duration,Language\n\
+             2024-01-15,ある魔女が死ぬまで,Reading,45,Japanese\n\
+             2024-01-16,呪術廻戦,Watching,25,Japanese\n"
+        );
+
+        let count = import_csv(&mut conn, &csv_path).unwrap();
+        assert_eq!(count, 2);
+
+        let media = db::get_all_media(&conn).unwrap();
+        assert_eq!(media.len(), 2);
+
+        let logs = db::get_logs(&conn).unwrap();
+        assert_eq!(logs.len(), 2);
+
+        std::fs::remove_file(csv_path).ok();
+    }
+
+    #[test]
+    fn test_import_csv_deduplicates_media() {
+        let mut conn = setup_test_db();
+        let csv_path = write_csv(
+            "Date,Log Name,Media Type,Duration,Language\n\
+             2024-01-15,FF7,Playing,60,Japanese\n\
+             2024-01-16,FF7,Playing,120,Japanese\n"
+        );
+
+        let count = import_csv(&mut conn, &csv_path).unwrap();
+        assert_eq!(count, 2);
+
+        // Only one media entry despite two rows with same title
+        let media = db::get_all_media(&conn).unwrap();
+        assert_eq!(media.len(), 1);
+        assert_eq!(media[0].title, "FF7");
+
+        let logs = db::get_logs(&conn).unwrap();
+        assert_eq!(logs.len(), 2);
+
+        std::fs::remove_file(csv_path).ok();
+    }
+
+    #[test]
+    fn test_import_csv_date_formatting() {
+        let mut conn = setup_test_db();
+        let csv_path = write_csv(
+            "Date,Log Name,Media Type,Duration,Language\n\
+             2024/03/01,本好きの下剋上,Reading,30,Japanese\n"
+        );
+
+        let count = import_csv(&mut conn, &csv_path).unwrap();
+        assert_eq!(count, 1);
+
+        let logs = db::get_logs(&conn).unwrap();
+        assert_eq!(logs[0].date, "2024-03-01");
+
+        std::fs::remove_file(csv_path).ok();
+    }
+}

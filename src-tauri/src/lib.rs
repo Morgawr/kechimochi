@@ -114,7 +114,6 @@ fn wipe_profile(app_handle: tauri::AppHandle, state: State<DbState>, profile_nam
     // Actually sqlite will allow deletion but further writes will fail. 
     // Usually wiping implies switching back later or recreation
     // Let's just create a temporary in-memory so the file is fully freed
-    // Let's just create a temporary in-memory so the file is fully freed
     {
         let mut conn_guard = state.conn.lock().unwrap();
         *conn_guard = rusqlite::Connection::open_in_memory().unwrap();
@@ -142,24 +141,7 @@ fn delete_profile(app_handle: tauri::AppHandle, state: State<DbState>, profile_n
 
 #[tauri::command]
 fn list_profiles(app_handle: tauri::AppHandle) -> Result<Vec<String>, String> {
-    let app_dir = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?;
-    
-    let mut profiles = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(app_dir) {
-        for entry in entries.filter_map(Result::ok) {
-            let path = entry.path();
-            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                if name.starts_with("kechimochi_") && name.ends_with(".db") {
-                    let profile_name = name.trim_start_matches("kechimochi_").trim_end_matches(".db");
-                    profiles.push(profile_name.to_string());
-                }
-            }
-        }
-    }
-    Ok(profiles)
+    db::list_profiles(&app_handle)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -168,7 +150,13 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            let conn = db::init_db(app.handle(), "default").expect("Failed to initialize database");
+            let profiles = db::list_profiles(app.handle()).unwrap_or_default();
+            let initial_profile = if profiles.is_empty() {
+                "default".to_string()
+            } else {
+                profiles[0].clone()
+            };
+            let conn = db::init_db(app.handle(), &initial_profile).expect("Failed to initialize database");
             app.manage(DbState {
                 conn: Mutex::new(conn),
             });

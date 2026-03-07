@@ -139,6 +139,23 @@ Or just run the raw binary:
 > format. Setting `NO_STRIP=true` skips the stripping step and resolves the issue. The resulting
 > AppImage will be slightly larger but functionally identical.
 
+### 4. Running Tests
+
+The application includes a comprehensive Rust test suite to verify the database operations, aggregation logic, and CSV imports.
+
+To run the testing suite:
+
+```bash
+cd src-tauri
+cargo test
+```
+
+To run TypeScript frontend type checking:
+
+```bash
+npx tsc --noEmit
+```
+
 ## CSV Format
 
 For importing data, use the following CSV format:

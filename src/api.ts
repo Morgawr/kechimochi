@@ -22,6 +22,7 @@ export interface ActivitySummary {
   media_type: string;
   duration_minutes: number;
   date: string;
+  language: string;
 }
 
 export interface DailyHeatmap {

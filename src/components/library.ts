@@ -74,18 +74,17 @@ export class Library {
     for (const status of statuses) {
         const items = grouped.get(status)!;
         html += `
-          <div class="card" style="flex: 1; display: flex; flex-direction: column; gap: 1rem; background: var(--bg-dark);"
-               ondragover="event.preventDefault()" ondrop="window.dropMedia(event, '${status}')">
+          <div class="card kanban-column" data-status="${status}" style="flex: 1; display: flex; flex-direction: column; gap: 1rem; background: var(--bg-dark);">
             <h4 style="text-align: center; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; pointer-events: none;">${status} (${items.length})</h4>
             <div style="display: flex; flex-direction: column; gap: 0.5rem; flex: 1; overflow-y: auto;">
               ${items.map(m => `
-                <div class="card" draggable="true" ondragstart="window.dragMedia(event, ${m.id})" style="padding: 1rem; cursor: grab; transition: transform 0.1s var(--transition-fast);" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
+                <div class="card kanban-item" draggable="true" data-media-id="${m.id}" style="padding: 1rem; cursor: grab; transition: transform 0.1s var(--transition-fast);">
                   <div style="font-weight: 500; font-size: 1rem; color: var(--text-primary); margin-bottom: 0.5rem; pointer-events: none;">${m.title}</div>
                   <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-secondary); pointer-events: none;">
                     <span>${m.language}</span>
                   </div>
                   <div style="margin-top: 0.5rem; display: flex; justify-content: flex-end; gap: 0.5rem;">
-                    <button class="btn btn-danger" style="padding: 0.2rem 0.5rem; font-size: 0.75rem;" onclick="window.deleteMediaObj(${m.id})">Del</button>
+                    <button class="btn btn-danger delete-media-btn" data-media-id="${m.id}" style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">Del</button>
                   </div>
                 </div>
               `).join('')}
@@ -95,6 +94,52 @@ export class Library {
     }
 
     kanban.innerHTML = html;
+
+    // Attach drag-and-drop listeners
+    kanban.querySelectorAll('.kanban-item').forEach(item => {
+        item.addEventListener('dragstart', (e) => {
+            const el = e.currentTarget as HTMLElement;
+            (e as DragEvent).dataTransfer!.setData('text/plain', el.dataset.mediaId!);
+        });
+        item.addEventListener('mouseover', (e) => {
+            (e.currentTarget as HTMLElement).style.transform = 'scale(1.02)';
+        });
+        item.addEventListener('mouseout', (e) => {
+            (e.currentTarget as HTMLElement).style.transform = 'scale(1)';
+        });
+    });
+
+    kanban.querySelectorAll('.kanban-column').forEach(col => {
+        col.addEventListener('dragover', (e) => e.preventDefault());
+        col.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            const idStr = (e as DragEvent).dataTransfer!.getData('text/plain');
+            if (!idStr) return;
+            const id = parseInt(idStr);
+            if (!id) return;
+            const newStatus = (e.currentTarget as HTMLElement).dataset.status!;
+
+            const mediaList = await getAllMedia();
+            const m = mediaList.find(x => x.id === id);
+            if (m && (m.status !== newStatus && !(m.status === 'Completed' && newStatus === 'Finished'))) {
+                m.status = newStatus;
+                await updateMedia(m);
+                this.loadData();
+            }
+        });
+    });
+
+    // Delete buttons
+    kanban.querySelectorAll('.delete-media-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            const id = parseInt((e.currentTarget as HTMLElement).dataset.mediaId!);
+            const yes = await customConfirm("Delete Media", "Are you sure you want to delete this media and all its logs?");
+            if (yes) {
+                await deleteMedia(id);
+                this.loadData();
+            }
+        });
+    });
   }
 
   private setupListeners() {
@@ -105,36 +150,6 @@ export class Library {
        
        addMedia({ title: result.title, media_type: result.type, status: "Active", language: "Japanese" }).then(() => this.loadData());
     });
-
-    // Make globals for drag & drop
-    (window as any).dragMedia = (e: DragEvent, id: number) => {
-        e.dataTransfer!.setData('text/plain', id.toString());
-    };
-
-    (window as any).dropMedia = async (e: DragEvent, newStatus: string) => {
-        e.preventDefault();
-        const idStr = e.dataTransfer!.getData('text/plain');
-        if (!idStr) return;
-        const id = parseInt(idStr);
-        if (!id) return;
-        
-        const mediaList = await getAllMedia();
-        const m = mediaList.find(x => x.id === id);
-        // If changing status and avoiding redudant database save (Completed is effectively Finished in data model)
-        if (m && (m.status !== newStatus && !(m.status === 'Completed' && newStatus === 'Finished'))) {
-            // Write "Finished" as the status in the DB
-            m.status = newStatus;
-            await updateMedia(m);
-            this.loadData();
-        }
-    };
-
-    (window as any).deleteMediaObj = async (id: number) => {
-        const yes = await customConfirm("Delete Media", "Are you sure you want to delete this media and all its logs?");
-        if (yes) {
-            await deleteMedia(id);
-            this.loadData();
-        }
-    };
   }
 }
+

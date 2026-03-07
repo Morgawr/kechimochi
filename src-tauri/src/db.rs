@@ -4,17 +4,7 @@ use tauri::Manager;
 
 use crate::models::{ActivityLog, ActivitySummary, Media, DailyHeatmap};
 
-pub fn init_db(app_handle: &tauri::AppHandle, profile_name: &str) -> Result<Connection> {
-    let app_dir = app_handle
-        .path()
-        .app_data_dir()
-        .expect("Failed to get app data dir");
-    fs::create_dir_all(&app_dir).expect("Failed to create app data dir");
-    let file_name = format!("kechimochi_{}.db", profile_name);
-    let db_path = app_dir.join(file_name);
-
-    let conn = Connection::open(db_path)?;
-
+pub fn create_tables(conn: &Connection) -> Result<()> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS media (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,6 +27,21 @@ pub fn init_db(app_handle: &tauri::AppHandle, profile_name: &str) -> Result<Conn
         [],
     )?;
 
+    Ok(())
+}
+
+pub fn init_db(app_handle: &tauri::AppHandle, profile_name: &str) -> Result<Connection> {
+    let app_dir = app_handle
+        .path()
+        .app_data_dir()
+        .expect("Failed to get app data dir");
+    fs::create_dir_all(&app_dir).expect("Failed to create app data dir");
+    let file_name = format!("kechimochi_{}.db", profile_name);
+    let db_path = app_dir.join(file_name);
+
+    let conn = Connection::open(db_path)?;
+    create_tables(&conn)?;
+
     Ok(conn)
 }
 
@@ -54,6 +59,27 @@ pub fn wipe_profile(app_handle: &tauri::AppHandle, profile_name: &str) -> std::r
     }
     
     Ok(())
+}
+
+pub fn list_profiles(app_handle: &tauri::AppHandle) -> std::result::Result<Vec<String>, String> {
+    let app_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?;
+
+    let mut profiles = Vec::new();
+    if let Ok(entries) = fs::read_dir(app_dir) {
+        for entry in entries.filter_map(std::result::Result::ok) {
+            let path = entry.path();
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if name.starts_with("kechimochi_") && name.ends_with(".db") {
+                    let profile_name = name.trim_start_matches("kechimochi_").trim_end_matches(".db");
+                    profiles.push(profile_name.to_string());
+                }
+            }
+        }
+    }
+    Ok(profiles)
 }
 
 // Media Operations
@@ -164,4 +190,168 @@ pub fn get_heatmap(conn: &Connection) -> Result<Vec<DailyHeatmap>> {
         heatmap_list.push(hm?);
     }
     Ok(heatmap_list)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::Connection;
+
+    fn setup_test_db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        create_tables(&conn).unwrap();
+        conn
+    }
+
+    fn sample_media(title: &str) -> Media {
+        Media {
+            id: None,
+            title: title.to_string(),
+            media_type: "Reading".to_string(),
+            status: "Active".to_string(),
+            language: "Japanese".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_create_tables() {
+        let conn = setup_test_db();
+        // Verify tables exist by querying sqlite_master
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('media', 'activity_logs')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn test_add_and_get_media() {
+        let conn = setup_test_db();
+        let media = sample_media("ある魔女が死ぬまで");
+        let id = add_media_with_id(&conn, &media).unwrap();
+        assert!(id > 0);
+
+        let all = get_all_media(&conn).unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].title, "ある魔女が死ぬまで");
+        assert_eq!(all[0].id, Some(id));
+    }
+
+    #[test]
+    fn test_add_duplicate_media_fails() {
+        let conn = setup_test_db();
+        let media = sample_media("薬屋のひとりごと");
+        add_media_with_id(&conn, &media).unwrap();
+        let result = add_media_with_id(&conn, &media);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_update_media() {
+        let conn = setup_test_db();
+        let media = sample_media("呪術廻戦");
+        let id = add_media_with_id(&conn, &media).unwrap();
+
+        let updated = Media {
+            id: Some(id),
+            title: "呪術廻戦".to_string(),
+            media_type: "Watching".to_string(),
+            status: "Completed".to_string(),
+            language: "Japanese".to_string(),
+        };
+        update_media(&conn, &updated).unwrap();
+
+        let all = get_all_media(&conn).unwrap();
+        assert_eq!(all[0].media_type, "Watching");
+        assert_eq!(all[0].status, "Completed");
+    }
+
+    #[test]
+    fn test_delete_media_cascades_logs() {
+        let conn = setup_test_db();
+        let media = sample_media("FF7");
+        let media_id = add_media_with_id(&conn, &media).unwrap();
+
+        let log = ActivityLog {
+            id: None,
+            media_id,
+            duration_minutes: 60,
+            date: "2024-01-15".to_string(),
+        };
+        add_log(&conn, &log).unwrap();
+
+        // Verify log exists
+        let logs = get_logs(&conn).unwrap();
+        assert_eq!(logs.len(), 1);
+
+        // Delete media (should cascade)
+        delete_media(&conn, media_id).unwrap();
+
+        let media_list = get_all_media(&conn).unwrap();
+        assert_eq!(media_list.len(), 0);
+
+        let logs = get_logs(&conn).unwrap();
+        assert_eq!(logs.len(), 0);
+    }
+
+    #[test]
+    fn test_add_and_get_logs() {
+        let conn = setup_test_db();
+        let media = sample_media("本好きの下剋上");
+        let media_id = add_media_with_id(&conn, &media).unwrap();
+
+        let log = ActivityLog {
+            id: None,
+            media_id,
+            duration_minutes: 45,
+            date: "2024-03-01".to_string(),
+        };
+        let log_id = add_log(&conn, &log).unwrap();
+        assert!(log_id > 0);
+
+        let logs = get_logs(&conn).unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].title, "本好きの下剋上");
+        assert_eq!(logs[0].duration_minutes, 45);
+        assert_eq!(logs[0].date, "2024-03-01");
+    }
+
+    #[test]
+    fn test_get_heatmap_aggregation() {
+        let conn = setup_test_db();
+        let media = sample_media("ハイキュー");
+        let media_id = add_media_with_id(&conn, &media).unwrap();
+
+        // Two logs on the same day
+        add_log(&conn, &ActivityLog {
+            id: None,
+            media_id,
+            duration_minutes: 30,
+            date: "2024-06-01".to_string(),
+        }).unwrap();
+        add_log(&conn, &ActivityLog {
+            id: None,
+            media_id,
+            duration_minutes: 45,
+            date: "2024-06-01".to_string(),
+        }).unwrap();
+
+        // One log on a different day
+        add_log(&conn, &ActivityLog {
+            id: None,
+            media_id,
+            duration_minutes: 20,
+            date: "2024-06-02".to_string(),
+        }).unwrap();
+
+        let heatmap = get_heatmap(&conn).unwrap();
+        assert_eq!(heatmap.len(), 2);
+        assert_eq!(heatmap[0].date, "2024-06-01");
+        assert_eq!(heatmap[0].total_minutes, 75); // 30 + 45
+        assert_eq!(heatmap[1].date, "2024-06-02");
+        assert_eq!(heatmap[1].total_minutes, 20);
+    }
 }
