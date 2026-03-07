@@ -38,7 +38,7 @@ pub fn import_csv(conn: &mut Connection, file_path: &str) -> Result<usize, Strin
         let record: CsvRow = match result {
             Ok(r) => r,
             Err(e) => {
-                println!("Error parsing row: {:?}", e);
+                eprintln!("Error parsing row: {:?}", e);
                 continue;
             }
         };
@@ -70,13 +70,13 @@ pub fn import_csv(conn: &mut Connection, file_path: &str) -> Result<usize, Strin
                 match db::add_media_with_id(&tx, &new_media) {
                     Ok(id) => id,
                     Err(e) => {
-                        println!("Error creating media {}: {}", record.log_name, e);
+                        eprintln!("Error creating media {}: {}", record.log_name, e);
                         continue;
                     }
                 }
             }
             Err(e) => {
-                println!("Database error finding media: {}", e);
+                eprintln!("Database error finding media: {}", e);
                 continue;
             }
         };
@@ -90,7 +90,7 @@ pub fn import_csv(conn: &mut Connection, file_path: &str) -> Result<usize, Strin
 
         match db::add_log(&tx, &new_log) {
             Ok(_) => imported_count += 1,
-            Err(e) => println!("Error adding log: {}", e),
+            Err(e) => eprintln!("Error adding log: {}", e),
         }
     }
 
