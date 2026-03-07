@@ -2174,12 +2174,15 @@ dependencies = [
  "axum",
  "axum-extra",
  "clap",
+ "http-body-util",
  "kechimochi-core",
  "reqwest 0.12.28",
  "rusqlite",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
+ "tower",
  "tower-http",
 ]
 

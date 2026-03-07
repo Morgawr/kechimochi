@@ -34,6 +34,8 @@
 
 Kechimochi is a **desktop activity tracker** designed for people studying languages through immersion. It helps you log, visualize, and analyze time spent consuming media in your target language, whether you're reading manga, watching anime, playing games, or listening to podcasts.
 
+It runs as a **Tauri desktop app** or as a **self-hosted web server** you can access from any browser.
+
 ## Features
 
 ### Dashboard
@@ -139,15 +141,63 @@ Or just run the raw binary:
 > format. Setting `NO_STRIP=true` skips the stripping step and resolves the issue. The resulting
 > AppImage will be slightly larger but functionally identical.
 
-### 4. Running Tests
+### 4. Self-hosted web server
 
-The application includes a comprehensive Rust test suite to verify the database operations, aggregation logic, and CSV imports.
+Kechimochi can also run as a standalone web server, accessible from any browser on your network.
 
-To run the testing suite:
+#### Build
+
+```bash
+# Build the frontend
+npm run build
+
+# Build the server
+cd src-tauri
+cargo build --release -p kechimochi-server
+```
+
+#### Run
+
+```bash
+./src-tauri/target/release/kechimochi-server
+```
+
+The server starts on `http://localhost:8080` by default.
+
+#### Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-p, --port` | `8080` | Port to listen on |
+| `-d, --data-dir` | `./data` | Directory for databases and cover images |
+| `--profile` | `default` | Initial profile name |
+| `--frontend-dir` | `../dist` | Path to the built frontend directory |
+
+Example with custom options:
+
+```bash
+kechimochi-server --port 3000 --data-dir /path/to/data --frontend-dir /path/to/dist
+```
+
+### 5. Running Tests
+
+The project includes test suites for both the core library (database operations, aggregation, CSV import/export) and the web server (API endpoint integration tests).
+
+To run all tests across the workspace:
 
 ```bash
 cd src-tauri
-cargo test
+cargo test --workspace
+```
+
+To run tests for a specific crate:
+
+```bash
+# Core library tests (database, CSV, aggregation)
+cargo test -p kechimochi-core
+
+# Web server API tests (endpoint integration tests)
+cargo test -p kechimochi-server
 ```
 
 To run TypeScript frontend type checking:
@@ -177,11 +227,15 @@ Date,Log Name,Media Type,Duration,Language
 
 ## Data Storage
 
-All data is stored locally in SQLite databases in your system's application data directory:
+All data is stored locally in SQLite databases.
+
+**Desktop app** (Tauri) stores data in your system's application data directory:
 
 - **Linux**: `~/.local/share/com.morg.kechimochi/`
 - **macOS**: `~/Library/Application Support/com.morg.kechimochi/`
 - **Windows**: `C:\Users\<user>\AppData\Roaming\com.morg.kechimochi\`
+
+**Web server** stores data in the `--data-dir` directory (`./data` by default).
 
 Each profile has its own database file named `kechimochi_<profilename>.db`.
 
