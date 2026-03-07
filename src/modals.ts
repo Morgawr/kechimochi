@@ -287,3 +287,99 @@ export async function showAddMediaModal(): Promise<{title: string, type: string}
         titleInput.focus();
     });
 }
+
+export async function showImportMergeModal(scraped: import('./importers/index').ScrapedMetadata, currentExtra: Record<string, string>): Promise<{
+    description?: string;
+    coverImageUrl?: string;
+    extraData: Record<string, string>;
+} | null> {
+    return new Promise((resolve) => {
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        
+        document.body.appendChild(overlay);
+        void overlay.offsetWidth;
+        overlay.classList.add('active');
+        
+        // Generate UI for extra fields
+        let extraFieldsHtml = '';
+        for (const [key, val] of Object.entries(scraped.extraData)) {
+            const isOverwrite = currentExtra[key] !== undefined;
+            const overwriteText = isOverwrite ? `<span style="color: var(--accent-red); font-size: 0.7rem; margin-left: 0.5rem;">(Overwrites existing)</span>` : `<span style="color: var(--accent-green); font-size: 0.7rem; margin-left: 0.5rem;">(New field)</span>`;
+            extraFieldsHtml += `
+            <label style="display: flex; gap: 0.5rem; align-items: flex-start; cursor: pointer; padding: 0.5rem; background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: var(--radius-sm);">
+                <input type="checkbox" class="import-checkbox" data-field="extra-${key}" checked />
+                <div style="flex: 1; display: flex; flex-direction: column;">
+                    <span style="font-size: 0.85rem; font-weight: 500;">${key} ${overwriteText}</span>
+                    <span style="font-size: 0.8rem; color: var(--text-secondary); word-wrap: break-word;">${val}</span>
+                </div>
+            </label>
+            `;
+        }
+        
+        overlay.innerHTML = `
+            <div class="modal-content" style="max-width: 600px; width: 90vw; max-height: 90vh; display: flex; flex-direction: column;">
+                <h3>Import Metadata</h3>
+                <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1rem;">Select which scraped fields to merge into your entry.</p>
+                
+                <div style="display: flex; flex-direction: column; gap: 0.5rem; overflow-y: auto; flex: 1; padding-right: 0.5rem;">
+                    
+
+                    ${scraped.description ? `
+                    <label style="display: flex; gap: 0.5rem; align-items: flex-start; cursor: pointer; padding: 0.5rem; background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: var(--radius-sm);">
+                        <input type="checkbox" class="import-checkbox" data-field="description" checked />
+                        <div style="flex: 1; display: flex; flex-direction: column;">
+                            <span style="font-size: 0.85rem; font-weight: 500;">Description</span>
+                            <span style="font-size: 0.8rem; color: var(--text-secondary); max-height: 100px; overflow-y: auto; white-space: pre-wrap;">${scraped.description}</span>
+                        </div>
+                    </label>
+                    ` : ''}
+                    
+                    ${scraped.coverImageUrl ? `
+                    <label style="display: flex; gap: 0.5rem; align-items: flex-start; cursor: pointer; padding: 0.5rem; background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: var(--radius-sm);">
+                        <input type="checkbox" class="import-checkbox" data-field="cover" checked />
+                        <div style="flex: 1; display: flex; flex-direction: column;">
+                            <span style="font-size: 0.85rem; font-weight: 500;">Cover Image</span>
+                            <img src="${scraped.coverImageUrl}" style="max-height: 150px; object-fit: contain; margin-top: 0.5rem; border-radius: var(--radius-sm);" />
+                        </div>
+                    </label>
+                    ` : ''}
+                    
+                    ${extraFieldsHtml}
+                </div>
+                
+                <div style="display: flex; justify-content: flex-end; gap: 1rem; margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
+                    <button class="btn btn-ghost" id="import-cancel">Cancel</button>
+                    <button class="btn btn-primary" id="import-confirm">Merge Selected Data</button>
+                </div>
+            </div>
+        `;
+        
+        const cleanup = () => {
+             overlay.classList.remove('active');
+             setTimeout(() => overlay.remove(), 300);
+        };
+        
+        overlay.querySelector('#import-cancel')!.addEventListener('click', () => { cleanup(); resolve(null); });
+        
+        overlay.querySelector('#import-confirm')!.addEventListener('click', () => {
+            const result: { description?: string; coverImageUrl?: string; extraData: Record<string, string> } = { extraData: {} };
+            
+            const checks = overlay.querySelectorAll('.import-checkbox:checked');
+            checks.forEach((el) => {
+                const field = (el as HTMLInputElement).getAttribute('data-field');
+                if (!field) return;
+                
+                if (field === 'description') result.description = scraped.description;
+                else if (field === 'cover') result.coverImageUrl = scraped.coverImageUrl;
+                else if (field.startsWith('extra-')) {
+                    const key = field.substring(6);
+                    result.extraData[key] = scraped.extraData[key];
+                }
+            });
+            
+            cleanup();
+            resolve(result);
+        });
+    });
+}

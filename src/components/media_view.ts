@@ -1,6 +1,8 @@
 import { getAllMedia, getLogsForMedia, updateMedia, uploadCoverImage, readFileBytes, Media } from '../api';
+import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
-import { customPrompt } from '../modals';
+import { customPrompt, showImportMergeModal, customAlert } from '../modals';
+import { fetchMetadataForUrl } from '../importers';
 
 export class MediaView {
   private container: HTMLElement;
@@ -146,8 +148,9 @@ export class MediaView {
                 ${extraDataHtml}
             </div>
             
-            <div style="display: flex;">
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
                 <button class="btn btn-ghost" id="btn-add-extra" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">+ Add Extra Field</button>
+                <button class="btn btn-ghost" id="btn-import-meta" style="padding: 0.4rem 0.8rem; font-size: 0.8rem; color: var(--accent-purple);">Fetch Metadata from URL</button>
             </div>
             
             <!-- Activity Logs Section -->
@@ -422,6 +425,46 @@ export class MediaView {
           media.extra_data = JSON.stringify(extraData);
           await updateMedia(media);
           await this.renderCurrentMedia();
+      });
+
+      // Import Metadata
+      document.getElementById('btn-import-meta')?.addEventListener('click', async () => {
+          const url = await customPrompt(`Enter a valid URL for ${media.content_type} metadata:`);
+          if (!url || url.trim() === "") return;
+          
+          try {
+              document.getElementById('btn-import-meta')!.innerText = "Fetching...";
+              const scraped = await fetchMetadataForUrl(url.trim(), media.content_type || "Unknown");
+              if (!scraped) throw new Error("Could not parse data.");
+              
+              const currentExtra = JSON.parse(media.extra_data || "{}");
+              const selected = await showImportMergeModal(scraped, currentExtra);
+              
+              if (selected) {
+                  if (selected.description !== undefined) media.description = selected.description;
+                  
+                  if (selected.coverImageUrl) {
+                      const newCoverPath = await invoke<string>('download_and_save_image', { 
+                          mediaId: media.id, 
+                          url: selected.coverImageUrl 
+                      });
+                      media.cover_image = newCoverPath;
+                  }
+                  
+                  for (const [k, v] of Object.entries(selected.extraData)) {
+                      currentExtra[k] = v;
+                  }
+                  media.extra_data = JSON.stringify(currentExtra);
+                  
+                  await updateMedia(media);
+              }
+          } catch (e: any) {
+              await customAlert("Import Failed", (e.message || String(e)));
+          } finally {
+              const btn = document.getElementById('btn-import-meta');
+              if (btn) btn.innerText = "Fetch Metadata from URL";
+              await this.renderCurrentMedia();
+          }
       });
   }
 

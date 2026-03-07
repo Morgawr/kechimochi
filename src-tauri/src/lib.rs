@@ -114,6 +114,69 @@ fn read_file_bytes(path: String) -> Result<Vec<u8>, String> {
 }
 
 #[tauri::command]
+async fn fetch_external_json(url: String, method: String, body: Option<String>) -> Result<String, String> {
+    let client = reqwest::Client::new();
+    let mut req = match method.to_uppercase().as_str() {
+        "POST" => client.post(&url),
+        _ => client.get(&url),
+    };
+    
+    if let Some(b) = body {
+        req = req.header("Content-Type", "application/json").body(b);
+    }
+    
+    let res = req.send().await.map_err(|e| e.to_string())?;
+    let text = res.text().await.map_err(|e| e.to_string())?;
+    Ok(text)
+}
+
+#[tauri::command]
+async fn download_and_save_image(app_handle: tauri::AppHandle, state: State<'_, DbState>, media_id: i64, url: String) -> Result<String, String> {
+    let client = reqwest::Client::new();
+    let res = client.get(&url).send().await.map_err(|e| e.to_string())?;
+    let bytes = res.bytes().await.map_err(|e| e.to_string())?;
+    
+    let app_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?;
+        
+    let img_dir = app_dir.join("covers");
+    std::fs::create_dir_all(&img_dir).map_err(|e| e.to_string())?;
+
+    let ext = std::path::Path::new(&url).extension().and_then(|e| e.to_str()).unwrap_or("jpg");
+    let ext = ext.split('?').next().unwrap_or("jpg");
+    
+    let dest_file = format!("{}_remote.{}", media_id, ext);
+    let dest = img_dir.join(&dest_file);
+    
+    std::fs::write(&dest, bytes).map_err(|e| e.to_string())?;
+    
+    let dest_str = dest.to_string_lossy().to_string();
+    
+    let conn = state.conn.lock().unwrap();
+    let old_cover: String = conn.query_row(
+        "SELECT cover_image FROM media WHERE id = ?1",
+        rusqlite::params![media_id],
+        |row| row.get(0),
+    ).unwrap_or_default();
+    
+    if !old_cover.is_empty() {
+        let old_path = std::path::Path::new(&old_cover);
+        if old_path.exists() && old_cover != dest_str {
+            let _ = std::fs::remove_file(old_path);
+        }
+    }
+    
+    conn.execute(
+        "UPDATE media SET cover_image = ?1 WHERE id = ?2",
+        rusqlite::params![dest_str, media_id],
+    ).map_err(|e| e.to_string())?;
+
+    Ok(dest_str)
+}
+
+#[tauri::command]
 fn import_csv(state: State<DbState>, file_path: String) -> Result<usize, String> {
     let mut conn = state.conn.lock().unwrap();
     csv_import::import_csv(&mut conn, &file_path)
@@ -231,7 +294,9 @@ pub fn run() {
             list_profiles,
             get_logs_for_media,
             upload_cover_image,
-            read_file_bytes
+            read_file_bytes,
+            fetch_external_json,
+            download_and_save_image
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
