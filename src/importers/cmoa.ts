@@ -32,6 +32,13 @@ export class CmoaImporter implements MetadataImporter {
             }
         }
 
+        // Clean up description HTML and Cmoa adverts
+        description = description.replace(/<br\s*\/?>/gi, '\n');
+        const prefixRegex = /^コミックシーモアなら無料で試し読み！.*?｜/;
+        if (prefixRegex.test(description)) {
+            description = description.replace(prefixRegex, '').trim();
+        }
+
         // 2. Cover Image
         let coverImageUrl = "";
         const imgEl = doc.querySelector('.title_detail_img img');
