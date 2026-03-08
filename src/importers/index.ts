@@ -16,6 +16,7 @@ import { ImdbImporter } from './imdb';
 import { AnilistImporter } from './anilist';
 import { CmoaImporter } from './cmoa';
 import { BookwalkerImporter } from './bookwalker';
+import { BookmeterImporter } from './bookmeter';
 
 export const importers: MetadataImporter[] = [
     new VndbImporter(),
@@ -23,7 +24,8 @@ export const importers: MetadataImporter[] = [
     new ImdbImporter(),
     new AnilistImporter(),
     new CmoaImporter(),
-    new BookwalkerImporter()
+    new BookwalkerImporter(),
+    new BookmeterImporter()
 ];
 
 export async function fetchMetadataForUrl(url: string, contentType: string, targetVolume?: number): Promise<ScrapedMetadata | null> {
