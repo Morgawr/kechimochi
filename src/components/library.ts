@@ -13,7 +13,7 @@ export class Library {
       <div class="animate-fade-in" style="display: flex; flex-direction: column; gap: 1.5rem; height: 100%;">
         
         <div style="display: flex; justify-content: space-between; align-items: center;">
-          <h2 style="margin: 0;">Library Kanban</h2>
+          <h2 style="margin: 0;">Tasks</h2>
           <button class="btn btn-ghost" id="btn-add-media">+ New Media</button>
         </div>
 
