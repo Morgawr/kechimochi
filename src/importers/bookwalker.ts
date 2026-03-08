@@ -41,9 +41,11 @@ export class BookwalkerImporter implements MetadataImporter {
                 // We use regex to isolate the number from Japanese/English wrappers.
                 for (const link of volumeLinks) {
                     const titleText = link.textContent?.trim() || "";
-                    // Regex to find a number immediately preceded/followed by anything except a digit/full-width digit
-                    const r = new RegExp(`(?:[^0-9０-９]|^)0*${targetVolume}(?:[^0-9０-９]|$)`);
-                    if (r.test(titleText)) {
+                    // Normalize full-width numbers to half-width
+                    const normalizedTitleText = titleText.replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0));
+                    // Regex to find a number immediately preceded/followed by anything except a digit
+                    const r = new RegExp(`(?:[^0-9]|^)0*${targetVolume}(?:[^0-9]|$)`);
+                    if (r.test(normalizedTitleText)) {
                         foundUrl = link.getAttribute('href') || "";
                         break;
                     }
