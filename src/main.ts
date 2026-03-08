@@ -1,9 +1,9 @@
 import { Dashboard } from './components/dashboard';
 import { Library } from './components/library';
 import { MediaView } from './components/media_view';
-import { getAllMedia, addLog, importCsv, switchProfile, wipeProfile, deleteProfile, addMedia, updateMedia, listProfiles, exportCsv } from './api';
-import { customPrompt, customConfirm, showExportCsvModal, customAlert, buildCalendar } from './modals';
-import { open, save } from '@tauri-apps/plugin-dialog';
+import { ProfileView } from './components/profile';
+import { getAllMedia, addLog, switchProfile, deleteProfile, addMedia, updateMedia, listProfiles } from './api';
+import { customPrompt, customConfirm, customAlert, buildCalendar } from './modals';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 const appWindow = getCurrentWindow();
@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const dashboard = new Dashboard(viewContainer);
   const library = new Library(viewContainer);
   const mediaView = new MediaView(viewContainer);
+  const profileView = new ProfileView(viewContainer);
   
   let currentView = 'dashboard';
   let currentProfile = localStorage.getItem('kechimochi_profile') || 'default';
@@ -55,6 +56,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (currentView === 'dashboard') dashboard.render();
       if (currentView === 'library') library.render();
       if (currentView === 'media') mediaView.render();
+      if (currentView === 'profile') profileView.render();
   });
 
   document.getElementById('btn-add-profile')?.addEventListener('click', async () => {
@@ -68,6 +70,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (currentView === 'dashboard') dashboard.render();
         if (currentView === 'library') library.render();
         if (currentView === 'media') mediaView.render();
+        if (currentView === 'profile') profileView.render();
     }
   });
 
@@ -94,24 +97,9 @@ document.addEventListener('DOMContentLoaded', async () => {
           if (currentView === 'dashboard') dashboard.render();
           if (currentView === 'library') library.render();
           if (currentView === 'media') mediaView.render();
+          if (currentView === 'profile') profileView.render();
       }
   });
-
-  const btnWipeProfile = document.getElementById('btn-wipe-profile');
-  if (btnWipeProfile) {
-      btnWipeProfile.addEventListener('click', async () => {
-          const name = await customPrompt(`Type '${currentProfile}' to confirm WIPE ALL DATA:`);
-          if (name === currentProfile) {
-              await wipeProfile(currentProfile);
-              await customAlert("Success", "Data wiped successfully.");
-              if (currentView === 'dashboard') dashboard.render();
-              if (currentView === 'library') library.render();
-              if (currentView === 'media') mediaView.render();
-          } else if (name) {
-              await customAlert("Error", "Profile name did not match, aborting wipe.");
-          }
-      });
-  }
 
   // Navigation
   const navLinks = document.querySelectorAll('.nav-link');
@@ -132,6 +120,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       } else if (view === 'media') {
         currentView = 'media';
         mediaView.render();
+      } else if (view === 'profile') {
+        currentView = 'profile';
+        profileView.render();
       }
     });
   });
@@ -225,60 +216,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (currentView === 'dashboard') dashboard.render();
     if (currentView === 'library') library.render();
     if (currentView === 'media') mediaView.render();
-  });
-
-  // Import CSV
-  const btnImportCsv = document.getElementById('btn-import-csv')!;
-  btnImportCsv.addEventListener('click', async () => {
-    try {
-      const selected = await open({
-        multiple: false,
-        filters: [{
-          name: 'CSV',
-          extensions: ['csv']
-        }]
-      });
-
-      if (selected && typeof selected === 'string') {
-        const count = await importCsv(selected);
-        await customAlert("Success", `Successfully imported ${count} logs!`);
-        // Refresh
-        if (currentView === 'dashboard') dashboard.render();
-        if (currentView === 'library') library.render();
-        if (currentView === 'media') mediaView.render();
-      }
-    } catch (e) {
-      await customAlert("Error", `Import failed: ${e}`);
-    }
-  });
-
-  // Export CSV
-  const btnExportCsv = document.getElementById('btn-export-csv')!;
-  btnExportCsv.addEventListener('click', async () => {
-    try {
-      const modeData = await showExportCsvModal();
-      if (!modeData) return;
-      
-      const savePath = await save({
-        filters: [{
-          name: 'CSV',
-          extensions: ['csv']
-        }],
-        defaultPath: "kechimochi_export.csv"
-      });
-
-      if (savePath) {
-        let count = 0;
-        if (modeData.mode === 'range') {
-            count = await exportCsv(savePath, modeData.start, modeData.end);
-        } else {
-            count = await exportCsv(savePath);
-        }
-        await customAlert("Success", `Successfully exported ${count} logs!`);
-      }
-    } catch (e) {
-      await customAlert("Error", `Export failed: ${e}`);
-    }
+    if (currentView === 'profile') profileView.render();
   });
 
   // Initial render
