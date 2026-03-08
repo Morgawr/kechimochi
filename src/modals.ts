@@ -40,6 +40,65 @@ export async function customPrompt(title: string, defaultValue = "", text = ""):
     });
 }
 
+import { MediaConflict, MediaCsvRow } from './api';
+
+export async function initialProfilePrompt(defaultName: string = "User"): Promise<string> {
+    return new Promise((resolve) => {
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        
+        document.body.appendChild(overlay);
+        void overlay.offsetWidth;
+        overlay.classList.add('active');
+        
+        overlay.innerHTML = `
+            <div class="modal-content" style="text-align: center;">
+                <h3 style="margin-bottom: 0.5rem;">Welcome to Kechimochi!</h3>
+                <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1.5rem;">Please enter a name for your first profile to get started.</p>
+                <div style="margin-top: 1rem; text-align: left;">
+                    <input type="text" id="initial-prompt-input" placeholder="e.g. ${defaultName}" style="width: 100%; border: 1px solid var(--border-color); background: var(--bg-dark); color: var(--text-primary); padding: 0.5rem; border-radius: var(--radius-sm);" autocomplete="off" />
+                </div>
+                <div style="display: flex; justify-content: center; margin-top: 1.5rem;">
+                    <button class="btn btn-primary" id="initial-prompt-confirm" disabled>Start</button>
+                </div>
+            </div>
+        `;
+        
+        const input = overlay.querySelector('#initial-prompt-input') as HTMLInputElement;
+        const confirmBtn = overlay.querySelector('#initial-prompt-confirm') as HTMLButtonElement;
+        
+        const cleanup = () => {
+             overlay.classList.remove('active');
+             setTimeout(() => overlay.remove(), 300);
+        };
+        
+        const checkInput = () => {
+            confirmBtn.disabled = input.value.trim().length === 0;
+        };
+
+        input.addEventListener('input', checkInput);
+
+        confirmBtn.addEventListener('click', () => { 
+            const val = input.value.trim();
+            if (val) {
+                cleanup(); 
+                resolve(val); 
+            }
+        });
+        
+        input.addEventListener('keydown', (e) => {
+            const val = input.value.trim();
+            if (e.key === 'Enter' && val) { 
+                cleanup(); 
+                resolve(val); 
+            }
+            // NO ESCAPE allowed
+        });
+        
+        input.focus();
+    });
+}
+
 export async function customConfirm(title: string, text: string, confirmButtonClass = "btn-danger", confirmButtonText = "Yes"): Promise<boolean> {
     return new Promise((resolve) => {
         const overlay = document.createElement('div');
@@ -451,6 +510,84 @@ export async function showImportMergeModal(scraped: import('./importers/index').
             
             cleanup();
             resolve(result);
+        });
+    });
+}
+
+export async function showMediaCsvConflictModal(conflicts: MediaConflict[]): Promise<MediaCsvRow[] | null> {
+    const overlapping = conflicts.filter(c => c.existing);
+    
+    // If no conflicts, just auto-resolve to import them all
+    if (overlapping.length === 0) {
+        return conflicts.map(c => c.incoming);
+    }
+
+    return new Promise((resolve) => {
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        
+        document.body.appendChild(overlay);
+        void overlay.offsetWidth;
+        overlay.classList.add('active');
+
+        let rowsHtml = '';
+        overlapping.forEach((conflict, idx) => {
+            rowsHtml += `
+            <div style="padding: 0.5rem; background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: var(--radius-sm); margin-bottom: 0.5rem; display: flex; align-items: center; justify-content: space-between;">
+                <div style="flex: 1;">
+                    <div style="font-weight: 500; font-size: 0.9rem;">${conflict.incoming["Title"]}</div>
+                    <div style="font-size: 0.75rem; color: var(--text-secondary);">Currently: ${conflict.existing!.status} | Incoming: ${conflict.incoming["Status"]}</div>
+                </div>
+                <div style="display: flex; gap: 1rem;">
+                    <label style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; cursor: pointer;">
+                        <input type="radio" name="conflict-${idx}" value="keep" checked /> Keep Existing
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; cursor: pointer;">
+                        <input type="radio" name="conflict-${idx}" value="replace" /> Replace
+                    </label>
+                </div>
+            </div>`;
+        });
+
+        overlay.innerHTML = `
+            <div class="modal-content" style="max-width: 600px; width: 90vw; max-height: 90vh; display: flex; flex-direction: column;">
+                <h3>Import Conflicts</h3>
+                <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1rem;">Some of the media library entries you're importing already exist. How do you want to handle them?</p>
+                
+                <div style="display: flex; flex-direction: column; overflow-y: auto; flex: 1; padding-right: 0.5rem;">
+                    ${rowsHtml}
+                </div>
+                
+                <div style="display: flex; justify-content: flex-end; gap: 1rem; margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
+                    <button class="btn btn-ghost" id="conflict-cancel">Cancel Import</button>
+                    <button class="btn btn-primary" id="conflict-confirm">Continue</button>
+                </div>
+            </div>
+        `;
+
+        const cleanup = () => {
+             overlay.classList.remove('active');
+             setTimeout(() => overlay.remove(), 300);
+        };
+        
+        overlay.querySelector('#conflict-cancel')!.addEventListener('click', () => { cleanup(); resolve(null); });
+        
+        overlay.querySelector('#conflict-confirm')!.addEventListener('click', () => {
+            const finalRecords: MediaCsvRow[] = [];
+            
+            // Add all non-conflicting items automatically
+            conflicts.filter(c => !c.existing).forEach(c => finalRecords.push(c.incoming));
+            
+            // Resolve overlapping based on radio buttons
+            overlapping.forEach((conflict, idx) => {
+                const checked = overlay.querySelector(`input[name="conflict-${idx}"]:checked`) as HTMLInputElement;
+                if (checked.value === 'replace') {
+                    finalRecords.push(conflict.incoming);
+                }
+            });
+            
+            cleanup();
+            resolve(finalRecords);
         });
     });
 }

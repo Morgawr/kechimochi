@@ -2,8 +2,8 @@ import { Dashboard } from './components/dashboard';
 import { Library } from './components/library';
 import { MediaView } from './components/media_view';
 import { ProfileView } from './components/profile';
-import { getAllMedia, addLog, switchProfile, deleteProfile, addMedia, updateMedia, listProfiles } from './api';
-import { customPrompt, customConfirm, customAlert, buildCalendar } from './modals';
+import { getAllMedia, addLog, switchProfile, deleteProfile, addMedia, updateMedia, listProfiles, getUsername } from './api';
+import { customPrompt, customConfirm, customAlert, buildCalendar, initialProfilePrompt } from './modals';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 const appWindow = getCurrentWindow();
@@ -22,19 +22,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   const profileView = new ProfileView(viewContainer);
   
   let currentView = 'dashboard';
-  let currentProfile = localStorage.getItem('kechimochi_profile') || 'default';
+  let currentProfile = localStorage.getItem('kechimochi_profile') || '';
   
   const ensureProfilesList = async () => {
       const selectProfile = document.getElementById('select-profile') as HTMLSelectElement;
-      const profiles = await listProfiles();
+      let profiles = await listProfiles();
       
-      if (!profiles.includes(currentProfile)) {
-          if (profiles.length > 0) {
-              currentProfile = profiles[0];
-              localStorage.setItem('kechimochi_profile', currentProfile);
-          } else {
-              profiles.push(currentProfile); // Failsafe
-          }
+      if (profiles.length === 0) {
+          // Force the user to create a profile
+          const osUsername = await getUsername();
+          const initialName = await initialProfilePrompt(osUsername);
+          currentProfile = initialName;
+          localStorage.setItem('kechimochi_profile', currentProfile);
+          await switchProfile(currentProfile); // This creates the db on the backend
+          profiles = await listProfiles();
+      } else if (!profiles.includes(currentProfile)) {
+          currentProfile = profiles[0];
+          localStorage.setItem('kechimochi_profile', currentProfile);
       }
       
       selectProfile.innerHTML = profiles.map(p => `<option value="${p}">${p}</option>`).join('');
@@ -43,7 +47,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   await ensureProfilesList();
 
-  if (currentProfile !== 'default') {
+  if (currentProfile) {
       await switchProfile(currentProfile);
   }
 

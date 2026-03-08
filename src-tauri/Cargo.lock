@@ -1880,6 +1880,7 @@ dependencies = [
 name = "kechimochi"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "csv",
  "reqwest 0.12.28",

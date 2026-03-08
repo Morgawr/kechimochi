@@ -1,5 +1,21 @@
 import { invoke } from '@tauri-apps/api/core';
 
+export interface MediaCsvRow {
+    "Title": string;
+    "Media Type": string;
+    "Status": string;
+    "Language": string;
+    "Description": string;
+    "Content Type": string;
+    "Extra Data": string;
+    "Cover Image (Base64)": string;
+}
+
+export interface MediaConflict {
+    incoming: MediaCsvRow;
+    existing?: Media;
+}
+
 export interface Media {
   id?: number;
   title: string;
@@ -74,8 +90,12 @@ export async function switchProfile(profileName: string): Promise<void> {
   return await invoke('switch_profile', { profileName });
 }
 
-export async function wipeProfile(profileName: string): Promise<void> {
-  return await invoke('wipe_profile', { profileName });
+export async function clearActivities(): Promise<void> {
+  return await invoke('clear_activities');
+}
+
+export async function wipeEverything(): Promise<void> {
+  return await invoke('wipe_everything');
 }
 
 export async function deleteProfile(profileName: string): Promise<void> {
@@ -90,6 +110,18 @@ export async function exportCsv(filePath: string, startDate?: string, endDate?: 
   return await invoke('export_csv', { filePath, startDate, endDate });
 }
 
+export async function exportMediaCsv(filePath: string): Promise<number> {
+  return await invoke('export_media_csv', { filePath });
+}
+
+export async function analyzeMediaCsv(filePath: string): Promise<MediaConflict[]> {
+  return await invoke('analyze_media_csv', { filePath });
+}
+
+export async function applyMediaImport(records: MediaCsvRow[]): Promise<number> {
+  return await invoke('apply_media_import', { records });
+}
+
 export async function getLogsForMedia(mediaId: number): Promise<ActivitySummary[]> {
   return await invoke('get_logs_for_media', { mediaId });
 }
@@ -100,4 +132,8 @@ export async function uploadCoverImage(mediaId: number, path: string): Promise<s
 
 export async function readFileBytes(path: string): Promise<number[]> {
   return await invoke('read_file_bytes', { path });
+}
+
+export async function getUsername(): Promise<string> {
+  return await invoke('get_username');
 }

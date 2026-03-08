@@ -84,7 +84,7 @@ fn upload_cover_image(app_handle: tauri::AppHandle, state: State<DbState>, media
     
     let conn = state.conn.lock().unwrap();
     let old_cover: String = conn.query_row(
-        "SELECT cover_image FROM media WHERE id = ?1",
+        "SELECT cover_image FROM shared.media WHERE id = ?1",
         rusqlite::params![media_id],
         |row| row.get(0),
     ).unwrap_or_default();
@@ -101,7 +101,7 @@ fn upload_cover_image(app_handle: tauri::AppHandle, state: State<DbState>, media
     let dest_str = dest.to_string_lossy().to_string();
     
     conn.execute(
-        "UPDATE media SET cover_image = ?1 WHERE id = ?2",
+        "UPDATE shared.media SET cover_image = ?1 WHERE id = ?2",
         rusqlite::params![dest_str, media_id],
     ).map_err(|e| e.to_string())?;
 
@@ -193,7 +193,7 @@ async fn download_and_save_image(app_handle: tauri::AppHandle, state: State<'_, 
     
     let conn = state.conn.lock().unwrap();
     let old_cover: String = conn.query_row(
-        "SELECT cover_image FROM media WHERE id = ?1",
+        "SELECT cover_image FROM shared.media WHERE id = ?1",
         rusqlite::params![media_id],
         |row| row.get(0),
     ).unwrap_or_default();
@@ -206,7 +206,7 @@ async fn download_and_save_image(app_handle: tauri::AppHandle, state: State<'_, 
     }
     
     conn.execute(
-        "UPDATE media SET cover_image = ?1 WHERE id = ?2",
+        "UPDATE shared.media SET cover_image = ?1 WHERE id = ?2",
         rusqlite::params![dest_str, media_id],
     ).map_err(|e| e.to_string())?;
 
@@ -253,6 +253,24 @@ fn export_csv(state: State<DbState>, file_path: String, start_date: Option<Strin
 }
 
 #[tauri::command]
+fn export_media_csv(state: State<DbState>, file_path: String) -> Result<usize, String> {
+    let conn = state.conn.lock().unwrap();
+    csv_import::export_media_csv(&conn, &file_path)
+}
+
+#[tauri::command]
+fn analyze_media_csv(state: State<DbState>, file_path: String) -> Result<Vec<csv_import::MediaConflict>, String> {
+    let conn = state.conn.lock().unwrap();
+    csv_import::analyze_media_csv(&conn, &file_path)
+}
+
+#[tauri::command]
+fn apply_media_import(app_handle: tauri::AppHandle, state: State<DbState>, records: Vec<csv_import::MediaCsvRow>) -> Result<usize, String> {
+    let mut conn = state.conn.lock().unwrap();
+    csv_import::apply_media_import(&app_handle, &mut conn, records)
+}
+
+#[tauri::command]
 fn switch_profile(app_handle: tauri::AppHandle, state: State<DbState>, profile_name: String) -> Result<(), String> {
     let new_conn = db::init_db(&app_handle, &profile_name).map_err(|e| e.to_string())?;
     let mut conn_guard = state.conn.lock().unwrap();
@@ -261,22 +279,37 @@ fn switch_profile(app_handle: tauri::AppHandle, state: State<DbState>, profile_n
 }
 
 #[tauri::command]
-fn wipe_profile(app_handle: tauri::AppHandle, state: State<DbState>, profile_name: String) -> Result<(), String> {
-    // Drop the current connection if we are wiping it so windows doesn't barf on locks (though we are on linux it's good practice)
-    // Actually sqlite will allow deletion but further writes will fail. 
-    // Usually wiping implies switching back later or recreation
-    // Let's just create a temporary in-memory so the file is fully freed
+fn clear_activities(state: State<DbState>) -> Result<(), String> {
+    let conn = state.conn.lock().unwrap();
+    db::clear_activities(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn wipe_everything(app_handle: tauri::AppHandle, state: State<DbState>) -> Result<(), String> {
     {
         let mut conn_guard = state.conn.lock().unwrap();
         *conn_guard = rusqlite::Connection::open_in_memory().unwrap();
     }
     
-    db::wipe_profile(&app_handle, &profile_name)?;
+    let app_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
     
-    // Re-initialize a blank database for it
-    let new_conn = db::init_db(&app_handle, &profile_name).map_err(|e| e.to_string())?;
-    let mut conn_guard = state.conn.lock().unwrap();
-    *conn_guard = new_conn;
+    // Delete covers dir
+    let covers_dir = app_dir.join("covers");
+    if covers_dir.exists() {
+        let _ = std::fs::remove_dir_all(&covers_dir);
+    }
+    
+    // Delete all DBs
+    if let Ok(entries) = std::fs::read_dir(&app_dir) {
+        for entry in entries.filter_map(std::result::Result::ok) {
+            let path = entry.path();
+            if let Some(ext) = path.extension() {
+                if ext == "db" {
+                    let _ = std::fs::remove_file(path);
+                }
+            }
+        }
+    }
     
     Ok(())
 }
@@ -296,6 +329,13 @@ fn list_profiles(app_handle: tauri::AppHandle) -> Result<Vec<String>, String> {
     db::list_profiles(&app_handle)
 }
 
+#[tauri::command]
+fn get_username() -> String {
+    std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .unwrap_or_else(|_| "User".to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -303,12 +343,13 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let profiles = db::list_profiles(app.handle()).unwrap_or_default();
-            let initial_profile = if profiles.is_empty() {
-                "default".to_string()
+            let conn = if profiles.is_empty() {
+                // If no profile exists, start with a temporary in-memory db. 
+                // The frontend will force the user to create an initial profile and call switchProfile.
+                rusqlite::Connection::open_in_memory().unwrap()
             } else {
-                profiles[0].clone()
+                db::init_db(app.handle(), &profiles[0]).expect("Failed to initialize database")
             };
-            let conn = db::init_db(app.handle(), &initial_profile).expect("Failed to initialize database");
             app.manage(DbState {
                 conn: Mutex::new(conn),
             });
@@ -325,8 +366,12 @@ pub fn run() {
             get_heatmap,
             import_csv,
             export_csv,
+            export_media_csv,
+            analyze_media_csv,
+            apply_media_import,
             switch_profile,
-            wipe_profile,
+            clear_activities,
+            wipe_everything,
             delete_profile,
             list_profiles,
             get_logs_for_media,
@@ -334,7 +379,8 @@ pub fn run() {
             read_file_bytes,
             fetch_remote_bytes,
             fetch_external_json,
-            download_and_save_image
+            download_and_save_image,
+            get_username
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
