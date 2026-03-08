@@ -230,7 +230,15 @@ export class MediaView {
           console.warn("Could not parse extra data", e);
       }
 
-      let extraDataHtml = Object.entries(extraData).map(([k, v]) => `
+      const sortedEntries = Object.entries(extraData).sort((a, b) => {
+          const aIsSource = a[0].toLowerCase().includes("source");
+          const bIsSource = b[0].toLowerCase().includes("source");
+          if (aIsSource && !bIsSource) return -1;
+          if (!aIsSource && bIsSource) return 1;
+          return 0;
+      });
+
+      let extraDataHtml = sortedEntries.map(([k, v]) => `
           <div class="card" style="padding: 0.5rem 1rem; position: relative;" data-ekey="${k}">
               <div style="font-size: 0.7rem; color: var(--text-secondary); text-transform: uppercase;">${k}</div>
               <div class="editable-extra" data-key="${k}" title="Double click to edit" style="cursor: pointer; font-weight: 500;">${v || '-'}</div>
@@ -551,21 +559,46 @@ export class MediaView {
           if (!url || url.trim() === "") return;
           url = url.trim();
           
+          let targetVolume: number | undefined = undefined;
+          let reportedVolume: number | undefined = undefined;
+          
           if (url.includes("cmoa.jp/title/")) {
               const volStr = await customPrompt("Cmoa detected. Enter Volume Number (leave empty for Volume 1):", "1");
               if (volStr !== null) {
-                  const volNum = parseInt(volStr.trim(), 10);
-                  if (!isNaN(volNum) && volNum > 1) {
+                  let volNum = parseInt(volStr.trim(), 10);
+                  if (isNaN(volNum)) volNum = 1; // Default to 1 if empty
+                  
+                  if (volNum >= 1) {
+                      reportedVolume = volNum;
+                      url = url.replace(/\/vol\/\d+\/?$/, '');
                       if (!url.endsWith('/')) url += '/';
-                      url += `vol/${volNum}/`;
+                      
+                      if (volNum > 1) {
+                          url += `vol/${volNum}/`;
+                      }
+                  }
+              }
+          } else if (url.includes("bookwalker.jp/")) {
+              const volStr = await customPrompt("Bookwalker detected. Enter Volume Number (leave empty for Volume 1):", "1");
+              if (volStr !== null) {
+                  let volNum = parseInt(volStr.trim(), 10);
+                  if (isNaN(volNum)) volNum = 1;
+                  
+                  if (volNum >= 1) {
+                      targetVolume = volNum;
+                      reportedVolume = volNum;
                   }
               }
           }
           
           try {
               document.getElementById('btn-import-meta')!.innerText = "Fetching...";
-              const scraped = await fetchMetadataForUrl(url, media.content_type || "Unknown");
+              const scraped = await fetchMetadataForUrl(url, media.content_type || "Unknown", targetVolume);
               if (!scraped) throw new Error("Could not parse data.");
+              
+              if (reportedVolume !== undefined) {
+                  scraped.extraData["Volume"] = reportedVolume.toString();
+              }
               
               const currentExtra = JSON.parse(media.extra_data || "{}");
               const selected = await showImportMergeModal(scraped, currentExtra);

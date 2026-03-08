@@ -78,6 +78,17 @@ export class CmoaImporter implements MetadataImporter {
                 const text = dataEl.textContent?.replace('：', '').trim();
                 if (text) extraData["Publication Date"] = text;
             }
+            else if (header === "配信開始日" && !extraData["Publication Date"]) {
+                const text = dataEl.textContent?.replace('：', '').trim();
+                if (text) {
+                    const match = text.match(/(\d{4})年(\d{1,2})月/);
+                    if (match) {
+                        extraData["Publication Date"] = `${match[1]}年${match[2]}月`;
+                    } else {
+                        extraData["Publication Date"] = text;
+                    }
+                }
+            }
             else if (header === "ISBN") { // ISBN
                 const pre = dataEl.querySelector('pre');
                 if (pre && pre.textContent) extraData["ISBN"] = pre.textContent.trim();
@@ -101,7 +112,7 @@ export class CmoaImporter implements MetadataImporter {
         }
 
         // 5. Authors
-        const authorLinks = doc.querySelectorAll('.title_detail_item_name_author');
+        const authorLinks = doc.querySelectorAll('.title_detail_item_name_author, .title_details_author_name a');
         const authors = Array.from(authorLinks)
                             .map(a => a.textContent?.trim())
                             .filter(Boolean);
