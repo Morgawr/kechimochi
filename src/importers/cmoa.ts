@@ -36,7 +36,11 @@ export class CmoaImporter implements MetadataImporter {
 
         // Clean up description HTML and Cmoa adverts
         description = description.replace(/<br\s*\/?>/gi, '\n');
-        const prefixRegex = /^コミックシーモアなら無料で試し読み！.*?｜/;
+        
+        // Handle common Cmoa boilerplate prefixes:
+        // 1. "コミックシーモアなら無料で試し読み！[Title] [Vol]｜"
+        // 2. "コミックシーモアなら期間限定[X]巻無料！[Title] [Vol] [｜]"
+        const prefixRegex = /^コミックシーモアなら(?:無料で試し読み|期間限定\d+巻無料)！.*?[｜巻][\s｜]*/;
         if (prefixRegex.test(description)) {
             description = description.replace(prefixRegex, '').trim();
         }
