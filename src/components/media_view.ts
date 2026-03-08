@@ -313,13 +313,18 @@ export class MediaView {
         <!-- Right Column: Details -->
         <div style="flex: 1; display: flex; flex-direction: column; gap: 1rem;">
             <div>
-               <h1 id="media-title" title="Double click to edit title" style="margin: 0; font-size: 2rem; cursor: pointer;">${media.title}</h1>
-                <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem; align-items: center;">
-                  <span class="badge" id="media-type" title="Double click to edit media type">${media.media_type}</span>
-                  <span class="badge badge-content" id="media-content-type" title="Double click to edit content type">${media.content_type || 'Unknown'}</span>
-                  <span class="badge" style="background: var(--bg-card-hover); color: var(--text-secondary);">${media.language}</span>
-                  <span class="badge" style="background: var(--bg-card-hover); color: var(--text-secondary);">${media.status}</span>
-                </div>
+               <div style="display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap;">
+                  <h1 id="media-title" title="Double click to edit title" style="margin: 0; font-size: 2rem; cursor: pointer;">${media.title}</h1>
+                  <button class="copy-btn" id="btn-copy-title" title="Copy Title" style="margin-bottom: 3px;">
+                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  </button>
+               </div>
+               <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem; align-items: center; flex-wrap: wrap;">
+                 <span class="badge" id="media-type" title="Double click to edit media type">${media.media_type}</span>
+                 <span class="badge badge-content" id="media-content-type" title="Double click to edit content type">${media.content_type || 'Unknown'}</span>
+                 <span class="badge" style="background: var(--bg-card-hover); color: var(--text-secondary);">${media.language}</span>
+                 <span class="badge" style="background: var(--bg-card-hover); color: var(--text-secondary);">${media.status}</span>
+               </div>
             </div>
 
             <div class="card" style="display: flex; flex-direction: column; gap: 0.5rem;">
@@ -427,6 +432,23 @@ export class MediaView {
                 } catch (e) {
                     alert("Failed to upload image: " + e);
                 }
+            }
+        });
+
+        // Copy Title
+        document.getElementById('btn-copy-title')?.addEventListener('click', async (e) => {
+            const btn = e.currentTarget as HTMLElement;
+            try {
+                await navigator.clipboard.writeText(media.title);
+                btn.classList.add('success');
+                const originalSvg = btn.innerHTML;
+                btn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+                setTimeout(() => {
+                    btn.classList.remove('success');
+                    btn.innerHTML = originalSvg;
+                }, 2000);
+            } catch (err) {
+                console.error('Failed to copy title: ', err);
             }
         });
 

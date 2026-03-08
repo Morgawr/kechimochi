@@ -702,3 +702,31 @@ input:focus, select:focus {
   border-color: var(--accent-red) !important;
 }
 
+.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  background: transparent;
+  border: none;
+  padding: 4px;
+}
+
+.copy-btn:hover {
+  background-color: var(--bg-card-hover);
+  color: var(--text-primary);
+}
+
+.copy-btn:active {
+  transform: scale(0.9);
+}
+
+.copy-btn.success {
+  color: var(--accent-green);
+}
+
