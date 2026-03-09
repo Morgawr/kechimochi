@@ -1,0 +1,52 @@
+import { ScrapedMetadata, MetadataImporter } from './index';
+import { JITEN_BASE_URL } from '../jiten_api';
+
+export class JitenImporter implements MetadataImporter {
+    name = "Jiten.moe";
+    supportedContentTypes = ["Anime", "Manga", "Novel", "Drama", "Videogame", "Visual Novel", "Movie", "Podcast"];
+
+    matchUrl(url: string, contentType: string): boolean {
+        if (!this.supportedContentTypes.includes(contentType)) return false;
+        try {
+            const u = new URL(url);
+            return (u.hostname === "jiten.moe" || u.hostname === "www.jiten.moe") && u.pathname.startsWith("/decks/");
+        } catch {
+            return false;
+        }
+    }
+
+    async fetch(url: string): Promise<ScrapedMetadata> {
+        const deckIdMatch = url.match(/\/decks\/(\d+)/);
+        if (!deckIdMatch) {
+            throw new Error("Invalid Jiten.moe URL. Could not find Deck ID.");
+        }
+        const deckId = deckIdMatch[1];
+
+        const response = await fetch(`${JITEN_BASE_URL}/api/media-deck/${deckId}/detail`);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch Jiten.moe metadata: ${response.statusText}`);
+        }
+
+        const json = await response.json();
+        const data = json.data?.mainDeck;
+        if (!data) {
+            throw new Error("Could not find media data in Jiten.moe response.");
+        }
+
+        const extraData: Record<string, string> = { "Jiten source": url };
+
+        if (data.characterCount) extraData["Character count"] = data.characterCount.toLocaleString();
+        if (data.wordCount) extraData["Word count"] = data.wordCount.toLocaleString();
+        if (data.uniqueKanjiCount) extraData["Unique kanji"] = data.uniqueKanjiCount.toLocaleString();
+        if (data.difficultyRaw !== undefined && data.difficultyRaw !== -1) {
+            extraData["Jiten difficulty"] = `${data.difficultyRaw.toFixed(2)}/5`;
+        }
+
+        return {
+            title: data.originalTitle || data.romajiTitle || data.englishTitle || "",
+            description: data.description || "",
+            coverImageUrl: data.parentDeckId ? "" : `https://cdn.jiten.moe/${data.deckId}/cover.jpg`,
+            extraData
+        };
+    }
+}

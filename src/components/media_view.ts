@@ -1,7 +1,7 @@
 import { getAllMedia, getLogsForMedia, updateMedia, uploadCoverImage, readFileBytes, Media, addMedia, deleteMedia } from '../api';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
-import { customPrompt, showImportMergeModal, customAlert, showAddMediaModal, customConfirm } from '../modals';
+import { customPrompt, showImportMergeModal, customAlert, showAddMediaModal, customConfirm, showJitenSearchModal } from '../modals';
 import { fetchMetadataForUrl, isValidImporterUrl, getAvailableSourcesForContentType } from '../importers';
 
 export class MediaView {
@@ -484,7 +484,7 @@ export class MediaView {
         <!-- Right Column: Details -->
         <div style="flex: 1; display: flex; flex-direction: column; gap: 1rem;">
             <div>
-               <div style="display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap;">
+                <div style="display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap;">
                   <h1 id="media-title" title="Double click to edit title" style="margin: 0; font-size: 2rem; cursor: pointer;">${media.title}</h1>
                   <button class="copy-btn" id="btn-copy-title" title="Copy Title" style="margin-bottom: 3px;">
                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
@@ -516,6 +516,7 @@ export class MediaView {
                     </label>
                     <span id="status-label" style="font-weight: 600; font-size: 0.75rem; text-transform: uppercase;">${media.status !== 'Archived' && media.status !== 'Inactive' && media.status !== 'Finished' && media.status !== 'Completed' ? 'Active' : 'Archived'}</span>
                  </span>
+                  <button class="btn btn-ghost" id="btn-search-jiten" style="padding: 0.2rem 0.8rem; font-size: 0.75rem; border-color: var(--accent-purple); color: var(--accent-purple); border-radius: 12px; height: 1.6rem; margin-left: 0.5rem;">Search on Jiten.moe</button>
                  ${media.tracking_status !== 'Complete' ? `<button class="btn btn-ghost" id="btn-mark-complete" style="padding: 0.2rem 0.8rem; font-size: 0.75rem; border-color: var(--accent-green); color: var(--accent-green); border-radius: 12px; height: 1.6rem; margin-left: 0.5rem;">Mark as complete</button>` : ''}
                </div>
             </div>
@@ -589,10 +590,30 @@ export class MediaView {
                 const statsDiv = document.getElementById('media-first-last-stats');
                 if (statsDiv) {
                     statsDiv.style.display = 'flex';
+                    statsDiv.style.alignItems = 'center';
+
+                    let readingSpeedHtml = "";
+                    const media = this.currentMediaList[this.currentIndex];
+                    const isReadingType = ["Novel", "Visual Novel", "Manga"].includes(media.content_type || "");
+                    const isComplete = media.tracking_status === 'Complete';
+
+                    if (isReadingType && isComplete && totalMin > 0) {
+                        try {
+                            const extra = JSON.parse(media.extra_data || "{}");
+                            const charRaw = extra["Character count"] || "";
+                            const charCount = parseInt(charRaw.replace(/,/g, ''));
+                            if (!isNaN(charCount) && charCount > 0) {
+                                const speed = Math.round(charCount / (totalMin / 60));
+                                readingSpeedHtml = `<span style="margin-left: 2rem; color: var(--accent-yellow); font-weight: 800; border: 1px solid var(--accent-yellow); padding: 0.2rem 0.6rem; border-radius: 4px; background: rgba(0,0,0,0.2);">Est. Reading Speed: <strong style="color: var(--text-primary);">${speed.toLocaleString()} char/hr</strong></span>`;
+                            }
+                        } catch (e) {}
+                    }
+
                     statsDiv.innerHTML = `
                      <span style="color: var(--text-secondary);">First ${verb}: <strong style="color: var(--text-primary);">${firstLogDate}</strong></span>
                      <span style="color: var(--text-secondary);">Last ${verb}: <strong style="color: var(--text-primary);">${lastLogDate}</strong></span>
                      <span style="color: var(--text-secondary);">${totalLabel}: <strong style="color: var(--text-primary);">${totalStr}</strong></span>
+                     ${readingSpeedHtml}
                   `;
                 }
             }
@@ -642,6 +663,18 @@ export class MediaView {
                 }, 2000);
             } catch (err) {
                 console.error('Failed to copy title: ', err);
+            }
+        });
+
+        // Search on Jiten.moe
+        document.getElementById('btn-search-jiten')?.addEventListener('click', async () => {
+            const jitenUrl = await showJitenSearchModal(media);
+            if (jitenUrl) {
+                try {
+                    await this.performMetadataImport(media, jitenUrl, false);
+                } catch (e) {
+                    alert("Failed to update media: " + e);
+                }
             }
         });
 

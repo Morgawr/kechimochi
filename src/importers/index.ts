@@ -20,6 +20,7 @@ import { CmoaImporter } from './cmoa';
 import { BookwalkerImporter } from './bookwalker';
 import { BookmeterImporter } from './bookmeter';
 import { ShonenjumpplusImporter } from './shonenjumpplus';
+import { JitenImporter } from './jiten';
 
 export const importers: MetadataImporter[] = [
     new VndbImporter(),
@@ -29,7 +30,8 @@ export const importers: MetadataImporter[] = [
     new CmoaImporter(),
     new BookwalkerImporter(),
     new BookmeterImporter(),
-    new ShonenjumpplusImporter()
+    new ShonenjumpplusImporter(),
+    new JitenImporter()
 ];
 
 export async function fetchMetadataForUrl(url: string, contentType: string, targetVolume?: number): Promise<ScrapedMetadata | null> {

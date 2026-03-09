@@ -40,7 +40,8 @@ export async function customPrompt(title: string, defaultValue = "", text = ""):
     });
 }
 
-import { MediaConflict, MediaCsvRow } from './api';
+import { MediaConflict, MediaCsvRow, Media } from './api';
+import { searchJiten, getJitenCoverUrl, getJitenDeckUrl, getJitenDeckChildren, JitenResult } from './jiten_api';
 
 export async function initialProfilePrompt(defaultName: string = "User"): Promise<string> {
     return new Promise((resolve) => {
@@ -610,5 +611,202 @@ export async function showMediaCsvConflictModal(conflicts: MediaConflict[]): Pro
             cleanup();
             resolve(finalRecords);
         });
+    });
+}
+
+export async function showJitenSearchModal(media: Media): Promise<string | null> {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    document.body.appendChild(overlay);
+    void overlay.offsetWidth;
+    overlay.classList.add('active');
+
+    const handleEsc = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            cleanup();
+        }
+    };
+    window.addEventListener('keydown', handleEsc, true);
+
+    const cleanup = () => {
+        window.removeEventListener('keydown', handleEsc, true);
+        overlay.classList.remove('active');
+        setTimeout(() => overlay.remove(), 300);
+    };
+
+    return new Promise(async (resolve) => {
+        overlay.innerHTML = `
+            <div class="modal-content" style="max-width: 800px; width: 95vw; max-height: 90vh; display: flex; flex-direction: column; padding: 1.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h3 style="margin: 0; font-size: 1.5rem; font-weight: 700; color: #fff;">Search on Jiten.moe</h3>
+                    <div id="jiten-back-container"></div>
+                </div>
+
+                <div style="position: relative; margin-bottom: 1rem;">
+                    <input type="text" id="jiten-search-input" value="${media.title}" style="width: 100%; padding: 0.8rem 2.8rem 0.8rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-color); background: var(--bg-dark); color: var(--text-primary); font-size: 1rem; outline: none;" placeholder="Search for media..." />
+                    <div id="jiten-search-clear" style="position: absolute; right: 1rem; top: 50%; transform: translateY(-50%); cursor: pointer; color: var(--text-secondary); opacity: 0.6; font-size: 1.2rem;">&times;</div>
+                </div>
+                
+                <div id="jiten-results-container" style="flex: 1; overflow-y: auto; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: rgba(0,0,0,0.3); min-height: 350px; padding: 1.2rem;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 1.2rem;" id="jiten-results-grid">
+                        <div style="grid-column: 1 / -1; text-align: center; color: var(--text-secondary); padding: 3rem;">Searching...</div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 0.8rem;">
+                    <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+                        <label style="font-size: 0.85rem; color: var(--text-secondary); font-weight: 500;">Alternatively, paste a direct link:</label>
+                        <input type="text" id="jiten-direct-link" placeholder="https://jiten.moe/decks/..." style="width: 100%; padding: 0.7rem 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color); background: var(--bg-dark); color: var(--text-primary); outline: none; font-size: 0.9rem;" />
+                    </div>
+                    <div style="display: flex; justify-content: flex-end; gap: 1rem; margin-top: 0.5rem;">
+                        <button class="btn btn-ghost" id="jiten-cancel" style="padding: 0.6rem 1.5rem;">Cancel</button>
+                        <button class="btn btn-primary" id="jiten-confirm" style="padding: 0.6rem 2rem;">Link Manually</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const resultsGrid = overlay.querySelector('#jiten-results-grid') as HTMLElement;
+        const searchInput = overlay.querySelector('#jiten-search-input') as HTMLInputElement;
+        const directLinkInput = overlay.querySelector('#jiten-direct-link') as HTMLInputElement;
+        const confirmBtn = overlay.querySelector('#jiten-confirm') as HTMLButtonElement;
+        const cancelBtn = overlay.querySelector('#jiten-cancel')!;
+        const clearBtn = overlay.querySelector('#jiten-search-clear')!;
+        const backContainer = overlay.querySelector('#jiten-back-container') as HTMLElement;
+
+        const performJitenSearch = async (title: string) => {
+            backContainer.innerHTML = '';
+            resultsGrid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: var(--text-secondary); padding: 3rem;">Searching...</div>';
+            const results = await searchJiten(title, media.content_type || "Unknown");
+            
+            if (results.length === 0) {
+                resultsGrid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: var(--accent-red); padding: 3rem; font-weight: 500;">No results found.</div>';
+                return;
+            }
+
+            resultsGrid.innerHTML = results.map(res => `
+                <div class="jiten-result-card" data-id="${res.deckId}" style="cursor: pointer; background: #1a151f; border: 1px solid var(--border-color); border-radius: var(--radius-md); overflow: hidden; display: flex; flex-direction: column; transition: transform 0.2s; position: relative;">
+                    <div style="aspect-ratio: 2/3; position: relative; background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden;">
+                        <img src="${getJitenCoverUrl(res.deckId, res.parentDeckId)}" style="max-width: 100%; max-height: 100%; object-fit: contain; min-height: 100%;" alt="${res.originalTitle}" />
+                        <div style="position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.73); color: white; padding: 0.2rem 0.4rem; font-size: 0.65rem; font-weight: 600; text-transform: uppercase;">
+                            ${res.mediaType === 1 ? 'Anime' : res.mediaType === 9 ? 'Manga' : res.mediaType === 4 ? 'Novel' : res.mediaType === 7 ? 'VN' : 'Media'}
+                        </div>
+                    </div>
+                    <div style="padding: 0.6rem 0.4rem; flex: 1; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.02);">
+                        <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-primary); text-align: center; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3;">${res.originalTitle}</div>
+                    </div>
+                    ${res.childrenDeckCount > 0 ? `<div style="position: absolute; top: 0.4rem; right: 0.4rem; background: var(--accent-blue); width: 1.3rem; height: 1.3rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 900; color: white; box-shadow: 0 0 5px rgba(0,0,0,0.5);">+</div>` : ''}
+                </div>
+            `).join('');
+
+            resultsGrid.querySelectorAll('.jiten-result-card').forEach((cardEl) => {
+                const card = cardEl as HTMLElement;
+                card.addEventListener('click', async () => {
+                    const deckId = parseInt(card.getAttribute('data-id') || "0");
+                    const index = results.findIndex(r => r.deckId === deckId);
+                    const selected = results[index];
+
+                    if (selected.childrenDeckCount > 0) {
+                        await showVolumesSelection(selected);
+                    } else {
+                        cleanup();
+                        resolve(getJitenDeckUrl(selected.deckId));
+                    }
+                });
+            });
+        };
+
+        const showVolumesSelection = async (parent: JitenResult) => {
+            resultsGrid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: var(--text-secondary); padding: 3rem;">Loading volumes...</div>';
+            
+            const backBtn = document.createElement('button');
+            backBtn.className = 'btn btn-ghost';
+            backBtn.innerHTML = '← Back';
+            backBtn.style.fontSize = '0.75rem';
+            backBtn.addEventListener('click', () => performJitenSearch(searchInput.value));
+            backContainer.innerHTML = '';
+            backContainer.appendChild(backBtn);
+
+            const children = await getJitenDeckChildren(parent.deckId);
+            
+            const volumesHtml = [
+                `
+                <div class="jiten-result-card jiten-volume-card" data-deck-id="${parent.deckId}" style="cursor: pointer; background: #1a151f; border: 2px solid var(--accent-blue); border-radius: var(--radius-md); overflow: hidden; display: flex; flex-direction: column; transition: transform 0.2s; position: relative;">
+                    <div style="aspect-ratio: 2/3; position: relative; background: #000; display: flex; align-items: center; justify-content: center;">
+                        <img src="${getJitenCoverUrl(parent.deckId, parent.parentDeckId)}" style="max-width: 100%; max-height: 100%; object-fit: contain; min-height: 100%;" alt="${parent.originalTitle}" />
+                        <div style="position: absolute; bottom: 0; left: 0; right: 0; background: var(--accent-blue); color: white; padding: 0.3rem 0.5rem; font-size: 0.7rem; font-weight: 800; text-align: center;">ENTIRE SERIES</div>
+                    </div>
+                    <div style="padding: 0.6rem 0.4rem; flex: 1; display: flex; align-items: center; justify-content: center; background: #2a2135;">
+                        <div style="font-size: 0.8rem; font-weight: 800; color: #fff; text-align: center;">Series: ${parent.originalTitle}</div>
+                    </div>
+                </div>
+                `,
+                ...children.map((res, i) => `
+                <div class="jiten-result-card jiten-volume-card" data-deck-id="${res.deckId}" style="cursor: pointer; background: #1a151f; border: 1px solid var(--border-color); border-radius: var(--radius-md); overflow: hidden; display: flex; flex-direction: column; transition: transform 0.2s; position: relative;">
+                    <div style="aspect-ratio: 2/3; position: relative; background: #000; display: flex; align-items: center; justify-content: center;">
+                        <img src="${getJitenCoverUrl(res.deckId, res.parentDeckId || parent.parentDeckId || parent.deckId)}" style="max-width: 100%; max-height: 100%; object-fit: contain; opacity: 0.9; min-height: 100%;" alt="${res.originalTitle}" />
+                        <div style="position: absolute; top: 0.3rem; left: 0.3rem; background: rgba(0,0,0,0.7); color: #fff; min-width: 1.3rem; height: 1.3rem; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 900; border: 1px solid rgba(255,255,255,0.2);">${i+1}</div>
+                    </div>
+                    <div style="padding: 0.6rem 0.4rem; flex: 1; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.02);">
+                        <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-primary); text-align: center; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3;">${res.originalTitle}</div>
+                    </div>
+                </div>
+                `)
+            ].join('');
+
+            resultsGrid.innerHTML = volumesHtml;
+            
+            overlay.querySelectorAll('.jiten-volume-card').forEach((cardEl) => {
+                const card = cardEl as HTMLElement;
+                card.addEventListener('click', () => {
+                    const deckId = parseInt(card.getAttribute('data-deck-id') || "0");
+                    cleanup();
+                    resolve(getJitenDeckUrl(deckId));
+                });
+            });
+        };
+
+        const style = document.createElement('style');
+        style.textContent = `
+            .jiten-result-card:hover {
+                transform: translateY(-4px);
+                border-color: var(--accent-purple) !important;
+                box-shadow: 0 8px 20px rgba(0,0,0,0.5);
+                z-index: 10;
+            }
+            #jiten-results-container::-webkit-scrollbar { width: 8px; }
+            #jiten-results-container::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); }
+            #jiten-results-container::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 4px; }
+            #jiten-results-container::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
+        `;
+        document.head.appendChild(style);
+
+        clearBtn.addEventListener('click', () => {
+            searchInput.value = '';
+            searchInput.focus();
+        });
+
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                performJitenSearch(searchInput.value.trim());
+            }
+        });
+
+        cancelBtn.addEventListener('click', () => {
+            cleanup();
+            resolve(null);
+        });
+
+        confirmBtn.addEventListener('click', () => {
+            const val = directLinkInput.value.trim();
+            if (val) {
+                cleanup();
+                resolve(val);
+            }
+        });
+
+        performJitenSearch(media.title);
     });
 }
