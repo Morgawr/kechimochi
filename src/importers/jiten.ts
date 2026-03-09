@@ -1,5 +1,6 @@
 import { ScrapedMetadata, MetadataImporter } from './index';
 import { JITEN_BASE_URL } from '../jiten_api';
+import { invoke } from '@tauri-apps/api/core';
 
 export class JitenImporter implements MetadataImporter {
     name = "Jiten.moe";
@@ -22,12 +23,11 @@ export class JitenImporter implements MetadataImporter {
         }
         const deckId = deckIdMatch[1];
 
-        const response = await fetch(`${JITEN_BASE_URL}/api/media-deck/${deckId}/detail`);
-        if (!response.ok) {
-            throw new Error(`Failed to fetch Jiten.moe metadata: ${response.statusText}`);
-        }
-
-        const json = await response.json();
+        const jsonStr = await invoke<string>('fetch_external_json', {
+            url: `${JITEN_BASE_URL}/api/media-deck/${deckId}/detail`,
+            method: 'GET'
+        });
+        const json = JSON.parse(jsonStr);
         const data = json.data?.mainDeck;
         if (!data) {
             throw new Error("Could not find media data in Jiten.moe response.");
