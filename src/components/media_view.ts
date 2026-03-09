@@ -12,11 +12,74 @@ export class MediaView {
     private viewMode: 'grid' | 'detail' = 'grid';
     private gridSearchQuery: string = '';
     private gridTypeFilter: string = 'All';
+    private gridStatusFilter: string = 'All';
     private hideArchived: boolean = false;
     private imageCache: Map<string, string> = new Map();
 
     constructor(container: HTMLElement) {
         this.container = container;
+        this.setupGlobalNavigation();
+    }
+
+    private setupGlobalNavigation() {
+        window.addEventListener('keydown', (e) => {
+            if (!document.getElementById('media-root')) return;
+            if (this.viewMode !== 'detail') return;
+
+            if (e.key === 'ArrowRight') {
+                this.goToNext();
+            } else if (e.key === 'ArrowLeft') {
+                this.goToPrev();
+            } else if (e.key === 'Escape') {
+                this.exitDetail();
+            }
+        });
+
+        window.addEventListener('mousedown', (e) => {
+            if (!document.getElementById('media-root')) return;
+            if (e.button === 3) {
+                // Prevent browser-level "Back" navigation
+                e.preventDefault();
+                e.stopPropagation();
+            }
+        });
+
+        window.addEventListener('mouseup', (e) => {
+            if (!document.getElementById('media-root')) return;
+            
+            // Mouse button 3 is "Back"
+            if (e.button === 3) {
+                if (this.viewMode === 'detail') {
+                    this.exitDetail();
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+            }
+        });
+    }
+
+    private async goToNext() {
+        if (this.currentMediaList.length === 0) return;
+        this.currentIndex = (this.currentIndex + 1) % this.currentMediaList.length;
+        this.populateSelect();
+        const media = this.currentMediaList[this.currentIndex];
+        this.targetMediaId = media.id || null;
+        if (media) await this.renderDetailContent(media);
+    }
+
+    private async goToPrev() {
+        if (this.currentMediaList.length === 0) return;
+        this.currentIndex = (this.currentIndex - 1 + this.currentMediaList.length) % this.currentMediaList.length;
+        this.populateSelect();
+        const media = this.currentMediaList[this.currentIndex];
+        this.targetMediaId = media.id || null;
+        if (media) await this.renderDetailContent(media);
+    }
+
+    private async exitDetail() {
+        this.targetMediaId = null;
+        this.viewMode = 'grid';
+        await this.render();
     }
 
     async render() {
@@ -92,6 +155,10 @@ export class MediaView {
                   <button class="btn btn-ghost" id="btn-add-media-grid" style="font-size: 0.8rem; padding: 0.3rem 0.6rem;">+ New Media</button>
               </div>
               <input type="text" id="grid-search-filter" placeholder="Search title..." style="flex: 1; min-width: 0; padding: 0.4rem 0.8rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color); background: var(--bg-dark); color: var(--text-primary); outline: none;" value="${this.gridSearchQuery}" autocomplete="off" />
+              <select id="grid-status-select" style="padding: 0.4rem 0.8rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color); background: var(--bg-dark); color: var(--text-primary); outline: none; cursor: pointer;">
+                  <option value="All" ${this.gridStatusFilter === 'All' ? 'selected' : ''}>All Statuses</option>
+                  ${["Ongoing", "Complete", "Paused", "Dropped", "Not Started", "Untracked"].map(s => `<option value="${s}" ${this.gridStatusFilter === s ? 'selected' : ''}>${s}</option>`).join('')}
+              </select>
               <select id="grid-type-select" style="padding: 0.4rem 0.8rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color); background: var(--bg-dark); color: var(--text-primary); outline: none; cursor: pointer;">
                   <option value="All" ${this.gridTypeFilter === 'All' ? 'selected' : ''}>All Types</option>
                   ${typeOptionsHtml}
@@ -125,19 +192,24 @@ export class MediaView {
                 itemDiv.dataset.index = i.toString();
                 itemDiv.dataset.type = media.content_type || 'Unknown';
                 itemDiv.dataset.status = media.status;
+                itemDiv.dataset.tracking = media.tracking_status;
                 itemDiv.title = media.title;
                 itemDiv.style.cssText = `cursor: pointer; border-radius: var(--radius-md); overflow: hidden; background: var(--bg-dark); border: 1px solid var(--border-color); display: flex; flex-direction: column; height: 100%; position: relative;`;
                 
                 const matchesQuery = media.title.toLowerCase().includes(this.gridSearchQuery.toLowerCase());
                 const typeMatch = this.gridTypeFilter === 'All' || (media.content_type || 'Unknown') === this.gridTypeFilter;
+                const statusMatch = this.gridStatusFilter === 'All' || media.tracking_status === this.gridStatusFilter;
                 const isArchived = media.status === 'Archived' || media.status === 'Inactive' || media.status === 'Finished' || media.status === 'Completed';
                 const showStatus = !this.hideArchived || !isArchived;
 
-                if (!matchesQuery || !typeMatch || !showStatus) itemDiv.style.display = 'none';
+                if (!matchesQuery || !typeMatch || !statusMatch || !showStatus) itemDiv.style.display = 'none';
 
                 const contentType = media.content_type || 'Unknown';
                 const badgeHtml = (contentType !== 'Unknown' && contentType.trim() !== '')
                     ? `<div class="grid-item-type-badge">${contentType}</div>`
+                    : '';
+                const ledHtml = media.tracking_status !== 'Untracked' 
+                    ? `<div class="status-led ${this.getTrackingStatusClass(media.tracking_status)}" title="Status: ${media.tracking_status}"></div>` 
                     : '';
 
                 itemDiv.innerHTML = `
@@ -146,10 +218,12 @@ export class MediaView {
                         <div style="font-size: 0.75rem; opacity: 0.6; text-transform: uppercase; letter-spacing: 1px;">Loading...</div>
                     </div>
                     ${badgeHtml}
+                    ${ledHtml}
                 `;
 
                 itemDiv.addEventListener('click', () => {
                    this.currentIndex = i;
+                   this.targetMediaId = media.id || null;
                    this.viewMode = 'detail';
                    this.render();
                 });
@@ -174,6 +248,7 @@ export class MediaView {
                             itemDiv.innerHTML = `
                                 <img src="${imgSrc}" style="width: 100%; height: 100%; object-fit: cover; display: block;" alt="${media.title}" />
                                 ${badgeHtml}
+                                ${ledHtml}
                             `;
                         } else {
                             itemDiv.innerHTML = `
@@ -182,6 +257,7 @@ export class MediaView {
                                     <div style="font-size: 0.75rem; opacity: 0.6; text-transform: uppercase; letter-spacing: 1px;">No Image</div>
                                 </div>
                                 ${badgeHtml}
+                                ${ledHtml}
                             `;
                         }
                     } else {
@@ -191,6 +267,7 @@ export class MediaView {
                                 <div style="font-size: 0.75rem; opacity: 0.6; text-transform: uppercase; letter-spacing: 1px;">No Image</div>
                             </div>
                             ${badgeHtml}
+                            ${ledHtml}
                         `;
                     }
                 })();
@@ -211,12 +288,14 @@ export class MediaView {
                 const title = itemEl.getAttribute('title')?.toLowerCase() || "";
                 const type = itemEl.getAttribute('data-type') || "";
                 const status = itemEl.getAttribute('data-status') || "";
+                const tracking = itemEl.getAttribute('data-tracking') || "";
                 
                 const typeMatch = this.gridTypeFilter === 'All' || type === this.gridTypeFilter;
+                const trackingMatch = this.gridStatusFilter === 'All' || tracking === this.gridStatusFilter;
                 const isArchived = status === 'Archived' || status === 'Inactive' || status === 'Finished' || status === 'Completed';
                 const showStatus = !this.hideArchived || !isArchived;
 
-                if (title.includes(queryLower) && typeMatch && showStatus) {
+                if (title.includes(queryLower) && typeMatch && trackingMatch && showStatus) {
                     itemEl.style.display = 'flex';
                 } else {
                     itemEl.style.display = 'none';
@@ -237,6 +316,14 @@ export class MediaView {
         if (typeSelect) {
             typeSelect.addEventListener('change', (e) => {
                 this.gridTypeFilter = (e.target as HTMLSelectElement).value;
+                applyFilters();
+            });
+        }
+
+        const statusSelect = document.getElementById('grid-status-select') as HTMLSelectElement;
+        if (statusSelect) {
+            statusSelect.addEventListener('change', (e) => {
+                this.gridStatusFilter = (e.target as HTMLSelectElement).value;
                 applyFilters();
             });
         }
@@ -404,9 +491,23 @@ export class MediaView {
                   </button>
                </div>
                <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem; align-items: center; flex-wrap: wrap;">
-                 <span class="badge ${this.getTrackingStatusClass(media.tracking_status)}" id="media-tracking-status" title="Double click to edit tracking status">${media.tracking_status}</span>
-                 <span class="badge" id="media-type" title="Double click to edit media type">${media.media_type}</span>
-                 <span class="badge badge-content" id="media-content-type" title="Double click to edit content type">${media.content_type || 'Unknown'}</span>
+                 <select class="badge badge-select ${this.getTrackingStatusClass(media.tracking_status)}" id="media-tracking-status" title="Click to edit tracking status">
+                     ${["Ongoing", "Complete", "Paused", "Dropped", "Not Started", "Untracked"].map(opt => `<option value="${opt}" ${opt === media.tracking_status ? 'selected' : ''}>${opt}</option>`).join('')}
+                 </select>
+                 <select class="badge badge-select" id="media-type" title="Click to edit activity type">
+                     ${["Reading", "Watching", "Playing", "Listening", "None"].map(opt => `<option value="${opt}" ${opt === media.media_type ? 'selected' : ''}>${opt}</option>`).join('')}
+                 </select>
+                 <select class="badge badge-select badge-content" id="media-content-type" title="Click to edit content type">
+                     ${(() => {
+                        let validOptions: string[] = ['Unknown'];
+                        const mType = media.media_type;
+                        if (mType === 'Reading') validOptions.push('Visual Novel', 'Manga', 'Novel');
+                        else if (mType === 'Playing') validOptions.push('Videogame');
+                        else if (mType === 'Listening') validOptions.push('Podcast');
+                        else if (mType === 'Watching') validOptions.push('Anime', 'Movie', 'Youtube Video', 'Livestream', 'Drama');
+                        return validOptions.map(opt => `<option value="${opt}" ${opt === media.content_type ? 'selected' : ''}>${opt}</option>`).join('');
+                     })()}
+                 </select>
                  <span class="badge" style="background: var(--bg-card-hover); color: var(--text-secondary);">${media.language}</span>
                  <span class="badge" style="background: var(--bg-card-hover); color: var(--text-secondary); border: 1px solid var(--border-color); display: flex; align-items: center; gap: 0.5rem; padding: 0.2rem 0.6rem;">
                     <label class="switch">
@@ -415,6 +516,7 @@ export class MediaView {
                     </label>
                     <span id="status-label" style="font-weight: 600; font-size: 0.75rem; text-transform: uppercase;">${media.status !== 'Archived' && media.status !== 'Inactive' && media.status !== 'Finished' && media.status !== 'Completed' ? 'Active' : 'Archived'}</span>
                  </span>
+                 ${media.tracking_status !== 'Complete' ? `<button class="btn btn-ghost" id="btn-mark-complete" style="padding: 0.2rem 0.8rem; font-size: 0.75rem; border-color: var(--accent-green); color: var(--accent-green); border-radius: 12px; height: 1.6rem; margin-left: 0.5rem;">Mark as complete</button>` : ''}
                </div>
             </div>
 
@@ -601,169 +703,71 @@ export class MediaView {
         makeEditable('media-title', 'title', false);
         makeEditable('media-desc', 'description', true);
 
-        // Media Type single click editor
-        const mediaTypeBadge = document.getElementById('media-type');
-        if (mediaTypeBadge) {
-            mediaTypeBadge.addEventListener('click', () => {
-                const select = document.createElement('select');
-                select.style.background = 'var(--bg-darker)';
-                select.style.color = 'var(--text-primary)';
-                select.style.border = '1px solid var(--accent)';
-                select.style.padding = '0.2rem 0.5rem';
-                select.style.borderRadius = '12px';
-                select.style.outline = 'none';
-
-                const options = ["Reading", "Watching", "Playing", "Listening", "None"];
-                select.innerHTML = options.map(opt => `<option value="${opt}" ${opt === media.media_type ? 'selected' : ''}>${opt}</option>`).join('');
-
-                let isSaving = false;
-                const save = async () => {
-                    if (isSaving) return;
-                    isSaving = true;
-                    const newValue = select.value;
-                    if (newValue && newValue !== media.media_type) {
-                        media.media_type = newValue;
-                        try {
-                            await updateMedia(media);
-                        } catch (e) {
-                            console.error("Update failed", e);
-                        }
+        // Media Type - native select handling
+        const mediaTypeSelect = document.getElementById('media-type') as HTMLSelectElement;
+        if (mediaTypeSelect) {
+            mediaTypeSelect.addEventListener('change', async () => {
+                const newValue = mediaTypeSelect.value;
+                if (newValue && newValue !== media.media_type) {
+                    media.media_type = newValue;
+                    try {
+                        await updateMedia(media);
+                    } catch (e) {
+                        console.error("Update failed", e);
                     }
                     await this.renderDetailContent(media);
-                };
-
-                select.addEventListener('change', save);
-                select.addEventListener('keydown', (e: KeyboardEvent) => {
-                    if (e.key === 'Escape') this.renderDetailContent(media);
-                });
-                
-                setTimeout(() => {
-                    const outsideClick = (e: MouseEvent) => {
-                        if (document.body.contains(select) && e.target !== select) {
-                            window.removeEventListener('click', outsideClick);
-                            if (!isSaving) this.renderDetailContent(media);
-                        }
-                    };
-                    window.addEventListener('click', outsideClick);
-                }, 100);
-
-                mediaTypeBadge.replaceWith(select);
-                select.focus();
+                }
             });
         }
 
-        // Content Type Dropdown Editor
-        const contentTypeBadge = document.getElementById('media-content-type');
-        if (contentTypeBadge) {
-            contentTypeBadge.addEventListener('click', () => {
-                const select = document.createElement('select');
-                select.style.background = 'var(--bg-darker)';
-                select.style.color = 'var(--text-primary)';
-                select.style.border = '1px solid var(--accent-green)';
-                select.style.padding = '0.2rem 0.5rem';
-                select.style.borderRadius = '12px';
-                select.style.outline = 'none';
-
-                let validOptions: string[] = ['Unknown'];
-                const mType = media.media_type;
-                if (mType === 'Reading') validOptions.push('Visual Novel', 'Manga', 'Novel');
-                else if (mType === 'Playing') validOptions.push('Videogame');
-                else if (mType === 'Listening') validOptions.push('Podcast');
-                else if (mType === 'Watching') validOptions.push('Anime', 'Movie', 'Youtube Video', 'Livestream', 'Drama');
-
-                select.innerHTML = validOptions.map(opt => `<option value="${opt}" ${opt === media.content_type ? 'selected' : ''}>${opt}</option>`).join('');
-
-                let isSaving = false;
-                const save = async () => {
-                    if (isSaving) return;
-                    isSaving = true;
-
-                    const newValue = select.value;
-                    if (newValue && newValue !== media.content_type) {
-                        media.content_type = newValue;
-                        try {
-                            await updateMedia(media);
-                        } catch (e) {
-                            alert("Database Error: " + String(e));
-                        }
+        // Content Type - native select handling
+        const contentTypeSelect = document.getElementById('media-content-type') as HTMLSelectElement;
+        if (contentTypeSelect) {
+            contentTypeSelect.addEventListener('change', async () => {
+                const newValue = contentTypeSelect.value;
+                if (newValue && newValue !== media.content_type) {
+                    media.content_type = newValue;
+                    try {
+                        await updateMedia(media);
+                    } catch (e) {
+                        alert("Database Error: " + String(e));
                     }
-
                     await this.renderDetailContent(media);
-                };
-
-                select.addEventListener('change', save);
-                select.addEventListener('keydown', (e: KeyboardEvent) => {
-                    if (e.key === 'Escape') this.renderDetailContent(media);
-                });
-
-                setTimeout(() => {
-                    const outsideClick = (e: MouseEvent) => {
-                        if (document.body.contains(select) && e.target !== select) {
-                            window.removeEventListener('click', outsideClick);
-                            if (!isSaving) this.renderDetailContent(media);
-                        }
-                    };
-                    window.addEventListener('click', outsideClick);
-                }, 100);
-
-                contentTypeBadge.replaceWith(select);
-                select.focus();
+                }
             });
         }
 
-        // Tracking Status Dropdown Editor
-        const trackingStatusBadge = document.getElementById('media-tracking-status');
-        if (trackingStatusBadge) {
-            trackingStatusBadge.addEventListener('click', () => {
-                const select = document.createElement('select');
-                select.style.background = 'var(--bg-darker)';
-                select.style.color = 'var(--text-primary)';
-                select.style.border = '1px solid var(--accent-blue)';
-                select.style.padding = '0.2rem 0.5rem';
-                select.style.borderRadius = '12px';
-                select.style.outline = 'none';
-
-                const options = ["Ongoing", "Complete", "Paused", "Dropped", "Not Started", "Untracked"];
-                select.innerHTML = options.map(opt => `<option value="${opt}" ${opt === media.tracking_status ? 'selected' : ''}>${opt}</option>`).join('');
-
-                let isSaving = false;
-                const save = async () => {
-                    if (isSaving) return;
-                    isSaving = true;
-
-                    const newValue = select.value;
-                    if (newValue && newValue !== media.tracking_status) {
-                        media.tracking_status = newValue;
-                        try {
-                            await updateMedia(media);
-                        } catch (e) {
-                            alert("Database Error: " + String(e));
-                        }
+        // Tracking Status - native select handling
+        const trackingStatusSelect = document.getElementById('media-tracking-status') as HTMLSelectElement;
+        if (trackingStatusSelect) {
+            trackingStatusSelect.addEventListener('change', async () => {
+                const newValue = trackingStatusSelect.value;
+                if (newValue && newValue !== media.tracking_status) {
+                    media.tracking_status = newValue;
+                    try {
+                        await updateMedia(media);
+                    } catch (e) {
+                        alert("Database Error: " + String(e));
                     }
                     await this.renderDetailContent(media);
-                };
-
-                select.addEventListener('change', save);
-                select.addEventListener('keydown', (e: KeyboardEvent) => {
-                    if (e.key === 'Escape') this.renderDetailContent(media);
-                });
-
-                setTimeout(() => {
-                    const outsideClick = (e: MouseEvent) => {
-                        if (document.body.contains(select) && e.target !== select) {
-                            window.removeEventListener('click', outsideClick);
-                            if (!isSaving) this.renderDetailContent(media);
-                        }
-                    };
-                    window.addEventListener('click', outsideClick);
-                }, 100);
-
-                trackingStatusBadge.replaceWith(select);
-                select.focus();
+                }
             });
         }
 
         // Status Toggle handling (this is a click-based toggle already, so no changes needed for "single click")
+        const markCompleteBtn = document.getElementById('btn-mark-complete');
+        if (markCompleteBtn) {
+            markCompleteBtn.addEventListener('click', async () => {
+                media.tracking_status = 'Complete';
+                try {
+                    await updateMedia(media);
+                    await this.renderDetailContent(media);
+                } catch (e) {
+                    console.error("Failed to update status", e);
+                }
+            });
+        }
+
         const statusToggle = document.getElementById('status-toggle') as HTMLInputElement;
         const statusLabel = document.getElementById('status-label');
         if (statusToggle && statusLabel) {
@@ -902,24 +906,15 @@ export class MediaView {
 
     private setupDetailListeners() {
         document.getElementById('btn-back-grid')?.addEventListener('click', async () => {
-            this.viewMode = 'grid';
-            await this.render();
+            this.exitDetail();
         });
 
         document.getElementById('media-prev')?.addEventListener('click', async () => {
-            if (this.currentMediaList.length === 0) return;
-            this.currentIndex = (this.currentIndex - 1 + this.currentMediaList.length) % this.currentMediaList.length;
-            this.populateSelect();
-            const media = this.currentMediaList[this.currentIndex];
-            if (media) await this.renderDetailContent(media);
+            this.goToPrev();
         });
 
         document.getElementById('media-next')?.addEventListener('click', async () => {
-            if (this.currentMediaList.length === 0) return;
-            this.currentIndex = (this.currentIndex + 1) % this.currentMediaList.length;
-            this.populateSelect();
-            const media = this.currentMediaList[this.currentIndex];
-            if (media) await this.renderDetailContent(media);
+            this.goToNext();
         });
 
         const select = document.getElementById('media-select') as HTMLSelectElement;

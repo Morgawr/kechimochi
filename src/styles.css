@@ -758,12 +758,40 @@ input:focus, select:focus {
     color: var(--text-secondary);
 }
 
-.status-ongoing { background-color: var(--accent-blue) !important; color: white !important; }
-.status-complete { background-color: #27ae60 !important; color: white !important; } /* A solid green */
-.status-paused { background-color: var(--accent-yellow) !important; color: var(--bg-dark) !important; }
-.status-dropped { background-color: var(--accent-red) !important; color: white !important; }
-.status-not-started { background-color: #7f8c8d !important; color: white !important; }
-.status-untracked { background-color: transparent !important; color: var(--text-secondary) !important; border: 1px dashed var(--border-color); }
+.status-ongoing { background-color: #3498db !important; color: #ffffff !important; }
+.status-complete { background-color: #27ae60 !important; color: #ffffff !important; }
+.status-paused { background-color: #f1c40f !important; color: #000000 !important; }
+.status-dropped { background-color: #e74c3c !important; color: #ffffff !important; }
+.status-not-started { background-color: #95a5a6 !important; color: #ffffff !important; }
+.status-untracked { background-color: transparent !important; color: var(--text-secondary) !important; border: 1px dashed var(--border-color) !important; }
+ 
+ .badge-select {
+     appearance: none;
+     -webkit-appearance: none;
+     cursor: pointer;
+     border: 1px solid transparent;
+     text-align: center;
+     text-align-last: center;
+     width: auto;
+     min-width: 60px;
+     transition: all var(--transition-fast);
+ }
+ 
+ .badge-select:hover {
+     filter: brightness(1.1);
+     box-shadow: 0 0 0 1px var(--accent-green);
+ }
+ 
+ .badge-select:focus {
+     border-color: var(--accent-green);
+     outline: none;
+ }
+ 
+ .badge-select option {
+     background-color: var(--bg-dark);
+     color: var(--text-primary);
+     text-align: left;
+ }
 
 /* Theme overrides for better contrast if needed */
 [data-theme='light'] .status-ongoing { color: white !important; }
@@ -799,13 +827,35 @@ input:focus, select:focus {
 .slider:before {
   position: absolute;
   content: "";
-  height: 16px;
-  width: 16px;
+  height: 14px;
+  width: 14px;
   left: 3px;
-  bottom: 2px;
-  background-color: var(--text-secondary);
+  bottom: 3px;
+  background-color: white;
   transition: .3s;
   border-radius: 50%;
+}
+
+.status-led {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    z-index: 10;
+    box-shadow: 
+        0 0 0 2px rgba(255, 255, 255, 0.4),
+        0 0 15px rgba(0, 0, 0, 0.9), 
+        0 0 20px currentColor;
+    animation: led-blink 2.2s infinite ease-in-out;
+    pointer-events: none;
+    border: 2px solid rgba(0, 0, 0, 0.5);
+}
+
+@keyframes led-blink {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.9); }
 }
 
 input:checked + .slider {
