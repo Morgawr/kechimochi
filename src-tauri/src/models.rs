@@ -11,6 +11,7 @@ pub struct Media {
     pub cover_image: String,
     pub extra_data: String,
     pub content_type: String, // "Visual Novel", "Anime", etc., or "Unknown"
+    pub tracking_status: String, // "Ongoing", "Complete", "Paused", "Dropped", "Not Started", "Untracked"
 }
 
 #[derive(Debug, Serialize, Deserialize)]

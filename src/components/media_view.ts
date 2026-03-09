@@ -326,10 +326,17 @@ export class MediaView {
                   </button>
                </div>
                <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem; align-items: center; flex-wrap: wrap;">
+                 <span class="badge ${this.getTrackingStatusClass(media.tracking_status)}" id="media-tracking-status" title="Double click to edit tracking status">${media.tracking_status}</span>
                  <span class="badge" id="media-type" title="Double click to edit media type">${media.media_type}</span>
                  <span class="badge badge-content" id="media-content-type" title="Double click to edit content type">${media.content_type || 'Unknown'}</span>
                  <span class="badge" style="background: var(--bg-card-hover); color: var(--text-secondary);">${media.language}</span>
-                 <span class="badge" style="background: var(--bg-card-hover); color: var(--text-secondary);">${media.status}</span>
+                 <span class="badge" style="background: var(--bg-card-hover); color: var(--text-secondary); border: 1px solid var(--border-color); display: flex; align-items: center; gap: 0.5rem; padding: 0.2rem 0.6rem;">
+                    <label class="switch">
+                        <input type="checkbox" id="status-toggle" ${media.status !== 'Archived' && media.status !== 'Inactive' && media.status !== 'Finished' && media.status !== 'Completed' ? 'checked' : ''}>
+                        <span class="slider"></span>
+                    </label>
+                    <span id="status-label" style="font-weight: 600; font-size: 0.75rem; text-transform: uppercase;">${media.status !== 'Archived' && media.status !== 'Inactive' && media.status !== 'Finished' && media.status !== 'Completed' ? 'Active' : 'Archived'}</span>
+                 </span>
                </div>
             </div>
 
@@ -549,7 +556,7 @@ export class MediaView {
                         try {
                             await updateMedia(media);
                         } catch (e) {
-                            alert("Database Error: Restart Kechimochi so the new architecture loads! " + String(e));
+                            alert("Database Error: " + String(e));
                         }
                     }
 
@@ -557,7 +564,6 @@ export class MediaView {
                 };
 
                 select.addEventListener('change', save);
-
                 select.addEventListener('keydown', (e: KeyboardEvent) => {
                     if (e.key === 'Escape') this.renderDetailContent(media);
                 });
@@ -574,6 +580,74 @@ export class MediaView {
 
                 contentTypeBadge.replaceWith(select);
                 select.focus();
+            });
+        }
+
+        // Tracking Status Dropdown Editor
+        const trackingStatusBadge = document.getElementById('media-tracking-status');
+        if (trackingStatusBadge) {
+            trackingStatusBadge.addEventListener('dblclick', () => {
+                const select = document.createElement('select');
+                select.style.background = 'var(--bg-darker)';
+                select.style.color = 'var(--text-primary)';
+                select.style.border = '1px solid var(--accent-blue)';
+                select.style.padding = '0.2rem 0.5rem';
+                select.style.borderRadius = '12px';
+                select.style.outline = 'none';
+
+                const options = ["Ongoing", "Complete", "Paused", "Dropped", "Not Started", "Untracked"];
+                select.innerHTML = options.map(opt => `<option value="${opt}" ${opt === media.tracking_status ? 'selected' : ''}>${opt}</option>`).join('');
+
+                let isSaving = false;
+                const save = async () => {
+                    if (isSaving) return;
+                    isSaving = true;
+
+                    const newValue = select.value;
+                    if (newValue && newValue !== media.tracking_status) {
+                        media.tracking_status = newValue;
+                        try {
+                            await updateMedia(media);
+                        } catch (e) {
+                            alert("Database Error: " + String(e));
+                        }
+                    }
+                    await this.renderDetailContent(media);
+                };
+
+                select.addEventListener('change', save);
+                select.addEventListener('keydown', (e: KeyboardEvent) => {
+                    if (e.key === 'Escape') this.renderDetailContent(media);
+                });
+
+                setTimeout(() => {
+                    const outsideClick = (e: MouseEvent) => {
+                        if (document.body.contains(select) && e.target !== select) {
+                            window.removeEventListener('click', outsideClick);
+                            if (!isSaving) this.renderDetailContent(media);
+                        }
+                    };
+                    window.addEventListener('click', outsideClick);
+                }, 100);
+
+                trackingStatusBadge.replaceWith(select);
+                select.focus();
+            });
+        }
+
+        // Status Toggle handling
+        const statusToggle = document.getElementById('status-toggle') as HTMLInputElement;
+        const statusLabel = document.getElementById('status-label');
+        if (statusToggle && statusLabel) {
+            statusToggle.addEventListener('change', async () => {
+                const isActive = statusToggle.checked;
+                media.status = isActive ? 'Active' : 'Archived';
+                statusLabel.innerText = media.status;
+                try {
+                    await updateMedia(media);
+                } catch (e) {
+                    console.error("Failed to update status", e);
+                }
             });
         }
 
@@ -849,6 +923,17 @@ export class MediaView {
             const btn = document.getElementById('btn-import-meta');
             if (btn) btn.innerText = "Fetch Metadata from URL";
             await this.renderDetailContent(media);
+        }
+    }
+
+    private getTrackingStatusClass(status: string): string {
+        switch (status) {
+            case "Ongoing": return "status-ongoing";
+            case "Complete": return "status-complete";
+            case "Paused": return "status-paused";
+            case "Dropped": return "status-dropped";
+            case "Not Started": return "status-not-started";
+            default: return "status-untracked";
         }
     }
 }

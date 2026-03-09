@@ -1,4 +1,4 @@
-import { getAllMedia, getLogs, Media, addMedia, updateMedia, deleteMedia } from '../api';
+import { getAllMedia, getLogs, Media, addMedia, deleteMedia } from '../api';
 import { showAddMediaModal, customConfirm } from '../modals';
 
 export class Library {
@@ -42,17 +42,14 @@ export class Library {
     const kanban = document.getElementById('media-kanban');
     if (!kanban) return;
 
-    const statuses = ['Active', 'Finished'];
+    const statuses = ['Active'];
     
     // Group media by status
     const grouped = new Map<string, Media[]>();
     grouped.set('Active', []);
-    grouped.set('Finished', []);
 
     for (const m of mediaList) {
-        if (m.status === 'Completed' || m.status === 'Finished') {
-            grouped.get('Finished')!.push(m);
-        } else {
+        if (m.status !== 'Archived' && m.status !== 'Inactive' && m.status !== 'Finished' && m.status !== 'Completed') {
             grouped.get('Active')!.push(m);
         }
     }
@@ -64,11 +61,7 @@ export class Library {
         }
     }
 
-    grouped.get('Finished')!.sort((a, b) => {
-        const dateA = lastLogMap.get(a.id!) || '1970-01-01';
-        const dateB = lastLogMap.get(b.id!) || '1970-01-01';
-        return dateB.localeCompare(dateA);
-    });
+    // No need to sort inactive since they are hidden
 
     let html = '';
     for (const status of statuses) {
@@ -113,19 +106,8 @@ export class Library {
         col.addEventListener('dragover', (e) => e.preventDefault());
         col.addEventListener('drop', async (e) => {
             e.preventDefault();
-            const idStr = (e as DragEvent).dataTransfer!.getData('text/plain');
-            if (!idStr) return;
-            const id = parseInt(idStr);
-            if (!id) return;
-            const newStatus = (e.currentTarget as HTMLElement).dataset.status!;
-
-            const mediaList = await getAllMedia();
-            const m = mediaList.find(x => x.id === id);
-            if (m && (m.status !== newStatus && !(m.status === 'Completed' && newStatus === 'Finished'))) {
-                m.status = newStatus;
-                await updateMedia(m);
-                this.loadData();
-            }
+            // Drag and drop within the same column or to hidden columns is handled by logic elsewhere if needed,
+            // but for now we only have one column, so we just refresh.
         });
     });
 
@@ -148,7 +130,7 @@ export class Library {
        const result = await showAddMediaModal();
        if (!result) return;
        
-       addMedia({ title: result.title, media_type: result.type, status: "Active", language: "Japanese", description: "", cover_image: "", extra_data: "{}", content_type: "Unknown" }).then(() => this.loadData());
+       addMedia({ title: result.title, media_type: result.type, status: "Active", language: "Japanese", description: "", cover_image: "", extra_data: "{}", content_type: "Unknown", tracking_status: "Untracked" }).then(() => this.loadData());
     });
   }
 }

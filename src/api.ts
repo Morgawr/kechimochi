@@ -26,6 +26,7 @@ export interface Media {
   cover_image: string;
   extra_data: string;
   content_type: string;
+  tracking_status: string;
 }
 
 export interface ActivityLog {

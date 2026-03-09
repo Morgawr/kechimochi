@@ -167,9 +167,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   btnAddActivity.addEventListener('click', async () => {
     addModal.classList.add('active');
-    // Load media options for autocomplete (excluding finished)
+    // Load media options for autocomplete (excluding archived)
     const mediaList = await getAllMedia();
-    const activeMedia = mediaList.filter(m => m.status !== 'Completed' && m.status !== 'Finished');
+    const activeMedia = mediaList.filter(m => m.status !== 'Archived' && m.status !== 'Inactive' && m.status !== 'Finished' && m.status !== 'Completed');
     datalistMedia.innerHTML = activeMedia.map(m => `<option value="${m.title}">`).join('');
     
     // Set default date to today
@@ -199,7 +199,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (existingMedia && existingMedia.id) {
         mediaId = existingMedia.id;
-        if (existingMedia.status === 'Completed' || existingMedia.status === 'Finished') {
+        if (existingMedia.status === 'Archived' || existingMedia.status === 'Inactive' || existingMedia.status === 'Finished' || existingMedia.status === 'Completed') {
             existingMedia.status = 'Active';
             await updateMedia(existingMedia);
         }
@@ -216,7 +216,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             description: "",
             cover_image: "",
             extra_data: "{}",
-            content_type: "Unknown"
+            content_type: "Unknown",
+            tracking_status: "Untracked"
         });
     }
 

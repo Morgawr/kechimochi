@@ -91,6 +91,7 @@ pub fn import_csv(conn: &mut Connection, file_path: &str) -> Result<usize, Strin
                     cover_image: "".to_string(),
                     extra_data: "{}".to_string(),
                     content_type: "Unknown".to_string(),
+                    tracking_status: "Untracked".to_string(),
                 };
                 
                 match db::add_media_with_id(&tx, &new_media) {
@@ -181,7 +182,7 @@ pub fn analyze_media_csv(conn: &Connection, file_path: &str) -> Result<Vec<Media
         };
 
         let existing: Option<Media> = conn.query_row(
-            "SELECT id, title, media_type, status, language, description, cover_image, extra_data, content_type FROM shared.media WHERE title = ?1",
+            "SELECT id, title, media_type, status, language, description, cover_image, extra_data, content_type, tracking_status FROM shared.media WHERE title = ?1",
             [&record.title],
             |row| Ok(Media {
                 id: row.get(0)?,
@@ -193,6 +194,7 @@ pub fn analyze_media_csv(conn: &Connection, file_path: &str) -> Result<Vec<Media
                 cover_image: row.get(6).unwrap_or_default(),
                 extra_data: row.get(7).unwrap_or_else(|_| "{}".to_string()),
                 content_type: row.get(8).unwrap_or_else(|_| "Unknown".to_string()),
+                tracking_status: row.get(9).unwrap_or_else(|_| "Untracked".to_string()),
             })
         ).optional().map_err(|e| e.to_string())?;
 
@@ -257,6 +259,7 @@ pub fn apply_media_import(app_handle: &tauri::AppHandle, conn: &mut Connection, 
                 cover_image: final_cover_path,
                 extra_data: req.extra_data,
                 content_type: req.content_type,
+                tracking_status: "Untracked".to_string(),
             };
             db::update_media(&tx, &m).map_err(|e| e.to_string())?;
         } else {
@@ -270,6 +273,7 @@ pub fn apply_media_import(app_handle: &tauri::AppHandle, conn: &mut Connection, 
                 cover_image: final_cover_path,
                 extra_data: req.extra_data,
                 content_type: req.content_type,
+                tracking_status: "Untracked".to_string(),
             };
             db::add_media_with_id(&tx, &m).map_err(|e| e.to_string())?;
         }
