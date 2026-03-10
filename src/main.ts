@@ -102,6 +102,7 @@ class App {
             localStorage.setItem('kechimochi_profile', this.currentProfile);
             await switchProfile(this.currentProfile);
             await this.loadTheme();
+            this.resetViews();
             this.renderCurrentView();
         });
 
@@ -113,6 +114,7 @@ class App {
                 await switchProfile(this.currentProfile);
                 await this.loadTheme();
                 await this.ensureProfilesList();
+                this.resetViews();
                 this.renderCurrentView();
             }
         });
@@ -132,6 +134,7 @@ class App {
                 await switchProfile(this.currentProfile);
                 await this.loadTheme();
                 await this.ensureProfilesList();
+                this.resetViews();
                 this.renderCurrentView();
             }
         });
@@ -182,6 +185,12 @@ class App {
 
         this.selectProfileEl.innerHTML = profiles.map(p => `<option value="${p}">${p}</option>`).join('');
         this.selectProfileEl.value = this.currentProfile;
+    }
+
+    private resetViews() {
+        this.dashboard.setState({ isInitialized: false });
+        this.mediaView.setState({ isInitialized: false });
+        this.profileView.setState({ isInitialized: false });
     }
 
     private async loadTheme() {

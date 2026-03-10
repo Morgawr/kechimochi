@@ -1,6 +1,6 @@
 import { Component } from '../core/component';
 import { html } from '../core/html';
-import { Media, getAllMedia, getLogsForMedia } from '../api';
+import { Media, getAllMedia, getLogsForMedia, getSetting, setSetting } from '../api';
 import { MediaGrid } from './media/MediaGrid';
 import { MediaDetail } from './media/MediaDetail';
 
@@ -94,6 +94,13 @@ export class MediaView extends Component<MediaViewState> {
     async loadData(jumpToId?: number) {
         this.setState({ isLoading: true });
         try {
+            if (!this.state.isInitialized) {
+                const hideArchivedStr = await getSetting('grid_hide_archived');
+                if (hideArchivedStr !== null) {
+                    this.state.gridFilters.hideArchived = hideArchivedStr === 'true';
+                }
+            }
+
             const mediaList = await getAllMedia();
             let nextIndex = this.state.currentIndex;
 
@@ -168,7 +175,11 @@ export class MediaView extends Component<MediaViewState> {
                 await this.loadData(jumpToId);
             },
             (filters) => {
+                const oldHideArchived = this.state.gridFilters.hideArchived;
                 this.state.gridFilters = { ...this.state.gridFilters, ...filters };
+                if (oldHideArchived !== filters.hideArchived) {
+                    setSetting('grid_hide_archived', filters.hideArchived.toString());
+                }
             }
         );
         this.activeSubComponent.render();
