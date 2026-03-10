@@ -257,3 +257,23 @@ export async function isMediaVisible(title: string): Promise<boolean> {
     if (!(await item.isExisting())) return false;
     return await item.isDisplayed();
 }
+
+/**
+ * Handle the media import conflict modal.
+ */
+export async function resolveConflicts(action: 'keep' | 'replace'): Promise<void> {
+    const modal = await $('.modal-content');
+    await modal.waitForDisplayed({ timeout: 5000 });
+    
+    const radios = await $$(`input[value="${action}"]`);
+    for (const radio of radios) {
+        await radio.click();
+    }
+    
+    const confirmBtn = await $('#conflict-confirm');
+    await confirmBtn.click();
+    
+    // Wait for the success alert to appear after import
+    await $('#alert-ok').waitForDisplayed({ timeout: 10000 });
+    await dismissAlert();
+}
