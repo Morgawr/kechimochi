@@ -20,6 +20,7 @@ interface DashboardState {
         chartType: 'bar' | 'line';
     };
     isInitialized: boolean;
+    currentPage: number;
 }
 
 export class Dashboard extends Component<DashboardState> {
@@ -38,7 +39,8 @@ export class Dashboard extends Component<DashboardState> {
                 groupByMode: 'media_type',
                 chartType: 'bar'
             },
-            isInitialized: false
+            isInitialized: false,
+            currentPage: 1
         });
     }
 
@@ -98,18 +100,101 @@ export class Dashboard extends Component<DashboardState> {
         this.activeChartsComponent.render();
 
         // 3. Recent Logs Row
+        const itemsPerPage = 15;
+        const totalPages = Math.ceil(this.state.logs.length / itemsPerPage);
+        const showPagination = this.state.logs.length > itemsPerPage;
+
+        let paginationHtml = '';
+        if (showPagination) {
+            const prevButton = this.state.currentPage > 1 
+                ? `<button class="btn btn-ghost" id="prev-page" style="font-size: 1.2rem; padding: 0.2rem 1rem;">&lt;&lt;</button>` 
+                : '<div style="width: 3rem;"></div>';
+            const nextButton = this.state.currentPage < totalPages 
+                ? `<button class="btn btn-ghost" id="next-page" style="font-size: 1.2rem; padding: 0.2rem 1rem;">&gt;&gt;</button>` 
+                : '<div style="width: 3rem;"></div>';
+
+            paginationHtml = `
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    ${prevButton}
+                    <span style="font-size: 0.9rem; color: var(--text-secondary); display: flex; align-items: center; gap: 0.5rem; white-space: nowrap;">
+                        PAGE <span id="current-page-display" title="Double click to edit" style="cursor: pointer; color: var(--text-primary); font-weight: bold; border: 1px solid var(--border-color); padding: 0.1rem 0.5rem; border-radius: 4px; min-width: 2rem; text-align: center;">${this.state.currentPage}</span> OF ${totalPages}
+                    </span>
+                    ${nextButton}
+                </div>
+            `;
+        }
+
+        const containerStyle = showPagination 
+            ? 'display: grid; grid-template-columns: 1fr auto 1fr;' 
+            : 'display: flex; justify-content: space-between;';
+
         const logsCard = html`
             <div class="card">
-                <h3 style="margin-bottom: 1rem;">Recent Activity</h3>
+                <div style="${containerStyle} align-items: center; margin-bottom: 1rem;">
+                    <h3 style="margin: 0;">Recent Activity</h3>
+                    ${showPagination ? `
+                        <div style="display: flex; justify-content: center;">
+                            ${paginationHtml}
+                        </div>
+                        <div></div>
+                    ` : ''}
+                </div>
                 <div id="recent-logs-list" style="display: flex; flex-direction: column; gap: 0.5rem;"></div>
             </div>
         `;
         root.appendChild(logsCard);
+        
+        if (showPagination) {
+            logsCard.querySelector('#prev-page')?.addEventListener('click', () => {
+                this.setState({ currentPage: Math.max(1, this.state.currentPage - 1) });
+            });
+            logsCard.querySelector('#next-page')?.addEventListener('click', () => {
+                this.setState({ currentPage: Math.min(totalPages, this.state.currentPage + 1) });
+            });
+
+            const pageDisplay = logsCard.querySelector('#current-page-display') as HTMLElement;
+            pageDisplay.addEventListener('dblclick', () => {
+                const input = document.createElement('input');
+                input.id = 'current-page-input';
+                input.type = 'text';
+                input.inputMode = 'numeric';
+                input.value = this.state.currentPage.toString();
+                input.style.width = '3rem';
+                input.style.textAlign = 'center';
+                input.style.background = 'var(--bg-dark)';
+                input.style.color = 'var(--text-primary)';
+                input.style.border = '1px solid var(--accent-green)';
+                input.style.borderRadius = '4px';
+                input.style.padding = '0.1rem';
+
+                const savePage = () => {
+                    let newPage = parseInt(input.value);
+                    if (isNaN(newPage)) newPage = this.state.currentPage;
+                    newPage = Math.max(1, Math.min(totalPages, newPage));
+                    this.setState({ currentPage: newPage });
+                };
+
+                input.addEventListener('blur', savePage);
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') input.blur();
+                    if (e.key === 'Escape') {
+                        input.removeEventListener('blur', savePage);
+                        this.render();
+                    }
+                });
+
+                pageDisplay.replaceWith(input);
+                input.focus();
+                input.select();
+            });
+        }
+
         this.renderLogs(logsCard.querySelector('#recent-logs-list') as HTMLElement);
     }
 
     private renderLogs(list: HTMLElement) {
-        const { logs } = this.state;
+        const { logs, currentPage } = this.state;
+        const itemsPerPage = 15;
         const currentProfile = localStorage.getItem('kechimochi_profile') || 'default';
 
         if (logs.length === 0) {
@@ -117,7 +202,10 @@ export class Dashboard extends Component<DashboardState> {
             return;
         }
 
-        list.innerHTML = logs.slice(0, 20).map(log => {
+        const startIndex = (currentPage - 1) * itemsPerPage;
+        const pagedLogs = logs.slice(startIndex, startIndex + itemsPerPage);
+
+        list.innerHTML = pagedLogs.map(log => {
             const durationStr = formatLoggedDuration(log.duration_minutes);
 
             return `
