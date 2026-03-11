@@ -73,11 +73,16 @@ export async function verifyDiffDisplayed(field: string, oldText: string, newTex
     
     // Check for strikethrough text (old value)
     const oldSpan = await label.$('span[style*="text-decoration: line-through"]');
-    expect(await oldSpan.isExisting()).toBe(true);
-    expect(await oldSpan.getText()).toBe(oldText);
+    await oldSpan.waitForExist({ timeout: 5000 });
+    
+    await browser.waitUntil(async () => {
+        return (await oldSpan.getText()) === oldText;
+    }, {
+        timeout: 5000,
+        timeoutMsg: `Expected old text "${oldText}" for field "${field}", but got "${await oldSpan.getText()}"`
+    });
     
     // Check for new text
-    // The structure might have multiple spans, let's just grep the text of the container excluding the oldSpan
     const labelText = await label.getText();
     expect(labelText).toContain(newText);
 }

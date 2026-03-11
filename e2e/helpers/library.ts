@@ -32,7 +32,7 @@ export async function addMedia(title: string, type: string, contentType?: string
     await confirmBtn.click();
     
     // Most additions auto-navigate to detail, so we wait for either detail or grid stabilization
-    await browser.pause(1000);
+    await browser.pause(1500);
 }
 
 /**

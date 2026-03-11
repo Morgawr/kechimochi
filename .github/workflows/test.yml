@@ -1,0 +1,78 @@
+name: "Test"
+
+on:
+  push:
+    branches: [ "main", "setup-ci" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'npm'
+
+      - name: install node dependencies
+        run: npm install
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: cache rust dependencies
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: install system dependencies (linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            xvfb \
+            webkit2gtk-driver \
+            fonts-noto-cjk
+
+      - name: install tauri-driver
+        run: |
+          if ! command -v tauri-driver &> /dev/null; then
+            cargo install tauri-driver
+          fi
+
+      - name: typescript check
+        run: npx tsc --noEmit
+
+      - name: cargo test (backend)
+        run: cargo test
+        working-directory: src-tauri
+
+      - name: build e2e debug binary
+        run: npm run e2e:build
+
+      - name: seed e2e databases
+        run: npm run e2e:seed
+
+      - name: run e2e tests
+        env:
+          E2E_MAX_INSTANCES: 2
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" npm run e2e:test
+
+      - name: upload e2e logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs
+          path: e2e/logs/
+          if-no-files-found: ignore

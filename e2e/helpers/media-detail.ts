@@ -26,6 +26,17 @@ export async function getDetailTrackingStatus(): Promise<string> {
  */
 export async function isArchivedStatusActive(): Promise<boolean> {
     const label = await $('#status-label');
+    await label.waitForExist({ timeout: 5000 });
+    
+    // We wait until the text is either ACTIVE or ARCHIVED to avoid checking during transitions
+    await browser.waitUntil(async () => {
+        const text = await label.getText();
+        return text === 'ACTIVE' || text === 'ARCHIVED';
+    }, {
+        timeout: 5000,
+        timeoutMsg: 'Status label did not settle on ACTIVE or ARCHIVED'
+    });
+
     return (await label.getText()) === 'ACTIVE';
 }
 
@@ -35,6 +46,7 @@ export async function isArchivedStatusActive(): Promise<boolean> {
 export async function toggleArchivedStatusDetail(): Promise<void> {
     const slider = await $('#status-toggle + .slider');
     await slider.click();
+    await browser.pause(500); // Wait for transition
 }
 
 /**
@@ -43,6 +55,7 @@ export async function toggleArchivedStatusDetail(): Promise<void> {
 export async function backToGrid(): Promise<void> {
     const btn = await $('#btn-back-grid');
     await btn.click();
+    await browser.pause(500); // Wait for transition
 }
 
 /**

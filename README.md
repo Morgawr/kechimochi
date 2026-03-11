@@ -1,5 +1,7 @@
 # Kechimochi
 
+[![Test status](https://github.com/Morgawr/kechimochi/actions/workflows/test.yml/badge.svg)](https://github.com/Morgawr/kechimochi/actions/workflows/test.yml)
+
 <p align="center">
   <img src="public/logo.png" width="120" alt="Kechimochi Logo" />
 </p>

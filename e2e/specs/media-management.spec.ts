@@ -14,7 +14,13 @@ describe('Media Management CUJs', () => {
 
       // Verify it navigates to detail view automatically
       const detailTitle = await $('#media-title');
-      await detailTitle.waitForExist({ timeout: 5000 });
+      await browser.waitUntil(async () => {
+          const text = await detailTitle.getText();
+          return text === 'Cyberpunk 2077';
+      }, {
+          timeout: 5000,
+          timeoutMsg: 'Expected media title to be Cyberpunk 2077'
+      });
       expect(await detailTitle.getText()).toBe('Cyberpunk 2077');
 
       // Navigate back to grid to verify it's there
@@ -22,13 +28,15 @@ describe('Media Management CUJs', () => {
       await backBtn.click();
 
       // Verify it appears in the grid
-      const gridItem = await $(`//div[contains(@class, "media-item-wrapper")]//div[contains(text(), "Cyberpunk 2077")]`);
-      await gridItem.waitForExist({ timeout: 5000 });
+      const gridItem = await $(`.media-grid-item[data-title="Cyberpunk 2077"]`);
+      await gridItem.waitForDisplayed({ timeout: 5000 });
+      await gridItem.scrollIntoView();
       expect(await gridItem.isDisplayed()).toBe(true);
     });
 
     it('should update status in detail view and verify it in the grid', async () => {
-      const gridItem = await $(`//div[contains(@class, "media-item-wrapper")]//div[contains(text(), "Cyberpunk 2077")]`);
+      const gridItem = await $(`.media-grid-item[data-title="Cyberpunk 2077"]`);
+      await gridItem.waitForDisplayed({ timeout: 5000 });
       await gridItem.click();
 
       const statusSelect = await $('#media-tracking-status');
@@ -40,7 +48,7 @@ describe('Media Management CUJs', () => {
       const backBtn = await $('#btn-back-grid');
       await backBtn.click();
 
-      const statusLabel = await $(`//div[contains(text(), "Cyberpunk 2077")]/ancestor::div[contains(@class, "media-item-wrapper")]//*[contains(@class, "status-ongoing")]`);
+      const statusLabel = await $(`.media-grid-item[data-title="Cyberpunk 2077"] .status-ongoing`);
       expect(await statusLabel.isExisting()).toBe(true);
     });
   });
@@ -60,9 +68,13 @@ describe('Media Management CUJs', () => {
       await mediaLink.click();
 
       // Verify it navigated to media detail
-      await $('#media-title').waitForExist();
-      const detailTitle = await $('#media-title').getText();
-      expect(detailTitle).toBe('Cyberpunk 2077');
+      const detailTitleEl = await $('#media-title');
+      await browser.waitUntil(async () => {
+          return (await detailTitleEl.getText()) === 'Cyberpunk 2077';
+      }, {
+          timeout: 5000,
+          timeoutMsg: 'Expected media title on detail page to be Cyberpunk 2077'
+      });
       
       expect(await verifyActiveView('media')).toBe(true);
     });
