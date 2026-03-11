@@ -53,8 +53,12 @@ describe('CUJ: Bulk Management (Data Import)', () => {
         expect(await verifyActiveView('dashboard')).toBe(true);
 
         const recentLogs = await $('#recent-logs-list');
-        const text = await recentLogs.getText();
-        expect(text).toContain('Bulk Imported Manga');
-        expect(text).toContain('60 minutes');
+        await browser.waitUntil(async () => {
+            const text = await recentLogs.getText();
+            return text.includes('Bulk Imported Manga') && text.includes('60 minutes');
+        }, {
+            timeout: 10000,
+            timeoutMsg: 'Imported activity logs did not appear on the dashboard after 10s'
+        });
     });
 });
