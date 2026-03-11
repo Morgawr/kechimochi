@@ -95,8 +95,12 @@ export async function setHideArchived(hide: boolean): Promise<void> {
  */
 export async function isMediaVisible(title: string): Promise<boolean> {
     const item = await $(`.media-grid-item[data-title="${title}"]`);
-    if (!(await item.isExisting())) return false;
-    return await item.isDisplayed();
+    try {
+        await item.waitForExist({ timeout: 2000 });
+        return await item.isDisplayed();
+    } catch {
+        return false;
+    }
 }
 
 /**
