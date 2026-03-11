@@ -668,6 +668,28 @@ input:focus, select:focus {
   color: var(--accent-text);
 }
 
+.dev-build-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem 0.75rem;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background-color: var(--accent-red);
+  color: #ffffff; /* Explicit white for contrast against red in most themes */
+  box-shadow: var(--shadow-sm);
+  user-select: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+[data-theme='light'] .dev-build-label,
+[data-theme='pastel-pink'] .dev-build-label {
+    color: var(--accent-text);
+}
+
 .badge-content {
   background: rgba(245, 192, 192, 0.15);
   color: var(--accent-purple);

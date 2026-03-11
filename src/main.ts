@@ -55,11 +55,13 @@ class App {
 
     private viewContainer: HTMLElement;
     private selectProfileEl: HTMLSelectElement;
+    private devBuildBadgeEl: HTMLElement | null;
     private navLinks: NodeListOf<Element>;
 
     constructor() {
         this.viewContainer = document.getElementById('view-container')!;
         this.selectProfileEl = document.getElementById('select-profile') as HTMLSelectElement;
+        this.devBuildBadgeEl = document.getElementById('dev-build-badge');
         this.navLinks = document.querySelectorAll('.nav-link');
 
         this.dashboard = new Dashboard(this.viewContainer);
@@ -75,6 +77,11 @@ class App {
         this.setupProfileControls();
         this.setupGlobalActions();
         this.setupEventListeners();
+
+        // Always show dev build label for now as requested
+        if (this.devBuildBadgeEl) {
+            this.devBuildBadgeEl.style.display = 'inline-flex';
+        }
 
         await this.ensureProfilesList();
 
