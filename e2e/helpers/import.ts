@@ -54,7 +54,9 @@ export async function confirmMerge(): Promise<void> {
     const btn = await $('#import-confirm');
     await btn.waitForDisplayed({ timeout: 5000 });
     await btn.click();
-    await browser.pause(500);
+    
+    // Wait for the modal to be gone
+    await btn.waitForExist({ reverse: true, timeout: 5000 });
 }
 
 /**

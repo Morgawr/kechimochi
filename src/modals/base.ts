@@ -25,6 +25,8 @@ export async function customPrompt(title: string, defaultValue = "", text = ""):
         
         const cleanup = () => {
              overlay.classList.remove('active');
+             // Clear IDs immediately so E2E selectors don't find dying modals
+             overlay.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
              setTimeout(() => overlay.remove(), 300);
         };
         
@@ -61,6 +63,8 @@ export async function customConfirm(title: string, text: string, confirmButtonCl
         
         const cleanup = () => {
              overlay.classList.remove('active');
+             // Clear IDs immediately so E2E selectors don't find dying modals
+             overlay.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
              setTimeout(() => overlay.remove(), 300);
         };
         
@@ -90,6 +94,8 @@ export async function customAlert(title: string, text: string): Promise<void> {
         
         const cleanup = () => {
              overlay.classList.remove('active');
+             // Clear IDs immediately so E2E selectors don't find dying modals
+             overlay.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
              setTimeout(() => overlay.remove(), 300);
         };
         

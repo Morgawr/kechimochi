@@ -69,8 +69,12 @@ export async function toggleArchivedStatusDetail(): Promise<void> {
  */
 export async function backToGrid(): Promise<void> {
     const btn = await $('#btn-back-grid');
+    await btn.waitForDisplayed({ timeout: 5000 });
     await btn.click();
-    await browser.pause(500); // Wait for transition
+    
+    // Wait for the detail view to be gone/grid to be displayed
+    const grid = await $('#media-grid-container');
+    await grid.waitForDisplayed({ timeout: 5000 });
 }
 
 /**
