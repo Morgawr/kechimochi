@@ -12,6 +12,9 @@ describe('Profile Management CUJ', () => {
     expect(await verifyActiveView('profile')).toBe(true);
     
     const profileHeading = await $('h2');
+    await browser.waitUntil(async () => {
+        return (await profileHeading.getText()) === 'TESTUSER';
+    }, { timeout: 5000, timeoutMsg: 'Initial profile was not TESTUSER' });
     expect(await profileHeading.getText()).toBe('TESTUSER');
   });
 
@@ -34,6 +37,9 @@ describe('Profile Management CUJ', () => {
     expect(await verifyActiveView('profile')).toBe(true);
     
     const profileHeading = await $('h2');
+    await browser.waitUntil(async () => {
+        return (await profileHeading.getText()) === 'BESTUSER';
+    }, { timeout: 5000, timeoutMsg: 'Profile did not switch to BESTUSER' });
     expect(await profileHeading.getText()).toBe('BESTUSER');
   });
 
@@ -58,6 +64,9 @@ describe('Profile Management CUJ', () => {
     expect(await verifyActiveView('profile')).toBe(true);
     
     const profileHeading = await $('h2');
+    await browser.waitUntil(async () => {
+        return (await profileHeading.getText()) === 'TESTUSER';
+    }, { timeout: 5000, timeoutMsg: 'Profile did not return to TESTUSER' });
     expect(await profileHeading.getText()).toBe('TESTUSER');
   });
 });

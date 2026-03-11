@@ -61,7 +61,10 @@ describe('Media Management CUJs', () => {
 
       // Now find the link on dashboard
       const mediaLink = await $('.dashboard-media-link');
-      await mediaLink.waitForExist();
+      await mediaLink.waitForDisplayed({ timeout: 5000 });
+      await mediaLink.scrollIntoView();
+      await mediaLink.waitForClickable({ timeout: 2000 });
+      
       const linkText = await mediaLink.getText();
       expect(linkText).toBe('Cyberpunk 2077');
       
@@ -69,11 +72,14 @@ describe('Media Management CUJs', () => {
 
       // Verify it navigated to media detail
       const detailTitleEl = await $('#media-title');
+      await detailTitleEl.waitForExist({ timeout: 5000 });
+      
       await browser.waitUntil(async () => {
-          return (await detailTitleEl.getText()) === 'Cyberpunk 2077';
+          const text = await detailTitleEl.getText();
+          return text === 'Cyberpunk 2077';
       }, {
           timeout: 5000,
-          timeoutMsg: 'Expected media title on detail page to be Cyberpunk 2077'
+          timeoutMsg: `Expected media title on detail page to be Cyberpunk 2077, but was "${await detailTitleEl.getText()}"`
       });
       
       expect(await verifyActiveView('media')).toBe(true);

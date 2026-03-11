@@ -61,7 +61,7 @@ export class MediaDetail extends Component<MediaDetailState> {
         }
     }
 
-    async render() {
+    render() {
         this.clear();
         const { media, imgSrc, logs } = this.state;
 
@@ -139,7 +139,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                         <!-- Stats & Extra Fields -->
                         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;">
                             <div class="card" id="media-first-last-stats" style="grid-column: span 3; display: none; justify-content: flex-start; gap: 2rem; padding: 0.5rem 1rem; font-size: 0.85rem;"></div>
-                            ${await this.getExtraDataHtml(media)}
+                            ${this.getExtraDataHtml(media)}
                         </div>
 
                         <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
@@ -180,7 +180,7 @@ export class MediaDetail extends Component<MediaDetailState> {
         return validOptions.map(opt => `<option value="${opt}" ${opt === media.content_type ? 'selected' : ''}>${opt}</option>`).join('');
     }
 
-    private async getExtraDataHtml(media: Media) {
+    private getExtraDataHtml(media: Media) {
         let extraData: Record<string, string> = {};
         try {
             extraData = JSON.parse(media.extra_data || "{}");

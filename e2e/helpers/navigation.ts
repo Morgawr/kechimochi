@@ -12,8 +12,17 @@ export async function navigateTo(view: ViewName): Promise<void> {
   const link = await $(`[data-view="${view}"]`);
   await link.click();
   
-  // Wait for the view to actually render
-  await browser.pause(500);
+  // Wait for the nav link to become active
+  await browser.waitUntil(async () => {
+    const classes = await link.getAttribute('class');
+    return classes?.includes('active');
+  }, { 
+    timeout: 5000, 
+    timeoutMsg: `Nav link for ${view} did not become active` 
+  });
+  
+  // Wait for view transition
+  await browser.pause(300);
 }
 
 /**

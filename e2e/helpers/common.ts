@@ -60,42 +60,77 @@ export async function takeAndCompareScreenshot(tag: string): Promise<void> {
 }
 
 /**
- * Dismisses a custom alert modal if it exists
+ * Dismisses a custom alert modal if it exists.
+ * If timeout is 0, it behaves as a conditional dismissal (no-op if not present).
  */
-export async function dismissAlert(): Promise<void> {
-  const okBtn = await $('#alert-ok');
-  if (await okBtn.isExisting()) {
-    await okBtn.waitForDisplayed({ timeout: 5000 });
-    await okBtn.click();
-    // Wait for fadeout animation
-    await browser.pause(500);
-  }
+export async function dismissAlert(timeout = 5000): Promise<void> {
+    const okBtn = await $('#alert-ok');
+    try {
+        if (timeout > 0) {
+            await okBtn.waitForDisplayed({ timeout });
+        }
+        
+        if (await okBtn.isDisplayed()) {
+            // Get the specific overlay ID to wait for its removal
+            const overlay = await okBtn.$('./ancestor::div[contains(@class, "modal-overlay")]');
+            const overlayId = await overlay.getAttribute('data-overlay-id');
+            
+            await okBtn.waitForClickable({ timeout: 2000 });
+            await okBtn.click();
+            
+            // Wait for this SPECIFIC overlay to be removed from DOM
+            await $(`.modal-overlay[data-overlay-id="${overlayId}"]`).waitForExist({ reverse: true, timeout: 5000 });
+        }
+    } catch (e) {
+        if (timeout > 0) throw e;
+    }
 }
 
 /**
  * Handle a custom prompt modal by entering a value and confirming
  */
 export async function submitPrompt(value: string): Promise<void> {
-  const input = await $('#prompt-input');
-  await input.waitForDisplayed({ timeout: 5000 });
-  await input.setValue(value);
+    const input = await $('#prompt-input');
+    await input.waitForDisplayed({ timeout: 5000 });
+    
+    // Get the specific overlay ID to wait for its removal
+    const overlay = await input.$('./ancestor::div[contains(@class, "modal-overlay")]');
+    const overlayId = await overlay.getAttribute('data-overlay-id');
 
-  const confirmBtn = await $('#prompt-confirm');
-  await confirmBtn.click();
+    await input.waitForClickable({ timeout: 2000 });
+    
+    // Clear and set value to ensure it's clean
+    await input.click();
+    await input.setValue(value);
+    
+    // Safety check: verify value was set correctly
+    await browser.waitUntil(async () => {
+        return (await input.getValue()) === value;
+    }, { timeout: 3000, timeoutMsg: 'Failed to set value in prompt input' });
 
-  // Wait for fadeout
-  await browser.pause(500);
+    const confirmBtn = await $('#prompt-confirm');
+    await confirmBtn.waitForClickable({ timeout: 2000 });
+    await confirmBtn.click();
+
+    // Wait for this SPECIFIC overlay to be removed from DOM
+    await $(`.modal-overlay[data-overlay-id="${overlayId}"]`).waitForExist({ reverse: true, timeout: 5000 });
 }
 
 /**
  * Handle a custom confirmation modal
  */
 export async function confirmAction(ok: boolean = true): Promise<void> {
-  const btnSelector = ok ? '#confirm-ok' : '#confirm-cancel';
-  const btn = await $(btnSelector);
-  await btn.waitForDisplayed({ timeout: 5000 });
-  await btn.click();
+    const btnSelector = ok ? '#confirm-ok' : '#confirm-cancel';
+    const btn = await $(btnSelector);
+    await btn.waitForDisplayed({ timeout: 5000 });
+    
+    // Get the specific overlay ID to wait for its removal
+    const overlay = await btn.$('./ancestor::div[contains(@class, "modal-overlay")]');
+    const overlayId = await overlay.getAttribute('data-overlay-id');
 
-  // Wait for fadeout
-  await browser.pause(500);
+    await btn.waitForClickable({ timeout: 2000 });
+    await btn.click();
+
+    // Wait for this SPECIFIC overlay to be removed from DOM
+    await $(`.modal-overlay[data-overlay-id="${overlayId}"]`).waitForExist({ reverse: true, timeout: 5000 });
 }

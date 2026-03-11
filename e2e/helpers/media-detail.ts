@@ -10,7 +10,14 @@ import { submitPrompt } from './common.js';
 export async function clickMarkAsComplete(): Promise<void> {
     const btn = await $('#btn-mark-complete');
     await btn.waitForDisplayed({ timeout: 5000 });
+    await btn.waitForClickable({ timeout: 2000 });
     await btn.click();
+    
+    // Wait for the tracking status badge to update to Complete
+    const trackingStatus = await $('#media-tracking-status');
+    await browser.waitUntil(async () => {
+        return (await trackingStatus.getValue()) === 'Complete';
+    }, { timeout: 3000, timeoutMsg: 'Tracking status did not update to Complete' });
 }
 
 /**
@@ -44,9 +51,15 @@ export async function isArchivedStatusActive(): Promise<boolean> {
  * Toggles the archived/active status in the detail view.
  */
 export async function toggleArchivedStatusDetail(): Promise<void> {
+    const initialStatus = await isArchivedStatusActive();
     const slider = await $('#status-toggle + .slider');
+    await slider.waitForClickable({ timeout: 2000 });
     await slider.click();
-    await browser.pause(500); // Wait for transition
+    
+    // Wait for the status label to flip
+    await browser.waitUntil(async () => {
+        return (await isArchivedStatusActive()) !== initialStatus;
+    }, { timeout: 3000, timeoutMsg: 'Archive status label did not toggle' });
 }
 
 /**
@@ -54,8 +67,12 @@ export async function toggleArchivedStatusDetail(): Promise<void> {
  */
 export async function backToGrid(): Promise<void> {
     const btn = await $('#btn-back-grid');
+    await btn.waitForDisplayed({ timeout: 5000 });
     await btn.click();
-    await browser.pause(500); // Wait for transition
+    
+    // Wait for the detail view to be gone/grid to be displayed
+    const grid = await $('#media-grid-container');
+    await grid.waitForDisplayed({ timeout: 5000 });
 }
 
 /**
@@ -91,6 +108,19 @@ export async function editDescription(newDescription: string): Promise<void> {
  */
 export async function getDescription(): Promise<string> {
     const el = await $('#media-desc');
+    await el.waitForExist({ timeout: 5000 });
+    
+    // We wait a moment for text to settle, especially during re-renders
+    let text = "";
+    await browser.waitUntil(async () => {
+        text = await el.getText();
+        return text !== "" && text !== "No description provided. Double click here to add one.";
+    }, {
+        timeout: 5000,
+        interval: 100,
+        timeoutMsg: 'Description text never appeared'
+    }).catch(() => {}); // If it stays empty or placeholder, we just return current
+    
     return await el.getText();
 }
 
@@ -99,7 +129,18 @@ export async function getDescription(): Promise<string> {
  */
 export async function getExtraField(key: string): Promise<string> {
     const el = await $(`.editable-extra[data-key="${key}"]`);
-    if (!(await el.isExisting())) return "";
+    await el.waitForExist({ timeout: 5000 });
+    
+    let text = "";
+    await browser.waitUntil(async () => {
+        text = await el.getText();
+        return text !== "" && text !== "-";
+    }, {
+        timeout: 5000,
+        interval: 100,
+        timeoutMsg: `Extra field "${key}" never showed a value`
+    }).catch(() => {});
+    
     return await el.getText();
 }
 

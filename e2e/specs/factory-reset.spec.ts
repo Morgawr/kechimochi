@@ -18,8 +18,11 @@ describe('Factory Reset CUJ', () => {
     await navigateTo('profile');
     expect(await verifyActiveView('profile')).toBe(true);
     
-    const profileName = await $('h2');
-    expect(await profileName.getText()).toBe('TESTUSER');
+    const profileNameEl = await $('h2');
+    await browser.waitUntil(async () => {
+        return (await profileNameEl.getText()) === 'TESTUSER';
+    }, { timeout: 5000, timeoutMsg: 'Profile name did not match TESTUSER' });
+    expect(await profileNameEl.getText()).toBe('TESTUSER');
   });
 
   it('should perform factory reset and wipe all data', async () => {
@@ -66,8 +69,11 @@ describe('Factory Reset CUJ', () => {
     await navigateTo('profile');
     expect(await verifyActiveView('profile')).toBe(true);
 
-    const profileName = await $('h2');
-    expect(await profileName.getText()).toBe('BESTUSER');
+    const profileNameEl = await $('h2');
+    await browser.waitUntil(async () => {
+        return (await profileNameEl.getText()) === 'BESTUSER';
+    }, { timeout: 5000, timeoutMsg: 'Profile name did not match BESTUSER after reset' });
+    expect(await profileNameEl.getText()).toBe('BESTUSER');
     
     const bodyText = await $('body').getText();
     expect(bodyText).not.toContain('TESTUSER');

@@ -30,7 +30,7 @@ export async function addMedia(title: string, type: string, contentType?: string
 
     const confirmBtn = await $('#add-media-confirm');
     await confirmBtn.click();
-    
+
     // Most additions auto-navigate to detail, so we wait for either detail or grid stabilization
     await browser.pause(1500);
 }
@@ -41,16 +41,16 @@ export async function addMedia(title: string, type: string, contentType?: string
 export async function setSearchQuery(query: string): Promise<void> {
     const input = await $('#grid-search-filter');
     await input.waitForDisplayed({ timeout: 5000 });
-    
+
     // Clicking and using keys is often more reliable for triggering 'input' events in all drivers
     await input.click();
     // Select all and delete (works on Linux/Windows, for Mac it might need Command)
     await browser.keys(['Control', 'a', 'Backspace']);
-    
+
     if (query !== '') {
         await input.addValue(query);
     }
-    
+
     // Grid filtering is real-time, but give it a moment to finish rendering
     await browser.pause(500);
 }
@@ -91,30 +91,45 @@ export async function setHideArchived(hide: boolean): Promise<void> {
 }
 
 /**
+ * Internal helper to find a media item and log grid state on failure.
+ */
+async function findMediaItemInternal(title: string, timeout = 5000) {
+    const itemProxy = $(`.media-grid-item[data-title="${title}"]`);
+    try {
+        await itemProxy.waitForExist({ timeout });
+        // Resolved element is what we return
+        return await itemProxy;
+    } catch {
+        const allItems = await $$('.media-grid-item');
+        const titles = [];
+        for (const it of allItems) {
+            titles.push(await it.getAttribute('data-title'));
+        }
+        console.log(`[E2E] Media item "${title}" not found. Current grid items: [${titles.join(', ')}]`);
+        return null;
+    }
+}
+
+/**
  * Check if a media item with a specific title is currently visible in the grid.
  */
 export async function isMediaVisible(title: string): Promise<boolean> {
-    const item = await $(`.media-grid-item[data-title="${title}"]`);
-    if (!(await item.isExisting())) return false;
-    return await item.isDisplayed();
+    const grid = await $('#media-grid-container');
+    await grid.waitForDisplayed({ timeout: 10000 }).catch(() => { });
+
+    const item = await findMediaItemInternal(title);
+    return item ? await item.isDisplayed() : false;
 }
 
 /**
  * Clicks a media item in the grid by its title.
  */
 export async function clickMediaItem(title: string): Promise<void> {
-    const item = await $(`.media-grid-item[data-title="${title}"]`);
-    try {
-        await item.waitForDisplayed({ timeout: 5000 });
-    } catch (e) {
-        const allItems = await $$('.media-grid-item');
-        const titles = [];
-        for (const it of allItems) {
-            titles.push(await it.getAttribute('data-title'));
-        }
-        console.log(`[E2E] Failed to find: "${title}". Visible in grid: [${titles.join(', ')}]`);
-        throw e;
+    const item = await findMediaItemInternal(title);
+    if (!item) {
+        throw new Error(`[E2E] Failed to click "${title}": not found in grid.`);
     }
+    await item.waitForDisplayed({ timeout: 2000 });
     await item.click();
     await browser.pause(500);
 }
