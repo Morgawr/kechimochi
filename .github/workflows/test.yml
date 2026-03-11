@@ -2,11 +2,12 @@ name: "Test"
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "setup-ci" ]
   pull_request:
     branches: [ "main" ]
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
   CARGO_TERM_COLOR: always
 
 jobs:
