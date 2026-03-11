@@ -1,11 +1,11 @@
 import { waitForAppReady } from '../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../helpers/navigation.js';
-import { addMedia, clickMediaItem } from '../helpers/library.js';
-import { 
-    fetchMetadata, 
-    confirmMerge, 
-    toggleImportCheckbox, 
-    verifyDiffDisplayed 
+import { addMedia } from '../helpers/library.js';
+import {
+    fetchMetadata,
+    confirmMerge,
+    toggleImportCheckbox,
+    verifyDiffDisplayed
 } from '../helpers/import.js';
 import { getDescription, getExtraField } from '../helpers/media-detail.js';
 
@@ -18,8 +18,8 @@ describe('CUJ: Information Enrichment (Mocked Metadata Fetching)', () => {
         await navigateTo('media');
         expect(await verifyActiveView('media')).toBe(true);
 
-        await addMedia('STEINS;GATE 0', 'Reading', 'Visual Novel'); 
-        
+        await addMedia('STEINS;GATE 0', 'Reading', 'Visual Novel');
+
         const mockData = {
             title: "STEINS;GATE 0",
             description: "New scraped description",

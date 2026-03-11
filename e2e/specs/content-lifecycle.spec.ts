@@ -1,12 +1,12 @@
 import { waitForAppReady } from '../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../helpers/navigation.js';
-import { clickMediaItem, setHideArchived, isMediaVisible } from '../helpers/library.js';
-import { 
-    clickMarkAsComplete, 
-    getDetailTrackingStatus, 
-    isArchivedStatusActive, 
-    toggleArchivedStatusDetail, 
-    backToGrid 
+import { clickMediaItem, setHideArchived, isMediaVisible, isMediaNotVisible } from '../helpers/library.js';
+import {
+    clickMarkAsComplete,
+    getDetailTrackingStatus,
+    isArchivedStatusActive,
+    toggleArchivedStatusDetail,
+    backToGrid
 } from '../helpers/media-detail.js';
 
 describe('CUJ: Content Lifecycle (Manual Archiving)', () => {
@@ -34,11 +34,11 @@ describe('CUJ: Content Lifecycle (Manual Archiving)', () => {
         expect(await verifyActiveView('media')).toBe(true);
 
         await setHideArchived(true);
-        expect(await isMediaVisible('呪術廻戦')).toBe(false);
+        expect(await isMediaNotVisible('呪術廻戦')).toBe(true);
 
         await setHideArchived(false);
         expect(await isMediaVisible('呪術廻戦')).toBe(true);
-        
+
         // Verify archived visual indicator (opacity 0.6)
         const item = await $(`[data-title="呪術廻戦"]`);
         expect(await item.getCSSProperty('opacity')).toMatchObject({ value: 0.6 });

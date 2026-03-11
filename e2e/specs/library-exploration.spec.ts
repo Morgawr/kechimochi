@@ -5,7 +5,8 @@ import {
     setMediaTypeFilter,
     setTrackingStatusFilter,
     setHideArchived,
-    isMediaVisible
+    isMediaVisible,
+    isMediaNotVisible
 } from '../helpers/library.js';
 
 describe('CUJ: Library Exploration (Search & Filter)', () => {
@@ -18,7 +19,7 @@ describe('CUJ: Library Exploration (Search & Filter)', () => {
 
         await setSearchQuery('呪術');
         expect(await isMediaVisible('呪術廻戦')).toBe(true);
-        expect(await isMediaVisible('ペルソナ5')).toBe(false);
+        expect(await isMediaNotVisible('ペルソナ5')).toBe(true);
 
         await setSearchQuery('');
         expect(await isMediaVisible('ペルソナ5')).toBe(true);
@@ -27,20 +28,20 @@ describe('CUJ: Library Exploration (Search & Filter)', () => {
 
         expect(await isMediaVisible('呪術廻戦')).toBe(true);
         expect(await isMediaVisible('ダンジョン飯')).toBe(true);
-        expect(await isMediaVisible('ペルソナ5')).toBe(false);
+        expect(await isMediaNotVisible('ペルソナ5')).toBe(true);
 
         await setTrackingStatusFilter('Ongoing');
 
         // '呪術廻戦' was updated to 'Ongoing' in seed.ts for this test
         expect(await isMediaVisible('呪術廻戦')).toBe(true);
-        expect(await isMediaVisible('ダンジョン飯')).toBe(false);
+        expect(await isMediaNotVisible('ダンジョン飯')).toBe(true);
 
         await setTrackingStatusFilter('All');
         await setMediaTypeFilter('All');
         await setHideArchived(true);
 
         // 'ダンジョン飯' has status 'Archived', so it should be hidden
-        expect(await isMediaVisible('ダンジョン飯')).toBe(false);
+        expect(await isMediaNotVisible('ダンジョン飯')).toBe(true);
 
         // '呪術廻戦' has status 'Active', so it remains visible
         expect(await isMediaVisible('呪術廻戦')).toBe(true);
@@ -54,7 +55,7 @@ describe('CUJ: Library Exploration (Search & Filter)', () => {
         await navigateTo('media');
 
         // Should still be hidden
-        expect(await isMediaVisible('ダンジョン飯')).toBe(false);
+        expect(await isMediaNotVisible('ダンジョン飯')).toBe(true);
 
         await setHideArchived(false);
         expect(await isMediaVisible('ダンジョン飯')).toBe(true);

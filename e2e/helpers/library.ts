@@ -121,6 +121,23 @@ export async function isMediaVisible(title: string): Promise<boolean> {
     return item ? await item.isDisplayed() : false;
 }
 
+
+/**
+ * Check if a media item with a specific title is currently not visible in the grid.
+ */
+export async function isMediaNotVisible(title: string): Promise<boolean> {
+    const grid = await $('#media-grid-container');
+    await grid.waitForDisplayed({ timeout: 10000 }).catch(() => { });
+
+    const itemProxy = $(`.media-grid-item[data-title="${title}"]`);
+    try {
+        await itemProxy.waitForExist({ timeout: 1000 });
+        return false;
+    } catch {
+        return true;
+    }
+}
+
 /**
  * Clicks a media item in the grid by its title.
  */
