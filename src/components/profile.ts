@@ -1,8 +1,8 @@
 import { Component } from '../core/component';
 import { html } from '../core/html';
 import {
-    getAllMedia, getLogsForMedia, importCsv, exportCsv, deleteProfile,
-    clearActivities, wipeEverything, exportMediaCsv, analyzeMediaCsv,
+    getAllMedia, getLogsForMedia, deleteProfile,
+    clearActivities, wipeEverything,
     applyMediaImport, switchProfile, listProfiles, getSetting, setSetting,
     getAppVersion
 } from '../api';
@@ -10,7 +10,7 @@ import {
     customPrompt, showExportCsvModal, customAlert, customConfirm,
     showMediaCsvConflictModal, initialProfilePrompt
 } from '../modals';
-import { open, save } from '../utils/dialogs';
+import { getServices } from '../services';
 
 interface ProfileState {
     currentProfile: string;
@@ -242,59 +242,50 @@ export class ProfileView extends Component<ProfileState> {
         });
 
         root.querySelector('#profile-btn-import-csv')?.addEventListener('click', async () => {
-            const selected = await open({ multiple: false, filters: [{ name: 'CSV', extensions: ['csv'] }] });
-            if (selected && typeof selected === 'string') {
-                try {
-                    const count = await importCsv(selected);
-                    await customAlert("Success", `Successfully imported ${count} activity logs!`);
-                } catch (e) {
-                    await customAlert("Error", `Import failed: ${e}`);
-                }
+            try {
+                const count = await getServices().pickAndImportActivities();
+                if (count !== null) await customAlert("Success", `Successfully imported ${count} activity logs!`);
+            } catch (e) {
+                await customAlert("Error", `Import failed: ${e}`);
             }
         });
 
         root.querySelector('#profile-btn-export-csv')?.addEventListener('click', async () => {
             const modeData = await showExportCsvModal();
             if (!modeData) return;
-            const savePath = await save({ filters: [{ name: 'CSV', extensions: ['csv'] }], defaultPath: `kechimochi_${currentProfile}_activities.csv` });
-            if (savePath) {
-                try {
-                    const count = modeData.mode === 'range' ? await exportCsv(savePath, modeData.start, modeData.end) : await exportCsv(savePath);
-                    await customAlert("Success", `Successfully exported ${count} activity logs!`);
-                } catch (e) {
-                    await customAlert("Error", `Export failed: ${e}`);
-                }
+            try {
+                const count = modeData.mode === 'range'
+                    ? await getServices().exportActivities(modeData.start, modeData.end)
+                    : await getServices().exportActivities();
+                if (count !== null) await customAlert("Success", `Successfully exported ${count} activity logs!`);
+            } catch (e) {
+                await customAlert("Error", `Export failed: ${e}`);
             }
         });
 
         root.querySelector('#profile-btn-import-media')?.addEventListener('click', async () => {
-            const selected = await open({ multiple: false, filters: [{ name: 'CSV', extensions: ['csv'] }] });
-            if (selected && typeof selected === 'string') {
-                try {
-                    const conflicts = await analyzeMediaCsv(selected);
-                    if (!conflicts || conflicts.length === 0) {
-                        await customAlert("Info", "No valid media rows found in the CSV.");
-                        return;
-                    }
-                    const resolvedRecords = await showMediaCsvConflictModal(conflicts);
-                    if (!resolvedRecords || resolvedRecords.length === 0) return;
-                    const count = await applyMediaImport(resolvedRecords);
-                    await customAlert("Success", `Successfully imported ${count} media library entries!`);
-                } catch (e) {
-                    await customAlert("Error", `Import failed: ${e}`);
+            try {
+                const conflicts = await getServices().analyzeMediaCsvFromPick();
+                if (!conflicts) return;
+                if (conflicts.length === 0) {
+                    await customAlert("Info", "No valid media rows found in the CSV.");
+                    return;
                 }
+                const resolvedRecords = await showMediaCsvConflictModal(conflicts);
+                if (!resolvedRecords || resolvedRecords.length === 0) return;
+                const count = await applyMediaImport(resolvedRecords);
+                await customAlert("Success", `Successfully imported ${count} media library entries!`);
+            } catch (e) {
+                await customAlert("Error", `Import failed: ${e}`);
             }
         });
 
         root.querySelector('#profile-btn-export-media')?.addEventListener('click', async () => {
-            const savePath = await save({ filters: [{ name: 'CSV', extensions: ['csv'] }], defaultPath: "kechimochi_media_library.csv" });
-            if (savePath) {
-                try {
-                    const count = await exportMediaCsv(savePath);
-                    await customAlert("Success", `Successfully exported ${count} media library entries!`);
-                } catch (e) {
-                    await customAlert("Error", `Export failed: ${e}`);
-                }
+            try {
+                const count = await getServices().exportMediaLibrary(currentProfile);
+                if (count !== null) await customAlert("Success", `Successfully exported ${count} media library entries!`);
+            } catch (e) {
+                await customAlert("Error", `Export failed: ${e}`);
             }
         });
 

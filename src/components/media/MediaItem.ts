@@ -1,6 +1,7 @@
 import { Component } from '../../core/component';
 import { html } from '../../core/html';
-import { Media, readFileBytes } from '../../api';
+import { Media } from '../../api';
+import { getServices } from '../../services';
 
 interface MediaItemState {
     media: Media;
@@ -34,9 +35,8 @@ export class MediaItem extends Component<MediaItemState> {
         }
 
         try {
-            const bytes = await readFileBytes(cover_image);
-            const blob = new Blob([new Uint8Array(bytes)]);
-            const src = URL.createObjectURL(blob);
+            const src = await getServices().loadCoverImage(cover_image);
+            if (!src) return;
             MediaItem.imageCache.set(cover_image, src);
             this.setState({ imgSrc: src });
         } catch (e) {
@@ -67,8 +67,8 @@ export class MediaItem extends Component<MediaItemState> {
             : '';
 
         this.clear();
-        
-        const content = imgSrc 
+
+        const content = imgSrc
             ? html`<img src="${imgSrc}" style="width: 100%; height: 100%; object-fit: cover; display: block;" alt="${media.title}" />`
             : html`
                 <div class="image-placeholder" style="flex: 1; display: flex; flex-direction: column; padding: 1.2rem 1rem; color: var(--text-secondary); text-align: center; justify-content: space-between;">
@@ -85,7 +85,6 @@ export class MediaItem extends Component<MediaItemState> {
         const opacity = isArchived ? '0.6' : '1';
         
         this.container.style.cssText = `cursor: pointer; border-radius: var(--radius-md); overflow: hidden; background: var(--bg-dark); border: 1px solid var(--border-color); display: flex; flex-direction: column; height: 100%; position: relative; opacity: ${opacity};`;
-        
         this.container.appendChild(content);
         if (badgeHtml) this.container.insertAdjacentHTML('beforeend', badgeHtml);
         if (ledHtml) this.container.insertAdjacentHTML('beforeend', ledHtml);

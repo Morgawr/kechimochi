@@ -1,6 +1,6 @@
-mod db;
-mod models;
-mod csv_import;
+pub mod db;
+pub mod models;
+pub mod csv_import;
 
 use rusqlite::Connection;
 use std::sync::Mutex;

@@ -57,6 +57,13 @@ describe('CUJ: Information Enrichment (Mocked Metadata Fetching)', () => {
 
         await confirmMerge();
 
+        await browser.waitUntil(async () => {
+            return (await getDescription()) === 'New scraped description';
+        }, {
+            timeout: 5000,
+            timeoutMsg: 'Merged description was not applied after confirming import'
+        });
+
         expect(await getDescription()).toBe('New scraped description');
         expect(await getExtraField('Conflicts')).toBe('New value');
         expect(await getExtraField('Stay')).toBe('Original');

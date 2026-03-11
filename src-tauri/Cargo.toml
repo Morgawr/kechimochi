@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "A personal language immersion tracker"
 authors = ["Morgawr"]
 edition = "2021"
+default-run = "kechimochi"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -28,3 +29,9 @@ csv = "1.4.0"
 tauri-plugin-dialog = "2.6.0"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 base64 = { version = "0.22.1", features = ["alloc"] }
+
+# Web server (used only by the web-server binary)
+axum = { version = "0.7", features = ["multipart"] }
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.5", features = ["cors"] }
+tempfile = "3"

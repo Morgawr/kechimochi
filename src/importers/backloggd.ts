@@ -1,5 +1,5 @@
 import { ScrapedMetadata, MetadataImporter } from './index';
-import { invoke } from '@tauri-apps/api/core';
+import { fetchExternalJson } from '../platform';
 
 export class BackloggdImporter implements MetadataImporter {
     name = "Backloggd";
@@ -15,10 +15,7 @@ export class BackloggdImporter implements MetadataImporter {
     }
 
     async fetch(url: string): Promise<ScrapedMetadata> {
-        const html = await invoke<string>('fetch_external_json', {
-            url,
-            method: "GET"
-        });
+        const html = await fetchExternalJson(url, "GET");
 
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');

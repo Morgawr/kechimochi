@@ -9,7 +9,7 @@ import {
     customPrompt, customConfirm, customAlert,
     initialProfilePrompt, showLogActivityModal
 } from './modals';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { initServices, getServices } from './services';
 
 // Support global date mocking for E2E tests
 let mockDateStr: string | null = null;
@@ -42,8 +42,6 @@ if (mockDateStr) {
         }
     };
 }
-
-const appWindow = getCurrentWindow();
 
 class App {
     private currentView: 'dashboard' | 'media' | 'profile' = 'dashboard';
@@ -99,9 +97,10 @@ class App {
     }
 
     private setupWindowControls() {
-        document.getElementById('win-min')?.addEventListener('click', () => appWindow.minimize());
-        document.getElementById('win-max')?.addEventListener('click', () => appWindow.toggleMaximize());
-        document.getElementById('win-close')?.addEventListener('click', () => appWindow.close());
+        if (!getServices().isDesktop()) return;
+        document.getElementById('win-min')?.addEventListener('click', () => getServices().minimizeWindow());
+        document.getElementById('win-max')?.addEventListener('click', () => getServices().maximizeWindow());
+        document.getElementById('win-close')?.addEventListener('click', () => getServices().closeWindow());
     }
 
     private setupNavigation() {
@@ -239,6 +238,7 @@ class App {
     }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    await initServices();
     new App();
 });

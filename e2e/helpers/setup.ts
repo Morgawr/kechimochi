@@ -58,6 +58,17 @@ export async function waitForAppReady(timeout = 30000): Promise<void> {
   const MOCK_DATE = '2024-03-31';
   console.log(`[e2e] Ensuring app is ready and date is mocked to ${MOCK_DATE}...`);
 
+  // Keep visual snapshots deterministic across different host DPI settings.
+  try {
+    await (browser as any).setWindowSize(1280, 1200);
+    await (browser as any).execute(() => {
+      document.documentElement.style.zoom = '1';
+      (document.body as HTMLElement).style.zoom = '1';
+    });
+  } catch (e) {
+    console.warn('[e2e] Failed to normalize window size/zoom:', e);
+  }
+
   // 1. First, wait for the window to have a valid origin and the DOM to be somewhat ready.
   // We check document.readyState to ensure we aren't on about:blank or a transitional state.
   await (browser as any).waitUntil(
@@ -102,6 +113,17 @@ export async function waitForAppReady(timeout = 30000): Promise<void> {
   // 3. Refresh to apply the mock date
   console.log(`[e2e] Refreshing to apply mock date...`);
   await (browser as any).refresh();
+
+  // Some environments reset zoom/window metrics after refresh.
+  try {
+    await (browser as any).setWindowSize(1280, 1200);
+    await (browser as any).execute(() => {
+      document.documentElement.style.zoom = '1';
+      (document.body as HTMLElement).style.zoom = '1';
+    });
+  } catch (e) {
+    console.warn('[e2e] Failed to re-apply window size/zoom after refresh:', e);
+  }
 
   // 4. Poll for final app readiness (dashboard view visible)
   let retries = 0;

@@ -1,5 +1,5 @@
 import { ScrapedMetadata, MetadataImporter } from './index';
-import { invoke } from '@tauri-apps/api/core';
+import { fetchExternalJson } from '../platform';
 
 export class ImdbImporter implements MetadataImporter {
     name = "IMDB";
@@ -16,13 +16,9 @@ export class ImdbImporter implements MetadataImporter {
     }
 
     async fetch(url: string): Promise<ScrapedMetadata> {
-        const html = await invoke<string>('fetch_external_json', {
-            url,
-            method: "GET",
-            headers: {
-                "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
-                "Accept-Language": "en-US,en;q=0.5"
-            }
+        const html = await fetchExternalJson(url, "GET", undefined, {
+            "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+            "Accept-Language": "en-US,en;q=0.5",
         });
 
         const parser = new DOMParser();

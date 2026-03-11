@@ -11,8 +11,9 @@
 import Database from 'better-sqlite3';
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 
-const FIXTURES_DIR = path.dirname(new URL(import.meta.url).pathname);
+const FIXTURES_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SHARED_DB_PATH = path.join(FIXTURES_DIR, 'kechimochi_shared_media.db');
 const USER_DB_PATH = path.join(FIXTURES_DIR, 'kechimochi_TESTUSER.db');
 const COVERS_DIR = path.join(FIXTURES_DIR, 'covers');

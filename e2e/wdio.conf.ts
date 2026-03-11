@@ -6,6 +6,7 @@ import os from 'os';
 import path from 'path';
 import { spawn, type ChildProcess } from 'child_process';
 import { fileURLToPath } from 'url';
+import { existsSync } from 'fs';
 import { prepareTestDir, cleanupTestDir } from './helpers/setup.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -18,6 +19,37 @@ if (process.env.TEST_RUN_ID) {
 }
 
 let tauriDriver: ChildProcess;
+
+function delay(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function resolveTauriDriverCommand(): string {
+  if (process.platform === 'win32') {
+    const userProfile = process.env.USERPROFILE || '';
+    const cargoBin = path.join(userProfile, '.cargo', 'bin', 'tauri-driver.exe');
+    if (userProfile && existsSync(cargoBin)) {
+      return cargoBin;
+    }
+  }
+  return 'tauri-driver';
+}
+
+function resolveNativeDriverPath(): string | null {
+  if (process.env.EDGE_DRIVER_PATH && existsSync(process.env.EDGE_DRIVER_PATH)) {
+    return process.env.EDGE_DRIVER_PATH;
+  }
+
+  if (process.platform === 'win32') {
+    const local = path.resolve(__dirname, '..', 'node_modules', '.bin', 'edgedriver.cmd');
+    if (existsSync(local)) return local;
+  } else {
+    const local = path.resolve(__dirname, '..', 'node_modules', '.bin', 'edgedriver');
+    if (existsSync(local)) return local;
+  }
+
+  return null;
+}
 
 // Ensure tauri-driver is closed even on unexpected exits
 function onShutdown(fn: () => void) {
@@ -182,12 +214,18 @@ export const config: WebdriverIO.Config = {
     console.log(`[e2e] [${specName}] Port: ${tauriDriverPort}, Data: ${testDir}`);
 
     // 5. Spawn driver
+    const nativeDriverPath = resolveNativeDriverPath();
+    const tauriDriverArgs = [
+      '--port', tauriDriverPort.toString(),
+      '--native-port', nativeDriverPort.toString(),
+    ];
+    if (nativeDriverPath) {
+      tauriDriverArgs.push('--native-driver', nativeDriverPath);
+    }
+
     tauriDriver = spawn(
-      'tauri-driver',
-      [
-        '--port', tauriDriverPort.toString(),
-        '--native-port', nativeDriverPort.toString()
-      ],
+      resolveTauriDriverCommand(),
+      tauriDriverArgs,
       {
         stdio: [null, 'pipe', 'pipe'],
         env: {
@@ -204,8 +242,7 @@ export const config: WebdriverIO.Config = {
 
     // Wait for driver
     console.log(`[e2e] [${specName}] Initializing tauri-driver (3s)...`);
-    const { execSync } = await import('child_process');
-    try { execSync('sleep 3'); } catch { }
+    await delay(3000);
 
     tauriDriver.on('error', (error: Error) => {
       console.error(`[e2e] [${specName}] tauri-driver error:`, error);
@@ -232,8 +269,7 @@ export const config: WebdriverIO.Config = {
       // 2. WAIT for it to actually die before moving files
       let attempts = 0;
       while (tauriDriver && (tauriDriver as any)._finalExitCode === undefined && attempts < 15) {
-        const { execSync } = await import('child_process');
-        try { execSync('sleep 0.2'); } catch { }
+        await delay(200);
         attempts++;
       }
 

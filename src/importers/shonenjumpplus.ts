@@ -1,5 +1,5 @@
 import { MetadataImporter, ScrapedMetadata } from './index';
-import { invoke } from '@tauri-apps/api/core';
+import { fetchExternalJson } from '../platform';
 
 export class ShonenjumpplusImporter implements MetadataImporter {
     name = "Shonen Jump Plus";
@@ -11,7 +11,7 @@ export class ShonenjumpplusImporter implements MetadataImporter {
 
     async fetch(url: string, _targetVolume?: number): Promise<ScrapedMetadata> {
         // Fetch the episode page
-        const html = await invoke<string>('fetch_external_json', { url: url, method: "GET" });
+        const html = await fetchExternalJson(url, "GET");
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
 
@@ -41,7 +41,7 @@ export class ShonenjumpplusImporter implements MetadataImporter {
         let description = "";
         if (rssUrl) {
             try {
-                const rssXml = await invoke<string>('fetch_external_json', { url: rssUrl, method: "GET" });
+                const rssXml = await fetchExternalJson(rssUrl, "GET");
                 const rssDoc = parser.parseFromString(rssXml, 'text/xml');
 
                 // 3. Extract Description

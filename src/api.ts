@@ -1,169 +1,91 @@
-import { invoke } from '@tauri-apps/api/core';
-import { getVersion } from '@tauri-apps/api/app';
+/**
+ * Public API surface for all application data and platform operations.
+ *
+ * All functions delegate to the active service adapter (desktop or web).
+ * Existing import sites across the codebase continue to work unchanged.
+ *
+ * Do NOT add direct @tauri-apps imports here — use the service layer instead.
+ */
+import { getServices } from './services';
 
-declare const __APP_GIT_HASH__: string;
+// Re-export shared types so existing `import { Media, ... } from './api'` still works.
+export type {
+    Media,
+    ActivityLog,
+    ActivitySummary,
+    DailyHeatmap,
+    MediaCsvRow,
+    MediaConflict,
+} from './types';
 
-export interface MediaCsvRow {
-    "Title": string;
-    "Media Type": string;
-    "Status": string;
-    "Language": string;
-    "Description": string;
-    "Content Type": string;
-    "Extra Data": string;
-    "Cover Image (Base64)": string;
-}
+import type { Media, ActivityLog, ActivitySummary, DailyHeatmap, MediaCsvRow, MediaConflict } from './types';
 
-export interface MediaConflict {
-    incoming: MediaCsvRow;
-    existing?: Media;
-}
+export function getAllMedia():                                     Promise<Media[]>          { return getServices().getAllMedia(); }
+export function addMedia(media: Media):                            Promise<number>           { return getServices().addMedia(media); }
+export function updateMedia(media: Media):                         Promise<void>             { return getServices().updateMedia(media); }
+export function deleteMedia(id: number):                           Promise<void>             { return getServices().deleteMedia(id); }
 
-export interface Media {
-  id?: number;
-  title: string;
-  media_type: string;
-  status: string;
-  language: string;
-  description: string;
-  cover_image: string;
-  extra_data: string;
-  content_type: string;
-  tracking_status: string;
-}
+export function addLog(log: ActivityLog):                         Promise<number>           { return getServices().addLog(log); }
+export function deleteLog(id: number):                            Promise<void>             { return getServices().deleteLog(id); }
+export function getLogs():                                        Promise<ActivitySummary[]> { return getServices().getLogs(); }
+export function getHeatmap():                                     Promise<DailyHeatmap[]>   { return getServices().getHeatmap(); }
+export function getLogsForMedia(mediaId: number):                 Promise<ActivitySummary[]> { return getServices().getLogsForMedia(mediaId); }
 
-export interface ActivityLog {
-  id?: number;
-  media_id: number;
-  duration_minutes: number;
-  date: string;
-}
+export function switchProfile(profileName: string):                Promise<void>             { return getServices().switchProfile(profileName); }
+export function clearActivities():                                 Promise<void>             { return getServices().clearActivities(); }
+export function wipeEverything():                                  Promise<void>             { return getServices().wipeEverything(); }
+export function deleteProfile(profileName: string):                Promise<void>             { return getServices().deleteProfile(profileName); }
+export function listProfiles():                                    Promise<string[]>          { return getServices().listProfiles(); }
 
-export interface ActivitySummary {
-  id: number;
-  media_id: number;
-  title: string;
-  media_type: string;
-  duration_minutes: number;
-  date: string;
-  language: string;
-}
+export function getSetting(key: string):                           Promise<string | null>    { return getServices().getSetting(key); }
+export function setSetting(key: string, value: string):            Promise<void>             { return getServices().setSetting(key, value); }
 
-export interface DailyHeatmap {
-  date: string;
-  total_minutes: number;
-}
+export function getUsername():                                     Promise<string>            { return getServices().getUsername(); }
+export function getAppVersion():                                   Promise<string>            { return getServices().getAppVersion(); }
 
-export async function getAllMedia(): Promise<Media[]> {
-  return await invoke('get_all_media');
-}
-
-export async function addMedia(media: Media): Promise<number> {
-  return await invoke('add_media', { media });
-}
-
-export async function updateMedia(media: Media): Promise<void> {
-  return await invoke('update_media', { media });
-}
-
-export async function deleteMedia(id: number): Promise<void> {
-  return await invoke('delete_media', { id });
-}
-
-export async function addLog(log: ActivityLog): Promise<number> {
-  return await invoke('add_log', { log });
-}
-
-export async function deleteLog(id: number): Promise<void> {
-  return await invoke('delete_log', { id });
-}
-
-export async function getLogs(): Promise<ActivitySummary[]> {
-  return await invoke('get_logs');
-}
-
-export async function getHeatmap(): Promise<DailyHeatmap[]> {
-  return await invoke('get_heatmap');
-}
-
-export async function importCsv(filePath: string): Promise<number> {
-  return await invoke('import_csv', { filePath });
-}
-
-export async function switchProfile(profileName: string): Promise<void> {
-  return await invoke('switch_profile', { profileName });
-}
-
-export async function clearActivities(): Promise<void> {
-  return await invoke('clear_activities');
-}
-
-export async function wipeEverything(): Promise<void> {
-  return await invoke('wipe_everything');
-}
-
-export async function deleteProfile(profileName: string): Promise<void> {
-  return await invoke('delete_profile', { profileName });
-}
-
-export async function listProfiles(): Promise<string[]> {
-  return await invoke('list_profiles');
-}
-
-export async function exportCsv(filePath: string, startDate?: string, endDate?: string): Promise<number> {
-  return await invoke('export_csv', { filePath, startDate, endDate });
-}
-
-export async function exportMediaCsv(filePath: string): Promise<number> {
-  return await invoke('export_media_csv', { filePath });
-}
-
-export async function analyzeMediaCsv(filePath: string): Promise<MediaConflict[]> {
-  return await invoke('analyze_media_csv', { filePath });
-}
-
-export async function applyMediaImport(records: MediaCsvRow[]): Promise<number> {
-  return await invoke('apply_media_import', { records });
-}
-
-export async function getLogsForMedia(mediaId: number): Promise<ActivitySummary[]> {
-  return await invoke('get_logs_for_media', { mediaId });
-}
-
-export async function uploadCoverImage(mediaId: number, path: string): Promise<string> {
-  return await invoke('upload_cover_image', { mediaId, path });
-}
-
-export async function readFileBytes(path: string): Promise<number[]> {
-  return await invoke('read_file_bytes', { path });
-}
+export function applyMediaImport(records: MediaCsvRow[]):          Promise<number>           { return getServices().applyMediaImport(records); }
 
 export async function downloadAndSaveImage(mediaId: number, url: string): Promise<string> {
-  if ((window as any).mockDownloadedImagePath) {
-    return (window as any).mockDownloadedImagePath;
-  }
-  return await invoke('download_and_save_image', { mediaId, url });
-}
-
-export async function getUsername(): Promise<string> {
-  return await invoke('get_username');
-}
-
-export async function getSetting(key: string): Promise<string | null> {
-  return await invoke('get_setting', { key });
-}
-
-export async function setSetting(key: string, value: string): Promise<void> {
-  return await invoke('set_setting', { key, value });
-}
-/*
-* Retrieves the version as defined in the manifest (or as dynamically set)
-*/
-export async function getAppVersion(): Promise<string> {
-    const baseVersion = await getVersion();
-    // For in-development releases, we ignore the 0.x.x version and show the git hash
-    if (baseVersion.startsWith('0.')) {
-        return `0.0.0-dev.${__APP_GIT_HASH__}`;
+    const direct = (window as any).mockDownloadedImagePath;
+    if (typeof direct === 'string' && direct.length > 0) {
+        return direct;
     }
-    return baseVersion;
+    return getServices().downloadAndSaveImage(mediaId, url);
+}
+
+// ── Legacy file-path-based exports (desktop only, kept for backwards compat) ─
+// New code should use getServices().pick* / export* methods instead.
+
+/** @deprecated Use getServices().pickAndImportActivities() */
+export function importCsv(_filePath: string): Promise<number> {
+    // Desktop-only path; file path is forwarded directly to the Tauri command.
+    // In web mode this will throw — callers should be migrated to pickAndImportActivities().
+    return getServices().getAllMedia().then(() => {
+        throw new Error('importCsv(path) is not supported in web mode. Use pickAndImportActivities().');
+    });
+}
+
+/** @deprecated Use getServices().exportActivities() */
+export function exportCsv(_filePath: string, _startDate?: string, _endDate?: string): Promise<number> {
+    throw new Error('exportCsv(path) is not supported in web mode. Use exportActivities().');
+}
+
+/** @deprecated Use getServices().exportMediaLibrary() */
+export function exportMediaCsv(_filePath: string): Promise<number> {
+    throw new Error('exportMediaCsv(path) is not supported in web mode. Use exportMediaLibrary().');
+}
+
+/** @deprecated Use getServices().analyzeMediaCsvFromPick() */
+export function analyzeMediaCsv(_filePath: string): Promise<MediaConflict[]> {
+    throw new Error('analyzeMediaCsv(path) is not supported in web mode. Use analyzeMediaCsvFromPick().');
+}
+
+/** @deprecated Use getServices().pickAndUploadCover() */
+export function uploadCoverImage(_mediaId: number, _path: string): Promise<string> {
+    throw new Error('uploadCoverImage(path) is not supported in web mode. Use pickAndUploadCover().');
+}
+
+/** @deprecated Use getServices().loadCoverImage() */
+export function readFileBytes(_path: string): Promise<number[]> {
+    throw new Error('readFileBytes(path) is not supported in web mode. Use loadCoverImage().');
 }

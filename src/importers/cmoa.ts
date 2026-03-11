@@ -1,5 +1,5 @@
 import { MetadataImporter, ScrapedMetadata } from './index';
-import { invoke } from '@tauri-apps/api/core';
+import { fetchExternalJson } from '../platform';
 
 export class CmoaImporter implements MetadataImporter {
     name = "Cmoa";
@@ -10,10 +10,7 @@ export class CmoaImporter implements MetadataImporter {
     }
 
     async fetch(url: string): Promise<ScrapedMetadata> {
-        const html = await invoke<string>('fetch_external_json', {
-            url,
-            method: "GET"
-        });
+        const html = await fetchExternalJson(url, "GET");
 
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');

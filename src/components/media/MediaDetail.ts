@@ -1,9 +1,9 @@
 import { Component } from '../../core/component';
 import { html, escapeHTML } from '../../core/html';
-import { Media, ActivitySummary, updateMedia, uploadCoverImage, downloadAndSaveImage, readFileBytes, deleteMedia, getSetting } from '../../api';
+import { Media, ActivitySummary, updateMedia, deleteMedia, getSetting } from '../../api';
 import { customConfirm, customPrompt, showJitenSearchModal, showImportMergeModal } from '../../modals';
 import { isValidImporterUrl, getAvailableSourcesForContentType, fetchMetadataForUrl } from '../../importers';
-import { open } from '../../utils/dialogs';
+import { getServices } from '../../services';
 import { MediaLog } from './MediaLog';
 import { setupCopyButton } from '../../utils/clipboard';
 import { formatHhMm } from '../../utils/time';
@@ -37,16 +37,8 @@ export class MediaDetail extends Component<MediaDetailState> {
 
     private async loadImage() {
         const { cover_image } = this.state.media;
-        if (!cover_image || cover_image.trim() === '') return;
-
-        try {
-            const bytes = await readFileBytes(cover_image);
-            const blob = new Blob([new Uint8Array(bytes)]);
-            const src = URL.createObjectURL(blob);
-            this.setState({ imgSrc: src });
-        } catch (e) {
-            console.error("Failed to load image", e);
-        }
+        const src = await getServices().loadCoverImage(cover_image);
+        if (src) this.setState({ imgSrc: src });
     }
 
     private getTrackingStatusClass(status: string): string {
@@ -291,18 +283,14 @@ export class MediaDetail extends Component<MediaDetailState> {
         root.querySelector('#media-select')?.addEventListener('change', (e) => this.onNavigate(parseInt((e.target as HTMLSelectElement).value)));
 
         root.querySelector('#media-cover-img')?.addEventListener('dblclick', async () => {
-            const selected = await open({
-                multiple: false,
-                filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }]
-            });
-            if (selected && typeof selected === 'string') {
-                try {
-                    const newPath = await uploadCoverImage(this.state.media.id!, selected);
+            try {
+                const newPath = await getServices().pickAndUploadCover(this.state.media.id!);
+                if (newPath) {
                     this.state.media.cover_image = newPath;
                     await this.loadImage();
-                } catch (e) {
-                    alert("Failed to upload image: " + e);
                 }
+            } catch (e) {
+                alert("Failed to upload image: " + e);
             }
         });
 
@@ -466,7 +454,7 @@ export class MediaDetail extends Component<MediaDetailState> {
             // Handle cover image merge
             if (merged.coverImageUrl && this.state.media.id) {
                 try {
-                    const newPath = await downloadAndSaveImage(this.state.media.id, merged.coverImageUrl);
+                    const newPath = await getServices().downloadAndSaveImage(this.state.media.id!, merged.coverImageUrl);
                     this.state.media.cover_image = newPath;
                     await this.loadImage(); // Reload blob URL for the new image
                 } catch (err) {

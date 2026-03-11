@@ -1,6 +1,6 @@
 import { ScrapedMetadata, MetadataImporter } from './index';
 import { JITEN_BASE_URL } from '../jiten_api';
-import { invoke } from '@tauri-apps/api/core';
+import { fetchExternalJson } from '../platform';
 
 export class JitenImporter implements MetadataImporter {
     name = "Jiten.moe";
@@ -23,10 +23,10 @@ export class JitenImporter implements MetadataImporter {
         }
         const deckId = deckIdMatch[1];
 
-        const jsonStr = await invoke<string>('fetch_external_json', {
-            url: `${JITEN_BASE_URL}/api/media-deck/${deckId}/detail`,
-            method: 'GET'
-        });
+        const jsonStr = await fetchExternalJson(
+            `${JITEN_BASE_URL}/api/media-deck/${deckId}/detail`,
+            'GET',
+        );
         const json = JSON.parse(jsonStr);
         const data = json.data?.mainDeck;
         if (!data) {

@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { fetchExternalJson } from './platform';
 
 export interface JitenResult {
     deckId: number;
@@ -102,10 +102,10 @@ async function performSearch(query: string, mediaType: number): Promise<JitenRes
     }
 
     try {
-        const jsonStr = await invoke<string>('fetch_external_json', {
-            url: `${JITEN_BASE_URL}/api/media-deck/get-media-decks?${params.toString()}`,
-            method: 'GET'
-        });
+        const jsonStr = await fetchExternalJson(
+            `${JITEN_BASE_URL}/api/media-deck/get-media-decks?${params.toString()}`,
+            'GET',
+        );
         const data = JSON.parse(jsonStr);
         if (data && data.data && Array.isArray(data.data)) {
             return data.data.map((deck: any) => ({
@@ -127,10 +127,10 @@ async function performSearch(query: string, mediaType: number): Promise<JitenRes
 
 export async function getJitenDeckChildren(deckId: number): Promise<JitenResult[]> {
     try {
-        const jsonStr = await invoke<string>('fetch_external_json', {
-            url: `${JITEN_BASE_URL}/api/media-deck/${deckId}/detail`,
-            method: 'GET'
-        });
+        const jsonStr = await fetchExternalJson(
+            `${JITEN_BASE_URL}/api/media-deck/${deckId}/detail`,
+            'GET',
+        );
         const json = JSON.parse(jsonStr);
         const subDecks = json.data?.subDecks;
         if (subDecks && Array.isArray(subDecks)) {

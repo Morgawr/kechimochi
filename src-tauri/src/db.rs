@@ -19,6 +19,32 @@ pub fn get_data_dir(app_handle: &tauri::AppHandle) -> PathBuf {
     }
 }
 
+/// Standalone variant of get_data_dir for use in the web server binary,
+/// which has no Tauri AppHandle.
+/// Resolution order:
+///   1. KECHIMOCHI_DATA_DIR env var (same as the Tauri app, used for tests)
+///   2. Platform-specific default that matches Tauri's app_data_dir path
+pub fn get_data_dir_standalone() -> PathBuf {
+    if let Ok(dir) = std::env::var("KECHIMOCHI_DATA_DIR") {
+        return PathBuf::from(dir);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let appdata = std::env::var("APPDATA").expect("APPDATA env var not set");
+        PathBuf::from(appdata).join("kechimochi")
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let home = std::env::var("HOME").expect("HOME env var not set");
+        PathBuf::from(home).join("Library/Application Support/kechimochi")
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        let home = std::env::var("HOME").expect("HOME env var not set");
+        PathBuf::from(home).join(".local/share/kechimochi")
+    }
+}
+
 fn migrate_to_shared(conn: &Connection) -> Result<()> {
     // Check if `main.media` exists
     let count: i64 = conn.query_row(

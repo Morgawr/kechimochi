@@ -1,5 +1,5 @@
 import { MetadataImporter, ScrapedMetadata } from './index';
-import { invoke } from '@tauri-apps/api/core';
+import { fetchExternalJson } from '../platform';
 
 export class AnilistImporter implements MetadataImporter {
     name = "Anilist";
@@ -42,15 +42,12 @@ export class AnilistImporter implements MetadataImporter {
             variables: variables
         });
 
-        const responseText: string = await invoke('fetch_external_json', {
-            url: "https://graphql.anilist.co",
-            method: "POST",
-            body: requestBody,
-            headers: {
-                "Content-Type": "application/json",
-                "Accept": "application/json"
-            }
-        });
+        const responseText: string = await fetchExternalJson(
+            "https://graphql.anilist.co",
+            "POST",
+            requestBody,
+            { "Content-Type": "application/json", "Accept": "application/json" },
+        );
 
         const json = JSON.parse(responseText);
         

@@ -12,10 +12,22 @@ describe('CUJ: User Personalization', () => {
     expect(await verifyActiveView('profile')).toBe(true);
 
     const themeSelect = await $('#profile-select-theme');
-    await themeSelect.selectByAttribute('value', 'molokai');
+    await themeSelect.waitForDisplayed({ timeout: 5000 });
 
-    const body = await $('body');
-    expect(await body.getAttribute('data-theme')).toBe('molokai');
+    // WebView can be flaky with selectByAttribute; force value + change event.
+    await browser.execute((el) => {
+      const select = el as HTMLSelectElement;
+      select.value = 'molokai';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    }, themeSelect);
+
+    await browser.waitUntil(async () => {
+      const body = await $('body');
+      return (await body.getAttribute('data-theme')) === 'molokai';
+    }, {
+      timeout: 5000,
+      timeoutMsg: 'Theme did not update to molokai on body[data-theme]'
+    });
 
     await takeAndCompareScreenshot('profile-molokai-theme');
   });

@@ -1,5 +1,5 @@
 import { MetadataImporter, ScrapedMetadata } from './index';
-import { invoke } from '@tauri-apps/api/core';
+import { fetchExternalJson } from '../platform';
 
 export class BookwalkerImporter implements MetadataImporter {
     name = "Bookwalker";
@@ -10,7 +10,7 @@ export class BookwalkerImporter implements MetadataImporter {
 
     async fetch(url: string, targetVolume?: number): Promise<ScrapedMetadata> {
         let currentUrl = url;
-        let html = await invoke<string>('fetch_external_json', { url: currentUrl, method: "GET" });
+        let html = await fetchExternalJson(currentUrl, "GET");
         let parser = new DOMParser();
         let doc = parser.parseFromString(html, 'text/html');
 
@@ -31,7 +31,7 @@ export class BookwalkerImporter implements MetadataImporter {
 
             if (seriesUrl) {
                 // Fetch the Series List page
-                const seriesHtml = await invoke<string>('fetch_external_json', { url: seriesUrl, method: "GET" });
+                const seriesHtml = await fetchExternalJson(seriesUrl, "GET");
                 const seriesDoc = parser.parseFromString(seriesHtml, 'text/html');
                 
                 // Find all volume links
@@ -57,7 +57,7 @@ export class BookwalkerImporter implements MetadataImporter {
                     // We found our target volume! Re-fetch the real target page.
                     if (!foundUrl.startsWith("http")) foundUrl = "https://bookwalker.jp" + foundUrl;
                     currentUrl = foundUrl;
-                    html = await invoke<string>('fetch_external_json', { url: currentUrl, method: "GET" });
+                    html = await fetchExternalJson(currentUrl, "GET");
                     doc = parser.parseFromString(html, 'text/html');
                 } else {
                     console.warn(`Could not find Volume ${targetVolume} on series list. Using original URL.`);

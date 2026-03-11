@@ -2,6 +2,8 @@ import { defineConfig } from "vite";
 import { execSync } from "child_process";
 
 const host = process.env.TAURI_DEV_HOST;
+const webHost = process.env.WEB_HOST;
+const apiTarget = process.env.VITE_API_BASE_URL || "http://127.0.0.1:3000";
 
 const gitHash = execSync("git rev-parse --short HEAD").toString().trim();
 
@@ -19,7 +21,13 @@ export default defineConfig(async () => ({
   server: {
     port: 1420,
     strictPort: true,
-    host: host || false,
+    host: webHost || host || false,
+    proxy: {
+      "/api": {
+        target: apiTarget,
+        changeOrigin: true,
+      },
+    },
     hmr: host
       ? {
           protocol: "ws",

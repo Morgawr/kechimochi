@@ -38,13 +38,23 @@ describe('Factory Reset CUJ', () => {
 
   it('should prompt for a new user name and create BESTUSER', async () => {
     const initialInput = await $('#initial-prompt-input');
+    await initialInput.waitForDisplayed({ timeout: 10000 });
     await initialInput.setValue('BESTUSER');
 
     const startBtn = await $('#initial-prompt-confirm');
+    await startBtn.waitForClickable({ timeout: 5000 });
     await startBtn.click();
 
-    // App should navigate to dashboard after creation
-    await (await $('[data-view="dashboard"]')).waitForDisplayed();
+    // App may briefly re-render; wait until profile is switched and dashboard is active.
+    await browser.waitUntil(async () => {
+      const active = await verifyActiveView('dashboard');
+      const currentProfile = await browser.execute(() => localStorage.getItem('kechimochi_profile'));
+      return active && currentProfile === 'BESTUSER';
+    }, {
+      timeout: 10000,
+      timeoutMsg: 'Dashboard did not become active with BESTUSER after initial profile creation'
+    });
+
     expect(await verifyActiveView('dashboard')).toBe(true);
   });
 
