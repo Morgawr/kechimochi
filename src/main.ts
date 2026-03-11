@@ -81,6 +81,11 @@ class App {
         // Always show dev build label for now as requested
         if (this.devBuildBadgeEl) {
             this.devBuildBadgeEl.style.display = 'inline-flex';
+            // @ts-ignore
+            const appVersion = import.meta.env.VITE_APP_VERSION;
+            if (appVersion) {
+                this.devBuildBadgeEl.textContent = `Dev Build ${appVersion}`;
+            }
         }
 
         await this.ensureProfilesList();

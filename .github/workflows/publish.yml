@@ -56,6 +56,7 @@ jobs:
         working-directory: ./src-tauri
         env:
           TAURI_BUNDLER_NEW_APPIMAGE_FORMAT: 1
+          VITE_APP_VERSION: ${{ steps.versioning.outputs.VERSION }}
         run: cargo tauri build --bundles appimage --verbose
 
       - name: upload artifact
@@ -100,6 +101,7 @@ jobs:
         env:
           TAURI_BUNDLER_NEW_APPIMAGE_FORMAT: 1
           NO_STRIP: true  
+          VITE_APP_VERSION: ${{ steps.versioning.outputs.VERSION }}
         run: cargo tauri build --bundles appimage --verbose
 
       - name: upload artifact
@@ -140,10 +142,15 @@ jobs:
           SHA_SHORT=$(git rev-parse --short HEAD)
           VERSION="0.0.0-dev.${SHA_SHORT}"
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          
+          # Use hash version for package.json (usually okay for web build)
           jq ".version = \"$VERSION\"" package.json > package.json.tmp && mv package.json.tmp package.json
-          jq ".version = \"$VERSION\"" src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp && mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
+          # MSI MUST use numeric version, so we use 0.0.0 for the internal metadata
+          jq ".version = \"0.0.0\"" src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp && mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
 
       - name: build tauri app
+        env:
+          VITE_APP_VERSION: ${{ steps.versioning.outputs.VERSION }}
         run: npm run tauri build -- --bundles msi --verbose
 
       - name: upload artifact
