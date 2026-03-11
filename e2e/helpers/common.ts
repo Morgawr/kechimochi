@@ -39,7 +39,7 @@ export async function assertTextVisible(text: string): Promise<void> {
  */
 export async function takeAndCompareScreenshot(tag: string): Promise<void> {
   const stageDir = process.env.SPEC_STAGE_DIR;
-  
+
   const options: any = {};
   if (stageDir) {
     const actualFolder = path.join(stageDir, 'visual', 'actual');
@@ -54,7 +54,7 @@ export async function takeAndCompareScreenshot(tag: string): Promise<void> {
   }
 
   const result = await browser.checkScreen(tag, options);
-  
+
   // High tolerance for environmental rendering noise
   expect(result).toBeLessThanOrEqual(10.0);
 }
@@ -76,26 +76,26 @@ export async function dismissAlert(): Promise<void> {
  * Handle a custom prompt modal by entering a value and confirming
  */
 export async function submitPrompt(value: string): Promise<void> {
-    const input = await $('#prompt-input');
-    await input.waitForDisplayed({ timeout: 5000 });
-    await input.setValue(value);
-    
-    const confirmBtn = await $('#prompt-confirm');
-    await confirmBtn.click();
-    
-    // Wait for fadeout
-    await browser.pause(500);
+  const input = await $('#prompt-input');
+  await input.waitForDisplayed({ timeout: 5000 });
+  await input.setValue(value);
+
+  const confirmBtn = await $('#prompt-confirm');
+  await confirmBtn.click();
+
+  // Wait for fadeout
+  await browser.pause(500);
 }
 
 /**
  * Handle a custom confirmation modal
  */
 export async function confirmAction(ok: boolean = true): Promise<void> {
-    const btnSelector = ok ? '#confirm-ok' : '#confirm-cancel';
-    const btn = await $(btnSelector);
-    await btn.waitForDisplayed({ timeout: 5000 });
-    await btn.click();
-    
-    // Wait for fadeout
-    await browser.pause(500);
+  const btnSelector = ok ? '#confirm-ok' : '#confirm-cancel';
+  const btn = await $(btnSelector);
+  await btn.waitForDisplayed({ timeout: 5000 });
+  await btn.click();
+
+  // Wait for fadeout
+  await browser.pause(500);
 }
