@@ -58,6 +58,8 @@ jobs:
           echo "Building version $VERSION"
 
       - name: build tauri app
+        env:
+          NO_STRIP: true
         run: npm run tauri build -- --bundles appimage
 
       - name: upload artifact
