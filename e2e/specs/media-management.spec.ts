@@ -22,13 +22,15 @@ describe('Media Management CUJs', () => {
       await backBtn.click();
 
       // Verify it appears in the grid
-      const gridItem = await $(`//div[contains(@class, "media-item-wrapper")]//div[contains(text(), "Cyberpunk 2077")]`);
+      const gridItem = await $(`.media-grid-item[data-title="Cyberpunk 2077"]`);
       await gridItem.waitForExist({ timeout: 5000 });
+      await gridItem.scrollIntoView();
       expect(await gridItem.isDisplayed()).toBe(true);
     });
 
     it('should update status in detail view and verify it in the grid', async () => {
-      const gridItem = await $(`//div[contains(@class, "media-item-wrapper")]//div[contains(text(), "Cyberpunk 2077")]`);
+      const gridItem = await $(`.media-grid-item[data-title="Cyberpunk 2077"]`);
+      await gridItem.waitForDisplayed({ timeout: 5000 });
       await gridItem.click();
 
       const statusSelect = await $('#media-tracking-status');
@@ -40,7 +42,7 @@ describe('Media Management CUJs', () => {
       const backBtn = await $('#btn-back-grid');
       await backBtn.click();
 
-      const statusLabel = await $(`//div[contains(text(), "Cyberpunk 2077")]/ancestor::div[contains(@class, "media-item-wrapper")]//*[contains(@class, "status-ongoing")]`);
+      const statusLabel = await $(`.media-grid-item[data-title="Cyberpunk 2077"] .status-ongoing`);
       expect(await statusLabel.isExisting()).toBe(true);
     });
   });
