@@ -107,7 +107,7 @@ export async function isMediaVisible(title: string): Promise<boolean> {
         for (const it of allItems) {
             titles.push(await it.getAttribute('data-title'));
         }
-        console.log(`[E2E] isMediaVisible("${title}") failed. Items in grid: [${titles.join(', ')}]`);
+        console.log(`[E2E] isMediaVisible("${title}") returned false. Items in grid: [${titles.join(', ')}]`);
         return false;
     }
 }
