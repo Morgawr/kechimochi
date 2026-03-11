@@ -3,7 +3,8 @@ import { html } from '../core/html';
 import {
     getAllMedia, getLogsForMedia, importCsv, exportCsv, deleteProfile,
     clearActivities, wipeEverything, exportMediaCsv, analyzeMediaCsv,
-    applyMediaImport, switchProfile, listProfiles, getSetting, setSetting
+    applyMediaImport, switchProfile, listProfiles, getSetting, setSetting,
+    getAppVersion
 } from '../api';
 import {
     customPrompt, showExportCsvModal, customAlert, customConfirm,
@@ -23,6 +24,7 @@ interface ProfileState {
         vnCount: string;
         timestamp: string;
     };
+    appVersion: string;
     isInitialized: boolean;
 }
 
@@ -42,6 +44,7 @@ export class ProfileView extends Component<ProfileState> {
                 vnCount: '0',
                 timestamp: ''
             },
+            appVersion: '',
             isInitialized: false
         });
     }
@@ -55,6 +58,7 @@ export class ProfileView extends Component<ProfileState> {
         const vnSpeed = await getSetting('stats_vn_speed') || '0';
         const vnCount = await getSetting('stats_vn_count') || '0';
         const timestamp = await getSetting('stats_report_timestamp') || '';
+        const appVersion = await getAppVersion();
 
         const currentProfile = localStorage.getItem('kechimochi_profile') || 'default';
         this.setState({
@@ -69,6 +73,7 @@ export class ProfileView extends Component<ProfileState> {
                 vnCount,
                 timestamp
             },
+            appVersion,
             isInitialized: true
         });
     }
@@ -87,7 +92,7 @@ export class ProfileView extends Component<ProfileState> {
         }
 
         this.clear();
-        const { currentProfile, theme, report } = this.state;
+        const { currentProfile, theme, report, appVersion } = this.state;
 
         const content = html`
             <div class="animate-fade-in" style="display: flex; flex-direction: column; gap: 2rem; max-width: 600px; margin: 0 auto; padding-top: 1rem; padding-bottom: 2rem;">
@@ -185,6 +190,13 @@ export class ProfileView extends Component<ProfileState> {
                             </div>
                             <button class="btn btn-danger" id="profile-btn-wipe-everything" style="background-color: darkred !important; color: #ffffff !important; border: none; min-width: 140px; font-weight: bold;">Factory Reset</button>
                         </div>
+                    </div>
+                </div>
+
+                <div style="text-align: center; margin-top: 1rem; font-size: 0.8rem; color: var(--text-secondary); opacity: 0.7;">
+                    <div>Kechimochi v${appVersion}</div>
+                    <div style="margin-top: 0.4rem;">
+                        Found a bug? File an issue on <a href="https://github.com/Morgawr/kechimochi/issues" target="_blank" style="color: var(--text-secondary); text-decoration: underline;">github</a>
                     </div>
                 </div>
 

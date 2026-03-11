@@ -1,10 +1,15 @@
 import { defineConfig } from "vite";
+import { execSync } from "child_process";
 
-// @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
+
+const gitHash = execSync("git rev-parse --short HEAD").toString().trim();
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
+  define: {
+    __APP_GIT_HASH__: JSON.stringify(gitHash),
+  },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

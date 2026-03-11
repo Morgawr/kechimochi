@@ -1,4 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
+import { getVersion } from '@tauri-apps/api/app';
+
+declare const __APP_GIT_HASH__: string;
 
 export interface MediaCsvRow {
     "Title": string;
@@ -152,4 +155,15 @@ export async function getSetting(key: string): Promise<string | null> {
 
 export async function setSetting(key: string, value: string): Promise<void> {
   return await invoke('set_setting', { key, value });
+}
+/*
+* Retrieves the version as defined in the manifest (or as dynamically set)
+*/
+export async function getAppVersion(): Promise<string> {
+    const baseVersion = await getVersion();
+    // For in-development releases, we ignore the 0.x.x version and show the git hash
+    if (baseVersion.startsWith('0.')) {
+        return `0.0.0-dev.${__APP_GIT_HASH__}`;
+    }
+    return baseVersion;
 }

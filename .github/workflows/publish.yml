@@ -1,0 +1,68 @@
+name: "Publish AppImage"
+
+on:
+  workflow_run:
+    workflows: ["Test"]
+    types:
+      - completed
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' && (github.event.workflow_run.head_branch == 'main' || github.event.workflow_run.head_branch == 'setup-ci') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: install node dependencies
+        run: npm install
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: cache rust dependencies
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: install system dependencies (linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            jq
+
+      - name: Set dynamic version
+        id: versioning
+        run: |
+          SHA_SHORT=$(git rev-parse --short HEAD)
+          VERSION="0.0.0-dev.${SHA_SHORT}"
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          
+          # Update package.json version
+          jq ".version = \"$VERSION\"" package.json > package.json.tmp && mv package.json.tmp package.json
+          
+          # Update tauri.conf.json version
+          jq ".version = \"$VERSION\"" src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp && mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
+          
+          echo "Building version $VERSION"
+
+      - name: build tauri app
+        run: npm run tauri build -- --bundles appimage
+
+      - name: upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kechimochi-appimage-${{ steps.versioning.outputs.VERSION }}
+          path: src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
