@@ -108,6 +108,19 @@ export async function editDescription(newDescription: string): Promise<void> {
  */
 export async function getDescription(): Promise<string> {
     const el = await $('#media-desc');
+    await el.waitForExist({ timeout: 5000 });
+    
+    // We wait a moment for text to settle, especially during re-renders
+    let text = "";
+    await browser.waitUntil(async () => {
+        text = await el.getText();
+        return text !== "" && text !== "No description provided. Double click here to add one.";
+    }, {
+        timeout: 5000,
+        interval: 100,
+        timeoutMsg: 'Description text never appeared'
+    }).catch(() => {}); // If it stays empty or placeholder, we just return current
+    
     return await el.getText();
 }
 
@@ -116,7 +129,18 @@ export async function getDescription(): Promise<string> {
  */
 export async function getExtraField(key: string): Promise<string> {
     const el = await $(`.editable-extra[data-key="${key}"]`);
-    if (!(await el.isExisting())) return "";
+    await el.waitForExist({ timeout: 5000 });
+    
+    let text = "";
+    await browser.waitUntil(async () => {
+        text = await el.getText();
+        return text !== "" && text !== "-";
+    }, {
+        timeout: 5000,
+        interval: 100,
+        timeoutMsg: `Extra field "${key}" never showed a value`
+    }).catch(() => {});
+    
     return await el.getText();
 }
 
