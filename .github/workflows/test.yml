@@ -41,7 +41,8 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             xvfb \
-            webkit2gtk-driver
+            webkit2gtk-driver \
+            fonts-noto-cjk
 
       - name: install tauri-driver
         run: |
