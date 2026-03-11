@@ -25,7 +25,18 @@ interface DashboardState {
 
 export class Dashboard extends Component<DashboardState> {
     private activeChartsComponent: ActivityCharts | null = null;
+    private heatmapComponent: HeatmapView | null = null;
+    private statsComponent: StatsCard | null = null;
     private isRefreshing: boolean = false;
+
+    private containers: {
+        stats?: HTMLElement;
+        heatmap?: HTMLElement;
+        charts?: HTMLElement;
+        logs?: HTMLElement;
+        pagination?: HTMLElement;
+        logsList?: HTMLElement;
+    } = {};
 
     constructor(container: HTMLElement) {
         super(container, {
@@ -61,98 +72,167 @@ export class Dashboard extends Component<DashboardState> {
         }
     }
 
+    public setState(newState: Partial<DashboardState>) {
+        const oldState = { ...this.state };
+        this.state = { ...this.state, ...newState };
+
+        if (!oldState.isInitialized && this.state.isInitialized) {
+            this.render();
+            return;
+        }
+
+        if (!this.state.isInitialized) return;
+
+        // Granular updates based on what changed
+        if (newState.logs || newState.mediaList) {
+            this.updateStats();
+            this.updateRecentLogs();
+        }
+
+        if (newState.heatmapData || newState.currentHeatmapYear !== undefined) {
+            this.updateHeatmap();
+        }
+
+        if (newState.chartParams || (newState.logs && oldState.logs.length === 0)) {
+            this.updateCharts();
+        }
+
+        if (newState.currentPage !== undefined) {
+            this.updateRecentLogs();
+        }
+    }
+
     async render() {
         if (!this.state.isInitialized && !this.isRefreshing) {
             await this.loadData();
             return;
         }
 
+        if (this.container.querySelector('.dashboard-root')) {
+            // Layout already exists, just update components
+            this.updateStats();
+            this.updateHeatmap();
+            this.updateCharts();
+            this.updateRecentLogs();
+            return;
+        }
+
         this.clear();
-        const root = html`<div class="animate-fade-in" style="display: flex; flex-direction: column; gap: 2rem;"></div>`;
+        const root = html`<div class="dashboard-root animate-fade-in" style="display: flex; flex-direction: column; gap: 2rem;"></div>`;
         this.container.appendChild(root);
 
         // 1. Stats and Heatmap Row
         const topRow = html`<div style="display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 2rem;"></div>`;
         root.appendChild(topRow);
 
-        const statsContainer = html`<div class="card" id="stats-box-container" style="display: flex; flex-direction: column;"></div>`;
-        topRow.appendChild(statsContainer);
-        new StatsCard(statsContainer, { logs: this.state.logs, mediaList: this.state.mediaList }).render();
+        this.containers.stats = html`<div class="card" id="stats-box-container" style="display: flex; flex-direction: column;"></div>`;
+        topRow.appendChild(this.containers.stats);
 
-        const heatmapContainer = html`<div id="heatmap-container" style="min-width: 0;"></div>`;
-        topRow.appendChild(heatmapContainer);
-        new HeatmapView(heatmapContainer, { heatmapData: this.state.heatmapData, year: this.state.currentHeatmapYear }, (dir) => {
-            this.setState({ currentHeatmapYear: this.state.currentHeatmapYear + dir });
-        }).render();
+        this.containers.heatmap = html`<div id="heatmap-container" style="min-width: 0;"></div>`;
+        topRow.appendChild(this.containers.heatmap);
 
         // 2. Charts Row
-        const chartsContainer = html`<div id="charts-container"></div>`;
-        root.appendChild(chartsContainer);
-        
+        this.containers.charts = html`<div id="charts-container"></div>`;
+        root.appendChild(this.containers.charts);
+
+        // 3. Recent Logs Row
+        const logsCard = html`
+            <div class="card">
+                <div id="logs-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h3 style="margin: 0;">Recent Activity</h3>
+                    <div id="pagination-container"></div>
+                </div>
+                <div id="recent-logs-list" style="display: flex; flex-direction: column; gap: 0.5rem;"></div>
+            </div>
+        `;
+        this.containers.logs = logsCard;
+        this.containers.pagination = logsCard.querySelector('#pagination-container') as HTMLElement;
+        this.containers.logsList = logsCard.querySelector('#recent-logs-list') as HTMLElement;
+        root.appendChild(logsCard);
+
+        // Initial component mounting
+        this.updateStats();
+        this.updateHeatmap();
+        this.updateCharts();
+        this.updateRecentLogs();
+    }
+
+    private updateStats() {
+        if (!this.containers.stats) return;
+        if (!this.statsComponent) {
+            this.statsComponent = new StatsCard(this.containers.stats, { logs: this.state.logs, mediaList: this.state.mediaList });
+        } else {
+            this.statsComponent.setState({ logs: this.state.logs, mediaList: this.state.mediaList });
+        }
+        this.statsComponent.render();
+    }
+
+    private updateHeatmap() {
+        if (!this.containers.heatmap) return;
+        if (!this.heatmapComponent) {
+            this.heatmapComponent = new HeatmapView(this.containers.heatmap, { 
+                heatmapData: this.state.heatmapData, 
+                year: this.state.currentHeatmapYear 
+            }, (dir) => {
+                this.setState({ currentHeatmapYear: this.state.currentHeatmapYear + dir });
+            });
+        } else {
+            this.heatmapComponent.setState({ 
+                heatmapData: this.state.heatmapData, 
+                year: this.state.currentHeatmapYear 
+            });
+        }
+        this.heatmapComponent.render();
+    }
+
+    private updateCharts() {
+        if (!this.containers.charts) return;
         if (this.activeChartsComponent) this.activeChartsComponent.destroy();
         this.activeChartsComponent = new ActivityCharts(
-            chartsContainer,
+            this.containers.charts,
             { logs: this.state.logs, ...this.state.chartParams },
             (newParams) => {
                 this.setState({ chartParams: { ...this.state.chartParams, ...newParams } });
             }
         );
         this.activeChartsComponent.render();
+    }
 
-        // 3. Recent Logs Row
+    private updateRecentLogs() {
+        if (!this.containers.pagination || !this.containers.logsList || !this.containers.logs) return;
+
+        const { logs, currentPage } = this.state;
         const itemsPerPage = 15;
-        const totalPages = Math.ceil(this.state.logs.length / itemsPerPage);
-        const showPagination = this.state.logs.length > itemsPerPage;
+        const totalPages = Math.ceil(logs.length / itemsPerPage);
+        const showPagination = logs.length > itemsPerPage;
 
-        let paginationHtml = '';
+        // Update Pagination
         if (showPagination) {
-            const prevButton = this.state.currentPage > 1 
+            const prevButtonHtml = currentPage > 1 
                 ? `<button class="btn btn-ghost" id="prev-page" style="font-size: 1.2rem; padding: 0.2rem 1rem;">&lt;&lt;</button>` 
                 : '<div style="width: 3rem;"></div>';
-            const nextButton = this.state.currentPage < totalPages 
+            const nextButtonHtml = currentPage < totalPages 
                 ? `<button class="btn btn-ghost" id="next-page" style="font-size: 1.2rem; padding: 0.2rem 1rem;">&gt;&gt;</button>` 
                 : '<div style="width: 3rem;"></div>';
 
-            paginationHtml = `
+            this.containers.pagination.innerHTML = `
                 <div style="display: flex; align-items: center; gap: 1rem;">
-                    ${prevButton}
+                    ${prevButtonHtml}
                     <span style="font-size: 0.9rem; color: var(--text-secondary); display: flex; align-items: center; gap: 0.5rem; white-space: nowrap;">
-                        PAGE <span id="current-page-display" title="Double click to edit" style="cursor: pointer; color: var(--text-primary); font-weight: bold; border: 1px solid var(--border-color); padding: 0.1rem 0.5rem; border-radius: 4px; min-width: 2rem; text-align: center;">${this.state.currentPage}</span> OF ${totalPages}
+                        PAGE <span id="current-page-display" title="Double click to edit" style="cursor: pointer; color: var(--text-primary); font-weight: bold; border: 1px solid var(--border-color); padding: 0.1rem 0.5rem; border-radius: 4px; min-width: 2rem; text-align: center;">${currentPage}</span> OF ${totalPages}
                     </span>
-                    ${nextButton}
+                    ${nextButtonHtml}
                 </div>
             `;
-        }
 
-        const containerStyle = showPagination 
-            ? 'display: grid; grid-template-columns: 1fr auto 1fr;' 
-            : 'display: flex; justify-content: space-between;';
-
-        const logsCard = html`
-            <div class="card">
-                <div style="${containerStyle} align-items: center; margin-bottom: 1rem;">
-                    <h3 style="margin: 0;">Recent Activity</h3>
-                    ${showPagination ? `
-                        <div style="display: flex; justify-content: center;">
-                            ${paginationHtml}
-                        </div>
-                        <div></div>
-                    ` : ''}
-                </div>
-                <div id="recent-logs-list" style="display: flex; flex-direction: column; gap: 0.5rem;"></div>
-            </div>
-        `;
-        root.appendChild(logsCard);
-        
-        if (showPagination) {
-            logsCard.querySelector('#prev-page')?.addEventListener('click', () => {
+            this.containers.pagination.querySelector('#prev-page')?.addEventListener('click', () => {
                 this.setState({ currentPage: Math.max(1, this.state.currentPage - 1) });
             });
-            logsCard.querySelector('#next-page')?.addEventListener('click', () => {
+            this.containers.pagination.querySelector('#next-page')?.addEventListener('click', () => {
                 this.setState({ currentPage: Math.min(totalPages, this.state.currentPage + 1) });
             });
 
-            const pageDisplay = logsCard.querySelector('#current-page-display') as HTMLElement;
+            const pageDisplay = this.containers.pagination.querySelector('#current-page-display') as HTMLElement;
             pageDisplay.addEventListener('dblclick', () => {
                 const input = document.createElement('input');
                 input.id = 'current-page-input';
@@ -179,7 +259,7 @@ export class Dashboard extends Component<DashboardState> {
                     if (e.key === 'Enter') input.blur();
                     if (e.key === 'Escape') {
                         input.removeEventListener('blur', savePage);
-                        this.render();
+                        this.updateRecentLogs();
                     }
                 });
 
@@ -187,12 +267,20 @@ export class Dashboard extends Component<DashboardState> {
                 input.focus();
                 input.select();
             });
+
+            // Adjust layout for pagination
+            (this.containers.logs.querySelector('#logs-header') as HTMLElement).style.display = 'grid';
+            (this.containers.logs.querySelector('#logs-header') as HTMLElement).style.gridTemplateColumns = '1fr auto 1fr';
+        } else {
+            this.containers.pagination.innerHTML = '';
+            (this.containers.logs.querySelector('#logs-header') as HTMLElement).style.display = 'flex';
+            (this.containers.logs.querySelector('#logs-header') as HTMLElement).style.justifyContent = 'space-between';
         }
 
-        this.renderLogs(logsCard.querySelector('#recent-logs-list') as HTMLElement);
+        this.renderLogsList(this.containers.logsList);
     }
 
-    private renderLogs(list: HTMLElement) {
+    private renderLogsList(list: HTMLElement) {
         const { logs, currentPage } = this.state;
         const itemsPerPage = 15;
         const currentProfile = localStorage.getItem('kechimochi_profile') || 'default';
