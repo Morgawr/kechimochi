@@ -21,8 +21,8 @@ export async function resolveConflicts(action: 'keep' | 'replace'): Promise<void
     await confirmBtn.waitForClickable({ timeout: 2000 });
     await confirmBtn.click();
     
-    // Wait for the conflict modal to be gone
-    await modal.waitForExist({ reverse: true, timeout: 5000 });
+    // Wait for the specific button to be gone to avoid ambiguity with next modals
+    await confirmBtn.waitForExist({ reverse: true, timeout: 5000 });
     
     // Then handle the success alert that usually follows
     await dismissAlert(10000); 
