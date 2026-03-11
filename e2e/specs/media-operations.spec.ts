@@ -15,7 +15,7 @@ describe('CUJ: Media Extra Fields and Metadata Management', () => {
     await navigateTo('media');
     expect(await verifyActiveView('media')).toBe(true);
 
-    const mediaItem = await $(`//div[@data-title="${targetMediaTitle}"]`);
+    const mediaItem = await $(`.media-grid-item[data-title="${targetMediaTitle}"]`);
     await mediaItem.waitForDisplayed({ timeout: 5000 });
     await mediaItem.click();
 
@@ -34,8 +34,13 @@ describe('CUJ: Media Extra Fields and Metadata Management', () => {
 
     const extraField = await $(`//div[@data-ekey="${extraFieldKey}"]`);
     await extraField.waitForExist({ timeout: 5000 });
-    const valText = await extraField.$('.editable-extra').getText();
-    expect(valText).toBe(extraFieldValue);
+    const editable = await extraField.$('.editable-extra');
+    
+    await browser.waitUntil(async () => {
+        return (await editable.getText()) === extraFieldValue;
+    }, { timeout: 5000, timeoutMsg: 'Extra field value did not match after adding' });
+
+    expect(await editable.getText()).toBe(extraFieldValue);
   });
 
   it('should verify the tag persists after navigating away and back', async () => {
@@ -45,14 +50,20 @@ describe('CUJ: Media Extra Fields and Metadata Management', () => {
     expect(await verifyActiveView('media')).toBe(true);
 
     // Re-open the same item
-    const mediaItem = await $(`//div[@data-title="${targetMediaTitle}"]`);
+    const mediaItem = await $(`.media-grid-item[data-title="${targetMediaTitle}"]`);
+    await mediaItem.waitForDisplayed({ timeout: 5000 });
     await mediaItem.click();
 
     // Verify tag is still there
     const extraField = await $(`//div[@data-ekey="${extraFieldKey}"]`);
     await extraField.waitForExist({ timeout: 5000 });
-    const valText = await extraField.$('.editable-extra').getText();
-    expect(valText).toBe(extraFieldValue);
+    const editable = await extraField.$('.editable-extra');
+
+    await browser.waitUntil(async () => {
+        return (await editable.getText()) === extraFieldValue;
+    }, { timeout: 5000, timeoutMsg: 'Extra field value did not persist' });
+
+    expect(await editable.getText()).toBe(extraFieldValue);
   });
 
   it('should clear metadata and verify the tag is removed', async () => {
