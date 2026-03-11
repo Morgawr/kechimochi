@@ -41,7 +41,7 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             xvfb \
-            webkit2gtk-4.1-driver
+            webkit2gtk-driver
 
       - name: install tauri-driver
         run: |
