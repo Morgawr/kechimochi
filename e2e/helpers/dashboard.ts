@@ -3,6 +3,7 @@
  */
 /// <reference types="@wdio/globals/types" />
 import { navigateTo, verifyActiveView } from './navigation.js';
+import { confirmAction } from './common.js';
 
 /**
  * High-level helper to log an activity from the dashboard

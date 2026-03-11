@@ -1,7 +1,9 @@
 export async function customPrompt(title: string, defaultValue = "", text = ""): Promise<string | null> {
     return new Promise((resolve) => {
+        (window as any).__modalCounter = ((window as any).__modalCounter || 0) + 1;
         const overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
+        overlay.setAttribute('data-overlay-id', (window as any).__modalCounter.toString());
         
         document.body.appendChild(overlay);
         void overlay.offsetWidth;
@@ -27,6 +29,7 @@ export async function customPrompt(title: string, defaultValue = "", text = ""):
              overlay.classList.remove('active');
              // Clear IDs immediately so E2E selectors don't find dying modals
              overlay.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+             overlay.removeAttribute('data-overlay-id');
              setTimeout(() => overlay.remove(), 300);
         };
         
@@ -43,8 +46,10 @@ export async function customPrompt(title: string, defaultValue = "", text = ""):
 
 export async function customConfirm(title: string, text: string, confirmButtonClass = "btn-danger", confirmButtonText = "Yes"): Promise<boolean> {
     return new Promise((resolve) => {
+        (window as any).__modalCounter = ((window as any).__modalCounter || 0) + 1;
         const overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
+        overlay.setAttribute('data-overlay-id', (window as any).__modalCounter.toString());
         
         document.body.appendChild(overlay);
         void overlay.offsetWidth;
@@ -65,6 +70,7 @@ export async function customConfirm(title: string, text: string, confirmButtonCl
              overlay.classList.remove('active');
              // Clear IDs immediately so E2E selectors don't find dying modals
              overlay.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+             overlay.removeAttribute('data-overlay-id');
              setTimeout(() => overlay.remove(), 300);
         };
         
@@ -75,8 +81,10 @@ export async function customConfirm(title: string, text: string, confirmButtonCl
 
 export async function customAlert(title: string, text: string): Promise<void> {
     return new Promise((resolve) => {
+        (window as any).__modalCounter = ((window as any).__modalCounter || 0) + 1;
         const overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
+        overlay.setAttribute('data-overlay-id', (window as any).__modalCounter.toString());
         
         document.body.appendChild(overlay);
         void overlay.offsetWidth;
@@ -96,6 +104,7 @@ export async function customAlert(title: string, text: string): Promise<void> {
              overlay.classList.remove('active');
              // Clear IDs immediately so E2E selectors don't find dying modals
              overlay.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+             overlay.removeAttribute('data-overlay-id');
              setTimeout(() => overlay.remove(), 300);
         };
         

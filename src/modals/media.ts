@@ -4,8 +4,10 @@ import { customAlert } from './base';
 
 export async function showAddMediaModal(): Promise<{title: string, type: string, contentType: string} | null> {
     return new Promise((resolve) => {
+        (window as any).__modalCounter = ((window as any).__modalCounter || 0) + 1;
         const overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
+        overlay.setAttribute('data-overlay-id', (window as any).__modalCounter.toString());
         
         document.body.appendChild(overlay);
         void overlay.offsetWidth;
@@ -44,6 +46,7 @@ export async function showAddMediaModal(): Promise<{title: string, type: string,
         
         const cleanup = () => {
              overlay.classList.remove('active');
+             overlay.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
              setTimeout(() => overlay.remove(), 300);
         };
         
@@ -161,8 +164,10 @@ export async function showImportMergeModal(scraped: import('../importers/index')
             return;
         }
 
+        (window as any).__modalCounter = ((window as any).__modalCounter || 0) + 1;
         const overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
+        overlay.setAttribute('data-overlay-id', (window as any).__modalCounter.toString());
         document.body.appendChild(overlay);
         void overlay.offsetWidth;
         overlay.classList.add('active');
@@ -182,6 +187,8 @@ export async function showImportMergeModal(scraped: import('../importers/index')
         
         const cleanup = () => {
              overlay.classList.remove('active');
+             overlay.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+             overlay.removeAttribute('data-overlay-id');
              setTimeout(() => overlay.remove(), 300);
         };
         
@@ -205,8 +212,10 @@ export async function showMediaCsvConflictModal(conflicts: MediaConflict[]): Pro
     if (overlapping.length === 0) return conflicts.map(c => c.incoming);
 
     return new Promise((resolve) => {
+        (window as any).__modalCounter = ((window as any).__modalCounter || 0) + 1;
         const overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
+        overlay.setAttribute('data-overlay-id', (window as any).__modalCounter.toString());
         document.body.appendChild(overlay);
         void overlay.offsetWidth;
         overlay.classList.add('active');
@@ -242,6 +251,8 @@ export async function showMediaCsvConflictModal(conflicts: MediaConflict[]): Pro
 
         const cleanup = () => {
              overlay.classList.remove('active');
+             overlay.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+             overlay.removeAttribute('data-overlay-id');
              setTimeout(() => overlay.remove(), 300);
         };
         
@@ -259,8 +270,10 @@ export async function showMediaCsvConflictModal(conflicts: MediaConflict[]): Pro
 }
 
 export async function showJitenSearchModal(media: Media): Promise<string | null> {
+    (window as any).__modalCounter = ((window as any).__modalCounter || 0) + 1;
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
+    overlay.setAttribute('data-overlay-id', (window as any).__modalCounter.toString());
     document.body.appendChild(overlay);
     void overlay.offsetWidth;
     overlay.classList.add('active');
@@ -271,6 +284,8 @@ export async function showJitenSearchModal(media: Media): Promise<string | null>
     const cleanup = () => {
         window.removeEventListener('keydown', handleEsc, true);
         overlay.classList.remove('active');
+        overlay.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+        overlay.removeAttribute('data-overlay-id');
         setTimeout(() => overlay.remove(), 300);
     };
 

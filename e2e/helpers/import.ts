@@ -16,13 +16,17 @@ export async function resolveConflicts(action: 'keep' | 'replace'): Promise<void
         await radio.waitForClickable({ timeout: 2000 });
         await radio.click();
     }
-    
     const confirmBtn = await $('#conflict-confirm');
     await confirmBtn.waitForClickable({ timeout: 2000 });
+    
+    // Get the specific overlay ID to wait for its removal
+    const overlay = await confirmBtn.$('./ancestor::div[contains(@class, "modal-overlay")]');
+    const overlayId = await overlay.getAttribute('data-overlay-id');
+    
     await confirmBtn.click();
     
-    // Wait for the specific button to be gone to avoid ambiguity with next modals
-    await confirmBtn.waitForExist({ reverse: true, timeout: 5000 });
+    // Wait for the specific overlay to be removed from DOM
+    await $(`.modal-overlay[data-overlay-id="${overlayId}"]`).waitForExist({ reverse: true, timeout: 5000 });
     
     // Then handle the success alert that usually follows
     await dismissAlert(10000); 
@@ -53,10 +57,15 @@ export async function fetchMetadata(url: string): Promise<void> {
 export async function confirmMerge(): Promise<void> {
     const btn = await $('#import-confirm');
     await btn.waitForDisplayed({ timeout: 5000 });
+    
+    // Get the specific overlay ID to wait for its removal
+    const overlay = await btn.$('./ancestor::div[contains(@class, "modal-overlay")]');
+    const overlayId = await overlay.getAttribute('data-overlay-id');
+
     await btn.click();
     
-    // Wait for the modal to be gone
-    await btn.waitForExist({ reverse: true, timeout: 5000 });
+    // Wait for this SPECIFIC overlay to be removed from DOM
+    await $(`.modal-overlay[data-overlay-id="${overlayId}"]`).waitForExist({ reverse: true, timeout: 5000 });
 }
 
 /**

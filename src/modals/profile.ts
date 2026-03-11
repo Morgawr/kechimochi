@@ -1,7 +1,9 @@
 export async function initialProfilePrompt(defaultName: string = "User"): Promise<string> {
     return new Promise((resolve) => {
+        (window as any).__modalCounter = ((window as any).__modalCounter || 0) + 1;
         const overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
+        overlay.setAttribute('data-overlay-id', (window as any).__modalCounter.toString());
         
         document.body.appendChild(overlay);
         void overlay.offsetWidth;
@@ -25,6 +27,8 @@ export async function initialProfilePrompt(defaultName: string = "User"): Promis
         
         const cleanup = () => {
              overlay.classList.remove('active');
+             overlay.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+             overlay.removeAttribute('data-overlay-id');
              setTimeout(() => overlay.remove(), 300);
         };
         

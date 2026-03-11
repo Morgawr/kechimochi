@@ -71,10 +71,15 @@ export async function dismissAlert(timeout = 5000): Promise<void> {
         }
         
         if (await okBtn.isDisplayed()) {
+            // Get the specific overlay ID to wait for its removal
+            const overlay = await okBtn.$('./ancestor::div[contains(@class, "modal-overlay")]');
+            const overlayId = await overlay.getAttribute('data-overlay-id');
+            
             await okBtn.waitForClickable({ timeout: 2000 });
             await okBtn.click();
-            // Wait for the modal to be removed from DOM
-            await okBtn.waitForExist({ reverse: true, timeout: 5000 });
+            
+            // Wait for this SPECIFIC overlay to be removed from DOM
+            await $(`.modal-overlay[data-overlay-id="${overlayId}"]`).waitForExist({ reverse: true, timeout: 5000 });
         }
     } catch (e) {
         if (timeout > 0) throw e;
@@ -87,6 +92,11 @@ export async function dismissAlert(timeout = 5000): Promise<void> {
 export async function submitPrompt(value: string): Promise<void> {
     const input = await $('#prompt-input');
     await input.waitForDisplayed({ timeout: 5000 });
+    
+    // Get the specific overlay ID to wait for its removal
+    const overlay = await input.$('./ancestor::div[contains(@class, "modal-overlay")]');
+    const overlayId = await overlay.getAttribute('data-overlay-id');
+
     await input.waitForClickable({ timeout: 2000 });
     
     // Clear and set value to ensure it's clean
@@ -102,8 +112,8 @@ export async function submitPrompt(value: string): Promise<void> {
     await confirmBtn.waitForClickable({ timeout: 2000 });
     await confirmBtn.click();
 
-    // Wait for the modal to be removed from DOM
-    await input.waitForExist({ reverse: true, timeout: 5000 });
+    // Wait for this SPECIFIC overlay to be removed from DOM
+    await $(`.modal-overlay[data-overlay-id="${overlayId}"]`).waitForExist({ reverse: true, timeout: 5000 });
 }
 
 /**
@@ -113,9 +123,14 @@ export async function confirmAction(ok: boolean = true): Promise<void> {
     const btnSelector = ok ? '#confirm-ok' : '#confirm-cancel';
     const btn = await $(btnSelector);
     await btn.waitForDisplayed({ timeout: 5000 });
+    
+    // Get the specific overlay ID to wait for its removal
+    const overlay = await btn.$('./ancestor::div[contains(@class, "modal-overlay")]');
+    const overlayId = await overlay.getAttribute('data-overlay-id');
+
     await btn.waitForClickable({ timeout: 2000 });
     await btn.click();
 
-    // Wait for the modal to be removed from DOM
-    await btn.waitForExist({ reverse: true, timeout: 5000 });
+    // Wait for this SPECIFIC overlay to be removed from DOM
+    await $(`.modal-overlay[data-overlay-id="${overlayId}"]`).waitForExist({ reverse: true, timeout: 5000 });
 }

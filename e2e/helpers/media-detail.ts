@@ -8,18 +8,16 @@ import { submitPrompt } from './common.js';
  * Clicks the "Mark as Complete" button in Media Detail.
  */
 export async function clickMarkAsComplete(): Promise<void> {
-    const initialStatus = await isArchivedStatusActive();
     const btn = await $('#btn-mark-complete');
     await btn.waitForDisplayed({ timeout: 5000 });
     await btn.waitForClickable({ timeout: 2000 });
     await btn.click();
     
-    // Mark complete should flip the status away from ACTIVE
-    if (initialStatus) {
-        await browser.waitUntil(async () => {
-            return (await isArchivedStatusActive()) === false;
-        }, { timeout: 3000, timeoutMsg: 'Mark complete did not update status label' });
-    }
+    // Wait for the tracking status badge to update to Complete
+    const trackingStatus = await $('#media-tracking-status');
+    await browser.waitUntil(async () => {
+        return (await trackingStatus.getValue()) === 'Complete';
+    }, { timeout: 3000, timeoutMsg: 'Tracking status did not update to Complete' });
 }
 
 /**

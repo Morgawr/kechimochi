@@ -42,6 +42,7 @@ export async function showExportCsvModal(): Promise<{mode: 'all' | 'range', star
 
         const cleanup = () => {
              overlay.classList.remove('active');
+             overlay.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
              setTimeout(() => overlay.remove(), 300);
         };
         
@@ -96,6 +97,7 @@ export async function showLogActivityModal(): Promise<boolean> {
 
         const cleanup = () => {
              overlay.classList.remove('active');
+             overlay.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
              setTimeout(() => overlay.remove(), 300);
         };
 
