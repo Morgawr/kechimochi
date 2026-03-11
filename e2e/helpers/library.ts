@@ -30,7 +30,7 @@ export async function addMedia(title: string, type: string, contentType?: string
 
     const confirmBtn = await $('#add-media-confirm');
     await confirmBtn.click();
-    
+
     // Most additions auto-navigate to detail, so we wait for either detail or grid stabilization
     await browser.pause(1500);
 }
@@ -41,16 +41,16 @@ export async function addMedia(title: string, type: string, contentType?: string
 export async function setSearchQuery(query: string): Promise<void> {
     const input = await $('#grid-search-filter');
     await input.waitForDisplayed({ timeout: 5000 });
-    
+
     // Clicking and using keys is often more reliable for triggering 'input' events in all drivers
     await input.click();
     // Select all and delete (works on Linux/Windows, for Mac it might need Command)
     await browser.keys(['Control', 'a', 'Backspace']);
-    
+
     if (query !== '') {
         await input.addValue(query);
     }
-    
+
     // Grid filtering is real-time, but give it a moment to finish rendering
     await browser.pause(500);
 }
@@ -95,13 +95,19 @@ export async function setHideArchived(hide: boolean): Promise<void> {
  */
 export async function isMediaVisible(title: string): Promise<boolean> {
     const grid = await $('#media-grid-container');
-    await grid.waitForDisplayed({ timeout: 10000 }).catch(() => {});
-    
+    await grid.waitForDisplayed({ timeout: 10000 }).catch(() => { });
+
     const item = await $(`.media-grid-item[data-title="${title}"]`);
     try {
         await item.waitForExist({ timeout: 5000 });
         return await item.isDisplayed();
     } catch {
+        const allItems = await $$('.media-grid-item');
+        const titles = [];
+        for (const it of allItems) {
+            titles.push(await it.getAttribute('data-title'));
+        }
+        console.log(`[E2E] isMediaVisible("${title}") failed. Items in grid: [${titles.join(', ')}]`);
         return false;
     }
 }
@@ -119,7 +125,7 @@ export async function clickMediaItem(title: string): Promise<void> {
         for (const it of allItems) {
             titles.push(await it.getAttribute('data-title'));
         }
-        console.log(`[E2E] Failed to find: "${title}". Visible in grid: [${titles.join(', ')}]`);
+        console.log(`[E2E] "${title}" not found in media grid. Visible in grid: [${titles.join(', ')}]`);
         throw e;
     }
     await item.click();
