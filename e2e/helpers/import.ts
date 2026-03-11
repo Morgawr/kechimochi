@@ -13,14 +13,19 @@ export async function resolveConflicts(action: 'keep' | 'replace'): Promise<void
     
     const radios = await $$(`input[value="${action}"]`);
     for (const radio of radios) {
+        await radio.waitForClickable({ timeout: 2000 });
         await radio.click();
     }
     
     const confirmBtn = await $('#conflict-confirm');
+    await confirmBtn.waitForClickable({ timeout: 2000 });
     await confirmBtn.click();
     
-    await $('#alert-ok').waitForDisplayed({ timeout: 10000 });
-    await dismissAlert();
+    // Wait for the conflict modal to be gone
+    await modal.waitForExist({ reverse: true, timeout: 5000 });
+    
+    // Then handle the success alert that usually follows
+    await dismissAlert(10000); 
 }
 
 /**

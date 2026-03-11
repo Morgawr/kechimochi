@@ -8,9 +8,18 @@ import { submitPrompt } from './common.js';
  * Clicks the "Mark as Complete" button in Media Detail.
  */
 export async function clickMarkAsComplete(): Promise<void> {
+    const initialStatus = await isArchivedStatusActive();
     const btn = await $('#btn-mark-complete');
     await btn.waitForDisplayed({ timeout: 5000 });
+    await btn.waitForClickable({ timeout: 2000 });
     await btn.click();
+    
+    // Mark complete should flip the status away from ACTIVE
+    if (initialStatus) {
+        await browser.waitUntil(async () => {
+            return (await isArchivedStatusActive()) === false;
+        }, { timeout: 3000, timeoutMsg: 'Mark complete did not update status label' });
+    }
 }
 
 /**
@@ -44,9 +53,15 @@ export async function isArchivedStatusActive(): Promise<boolean> {
  * Toggles the archived/active status in the detail view.
  */
 export async function toggleArchivedStatusDetail(): Promise<void> {
+    const initialStatus = await isArchivedStatusActive();
     const slider = await $('#status-toggle + .slider');
+    await slider.waitForClickable({ timeout: 2000 });
     await slider.click();
-    await browser.pause(500); // Wait for transition
+    
+    // Wait for the status label to flip
+    await browser.waitUntil(async () => {
+        return (await isArchivedStatusActive()) !== initialStatus;
+    }, { timeout: 3000, timeoutMsg: 'Archive status label did not toggle' });
 }
 
 /**

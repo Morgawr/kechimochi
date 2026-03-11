@@ -52,13 +52,11 @@ export async function getStatValue(id: string): Promise<number> {
 export async function deleteMostRecentLog(): Promise<void> {
     const btn = await $('.delete-log-btn');
     await btn.waitForDisplayed({ timeout: 5000 });
+    await btn.waitForClickable({ timeout: 2000 });
     await btn.click();
     
-    // Confirm delete modal
-    const confirmBtn = await $('#confirm-ok');
-    await confirmBtn.waitForDisplayed({ timeout: 5000 });
-    await confirmBtn.click();
-    await browser.pause(500); // Wait for re-render
+    // Use the robust confirm helper
+    await confirmAction(true);
 }
 
 /**
