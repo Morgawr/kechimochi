@@ -46,13 +46,12 @@ describe('MediaItem', () => {
     it('should load image when intersecting', async () => {
         vi.mocked(api.readFileBytes).mockResolvedValue([1, 2, 3]);
         // Mock URL.createObjectURL
-        global.URL.createObjectURL = vi.fn(() => 'blob:abc');
+        globalThis.URL.createObjectURL = vi.fn(() => 'blob:abc');
 
         const media = { title: 'T', cover_image: '/path/to/img.jpg', status: 'Active' };
         const component = new MediaItem(container, media as unknown as Media, vi.fn());
         
         // Simulate intersection
-        // @ts-expect-error - testing private observer
         const observerCallback = (vi.mocked(IntersectionObserver)).mock.calls[0][0];
         observerCallback([{ isIntersecting: true }] as unknown as IntersectionObserverEntry[], {} as IntersectionObserver);
         
@@ -73,7 +72,6 @@ describe('MediaItem', () => {
         const media = { title: 'T', cover_image: '/bad/path.jpg', status: 'Active' };
         const component = new MediaItem(container, media as unknown as Media, vi.fn());
         
-        // @ts-expect-error - testing private observer
         const observerCallback = (vi.mocked(IntersectionObserver)).mock.calls[0][0];
         observerCallback([{ isIntersecting: true }] as unknown as IntersectionObserverEntry[], {} as IntersectionObserver);
         

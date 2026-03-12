@@ -21,7 +21,8 @@ export async function resolveConflicts(action: 'keep' | 'replace'): Promise<void
     
     // Get the specific overlay ID to wait for its removal
     const overlay = await confirmBtn.$('./ancestor::div[contains(@class, "modal-overlay")]');
-    const overlayId = await overlay.getAttribute('data-overlay-id');
+    const dataset = await overlay.getProperty('dataset') as Record<string, string>;
+    const overlayId = dataset.overlayId;
     
     await confirmBtn.click();
     
@@ -60,7 +61,8 @@ export async function confirmMerge(): Promise<void> {
     
     // Get the specific overlay ID to wait for its removal
     const overlay = await btn.$('./ancestor::div[contains(@class, "modal-overlay")]');
-    const overlayId = await overlay.getAttribute('data-overlay-id');
+    const dataset = await overlay.getProperty('dataset') as Record<string, string>;
+    const overlayId = dataset.overlayId;
 
     await btn.click();
     

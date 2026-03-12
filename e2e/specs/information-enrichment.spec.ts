@@ -33,8 +33,8 @@ describe('CUJ: Information Enrichment (Mocked Metadata Fetching)', () => {
         };
 
         await browser.execute((data) => {
-            (window as unknown as { mockMetadata: unknown, mockDownloadedImagePath: string }).mockMetadata = data;
-            (window as unknown as { mockMetadata: unknown, mockDownloadedImagePath: string }).mockDownloadedImagePath = "/mock/path/to/cover.jpg";
+            (globalThis as unknown as { mockMetadata: unknown, mockDownloadedImagePath: string }).mockMetadata = data;
+            (globalThis as unknown as { mockMetadata: unknown, mockDownloadedImagePath: string }).mockDownloadedImagePath = "/mock/path/to/cover.jpg";
         }, mockData);
 
         await $('#btn-add-extra').click();

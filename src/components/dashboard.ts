@@ -30,7 +30,7 @@ export class Dashboard extends Component<DashboardState> {
     private statsComponent: StatsCard | null = null;
     private isRefreshing: boolean = false;
 
-    private containers: {
+    private readonly containers: {
         stats?: HTMLElement;
         heatmap?: HTMLElement;
         charts?: HTMLElement;
@@ -313,7 +313,7 @@ export class Dashboard extends Component<DashboardState> {
                         <span>${durationStr}</span> 
                         <span style="color: var(--text-secondary);">of ${log.media_type}</span> 
                         <a class="dashboard-media-link" data-media-id="${log.media_id}" style="color: var(--text-primary); font-weight: 600; cursor: pointer; text-decoration: underline; text-decoration-color: var(--accent-blue);">${log.title}</a>
-                        <button class="copy-btn copy-activity-title" data-title="${String(log.title || '').replace(/"/g, '&quot;')}" title="Copy Title" style="background: transparent; border: none; padding: 0; cursor: pointer; display: flex; align-items: center; justify-content: center;">
+                        <button class="copy-btn copy-activity-title" data-title="${String(log.title || '').replaceAll('"', '&quot;')}" title="Copy Title" style="background: transparent; border: none; padding: 0; cursor: pointer; display: flex; align-items: center; justify-content: center;">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-secondary);"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                         </button>
                     </div>
@@ -326,13 +326,13 @@ export class Dashboard extends Component<DashboardState> {
         }).join('');
 
         list.querySelectorAll('.copy-activity-title').forEach(btn => {
-            const title = (btn as HTMLElement).getAttribute('data-title') || '';
+            const title = (btn as HTMLElement).dataset.title || '';
             setupCopyButton(btn as HTMLElement, title);
         });
 
         list.querySelectorAll('.delete-log-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
-                const id = Number.parseInt((e.target as HTMLElement).getAttribute('data-id')!, 10);
+                const id = Number.parseInt((e.target as HTMLElement).dataset.id!, 10);
                 (async () => {
                     const confirm = await customConfirm("Delete Log", "Are you sure you want to permanently delete this log entry?");
                     if (confirm) {

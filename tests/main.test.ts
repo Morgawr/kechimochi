@@ -137,7 +137,7 @@ describe('main.ts initialization', () => {
         await import('../src/main');
         document.dispatchEvent(new Event('DOMContentLoaded'));
 
-        window.dispatchEvent(new CustomEvent('app-navigate', { 
+        globalThis.dispatchEvent(new CustomEvent('app-navigate', { 
             detail: { view: 'media', focusMediaId: 123 } 
         }));
         
@@ -173,7 +173,7 @@ describe('main.ts initialization', () => {
         document.dispatchEvent(new Event('DOMContentLoaded'));
 
         vi.mocked(api.listProfiles).mockResolvedValue(['test-user']);
-        window.dispatchEvent(new Event('profile-updated'));
+        globalThis.dispatchEvent(new Event('profile-updated'));
 
         await vi.waitFor(() => expect(api.listProfiles).toHaveBeenCalled());
     });

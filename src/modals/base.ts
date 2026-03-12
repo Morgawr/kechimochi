@@ -3,7 +3,7 @@ export function createOverlay(): { overlay: HTMLDivElement, cleanup: () => void 
     g.__modalCounter = (g.__modalCounter || 0) + 1;
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
-    overlay.setAttribute('data-overlay-id', g.__modalCounter.toString());
+    overlay.dataset.modalId = g.__modalCounter.toString();
     
     document.body.appendChild(overlay);
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions
@@ -14,7 +14,7 @@ export function createOverlay(): { overlay: HTMLDivElement, cleanup: () => void 
         overlay.classList.remove('active');
         // Clear IDs immediately so E2E selectors don't find dying modals
         overlay.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
-        overlay.removeAttribute('data-overlay-id');
+        delete overlay.dataset.modalId;
         setTimeout(() => overlay.remove(), 300);
     };
 

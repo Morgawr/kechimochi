@@ -27,7 +27,7 @@ export class BackloggdImporter implements MetadataImporter {
         let description = "";
         const metaDesc = doc.querySelector('meta[property="og:description"]');
         if (metaDesc) {
-            description = metaDesc.getAttribute('content') || "";
+            description = (metaDesc as HTMLMetaElement).content || "";
         }
 
         // 2. Cover Image
@@ -36,9 +36,9 @@ export class BackloggdImporter implements MetadataImporter {
         const coverImg = doc.querySelector('.card-img');
         
         if (metaImg) {
-            coverImageUrl = metaImg.getAttribute('content') || "";
+            coverImageUrl = (metaImg as HTMLMetaElement).content || "";
         } else if (coverImg) {
-            coverImageUrl = coverImg.getAttribute('data-src') || coverImg.getAttribute('src') || "";
+            coverImageUrl = (coverImg as HTMLElement).dataset.src || coverImg.getAttribute('src') || "";
         }
 
         if (coverImageUrl) {
@@ -49,7 +49,7 @@ export class BackloggdImporter implements MetadataImporter {
             
             // Ensure high-res version if applicable (IGDB covers)
             if (coverImageUrl.includes('t_cover_big')) {
-                coverImageUrl = coverImageUrl.replace('t_cover_big', 't_cover_big_2x');
+                coverImageUrl = coverImageUrl.replaceAll('t_cover_big', 't_cover_big_2x');
             }
         }
 

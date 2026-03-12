@@ -50,14 +50,14 @@ export async function searchJiten(title: string, contentType: string): Promise<J
     if (results.length > 0) return results;
 
     // 2. Remove punctuation and symbols
-    const noPunctTitle = title.replaceAll(/[!！?？.。,:：;；~～()（）[\]［］{}｛｝]/g, ' ').replace(/\s+/g, ' ').trim();
+    const noPunctTitle = title.replaceAll(/[!！?？.。,:：;；~～()（）[\]［］{}｛｝]/g, ' ').replaceAll(/\s+/g, ' ').trim();
     if (noPunctTitle && noPunctTitle !== title) {
         results = await searchWithFallback(noPunctTitle, mediaType);
         if (results.length > 0) return results;
     }
 
     // 3. Remove numbers
-    const noNumTitle = (noPunctTitle || title).replace(/[0-9１２３４５６７８９０]/g, '').trim();
+    const noNumTitle = (noPunctTitle || title).replaceAll(/[0-9１２３４５６７８９０]/g, '').trim();
     if (noNumTitle && noNumTitle !== title && noNumTitle !== noPunctTitle) {
         results = await searchWithFallback(noNumTitle, mediaType);
         if (results.length > 0) return results;

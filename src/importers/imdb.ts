@@ -93,7 +93,7 @@ export class ImdbImporter implements MetadataImporter {
             metadata.description = doc.querySelector('span[data-testid="plot-xl"], span[data-testid="plot-l"]')?.textContent?.trim() || "";
         }
         if (!metadata.coverImageUrl) {
-            metadata.coverImageUrl = doc.querySelector('section[data-testid="hero-parent"] .ipc-poster img.ipc-image')?.getAttribute('src') || "";
+            metadata.coverImageUrl = (doc.querySelector('section[data-testid="hero-parent"] .ipc-poster img.ipc-image') as HTMLImageElement | null)?.src || "";
         }
         this.extractDomFields(doc, extraData);
     }
@@ -140,7 +140,7 @@ export class ImdbImporter implements MetadataImporter {
     private parseISO8601Duration(duration: string): string {
         // Simple parser for PT2H23M format
         const regex = /PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/;
-        const matches = duration.match(regex);
+        const matches = regex.exec(duration);
         if (!matches) return duration;
 
         const hours = matches[1];

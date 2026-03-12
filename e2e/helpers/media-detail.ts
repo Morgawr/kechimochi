@@ -218,7 +218,8 @@ export async function addMilestone(name: string, hours: string, minutes: string,
         await (await $('#milestone-record-date')).click();
         const firstDay = await $('.cal-day');
         await firstDay.waitForDisplayed({ timeout: 5000 });
-        selectedDate = await firstDay.getAttribute('data-date');
+        const dataset = await firstDay.getProperty('dataset') as Record<string, string>;
+        selectedDate = dataset.date;
         await firstDay.click();
     }
     

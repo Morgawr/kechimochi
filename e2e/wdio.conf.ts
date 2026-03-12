@@ -10,7 +10,7 @@ import { prepareTestDir, cleanupTestDir } from './helpers/setup.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
-const STABLE_RUN_ID = process.env.TEST_RUN_ID || new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+const STABLE_RUN_ID = process.env.TEST_RUN_ID || new Date().toISOString().replaceAll(/[:.]/g, '-').slice(0, 19);
 const LOGS_DIR = path.join(__dirname, 'logs', `test_run_${STABLE_RUN_ID}`);
 
 if (process.env.TEST_RUN_ID) {
@@ -93,7 +93,7 @@ export const config: WebdriverIO.Config = {
       blockOutStatusBar: true,
       blockOutToolBar: true,
       clearRuntimeFolder: false, // Set to false to prevent it from clearing our custom dirs
-      misMatchTolerance: 10.0,
+      misMatchTolerance: 10,
       compareOptions: {
         threshold: 0.5,
         includeAA: true,
@@ -273,7 +273,7 @@ export const config: WebdriverIO.Config = {
     if (!passed) {
       const stageDir = process.env.SPEC_STAGE_DIR;
       if (stageDir) {
-        const sanitizedTitle = (test.title || 'unknown').replace(/[^a-zA-Z0-9]/g, '_');
+        const sanitizedTitle = (test.title || 'unknown').replaceAll(/[^a-zA-Z0-9]/g, '_');
         const failDir = path.join(stageDir, 'failures');
         const { mkdirSync } = await import('node:fs');
         mkdirSync(failDir, { recursive: true });
@@ -289,12 +289,12 @@ export const config: WebdriverIO.Config = {
 
 async function stopTauriDriver() {
   if (tauriDriver) {
-    const { appendFileSync } = await import('fs');
+    const { appendFileSync } = await import('node:fs');
     tauriDriver.kill('SIGTERM');
 
     let attempts = 0;
     while (tauriDriver && tauriDriver._finalExitCode === undefined && attempts < 15) {
-      const { execSync } = await import('child_process');
+      const { execSync } = await import('node:child_process');
       try { 
           execSync('sleep 0.2'); 
       } catch { 
@@ -317,7 +317,7 @@ async function stopTauriDriver() {
 }
 
 async function relocateArtifacts(stageDir: string, specName: string) {
-  const { mkdirSync, existsSync, cpSync, rmSync, readdirSync } = await import('fs');
+  const { mkdirSync, existsSync, cpSync, rmSync, readdirSync } = await import('node:fs');
   const finalDir = path.join(LOGS_DIR, specName);
 
   if (existsSync(stageDir)) {

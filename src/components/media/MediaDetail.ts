@@ -17,13 +17,13 @@ interface MediaDetailState {
 }
 
 export class MediaDetail extends Component<MediaDetailState> {
-    private onBack: () => void;
-    private onNext: () => void;
-    private onPrev: () => void;
-    private onNavigate: (index: number) => void;
-    private onDelete: () => void;
-    private mediaList: Media[];
-    private currentIndex: number;
+    private readonly onBack: () => void;
+    private readonly onNext: () => void;
+    private readonly onPrev: () => void;
+    private readonly onNavigate: (index: number) => void;
+    private readonly onDelete: () => void;
+    private readonly mediaList: Media[];
+    private readonly currentIndex: number;
 
     constructor(container: HTMLElement, media: Media, logs: ActivitySummary[], mediaList: Media[], currentIndex: number, callbacks: { onBack: () => void, onNext: () => void, onPrev: () => void, onNavigate: (index: number) => void, onDelete: () => void }) {
         super(container, { media, logs, milestones: [], imgSrc: null });
@@ -161,7 +161,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                                     <span id="status-label" style="font-weight: 600; font-size: 0.75rem; text-transform: uppercase;">${this.isActive(media.status) ? 'Active' : 'Archived'}</span>
                                 </span>
                                 <button class="btn btn-ghost" id="btn-search-jiten" style="padding: 0.2rem 0.8rem; font-size: 0.75rem; border-color: var(--accent-purple); color: var(--accent-purple); border-radius: 12px; height: 1.6rem; margin-left: 0.5rem;">Search on Jiten.moe</button>
-                                ${media.tracking_status !== 'Complete' ? html`<button class="btn btn-ghost" id="btn-mark-complete" style="padding: 0.2rem 0.8rem; font-size: 0.75rem; border-color: var(--accent-green); color: var(--accent-green); border-radius: 12px; height: 1.6rem; margin-left: 0.5rem;">Mark as complete</button>` : ''}
+                                 ${media.tracking_status === 'Complete' ? '' : html`<button class="btn btn-ghost" id="btn-mark-complete" style="padding: 0.2rem 0.8rem; font-size: 0.75rem; border-color: var(--accent-green); color: var(--accent-green); border-radius: 12px; height: 1.6rem; margin-left: 0.5rem;">Mark as complete</button>`}
                             </div>
                         </div>
 
@@ -334,8 +334,8 @@ export class MediaDetail extends Component<MediaDetailState> {
         try {
             const extra = JSON.parse(media.extra_data || "{}");
             const charRaw = extra["Character count"] || "";
-            const charCount = Number.parseInt(charRaw.replace(/,/g, ''), 10);
-            if (isNaN(charCount) || charCount <= 0) return "";
+            const charCount = Number.parseInt(charRaw.replaceAll(',', ''), 10);
+            if (Number.isNaN(charCount) || charCount <= 0) return "";
 
             if (media.tracking_status === 'Complete') {
                 const speed = Math.round(charCount / (totalMin / 60));
@@ -529,8 +529,8 @@ export class MediaDetail extends Component<MediaDetailState> {
         root.querySelectorAll('.refresh-extra-btn').forEach(btn => {
             btn.addEventListener('click', async (e) => {
                 const target = e.currentTarget as HTMLElement;
-                const url = target.getAttribute('data-url');
-                const key = target.getAttribute('data-key');
+                const url = target.dataset.url;
+                const key = target.dataset.key;
                 if (url) await this.performMetadataImport(url, key || undefined);
             });
         });
@@ -637,7 +637,7 @@ export class MediaDetail extends Component<MediaDetailState> {
     private async onSave(field: keyof Media | string, value: string, isExtra: boolean = false) {
         if (isExtra) {
             const extraData = JSON.parse(this.state.media.extra_data || "{}");
-            extraData[field as string] = value;
+            extraData[field] = value;
             this.state.media.extra_data = JSON.stringify(extraData);
         } else {
             (this.state.media as unknown as Record<string, unknown>)[field] = value;
@@ -661,7 +661,7 @@ export class MediaDetail extends Component<MediaDetailState> {
     }
 
     private createEditInput(currentVal: string, options: { isExtra?: boolean, isTextArea?: boolean, isRenameKey?: boolean }): HTMLInputElement | HTMLTextAreaElement {
-        const input = document.createElement(options.isTextArea ? 'textarea' : 'input') as (HTMLInputElement | HTMLTextAreaElement);
+        const input = document.createElement(options.isTextArea ? 'textarea' : 'input');
         if (!options.isTextArea) (input as HTMLInputElement).type = 'text';
         
         input.className = 'edit-input';

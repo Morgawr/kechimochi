@@ -31,7 +31,6 @@ interface ProfileState {
 }
 
 export class ProfileView extends Component<ProfileState> {
-    private isRefreshing = false;
 
     constructor(container: HTMLElement) {
         super(container, {
@@ -50,7 +49,6 @@ export class ProfileView extends Component<ProfileState> {
             isInitialized: false
         });
     }
-
     async loadData() {
         const theme = await getSetting('theme') || 'pastel-pink';
         const novelSpeed = await getSetting('stats_novel_speed') || '0';
@@ -80,16 +78,25 @@ export class ProfileView extends Component<ProfileState> {
         });
     }
 
-    async render() {
+    public setState(newState: Partial<ProfileState>) {
+        this.state = { ...this.state, ...newState };
+        this.render();
+    }
+
+    protected onMount() {
+        this.loadData().catch(e => Logger.error("Failed to load profile data", e));
+    }
+
+    render() {
+        if (!this.state.isInitialized) {
+            this.clear();
+            this.container.innerHTML = '<div style="display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-secondary);">Loading...</div>';
+            return;
+        }
+
         const localStorageProfile = localStorage.getItem('kechimochi_profile') || 'default';
-        const needsLoad = !this.state.isInitialized || this.state.currentProfile !== localStorageProfile;
-        if (!this.isRefreshing && needsLoad) {
-            this.isRefreshing = true;
-            try {
-                await this.loadData();
-            } finally {
-                this.isRefreshing = false;
-            }
+        if (this.state.currentProfile !== localStorageProfile) {
+            this.loadData().catch(e => Logger.error("Failed to reload profile data", e));
             return;
         }
 
@@ -446,7 +453,7 @@ export class ProfileView extends Component<ProfileState> {
             const extraData = this.parseExtraData(media.extra_data);
             if (!extraData) continue;
 
-            const charCount = Number.parseInt((extraData["Character count"] || "").replace(/,/g, ''), 10);
+            const charCount = Number.parseInt((extraData["Character count"] || "").replaceAll(',', ''), 10);
             if (Number.isNaN(charCount)) continue;
 
             const logs = await getLogsForMedia(media.id!);

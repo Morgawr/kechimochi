@@ -15,7 +15,7 @@ interface ActivityChartsState {
 export class ActivityCharts extends Component<ActivityChartsState> {
     private pieChartInstance: Chart | null = null;
     private barChartInstance: Chart | null = null;
-    private onChartParamChange: (params: Partial<ActivityChartsState>) => void;
+    private readonly onChartParamChange: (params: Partial<ActivityChartsState>) => void;
 
     constructor(container: HTMLElement, initialState: ActivityChartsState, onChartParamChange: (params: Partial<ActivityChartsState>) => void) {
         super(container, initialState);
@@ -333,7 +333,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
     private aggregateDailyData(logs: ActivitySummary[], activeKeys: Set<string>, getBucketIndex: (date: string) => number, length: number, mode: 'media_type' | 'log_name') {
         const map = new Map<string, number[]>();
         for (const key of activeKeys) {
-            map.set(key, new Array(length).fill(0));
+            map.set(key, Array.from({ length }, () => 0));
         }
 
         for (const log of logs) {

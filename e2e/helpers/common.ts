@@ -57,7 +57,7 @@ export async function takeAndCompareScreenshot(tag: string): Promise<void> {
   const result = await browser.checkScreen(tag, options);
 
   // High tolerance for environmental rendering noise
-  expect(result).toBeLessThanOrEqual(10.0);
+  expect(result).toBeLessThanOrEqual(10);
 }
 
 /**
@@ -74,7 +74,8 @@ export async function dismissAlert(timeout = 5000): Promise<void> {
         if (await okBtn.isDisplayed()) {
             // Get the specific overlay ID to wait for its removal
             const overlay = await okBtn.$('./ancestor::div[contains(@class, "modal-overlay")]');
-            const overlayId = await overlay.getAttribute('data-overlay-id');
+            const dataset = await overlay.getProperty('dataset') as Record<string, string>;
+            const overlayId = dataset.overlayId;
             
             await okBtn.waitForClickable({ timeout: 2000 });
             await okBtn.click();
@@ -96,7 +97,8 @@ export async function submitPrompt(value: string): Promise<void> {
     
     // Get the specific overlay ID to wait for its removal
     const overlay = await input.$('./ancestor::div[contains(@class, "modal-overlay")]');
-    const overlayId = await overlay.getAttribute('data-overlay-id');
+    const dataset = await overlay.getProperty('dataset') as Record<string, string>;
+    const overlayId = dataset.overlayId;
 
     await input.waitForClickable({ timeout: 2000 });
     
@@ -127,7 +129,8 @@ export async function confirmAction(ok: boolean = true): Promise<void> {
     
     // Get the specific overlay ID to wait for its removal
     const overlay = await btn.$('./ancestor::div[contains(@class, "modal-overlay")]');
-    const overlayId = await overlay.getAttribute('data-overlay-id');
+    const dataset = await overlay.getProperty('dataset') as Record<string, string>;
+    const overlayId = dataset.overlayId;
 
     await btn.waitForClickable({ timeout: 2000 });
     await btn.click();

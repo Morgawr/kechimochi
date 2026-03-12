@@ -23,14 +23,14 @@ export class VndbImporter implements MetadataImporter {
         if (!this.supportedContentTypes.includes(contentType)) return false;
         try {
             const u = new URL(url);
-            return u.hostname === "vndb.org" && u.pathname.startsWith("/v") && !isNaN(parseInt(u.pathname.substring(2)));
+            return u.hostname === "vndb.org" && u.pathname.startsWith("/v") && !Number.isNaN(Number.parseInt(u.pathname.substring(2), 10));
         } catch { return false; }
     }
 
     private removeBbcode(text: string): string {
         if (!text) return "";
-        let cleaned = text.replace(/\[url(?:=[^\]]*?)?\]([^]*?)\[\/url\]/gi, '$1');
-        cleaned = cleaned.replace(/\[\/?(b|i|u|s|spoiler|size|color|quote|list|pre|code|raw|\*)\]/gi, '');
+        let cleaned = text.replaceAll(/\[url(?:=[^\]]*?)?\]([^]*?)\[\/url\]/gi, '$1');
+        cleaned = cleaned.replaceAll(/\[\/?(b|i|u|s|spoiler|size|color|quote|list|pre|code|raw|\*)\]/gi, '');
         return cleaned.trim();
     }
 

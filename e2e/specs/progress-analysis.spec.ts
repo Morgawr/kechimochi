@@ -1,7 +1,7 @@
 import { waitForAppReady } from '../helpers/setup.js';
 import { navigateTo } from '../helpers/navigation.js';
 import { clickMediaItem } from '../helpers/library.js';
-import { addExtraField, getProjectionValue, clickBackButton } from '../helpers/media-detail.js';
+import { addExtraField, getProjectionValue, backToGrid } from '../helpers/media-detail.js';
 import { calculateReport } from '../helpers/profile.js';
 import { logActivityGlobal } from '../helpers/dashboard.js';
 
@@ -14,11 +14,11 @@ describe('CUJ: Progress Analysis (Projections)', () => {
         await navigateTo('media');
         await clickMediaItem('ダンジョン飯');
         await addExtraField('Character count', '3000');
-        await clickBackButton();
+        await backToGrid();
 
         await clickMediaItem('ある魔女が死ぬまで');
         await addExtraField('Character count', '14250');
-        await clickBackButton();
+        await backToGrid();
 
         await clickMediaItem('STEINS;GATE');
         await addExtraField('Character count', '31500');
@@ -31,7 +31,7 @@ describe('CUJ: Progress Analysis (Projections)', () => {
         await addExtraField('Character count', '6000');
         expect(await getProjectionValue('est-remaining-time')).toBe('15min');
         expect(await getProjectionValue('est-completion-rate')).toBe('75%');
-        await clickBackButton();
+        await backToGrid();
 
         await clickMediaItem('薬屋のひとりごと');
         await addExtraField('Character count', '15000');

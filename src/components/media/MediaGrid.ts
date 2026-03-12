@@ -1,7 +1,6 @@
 import { Component } from '../../core/component';
-import { html } from '../../core/html';
+import { html, escapeHTML } from '../../core/html';
 import { Media, addMedia } from '../../api';
-import { escapeHTML } from '../../core/html';
 import { MediaItem } from './MediaItem';
 import { showAddMediaModal } from '../../modals';
 
@@ -21,9 +20,9 @@ export interface MediaFilters {
 }
 
 export class MediaGrid extends Component<MediaGridState> {
-    private onMediaClick: (mediaId: number) => void;
-    private onDataChange: (jumpToId?: number) => Promise<void>;
-    private onFilterChange?: (filters: MediaFilters) => void;
+    private readonly onMediaClick: (mediaId: number) => void;
+    private readonly onDataChange: (jumpToId?: number) => Promise<void>;
+    private readonly onFilterChange?: (filters: MediaFilters) => void;
     private isDestroyed: boolean = false;
     private currentRenderId: number = 0;
     private headerRendered: boolean = false;
@@ -68,7 +67,7 @@ export class MediaGrid extends Component<MediaGridState> {
 
     private renderHeader(container: HTMLElement) {
         container.innerHTML = '';
-        const uniqueTypes = Array.from(new Set(this.state.mediaList.map(m => m.content_type || 'Unknown'))).sort();
+        const uniqueTypes = Array.from(new Set(this.state.mediaList.map(m => m.content_type || 'Unknown'))).sort((a, b) => a.localeCompare(b));
 
         const header = html`
             <div style="padding: 0 1rem; display: flex; gap: 1rem; justify-content: space-between; align-items: center;">

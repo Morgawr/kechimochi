@@ -53,7 +53,7 @@ export class MediaView extends Component<MediaViewState> {
         super.destroy();
     }
 
-    private keyboardHandler = (e: KeyboardEvent) => {
+    private readonly keyboardHandler = (e: KeyboardEvent) => {
         if (!document.getElementById('media-root')) return;
         if (this.state.viewMode !== 'detail') return;
 
@@ -69,7 +69,7 @@ export class MediaView extends Component<MediaViewState> {
         }
     }
 
-    private mouseHandler = (e: MouseEvent) => {
+    private readonly mouseHandler = (e: MouseEvent) => {
         if (!document.getElementById('media-root')) return;
         if (e.button === 3 && this.state.viewMode === 'detail') {
             this.exitDetail();
@@ -220,11 +220,11 @@ export class MediaView extends Component<MediaViewState> {
             this.state.currentMediaList,
             this.state.currentIndex,
             {
-                onBack: () => this.exitDetail().catch(e => Logger.error(e)),
-                onNext: () => this.navigateDetail(1).catch(e => Logger.error(e)),
-                onPrev: () => this.navigateDetail(-1).catch(e => Logger.error(e)),
+                onBack: () => { this.exitDetail().catch(e => Logger.error(e)); },
+                onNext: () => { this.navigateDetail(1).catch(e => Logger.error(e)); },
+                onPrev: () => { this.navigateDetail(-1).catch(e => Logger.error(e)); },
                 onNavigate: (index) => this.setState({ currentIndex: index }),
-                onDelete: () => this.exitDetail(true).catch(e => Logger.error(e))
+                onDelete: () => { this.exitDetail(true).catch(e => Logger.error(e)); }
             }
         );
         this.activeSubComponent.render();

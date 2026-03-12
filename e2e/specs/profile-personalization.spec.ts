@@ -15,7 +15,7 @@ describe('CUJ: User Personalization', () => {
     await themeSelect.selectByAttribute('value', 'molokai');
 
     const body = await $('body');
-    expect(await body.getAttribute('data-theme')).toBe('molokai');
+    expect((await body.getProperty('dataset') as Record<string, string>).theme).toBe('molokai');
 
     await takeAndCompareScreenshot('profile-molokai-theme');
   });

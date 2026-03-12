@@ -16,7 +16,7 @@ export class BookmeterImporter implements MetadataImporter {
 
         const extraData: Record<string, string> = { "Bookmeter Source": url };
         const description = this.extractDescription(doc);
-        const coverImageUrl = doc.querySelector('meta[property="og:image"]')?.getAttribute('content') || "";
+        const coverImageUrl = (doc.querySelector('meta[property="og:image"]') as HTMLMetaElement | null)?.content || "";
         
         this.extractPageCount(doc, extraData);
         this.extractPublisher(doc, extraData);
@@ -27,11 +27,11 @@ export class BookmeterImporter implements MetadataImporter {
 
     private extractDescription(doc: Document): string {
         const metaDesc = doc.querySelector('meta[property="og:description"]');
-        let description = metaDesc?.getAttribute('content') || "";
+        let description = (metaDesc as HTMLMetaElement | null)?.content || "";
         
-        const prefixRegex = /^.*?があるので安心。/;
-        if (prefixRegex.test(description)) {
-            description = description.replace(prefixRegex, '').trim();
+        const prefixRegex = /^.*?があるので安心。/g;
+        if (description && prefixRegex.test(description)) {
+            description = description.replaceAll(prefixRegex, '').trim();
         }
         return description;
     }
@@ -42,7 +42,7 @@ export class BookmeterImporter implements MetadataImporter {
             if (dt.textContent?.trim() === "ページ数") {
                 const dd = dt.nextElementSibling;
                 if (dd?.tagName.toLowerCase() === 'dd') {
-                    const match = dd.textContent?.trim().match(/(\d+)/);
+                    const match = (/(\d+)/).exec(dd.textContent?.trim() || "");
                     if (match) extraData["Page Count"] = match[1];
                 }
                 break;
@@ -60,7 +60,8 @@ export class BookmeterImporter implements MetadataImporter {
     }
 
     private extractAuthor(html: string, extraData: Record<string, string>) {
-        const authorMatch = html.match(/class="header__authors">.*?href="\/search\?author=[^"]+">([^<]+)<\/a>/is);
+        const authorRegex = /class="header__authors">.*?href="\/search\?author=[^"]+">([^<]+)<\/a>/is;
+        const authorMatch = authorRegex.exec(html);
         if (authorMatch) {
             extraData["Author"] = authorMatch[1].trim();
         }

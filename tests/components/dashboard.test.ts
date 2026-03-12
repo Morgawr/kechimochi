@@ -59,7 +59,7 @@ describe('Dashboard', () => {
 
     it('should handle pagination', async () => {
         const mockLog = { id: 1, title: 'T', media_id: 1, duration_minutes: 10, date: '2024-01-01', media_type: 'Type', language: 'J' };
-        const logs = Array(20).fill(mockLog);
+        const logs = Array.from({ length: 20 }, () => ({ ...mockLog }));
         vi.mocked(api.getLogs).mockResolvedValue(logs as unknown as ActivityLog[]);
         vi.mocked(api.getHeatmap).mockResolvedValue([]);
         vi.mocked(api.getAllMedia).mockResolvedValue([]);
@@ -95,9 +95,11 @@ describe('Dashboard', () => {
         });
 
         const deleteBtn = container.querySelector('.delete-log-btn') as HTMLElement;
-        await deleteBtn.click();
+        deleteBtn.click();
 
-        expect(customConfirm).toHaveBeenCalled();
-        expect(api.deleteLog).toHaveBeenCalledWith(456);
+        await vi.waitFor(() => {
+            expect(customConfirm).toHaveBeenCalled();
+            expect(api.deleteLog).toHaveBeenCalledWith(456);
+        });
     });
 });

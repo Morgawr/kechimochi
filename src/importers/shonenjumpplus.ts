@@ -15,7 +15,7 @@ export class ShonenjumpplusImporter implements MetadataImporter {
         const doc = parser.parseFromString(html, 'text/html');
 
         const coverImageUrl = this.extractCoverImage(doc);
-        const rssUrl = doc.querySelector('link[rel="alternate"][type="application/rss+xml"]')?.getAttribute('href');
+        const rssUrl = (doc.querySelector('link[rel="alternate"][type="application/rss+xml"]') as HTMLLinkElement | null)?.href;
 
         const extraData: Record<string, string> = { "Source": url };
         let description = "";
@@ -33,11 +33,11 @@ export class ShonenjumpplusImporter implements MetadataImporter {
     }
 
     private extractCoverImage(doc: Document): string {
-        let url = doc.querySelector('.series-header-image-wrapper img, .series-header-image')?.getAttribute('src') ||
-                  doc.querySelector('.series-header-image-wrapper img, .series-header-image')?.getAttribute('data-src') || "";
+        let url = (doc.querySelector('.series-header-image-wrapper img, .series-header-image') as HTMLImageElement | null)?.src ||
+                  (doc.querySelector('.series-header-image-wrapper img, .series-header-image') as HTMLElement | null)?.dataset.src || "";
         
         if (!url) {
-            url = doc.querySelector('meta[property="og:image"]')?.getAttribute('content') || "";
+            url = (doc.querySelector('meta[property="og:image"]') as HTMLMetaElement | null)?.content || "";
         }
         return url;
     }
@@ -62,7 +62,7 @@ export class ShonenjumpplusImporter implements MetadataImporter {
     private extractOldestPubDate(rssDoc: Document): string | undefined {
         const pubDates = Array.from(rssDoc.querySelectorAll('item > pubDate'))
             .map(el => el.textContent ? new Date(el.textContent) : null)
-            .filter((d): d is Date => d !== null && !isNaN(d.getTime()));
+            .filter((d): d is Date => d !== null && !Number.isNaN(d.getTime()));
 
         if (pubDates.length > 0) {
             const oldestDate = new Date(Math.min(...pubDates.map(d => d.getTime())));

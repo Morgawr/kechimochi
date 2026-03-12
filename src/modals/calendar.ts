@@ -44,8 +44,8 @@ export function buildCalendar(containerId: string, initialDate: string, onSelect
         container.querySelector(`#c-n-${containerId}`)!.addEventListener('click', (e) => { e.preventDefault(); vM++; if(vM > 11){vM=0; vY++;} render(); });
         container.querySelectorAll('.cal-day').forEach(el => {
             el.addEventListener('click', (e) => {
-                const target = e.target as HTMLElement;
-                activeDateStr = target.getAttribute('data-date')!;
+                const date = (e.target as HTMLElement).dataset.date!;
+                activeDateStr = date;
                 render();
                 onSelect(activeDateStr);
             });

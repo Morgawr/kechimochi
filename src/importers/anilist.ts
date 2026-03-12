@@ -24,10 +24,11 @@ export class AnilistImporter implements MetadataImporter {
     }
 
     async fetch(url: string): Promise<ScrapedMetadata> {
-        const match = url.match(/\/anime\/(\d+)/);
+        const urlRegex = /\/anime\/(\d+)/;
+        const match = urlRegex.exec(url);
         if (!match?.[1]) throw new Error("Could not extract Anilist Media ID from URL.");
         
-        const mediaId = parseInt(match[1], 10);
+        const mediaId = Number.parseInt(match[1], 10);
         const media = await this.fetchAnilistMedia(mediaId);
         if (!media) throw new Error("Could not find media data in Anilist response.");
 
@@ -74,8 +75,8 @@ export class AnilistImporter implements MetadataImporter {
         if (m.episodes) extras["Episodes"] = m.episodes.toString();
         
         if (m.season || m.seasonYear) {
-            const seasonStr = m.season ? m.season.charAt(0).toUpperCase() + m.season.substring(1).toLowerCase() : "";
-            extras["Airing Season"] = `${seasonStr} ${m.seasonYear || ""}`.trim();
+            const seasonStr = m.season ? m.season.charAt(0).toUpperCase() + m.season.slice(1).toLowerCase() : "";
+            extras["Airing Season"] = `${seasonStr} ${m.seasonYear ?? ""}`.trim();
         }
         
         if (m.startDate?.year) extras["Start Airing Date"] = this.formatDate(m.startDate);
@@ -84,7 +85,7 @@ export class AnilistImporter implements MetadataImporter {
         
         if (m.source) {
             extras["Original Source"] = m.source.replaceAll('_', ' ')
-                .replace(/\w\S*/g, (txt: string) => txt.charAt(0).toUpperCase() + txt.substring(1).toLowerCase());
+                .replaceAll(/\w\S*/g, (txt: string) => txt.charAt(0).toUpperCase() + txt.slice(1).toLowerCase());
         }
 
         if (m.genres && m.genres.length > 0) extras["Genres"] = m.genres.join(", ");

@@ -14,7 +14,7 @@ export async function navigateTo(view: ViewName): Promise<void> {
   
   // Wait for the nav link to become active
   await browser.waitUntil(async () => {
-    const classes = await link.getAttribute('class');
+    const classes = await link.getProperty('className');
     return classes?.includes('active');
   }, { 
     timeout: 5000, 
@@ -30,7 +30,7 @@ export async function navigateTo(view: ViewName): Promise<void> {
  */
 export async function verifyActiveView(view: ViewName): Promise<boolean> {
   const link = await $(`[data-view="${view}"]`);
-  const classes = await link.getAttribute('class');
+  const classes = await link.getProperty('className');
   return classes?.includes('active') ?? false;
 }
 

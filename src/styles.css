@@ -480,7 +480,7 @@ a {
 }
 
 .win-btn-close:hover {
-  background-color: #ff4757 !important;
+  background-color: #c0392b !important;
   color: #fff !important;
 }
 
@@ -780,11 +780,11 @@ input:focus, select:focus {
     color: var(--text-secondary);
 }
 
-.status-ongoing { background-color: #3498db !important; color: #ffffff !important; }
-.status-complete { background-color: #27ae60 !important; color: #ffffff !important; }
+.status-ongoing { background-color: #1c5a8a !important; color: #ffffff !important; }
+.status-complete { background-color: #1e8449 !important; color: #ffffff !important; }
 .status-paused { background-color: #f1c40f !important; color: #000000 !important; }
-.status-dropped { background-color: #e74c3c !important; color: #ffffff !important; }
-.status-not-started { background-color: #95a5a6 !important; color: #ffffff !important; }
+.status-dropped { background-color: #c0392b !important; color: #ffffff !important; }
+.status-not-started { background-color: #626567 !important; color: #ffffff !important; }
 .status-untracked { background-color: transparent !important; color: var(--text-secondary) !important; border: 1px dashed var(--border-color) !important; }
  
  .badge-select {

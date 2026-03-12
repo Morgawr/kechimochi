@@ -53,18 +53,18 @@ class App {
     private currentView: ViewType = 'dashboard';
     private currentProfile: string = localStorage.getItem('kechimochi_profile') || '';
 
-    private dashboard: Dashboard;
-    private mediaView: MediaView;
-    private profileView: ProfileView;
+    private readonly dashboard: Dashboard;
+    private readonly mediaView: MediaView;
+    private readonly profileView: ProfileView;
 
-    private viewContainer: HTMLElement;
-    private dashboardContainer: HTMLElement;
-    private mediaContainer: HTMLElement;
-    private profileContainer: HTMLElement;
+    private readonly viewContainer: HTMLElement;
+    private readonly dashboardContainer: HTMLElement;
+    private readonly mediaContainer: HTMLElement;
+    private readonly profileContainer: HTMLElement;
 
-    private selectProfileEl: HTMLSelectElement;
-    private devBuildBadgeEl: HTMLElement | null;
-    private navLinks: NodeListOf<Element>;
+    private readonly selectProfileEl: HTMLSelectElement;
+    private readonly devBuildBadgeEl: HTMLElement | null;
+    private readonly navLinks: NodeListOf<HTMLElement>;
 
     constructor() {
         this.viewContainer = document.getElementById('view-container')!;
@@ -86,8 +86,12 @@ class App {
         this.dashboard = new Dashboard(this.dashboardContainer);
         this.mediaView = new MediaView(this.mediaContainer);
         this.profileView = new ProfileView(this.profileContainer);
+    }
 
-        this.init();
+    public static async start(): Promise<App> {
+        const app = new App();
+        await app.init();
+        return app;
     }
 
     private async init() {
@@ -126,7 +130,7 @@ class App {
         this.navLinks.forEach(link => {
             link.addEventListener('click', (e) => {
                 const target = e.target as HTMLElement;
-                const view = target.getAttribute('data-view') as ViewType;
+                const view = target.dataset.view as ViewType;
                 if (view) this.switchView(view);
             });
         });
@@ -188,9 +192,9 @@ class App {
     }
 
     private setupEventListeners() {
-        window.addEventListener('app-navigate', (e: Event) => {
+        globalThis.addEventListener('app-navigate', (e: Event) => {
             const detail = (e as CustomEvent).detail;
-            if (detail && detail.view) {
+            if (detail?.view) {
                 if (detail.view === 'media' && detail.focusMediaId !== undefined) {
                     this.switchView('media');
                     this.mediaView.jumpToMedia(detail.focusMediaId);
@@ -198,7 +202,7 @@ class App {
             }
         });
 
-        window.addEventListener('profile-updated', () => {
+        globalThis.addEventListener('profile-updated', () => {
             this.loadTheme();
             this.ensureProfilesList();
         });
@@ -238,7 +242,7 @@ class App {
         this.currentView = view;
 
         this.navLinks.forEach(n => {
-            const dataView = n.getAttribute('data-view');
+            const dataView = (n as HTMLElement).dataset.view;
             n.classList.toggle('active', dataView === view);
         });
 
@@ -262,6 +266,8 @@ class App {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    // eslint-disable-next-line sonarjs/constructor-for-side-effects
-    new App();
+    App.start().catch(e => {
+        // eslint-disable-next-line no-console
+        console.error('Failed to start application:', e);
+    });
 });

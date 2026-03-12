@@ -88,23 +88,27 @@ describe('MediaView', () => {
         vi.mocked(api.getLogsForMedia).mockResolvedValue([]);
 
         const component = new MediaView(container);
+        await vi.waitFor(() => {
+            component.render();
+            // @ts-expect-error - accessing private state
+            if (!component.state.isInitialized) throw new Error('Not initialized');
+        });
+
         // @ts-expect-error - accessing private state
         component.state.viewMode = 'detail';
         // @ts-expect-error - accessing private state
-        component.state.isInitialized = true;
-        // @ts-expect-error - accessing private state
         component.state.currentMediaList = mockMedia as unknown as Media[];
         
-        await component.render();
+        component.render();
 
         // We need the root element to be present for the listener to trigger
-        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
+        globalThis.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
         // @ts-expect-error - accessing private state
-        expect(component.state.currentIndex).toBe(1);
+        await vi.waitFor(() => expect(component.state.currentIndex).toBe(1));
 
-        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+        globalThis.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
         // @ts-expect-error - accessing private state
-        expect(component.state.viewMode).toBe('grid');
+        await vi.waitFor(() => expect(component.state.viewMode).toBe('grid'));
     });
 
     it('should handle grid filter changes', async () => {
@@ -155,7 +159,7 @@ describe('MediaView', () => {
 
         // 2. Render Detail (starts at index 1 because of jump to 20)
         // @ts-expect-error - calling private method
-        await component.renderDetail(container);
+        component.renderDetail(container);
         const detailCallbacks = vi.mocked(MediaDetail).mock.calls[0][5];
 
         // 3. Detail callbacks
@@ -204,15 +208,15 @@ describe('MediaView', () => {
         // @ts-expect-error - accessing private state
         component.state.currentIndex = 0;
 
-        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
+        globalThis.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
         // @ts-expect-error - accessing private state
         await vi.waitFor(() => expect(component.state.currentIndex).toEqual(1));
 
-        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }));
+        globalThis.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }));
         // @ts-expect-error - accessing private state
         await vi.waitFor(() => expect(component.state.currentIndex).toEqual(0));
 
-        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+        globalThis.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
         // @ts-expect-error - accessing private state
         await vi.waitFor(() => expect(component.state.viewMode).toEqual('grid'));
     });

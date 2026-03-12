@@ -103,7 +103,8 @@ async function findMediaItemInternal(title: string, timeout = 5000) {
         const allItems = await $$('.media-grid-item');
         const titles = [];
         for (const it of allItems) {
-            titles.push(await it.getAttribute('data-title'));
+            const dataset = await it.getProperty('dataset') as Record<string, string>;
+            titles.push(dataset.title);
         }
         // eslint-disable-next-line no-console
         console.log(`[E2E] Media item "${title}" not found. Current grid items: [${titles.join(', ')}]`);

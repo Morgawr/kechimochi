@@ -37,7 +37,7 @@ export class BookwalkerImporter implements MetadataImporter {
             seriesUrl = currentUrl;
         } else {
             const seriesLink = doc.querySelector('a[href*="/series/"][href$="/list/"]');
-            if (seriesLink) seriesUrl = seriesLink.getAttribute('href') || "";
+            if (seriesLink) seriesUrl = (seriesLink as HTMLAnchorElement).href || "";
         }
 
         if (!seriesUrl) {
@@ -66,7 +66,7 @@ export class BookwalkerImporter implements MetadataImporter {
         const volumeLinks = seriesDoc.querySelectorAll('.m-book-item__title a');
         for (const link of Array.from(volumeLinks)) {
             const titleText = link.textContent?.trim() || "";
-            const normalizedTitleText = titleText.replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0));
+            const normalizedTitleText = titleText.replaceAll(/[０-９]/g, s => String.fromCodePoint((s.codePointAt(0) ?? 0) - 0xFEE0));
             const r = new RegExp(`(?:[^0-9]|^)0*${targetVolume}(?:[^0-9]|$)`);
             if (r.test(normalizedTitleText)) return link.getAttribute('href');
         }
@@ -77,12 +77,12 @@ export class BookwalkerImporter implements MetadataImporter {
         const descEl = doc.querySelector('.m-synopsis');
         if (descEl) return descEl.textContent?.trim() || "";
         const metaDesc = doc.querySelector('meta[property="og:description"]');
-        return metaDesc?.getAttribute('content') || "";
+        return (metaDesc as HTMLMetaElement | null)?.content || "";
     }
 
     private extractCoverImage(doc: Document): string {
         const metaImg = doc.querySelector('meta[property="og:image"]');
-        if (metaImg) return metaImg.getAttribute('content') || "";
+        if (metaImg) return (metaImg as HTMLMetaElement).content || "";
         const imgEl = doc.querySelector('.m-main-cover__img');
         return imgEl?.getAttribute('src') || "";
     }
@@ -103,7 +103,7 @@ export class BookwalkerImporter implements MetadataImporter {
             if (a?.textContent) extraData["Series Name"] = a.textContent.trim().replaceAll('(著者)', '').trim();
         } else if (header === "著者") {
             const authors = Array.from(dd.querySelectorAll('a'))
-                .map(a => a.textContent?.trim().replace(/\([^()]*\)/g, '').trim()).filter(Boolean);
+                .map(a => a.textContent?.trim().replaceAll(/\([^()]*\)/g, '').trim()).filter(Boolean);
             if (authors.length > 0) extraData["Author"] = [...new Set(authors)].join(", ");
         } else if (header === "出版社") {
             const a = dd.querySelector('a');

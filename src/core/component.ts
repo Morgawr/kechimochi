@@ -53,7 +53,7 @@ export abstract class Component<T = unknown> {
      */
     protected clear() {
         while (this.container.firstChild) {
-            this.container.removeChild(this.container.firstChild);
+            this.container.firstChild.remove();
         }
     }
 }

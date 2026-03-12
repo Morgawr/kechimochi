@@ -1,7 +1,6 @@
 import { Component } from '../../core/component';
-import { html } from '../../core/html';
+import { html, escapeHTML } from '../../core/html';
 import { Media, readFileBytes } from '../../api';
-import { escapeHTML } from '../../core/html';
 
 interface MediaItemState {
     media: Media;
@@ -9,7 +8,7 @@ interface MediaItemState {
 }
 
 export class MediaItem extends Component<MediaItemState> {
-    private static imageCache: Map<string, string> = new Map();
+    private static readonly imageCache: Map<string, string> = new Map();
 
     constructor(container: HTMLElement, media: Media, onClick: () => void) {
         super(container, { media, imgSrc: null });
@@ -64,9 +63,9 @@ export class MediaItem extends Component<MediaItemState> {
         const badgeHtml = (contentType !== 'Unknown' && contentType.trim() !== '')
             ? `<div class="grid-item-type-badge">${contentType}</div>`
             : '';
-        const ledHtml = media.tracking_status !== 'Untracked' 
-            ? `<div class="status-led ${this.getTrackingStatusClass(media.tracking_status)}" title="Status: ${media.tracking_status}"></div>` 
-            : '';
+        const ledHtml = media.tracking_status === 'Untracked'
+            ? ''
+            : `<div class="status-led ${this.getTrackingStatusClass(media.tracking_status)}" title="Status: ${media.tracking_status}"></div>`;
 
         this.clear();
         

@@ -8,7 +8,7 @@ interface HeatmapViewState {
 }
 
 export class HeatmapView extends Component<HeatmapViewState> {
-    private onYearChange: (direction: number) => void;
+    private readonly onYearChange: (direction: number) => void;
 
     constructor(container: HTMLElement, initialState: HeatmapViewState, onYearChange: (direction: number) => void) {
         super(container, initialState);

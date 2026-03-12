@@ -45,7 +45,10 @@ describe('CUJ: Log Daily Activity', () => {
     await browser.pause(500);
 
     const items = await $$('.media-grid-item');
-    const titleTexts = await items.map(t => t.getAttribute('data-title'));
+    const titleTexts = await items.map(async t => {
+        const dataset = await t.getProperty('dataset') as Record<string, string>;
+        return dataset.title;
+    });
     
     expect(titleTexts).toContain('Final Fantasy 7');
   });

@@ -181,7 +181,7 @@ export async function readFileBytes(path: string): Promise<number[]> {
 }
 
 export async function downloadAndSaveImage(mediaId: number, url: string): Promise<string> {
-  const g = globalThis as unknown as Record<string, unknown>;
+  const g = globalThis as Record<string, unknown>;
   if (g.mockDownloadedImagePath) {
     return g.mockDownloadedImagePath as string;
   }
@@ -199,9 +199,10 @@ export async function getSetting(key: string): Promise<string | null> {
 export async function setSetting(key: string, value: string): Promise<void> {
   return await invoke('set_setting', { key, value });
 }
-/*
-* Retrieves the version as defined in the manifest (or as dynamically set)
-*/
+
+/**
+ * Retrieves the version as defined in the manifest (or as dynamically set)
+ */
 export async function getAppVersion(): Promise<string> {
     const baseVersion = await getVersion();
     // For in-development releases, we ignore the 0.x.x version and show the git hash

@@ -189,7 +189,7 @@ function buildCoverHtml(scraped: import('../importers/index').ScrapedMetadata, c
 function processImportMerge(overlay: HTMLElement, scraped: import('../importers/index').ScrapedMetadata) {
     const result: JitenImportResult = { extraData: {} };
     overlay.querySelectorAll('.import-checkbox:checked').forEach((el) => {
-        const field = (el as HTMLInputElement).getAttribute('data-field');
+        const field = (el as HTMLInputElement).dataset.field;
         if (field === 'description') result.description = scraped.description;
         else if (field === 'cover') result.coverImageUrl = scraped.coverImageUrl;
         else if (field?.startsWith('extra-')) {
@@ -252,11 +252,11 @@ export async function showMediaCsvConflictModal(conflicts: MediaConflict[]): Pro
 export async function showJitenSearchModal(media: Media): Promise<string | null> {
     const { overlay, cleanup } = createOverlay();
     const handleEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') cleanup(); };
-    window.addEventListener('keydown', handleEsc, true);
+    globalThis.addEventListener('keydown', handleEsc, true);
 
     const originalCleanup = cleanup;
     const newCleanup = () => {
-        window.removeEventListener('keydown', handleEsc, true);
+        globalThis.removeEventListener('keydown', handleEsc, true);
         originalCleanup();
     };
 

@@ -36,7 +36,7 @@ describe('HeatmapView', () => {
         
         const cell = container.querySelector('.heatmap-cell[title*="2024-01-01"]');
         expect(cell).not.toBeNull();
-        expect(cell?.getAttribute('title')).toContain('60 mins');
+        expect((cell as HTMLElement).title).toContain('60 mins');
     });
 
     it('should handle no data recorded', () => {

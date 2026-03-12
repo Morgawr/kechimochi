@@ -4,6 +4,34 @@ import os from "node:os";
 import { waitForAppReady } from '../helpers/setup.js';
 import { submitPrompt } from '../helpers/common.js';
 
+async function seedLogsViaCsv(count: number) {
+    const dataDir = process.env.KECHIMOCHI_DATA_DIR || os.tmpdir();
+    // eslint-disable-next-line sonarjs/pseudo-random
+    const csvPath = path.join(dataDir, `seed_${Math.random().toString(36).substring(7)}.csv`);
+    const logs = [
+        'Date,Log Name,Media Type,Duration,Language',
+        ...Array.from({ length: count }, () => '2024-03-31,Test Media,Reading,10,Japanese')
+    ].join('\n');
+
+    fs.writeFileSync(csvPath, logs);
+
+    await browser.execute(async (path) => {
+        // @ts-expect-error - reaching into Tauri internals for E2E
+        await globalThis.__TAURI_INTERNALS__.invoke('import_csv', { filePath: path });
+    }, csvPath);
+
+    await browser.refresh();
+    await waitForAppReady();
+
+    try { 
+        fs.unlinkSync(csvPath); 
+    } catch (err: unknown) { 
+        if ((err as Error).message.includes('EBUSY')) {
+            // ignore
+        }
+    }
+}
+
 describe('Dashboard Pagination E2E', () => {
     const testProfile = 'PAGETEST';
 
@@ -24,34 +52,6 @@ describe('Dashboard Pagination E2E', () => {
 
         await waitForAppReady();
     });
-
-    async function seedLogsViaCsv(count: number) {
-        const dataDir = process.env.KECHIMOCHI_DATA_DIR || os.tmpdir();
-        // eslint-disable-next-line sonarjs/pseudo-random
-        const csvPath = path.join(dataDir, `seed_${Math.random().toString(36).substring(7)}.csv`);
-        const logs = [
-            'Date,Log Name,Media Type,Duration,Language',
-            ...Array.from({ length: count }, () => '2024-03-31,Test Media,Reading,10,Japanese')
-        ].join('\n');
-
-        fs.writeFileSync(csvPath, logs);
-
-        await browser.execute(async (path) => {
-            // @ts-expect-error - reaching into Tauri internals for E2E
-            await window.__TAURI_INTERNALS__.invoke('import_csv', { filePath: path });
-        }, csvPath);
-
-        await browser.refresh();
-        await waitForAppReady();
-
-        try { 
-            fs.unlinkSync(csvPath); 
-        } catch (err: unknown) { 
-            if ((err as Error).message.includes('EBUSY')) {
-                // ignore
-            }
-        }
-    }
 
     it('should NOT show pagination with 15 or fewer activities', async () => {
         // Seeding 15 items in bulk
@@ -125,7 +125,7 @@ describe('Dashboard Pagination E2E', () => {
         await browser.execute((sel) => {
             const el = document.querySelector(sel);
             if (el) {
-                const ev = new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window, detail: 2 });
+                const ev = new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: globalThis as unknown as Window, detail: 2 });
                 el.dispatchEvent(ev);
             }
         }, '#current-page-display');

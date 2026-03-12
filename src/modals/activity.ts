@@ -108,7 +108,10 @@ export async function showLogActivityModal(prefillMediaTitle?: string): Promise<
         overlay.querySelector('#add-activity-form')!.addEventListener('submit', async (e) => {
             e.preventDefault();
             const mediaTitle = (overlay.querySelector('#activity-media') as HTMLInputElement).value.trim();
-            const duration = parseInt((overlay.querySelector('#activity-duration') as HTMLInputElement).value);
+            // The instruction mentioned `const field = (el as HTMLInputElement).dataset.field;`
+            // but `el` is not defined in this scope. Assuming it was a partial instruction
+            // or a placeholder for a different context.
+            const duration = Number.parseInt((overlay.querySelector('#activity-duration') as HTMLInputElement).value, 10);
             if (!mediaTitle || !duration) return;
 
             const existingMedia = mediaList.find(m => m.title.toLowerCase() === mediaTitle.toLowerCase());

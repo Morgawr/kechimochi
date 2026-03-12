@@ -21,7 +21,7 @@ describe('CUJ: Reading Analysis (Report Card)', () => {
         try {
             const btn = await $('#profile-btn-calculate-report');
             const text = await btn.getText();
-            const disabled = await btn.getAttribute('disabled');
+            const disabled = await btn.getProperty('disabled');
             return text === 'Calculating...' || disabled === 'true';
         } catch {
             return false;

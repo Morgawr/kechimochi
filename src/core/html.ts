@@ -18,7 +18,14 @@ export function html(strings: TemplateStringsArray, ...values: unknown[]): HTMLE
         } else if (Array.isArray(val)) {
             htmlString += str + val.join('');
         } else {
-            const stringVal = val !== undefined ? String(val) : '';
+            let stringVal = '';
+            if (val != null) {
+                if (typeof val === 'object') {
+                    stringVal = JSON.stringify(val);
+                } else {
+                    stringVal = String(val);
+                }
+            }
             htmlString += str + stringVal;
         }
     });

@@ -89,7 +89,7 @@ describe('MediaDetail', () => {
         component.render();
 
         const deleteExtraBtn = container.querySelector('.delete-extra-btn') as HTMLElement;
-        await deleteExtraBtn.click();
+        deleteExtraBtn.click();
 
         expect(api.updateMedia).toHaveBeenCalledWith(expect.objectContaining({
             extra_data: '{}'
@@ -107,9 +107,11 @@ describe('MediaDetail', () => {
         const deleteBtn = container.querySelector('#btn-delete-media-detail') as HTMLElement;
         deleteBtn.click();
 
-        await vi.waitFor(() => expect(mockCallbacks.onDelete).toHaveBeenCalled());
-        expect(modals.customConfirm).toHaveBeenCalled();
-        expect(api.deleteMedia).toHaveBeenCalledWith(1);
+        await vi.waitFor(() => {
+            expect(mockCallbacks.onDelete).toHaveBeenCalled();
+            expect(modals.customConfirm).toHaveBeenCalled();
+            expect(api.deleteMedia).toHaveBeenCalledWith(1);
+        });
     });
 
     it('should handle adding a milestone', async () => {
@@ -122,10 +124,12 @@ describe('MediaDetail', () => {
         component.render();
 
         const addBtn = container.querySelector('#btn-add-milestone') as HTMLElement;
-        await addBtn.click();
+        addBtn.click();
 
-        expect(modals.showAddMilestoneModal).toHaveBeenCalled();
-        expect(api.addMilestone).toHaveBeenCalledWith(newMilestone);
+        await vi.waitFor(() => {
+            expect(modals.showAddMilestoneModal).toHaveBeenCalled();
+            expect(api.addMilestone).toHaveBeenCalledWith(newMilestone);
+        });
     });
 
     it('should edit fields on double click', async () => {
