@@ -36,8 +36,8 @@ export class BookwalkerImporter implements MetadataImporter {
         if (currentUrl.includes("/list/") && currentUrl.includes("/series/")) {
             seriesUrl = currentUrl;
         } else {
-            const seriesLink = doc.querySelector('a[href*="/series/"][href$="/list/"]');
-            if (seriesLink) seriesUrl = (seriesLink as HTMLAnchorElement).href || "";
+            const seriesLink = doc.querySelector<HTMLAnchorElement>('a[href*="/series/"][href$="/list/"]');
+            if (seriesLink) seriesUrl = seriesLink.href || "";
         }
 
         if (!seriesUrl) {
@@ -76,13 +76,13 @@ export class BookwalkerImporter implements MetadataImporter {
     private extractDescription(doc: Document): string {
         const descEl = doc.querySelector('.m-synopsis');
         if (descEl) return descEl.textContent?.trim() || "";
-        const metaDesc = doc.querySelector('meta[property="og:description"]');
-        return (metaDesc as HTMLMetaElement | null)?.content || "";
+        const metaDesc = doc.querySelector<HTMLMetaElement>('meta[property="og:description"]');
+        return metaDesc?.content || "";
     }
 
     private extractCoverImage(doc: Document): string {
-        const metaImg = doc.querySelector('meta[property="og:image"]');
-        if (metaImg) return (metaImg as HTMLMetaElement).content || "";
+        const metaImg = doc.querySelector<HTMLMetaElement>('meta[property="og:image"]');
+        if (metaImg) return metaImg.content || "";
         const imgEl = doc.querySelector('.m-main-cover__img');
         return imgEl?.getAttribute('src') || "";
     }

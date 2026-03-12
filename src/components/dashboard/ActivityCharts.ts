@@ -94,23 +94,24 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                 this.onChartParamChange({ timeRangeOffset: this.state.timeRangeOffset - 1 });
             }
         });
-        layout.querySelector('#toggle-chart-type')?.addEventListener('change', (e) => {
-            const isLine = (e.target as HTMLInputElement).checked;
-            this.onChartParamChange({ chartType: isLine ? 'line' : 'bar' });
+        const toggleChartType = layout.querySelector<HTMLInputElement>('#toggle-chart-type');
+        toggleChartType?.addEventListener('change', () => {
+            this.onChartParamChange({ chartType: toggleChartType.checked ? 'line' : 'bar' });
         });
-        layout.querySelector('#select-time-range')?.addEventListener('change', (e) => {
-            const days = Number.parseInt((e.target as HTMLSelectElement).value);
+        const selectTimeRange = layout.querySelector<HTMLSelectElement>('#select-time-range');
+        selectTimeRange?.addEventListener('change', () => {
+            const days = Number.parseInt(selectTimeRange.value);
             this.onChartParamChange({ timeRangeDays: days, timeRangeOffset: 0 });
         });
-        layout.querySelector('#toggle-group-by')?.addEventListener('change', (e) => {
-            const isByName = (e.target as HTMLInputElement).checked;
-            this.onChartParamChange({ groupByMode: isByName ? 'log_name' : 'media_type' });
+        const toggleGroupBy = layout.querySelector<HTMLInputElement>('#toggle-group-by');
+        toggleGroupBy?.addEventListener('change', () => {
+            this.onChartParamChange({ groupByMode: toggleGroupBy.checked ? 'log_name' : 'media_type' });
         });
     }
 
     private renderCharts(layout: HTMLElement) {
-        const pieCanvas = layout.querySelector('#pieChart') as HTMLCanvasElement;
-        const barCanvas = layout.querySelector('#barChart') as HTMLCanvasElement;
+        const pieCanvas = layout.querySelector<HTMLCanvasElement>('#pieChart')!;
+        const barCanvas = layout.querySelector<HTMLCanvasElement>('#barChart')!;
         if (!pieCanvas || !barCanvas) return;
 
         if (this.pieChartInstance) this.pieChartInstance.destroy();

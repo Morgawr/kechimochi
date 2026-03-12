@@ -93,7 +93,7 @@ export class ImdbImporter implements MetadataImporter {
             metadata.description = doc.querySelector('span[data-testid="plot-xl"], span[data-testid="plot-l"]')?.textContent?.trim() || "";
         }
         if (!metadata.coverImageUrl) {
-            metadata.coverImageUrl = (doc.querySelector('section[data-testid="hero-parent"] .ipc-poster img.ipc-image') as HTMLImageElement | null)?.src || "";
+            metadata.coverImageUrl = doc.querySelector<HTMLImageElement>('section[data-testid="hero-parent"] .ipc-poster img.ipc-image')?.src || "";
         }
         this.extractDomFields(doc, extraData);
     }

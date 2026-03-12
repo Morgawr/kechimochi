@@ -25,20 +25,20 @@ export class BackloggdImporter implements MetadataImporter {
 
         // 1. Description from Meta Tags
         let description = "";
-        const metaDesc = doc.querySelector('meta[property="og:description"]');
+        const metaDesc = doc.querySelector<HTMLMetaElement>('meta[property="og:description"]');
         if (metaDesc) {
-            description = (metaDesc as HTMLMetaElement).content || "";
+            description = metaDesc.content || "";
         }
 
         // 2. Cover Image
         let coverImageUrl = "";
-        const metaImg = doc.querySelector('meta[property="og:image"]');
-        const coverImg = doc.querySelector('.card-img');
+        const metaImg = doc.querySelector<HTMLMetaElement>('meta[property="og:image"]');
+        const coverImg = doc.querySelector<HTMLElement>('.card-img');
         
         if (metaImg) {
-            coverImageUrl = (metaImg as HTMLMetaElement).content || "";
+            coverImageUrl = metaImg.content || "";
         } else if (coverImg) {
-            coverImageUrl = (coverImg as HTMLElement).dataset.src || coverImg.getAttribute('src') || "";
+            coverImageUrl = coverImg.dataset.src || coverImg.getAttribute('src') || "";
         }
 
         if (coverImageUrl) {

@@ -20,10 +20,10 @@ export function html(strings: TemplateStringsArray, ...values: unknown[]): HTMLE
         } else {
             let stringVal = '';
             if (val != null) {
-                if (typeof val === 'object') {
-                    stringVal = JSON.stringify(val);
-                } else {
+                if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
                     stringVal = String(val);
+                } else {
+                    stringVal = JSON.stringify(val);
                 }
             }
             htmlString += str + stringVal;

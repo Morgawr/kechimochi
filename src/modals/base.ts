@@ -39,7 +39,7 @@ export async function customPrompt(title: string, defaultValue = "", text = ""):
             </div>
         `;
         
-        const input = overlay.querySelector('#prompt-input') as HTMLInputElement;
+        const input = overlay.querySelector<HTMLInputElement>('#prompt-input')!;
         
         overlay.querySelector('#prompt-cancel')!.addEventListener('click', () => { cleanup(); resolve(null); });
         overlay.querySelector('#prompt-confirm')!.addEventListener('click', () => { cleanup(); resolve(input.value); });

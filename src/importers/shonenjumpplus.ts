@@ -15,7 +15,7 @@ export class ShonenjumpplusImporter implements MetadataImporter {
         const doc = parser.parseFromString(html, 'text/html');
 
         const coverImageUrl = this.extractCoverImage(doc);
-        const rssUrl = (doc.querySelector('link[rel="alternate"][type="application/rss+xml"]') as HTMLLinkElement | null)?.href;
+        const rssUrl = doc.querySelector<HTMLLinkElement>('link[rel="alternate"][type="application/rss+xml"]')?.href;
 
         const extraData: Record<string, string> = { "Source": url };
         let description = "";
@@ -33,11 +33,11 @@ export class ShonenjumpplusImporter implements MetadataImporter {
     }
 
     private extractCoverImage(doc: Document): string {
-        let url = (doc.querySelector('.series-header-image-wrapper img, .series-header-image') as HTMLImageElement | null)?.src ||
-                  (doc.querySelector('.series-header-image-wrapper img, .series-header-image') as HTMLElement | null)?.dataset.src || "";
+        let url = doc.querySelector<HTMLImageElement>('.series-header-image-wrapper img, .series-header-image')?.src ||
+                  doc.querySelector<HTMLElement>('.series-header-image-wrapper img, .series-header-image')?.dataset.src || "";
         
         if (!url) {
-            url = (doc.querySelector('meta[property="og:image"]') as HTMLMetaElement | null)?.content || "";
+            url = doc.querySelector<HTMLMetaElement>('meta[property="og:image"]')?.content || "";
         }
         return url;
     }

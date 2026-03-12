@@ -17,8 +17,8 @@ export async function initialProfilePrompt(defaultName: string = "User"): Promis
             </div>
         `;
         
-        const input = overlay.querySelector('#initial-prompt-input') as HTMLInputElement;
-        const confirmBtn = overlay.querySelector('#initial-prompt-confirm') as HTMLButtonElement;
+        const input = overlay.querySelector<HTMLInputElement>('#initial-prompt-input')!;
+        const confirmBtn = overlay.querySelector<HTMLButtonElement>('#initial-prompt-confirm')!;
         
         const checkInput = () => {
             confirmBtn.disabled = input.value.trim().length === 0;

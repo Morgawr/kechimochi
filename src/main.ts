@@ -68,7 +68,7 @@ class App {
 
     constructor() {
         this.viewContainer = document.getElementById('view-container')!;
-        this.selectProfileEl = document.getElementById('select-profile') as HTMLSelectElement;
+        this.selectProfileEl = document.querySelector<HTMLSelectElement>('#select-profile')!;
         this.devBuildBadgeEl = document.getElementById('dev-build-badge');
         this.navLinks = document.querySelectorAll('.nav-link');
 
@@ -128,9 +128,8 @@ class App {
 
     private setupNavigation() {
         this.navLinks.forEach(link => {
-            link.addEventListener('click', (e) => {
-                const target = e.target as HTMLElement;
-                const view = target.dataset.view as ViewType;
+            link.addEventListener('click', () => {
+                const view = link.dataset.view as ViewType;
                 if (view) this.switchView(view);
             });
         });
@@ -242,7 +241,7 @@ class App {
         this.currentView = view;
 
         this.navLinks.forEach(n => {
-            const dataView = (n as HTMLElement).dataset.view;
+            const dataView = n.dataset.view;
             n.classList.toggle('active', dataView === view);
         });
 

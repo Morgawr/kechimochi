@@ -32,8 +32,8 @@ export async function showExportCsvModal(): Promise<{mode: 'all' | 'range', star
         buildCalendar('cal-start-container', todayStr, (d) => selectedStart = d);
         buildCalendar('cal-end-container', todayStr, (d) => selectedEnd = d);
 
-        const modeRange = overlay.querySelector('input[value="range"]') as HTMLInputElement;
-        const rangeInputs = overlay.querySelector('#export-range-inputs') as HTMLElement;
+        const modeRange = overlay.querySelector<HTMLInputElement>('input[value="range"]')!;
+        const rangeInputs = overlay.querySelector<HTMLElement>('#export-range-inputs')!;
         overlay.querySelectorAll('input[name="export-mode"]').forEach(el => el.addEventListener('change', () => rangeInputs.style.display = modeRange.checked ? 'flex' : 'none'));
         
         overlay.querySelector('#export-cancel')!.addEventListener('click', () => { cleanup(); resolve(null); });
@@ -82,9 +82,9 @@ export async function showLogActivityModal(prefillMediaTitle?: string): Promise<
         buildCalendar('activity-cal-container', selectedDate, (d) => selectedDate = d);
 
         if (prefillMediaTitle) {
-            (overlay.querySelector('#activity-duration') as HTMLInputElement).focus();
+            overlay.querySelector<HTMLInputElement>('#activity-duration')!.focus();
         } else {
-            (overlay.querySelector('#activity-media') as HTMLInputElement).focus();
+            overlay.querySelector<HTMLInputElement>('#activity-media')!.focus();
         }
 
         const handleEscape = (e: KeyboardEvent) => {
@@ -107,11 +107,11 @@ export async function showLogActivityModal(prefillMediaTitle?: string): Promise<
         overlay.querySelector('#activity-cancel')!.addEventListener('click', () => { newCleanup(); resolve(false); });
         overlay.querySelector('#add-activity-form')!.addEventListener('submit', async (e) => {
             e.preventDefault();
-            const mediaTitle = (overlay.querySelector('#activity-media') as HTMLInputElement).value.trim();
+            const mediaTitle = overlay.querySelector<HTMLInputElement>('#activity-media')!.value.trim();
             // The instruction mentioned `const field = (el as HTMLInputElement).dataset.field;`
             // but `el` is not defined in this scope. Assuming it was a partial instruction
             // or a placeholder for a different context.
-            const duration = Number.parseInt((overlay.querySelector('#activity-duration') as HTMLInputElement).value, 10);
+            const duration = Number.parseInt(overlay.querySelector<HTMLInputElement>('#activity-duration')!.value, 10);
             if (!mediaTitle || !duration) return;
 
             const existingMedia = mediaList.find(m => m.title.toLowerCase() === mediaTitle.toLowerCase());

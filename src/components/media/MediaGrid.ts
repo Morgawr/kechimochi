@@ -59,7 +59,7 @@ export class MediaGrid extends Component<MediaGridState> {
     }
 
     private refreshGrid() {
-        const container = this.container.querySelector('#media-grid-container') as HTMLElement;
+        const container = this.container.querySelector<HTMLElement>('#media-grid-container');
         if (container) {
             this.renderItems(container);
         }
@@ -123,7 +123,7 @@ export class MediaGrid extends Component<MediaGridState> {
 
         header.querySelector('#btn-refresh-grid')?.addEventListener('click', async (e) => {
             const btn = e.currentTarget as HTMLElement;
-            const icon = btn.querySelector('#refresh-icon') as HTMLElement;
+            const icon = btn.querySelector<HTMLElement>('#refresh-icon');
             if (icon) icon.style.animation = 'spin 0.8s linear infinite';
 
             await this.onDataChange();
@@ -133,26 +133,30 @@ export class MediaGrid extends Component<MediaGridState> {
             if (icon) icon.style.animation = '';
         });
 
-        header.querySelector('#grid-search-filter')?.addEventListener('input', (e) => {
-            this.state.searchQuery = (e.target as HTMLInputElement).value;
+        const searchFilter = header.querySelector<HTMLInputElement>('#grid-search-filter');
+        searchFilter?.addEventListener('input', () => {
+            this.state.searchQuery = searchFilter.value;
             this.refreshGrid();
             this.notifyFilterChange();
         });
 
-        header.querySelector('#grid-type-select')?.addEventListener('change', (e) => {
-            this.state.typeFilter = (e.target as HTMLSelectElement).value;
+        const typeSelect = header.querySelector<HTMLSelectElement>('#grid-type-select');
+        typeSelect?.addEventListener('change', () => {
+            this.state.typeFilter = typeSelect.value;
             this.refreshGrid();
             this.notifyFilterChange();
         });
 
-        header.querySelector('#grid-status-select')?.addEventListener('change', (e) => {
-            this.state.statusFilter = (e.target as HTMLSelectElement).value;
+        const statusSelect = header.querySelector<HTMLSelectElement>('#grid-status-select');
+        statusSelect?.addEventListener('change', () => {
+            this.state.statusFilter = statusSelect.value;
             this.refreshGrid();
             this.notifyFilterChange();
         });
 
-        header.querySelector('#grid-hide-archived')?.addEventListener('change', (e) => {
-            this.state.hideArchived = (e.target as HTMLInputElement).checked;
+        const hideArchived = header.querySelector<HTMLInputElement>('#grid-hide-archived');
+        hideArchived?.addEventListener('change', () => {
+            this.state.hideArchived = hideArchived.checked;
             this.refreshGrid();
             this.notifyFilterChange();
         });

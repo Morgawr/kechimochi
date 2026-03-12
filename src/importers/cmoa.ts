@@ -27,7 +27,7 @@ export class CmoaImporter implements MetadataImporter {
 
     private extractDescription(doc: Document): string {
         const descEl = doc.querySelector('.title_detail_text');
-        let description = descEl?.textContent?.trim() || (doc.querySelector('meta[property="og:description"]') as HTMLMetaElement | null)?.content || "";
+        let description = descEl?.textContent?.trim() || doc.querySelector<HTMLMetaElement>('meta[property="og:description"]')?.content || "";
         
         description = description.replaceAll(/<br\s*\/?>/gi, '\n');
         const prefixRegex = /^コミックシーモアなら(?:無料で試し読み|期間限定\d+巻無料)！.*?[｜巻][\s｜]*/g;
@@ -35,7 +35,7 @@ export class CmoaImporter implements MetadataImporter {
     }
 
     private extractCoverImage(doc: Document): string {
-        let url = doc.querySelector('.title_detail_img img')?.getAttribute('src') || (doc.querySelector('meta[property="og:image"]') as HTMLMetaElement | null)?.content || "";
+        let url = doc.querySelector('.title_detail_img img')?.getAttribute('src') || doc.querySelector<HTMLMetaElement>('meta[property="og:image"]')?.content || "";
         if (url.startsWith("//")) url = "https:" + url;
         return url;
     }

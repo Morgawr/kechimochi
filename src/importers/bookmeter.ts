@@ -16,7 +16,7 @@ export class BookmeterImporter implements MetadataImporter {
 
         const extraData: Record<string, string> = { "Bookmeter Source": url };
         const description = this.extractDescription(doc);
-        const coverImageUrl = (doc.querySelector('meta[property="og:image"]') as HTMLMetaElement | null)?.content || "";
+        const coverImageUrl = doc.querySelector<HTMLMetaElement>('meta[property="og:image"]')?.content || "";
         
         this.extractPageCount(doc, extraData);
         this.extractPublisher(doc, extraData);
@@ -26,8 +26,8 @@ export class BookmeterImporter implements MetadataImporter {
     }
 
     private extractDescription(doc: Document): string {
-        const metaDesc = doc.querySelector('meta[property="og:description"]');
-        let description = (metaDesc as HTMLMetaElement | null)?.content || "";
+        const metaDesc = doc.querySelector<HTMLMetaElement>('meta[property="og:description"]');
+        let description = metaDesc?.content || "";
         
         const prefixRegex = /^.*?があるので安心。/g;
         if (description && prefixRegex.test(description)) {

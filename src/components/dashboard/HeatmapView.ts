@@ -39,7 +39,7 @@ export class HeatmapView extends Component<HeatmapViewState> {
         `;
 
         this.container.appendChild(card);
-        this.renderHeatmap(card.querySelector('#heatmap-inner-container') as HTMLElement);
+        this.renderHeatmap(card.querySelector<HTMLElement>('#heatmap-inner-container')!);
         
         card.querySelector('#btn-heatmap-prev')?.addEventListener('click', () => this.onYearChange(-1));
         card.querySelector('#btn-heatmap-next')?.addEventListener('click', () => this.onYearChange(1));

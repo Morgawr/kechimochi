@@ -57,8 +57,10 @@ export class MediaView extends Component<MediaViewState> {
         if (!document.getElementById('media-root')) return;
         if (this.state.viewMode !== 'detail') return;
 
-        const target = e.target as HTMLElement;
-        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+        if (e.target instanceof HTMLElement) {
+            const target = e.target;
+            if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+        }
 
         if (e.key === 'ArrowRight' || e.key.toLowerCase() === 'd') {
             this.navigateDetail(1);

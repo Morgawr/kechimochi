@@ -38,9 +38,9 @@ export async function showAddMediaModal(): Promise<{title: string, type: string,
             </div>
         `;
         
-        const titleInput = overlay.querySelector('#add-media-title') as HTMLInputElement;
-        const typeInput = overlay.querySelector('#add-media-type') as HTMLSelectElement;
-        const contentInput = overlay.querySelector('#add-media-content-type') as HTMLSelectElement;
+        const titleInput = overlay.querySelector<HTMLInputElement>('#add-media-title')!;
+        const typeInput = overlay.querySelector<HTMLSelectElement>('#add-media-type')!;
+        const contentInput = overlay.querySelector<HTMLSelectElement>('#add-media-content-type')!;
 
         const updateContentTypes = () => {
             const mType = typeInput.value;
@@ -188,8 +188,8 @@ function buildCoverHtml(scraped: import('../importers/index').ScrapedMetadata, c
 
 function processImportMerge(overlay: HTMLElement, scraped: import('../importers/index').ScrapedMetadata) {
     const result: JitenImportResult = { extraData: {} };
-    overlay.querySelectorAll('.import-checkbox:checked').forEach((el) => {
-        const field = (el as HTMLInputElement).dataset.field;
+    overlay.querySelectorAll<HTMLInputElement>('.import-checkbox:checked').forEach((el) => {
+        const field = el.dataset.field;
         if (field === 'description') result.description = scraped.description;
         else if (field === 'cover') result.coverImageUrl = scraped.coverImageUrl;
         else if (field?.startsWith('extra-')) {
@@ -241,7 +241,7 @@ export async function showMediaCsvConflictModal(conflicts: MediaConflict[]): Pro
             const finalRecords: MediaCsvRow[] = [];
             conflicts.filter(c => !c.existing).forEach(c => finalRecords.push(c.incoming));
             overlapping.forEach((conflict, idx) => {
-                if ((overlay.querySelector(`input[name="conflict-${idx}"]:checked`) as HTMLInputElement).value === 'replace') finalRecords.push(conflict.incoming);
+                if (overlay.querySelector<HTMLInputElement>(`input[name="conflict-${idx}"]:checked`)!.value === 'replace') finalRecords.push(conflict.incoming);
             });
             cleanup();
             resolve(finalRecords);
@@ -286,10 +286,10 @@ export async function showJitenSearchModal(media: Media): Promise<string | null>
                 </div>
             </div>`;
 
-        const resultsGrid = overlay.querySelector('#jiten-results-grid') as HTMLElement;
-        const searchInput = overlay.querySelector('#jiten-search-input') as HTMLInputElement;
-        const directLinkInput = overlay.querySelector('#jiten-direct-link') as HTMLInputElement;
-        const backContainer = overlay.querySelector('#jiten-back-container') as HTMLElement;
+        const resultsGrid = overlay.querySelector<HTMLElement>('#jiten-results-grid')!;
+        const searchInput = overlay.querySelector<HTMLInputElement>('#jiten-search-input')!;
+        const directLinkInput = overlay.querySelector<HTMLInputElement>('#jiten-direct-link')!;
+        const backContainer = overlay.querySelector<HTMLElement>('#jiten-back-container')!;
 
         const performSearch = async (title: string) => {
             backContainer.innerHTML = '';
@@ -345,9 +345,9 @@ function renderJitenResults(grid: HTMLElement, results: JitenResult[], onSelect:
             </div>
         </div>`).join('');
 
-    grid.querySelectorAll('.jiten-result-card').forEach((card) => {
+    grid.querySelectorAll<HTMLElement>('.jiten-result-card').forEach((card) => {
         card.addEventListener('click', () => {
-            const id = Number.parseInt((card as HTMLElement).dataset.id || "0");
+            const id = Number.parseInt(card.dataset.id || "0");
             const res = results.find(r => r.deckId === id);
             if (res) onSelect(res);
         });
@@ -367,7 +367,7 @@ function renderJitenVolumes(grid: HTMLElement, parent: JitenResult, children: Ji
         </div>`)
     ].join('');
     
-    grid.querySelectorAll('.jiten-volume-card').forEach((card) => {
-        card.addEventListener('click', () => onSelect(Number.parseInt((card as HTMLElement).dataset.deckId!)));
+    grid.querySelectorAll<HTMLElement>('.jiten-volume-card').forEach((card) => {
+        card.addEventListener('click', () => onSelect(Number.parseInt(card.dataset.id || card.dataset.deckId!)));
     });
 }

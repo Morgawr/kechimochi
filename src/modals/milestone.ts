@@ -76,11 +76,11 @@ export async function showAddMilestoneModal(mediaTitle: string): Promise<Milesto
 
         globalThis.addEventListener('keydown', handleGlobalEsc);
         
-        const nameInput = overlay.querySelector('#milestone-name') as HTMLInputElement;
-        const hoursInput = overlay.querySelector('#milestone-hours') as HTMLInputElement;
-        const minutesInput = overlay.querySelector('#milestone-minutes') as HTMLInputElement;
-        const recordDateCheckbox = overlay.querySelector('#milestone-record-date') as HTMLInputElement;
-        const calendarContainer = overlay.querySelector('#milestone-calendar-container') as HTMLElement;
+        const nameInput = overlay.querySelector<HTMLInputElement>('#milestone-name')!;
+        const hoursInput = overlay.querySelector<HTMLInputElement>('#milestone-hours')!;
+        const minutesInput = overlay.querySelector<HTMLInputElement>('#milestone-minutes')!;
+        const recordDateCheckbox = overlay.querySelector<HTMLInputElement>('#milestone-record-date')!;
+        const calendarContainer = overlay.querySelector<HTMLElement>('#milestone-calendar-container')!;
 
         const handleConfirm = () => {
             const name = nameInput.value.trim();
