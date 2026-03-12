@@ -1,7 +1,7 @@
 import { Component } from '../../core/component';
 import { html, escapeHTML } from '../../core/html';
 import { Media, ActivitySummary, Milestone, updateMedia, uploadCoverImage, downloadAndSaveImage, readFileBytes, deleteMedia, getSetting, getMilestones, addMilestone, deleteMilestone, clearMilestones, getLogsForMedia } from '../../api';
-import { customConfirm, customPrompt, showJitenSearchModal, showImportMergeModal, showAddMilestoneModal, showLogActivityModal } from '../../modals';
+import { customAlert, customConfirm, customPrompt, showJitenSearchModal, showImportMergeModal, showAddMilestoneModal, showLogActivityModal } from '../../modals';
 import { isValidImporterUrl, getAvailableSourcesForContentType, fetchMetadataForUrl } from '../../importers';
 import { open } from '../../utils/dialogs';
 import { MediaLog } from './MediaLog';
@@ -352,7 +352,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                     this.state.media.cover_image = newPath;
                     await this.loadImage();
                 } catch (e) {
-                    alert("Failed to upload image: " + e);
+                    await customAlert("Error", "Failed to upload image: " + e);
                 }
             }
         });
@@ -550,7 +550,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                     await this.loadMilestones();
                     this.render();
                 } catch (e) {
-                    alert("Failed to add milestone: " + e);
+                    await customAlert("Error", "Failed to add milestone: " + e);
                 }
             }
         });
@@ -564,7 +564,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                     await this.loadMilestones();
                     this.render();
                 } catch (e) {
-                    alert("Failed to delete milestones: " + e);
+                    await customAlert("Error", "Failed to delete milestones: " + e);
                 }
             }
         });
@@ -578,7 +578,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                         await this.loadMilestones();
                         this.render();
                     } catch (e) {
-                        alert("Failed to delete milestone: " + e);
+                        await customAlert("Error", "Failed to delete milestone: " + e);
                     }
                 }
             });
@@ -636,7 +636,7 @@ export class MediaDetail extends Component<MediaDetailState> {
             await updateMedia(this.state.media);
             this.render();
         } catch (e) {
-            alert("Metadata import failed: " + e);
+            await customAlert("Import Failed", "Metadata import failed: " + e);
         }
     }
 }
