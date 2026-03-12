@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import * as api from './api';
+import * as api from '../src/api';
 import { invoke } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 
