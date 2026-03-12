@@ -16,7 +16,7 @@ describe('Milestone CUJ Test', () => {
         await waitForAppReady();
         const exportBaseDir = process.env.SPEC_STAGE_DIR || os.tmpdir();
         tempExportPath = path.join(exportBaseDir, `milestones_export_${Date.now()}.csv`);
-        
+
         // Setup initial state
         await addMedia(mediaTitle, 'Playing');
     });
@@ -34,7 +34,7 @@ describe('Milestone CUJ Test', () => {
 
         // Add standard milestone (121m -> 2h1min)
         await addMilestone('First Milestone', '0', '121');
-        
+
         await browser.waitUntil(async () => {
             const text = await getMilestoneListText();
             return text.includes('First Milestone') && text.includes('2h1min');
@@ -44,7 +44,7 @@ describe('Milestone CUJ Test', () => {
 
         // Add dated milestone
         const selectedDate = await addMilestone('Dated Milestone', '1', '20', true);
-        
+
         await browser.waitUntil(async () => {
             const items = await $$('.milestone-item');
             return items.length === 2;
@@ -58,7 +58,7 @@ describe('Milestone CUJ Test', () => {
     it('should support single and bulk deletion', async () => {
         // Delete the Dated Milestone (index 1)
         await deleteMilestone(1);
-        
+
         await browser.waitUntil(async () => {
             const items = await $$('.milestone-item');
             return items.length === 1;
@@ -70,12 +70,12 @@ describe('Milestone CUJ Test', () => {
 
         // Bulk clear
         await clearAllMilestones();
-        
+
         await browser.waitUntil(async () => {
             const text = await getMilestoneListText();
             return text.includes('No milestones yet.');
         }, { timeout: 10000 });
-        
+
         expect(await $('#btn-clear-milestones').isExisting()).toBe(false);
     });
 
@@ -109,7 +109,7 @@ describe('Milestone CUJ Test', () => {
         const finalGridItem = await $(`.media-grid-item[data-title="${mediaTitle}"]`);
         await finalGridItem.waitForDisplayed({ timeout: 15000 });
         await finalGridItem.click();
-        
+
         await browser.waitUntil(async () => {
             const text = await getMilestoneListText();
             return text.includes('Recovery Milestone') && text.includes('2h30min');

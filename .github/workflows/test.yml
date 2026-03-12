@@ -70,8 +70,15 @@ jobs:
       - name: typescript check
         run: npx tsc --noEmit
 
+      - name: frontend lint check
+        run: npm run lint
+
       - name: cargo test (backend)
         run: cargo test
+        working-directory: src-tauri
+
+      - name: cargo clippy (backend)
+        run: cargo clippy -- -D warnings
         working-directory: src-tauri
 
       - name: vitest and coverage

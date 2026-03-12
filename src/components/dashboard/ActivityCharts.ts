@@ -115,27 +115,37 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         if (this.pieChartInstance) this.pieChartInstance.destroy();
         if (this.barChartInstance) this.barChartInstance.destroy();
 
+        const colors = this.getChartColors();
+        const timeRange = this.calculateTimeRange();
+        
+        this.createPieChart(pieCanvas, colors, timeRange);
+        this.createBarChart(barCanvas, colors, timeRange);
+    }
+
+    private getChartColors(): string[] {
         const style = getComputedStyle(document.body);
-        const colors = [
+        return [
           style.getPropertyValue('--chart-1').trim() || '#f4a6b8',
           style.getPropertyValue('--chart-2').trim() || '#b8cdda',
           style.getPropertyValue('--chart-3').trim() || '#e0bbe4',
           style.getPropertyValue('--chart-4').trim() || '#957DAD',
           style.getPropertyValue('--chart-5').trim() || '#D291BC'
         ];
+    }
 
-        const { logs, timeRangeDays, timeRangeOffset, groupByMode, chartType } = this.state;
-        
+    private calculateTimeRange() {
+        const { timeRangeDays, timeRangeOffset } = this.state;
+        const today = new Date();
         let labels: string[] = [];
         let getBucketIndex: (dateStr: string) => number = () => -1;
         let validStart = '';
         let validEnd = '';
+
         const getLocalISODate = (d: Date) => {
             const pad = (n: number) => n.toString().padStart(2, '0');
             return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
         };
 
-        const today = new Date();
         if (timeRangeDays === 7) {
             const endDay = new Date(today);
             endDay.setDate(today.getDate() - (7 * timeRangeOffset));
@@ -186,7 +196,14 @@ export class ActivityCharts extends Component<ActivityChartsState> {
             };
         }
 
+        return { labels, getBucketIndex, validStart, validEnd };
+    }
+
+    private createPieChart(canvas: HTMLCanvasElement, colors: string[], timeRange: any) {
+        const { logs, groupByMode } = this.state;
+        const { validStart, validEnd } = timeRange;
         const pieTypeMap = new Map<string, number>();
+
         for (const log of logs) {
             if (log.date >= validStart && log.date <= validEnd) {
                 const key = groupByMode === 'media_type' ? log.media_type : log.title;
@@ -194,7 +211,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
             }
         }
 
-        this.pieChartInstance = new Chart(pieCanvas, {
+        this.pieChartInstance = new Chart(canvas, {
             type: 'doughnut',
             data: {
                 labels: Array.from(pieTypeMap.keys()),
@@ -211,7 +228,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                     legend: { display: pieTypeMap.size <= 6, position: 'bottom', labels: { color: '#f0f0f5' } },
                     tooltip: {
                         callbacks: {
-                            label: function(context: any) {
+                            label: (context) => {
                                 const val = context.parsed;
                                 return `${context.dataset.label || context.label}: ${formatStatsDuration(val, true)}`;
                             }
@@ -220,38 +237,18 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                 }
             }
         });
+    }
 
-        const datasetsMap = new Map<string, number[]>();
-        const activeKeysInPeriod = new Set<string>();
-        for (const log of logs) {
-            if (getBucketIndex(log.date) !== -1) {
-                const key = groupByMode === 'media_type' ? log.media_type : log.title;
-                activeKeysInPeriod.add(key);
-            }
-        }
-        for (const key of activeKeysInPeriod) datasetsMap.set(key, Array(labels.length).fill(0));
+    private createBarChart(canvas: HTMLCanvasElement, colors: string[], timeRange: any) {
+        const { chartType, timeRangeDays } = this.state;
+        const { labels } = timeRange;
 
-        for (const log of logs) {
-            const index = getBucketIndex(log.date);
-            if (index !== -1) {
-                const key = groupByMode === 'media_type' ? log.media_type : log.title;
-                if (datasetsMap.has(key)) datasetsMap.get(key)![index] += log.duration_minutes;
-            }
-        }
+        const datasets = this.prepareBarChartDatasets(timeRange, colors);
 
-        const datasets = Array.from(datasetsMap.entries()).map(([key, data], i) => ({
-            label: key,
-            data: data,
-            backgroundColor: colors[i % colors.length],
-            borderColor: colors[i % colors.length],
-            fill: chartType === 'line' ? false : undefined,
-            tension: 0.3
-        }));
-
-        this.barChartInstance = new Chart(barCanvas, {
+        this.barChartInstance = new Chart(canvas, {
             type: chartType,
             data: {
-                labels: timeRangeDays === 7 ? labels.map(l => l.slice(5)) : labels,
+                labels: timeRangeDays === 7 ? labels.map((l: string) => l.slice(5)) : labels,
                 datasets: datasets
             },
             options: {
@@ -264,8 +261,8 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                         grid: { color: '#3f3f4e' }, 
                         ticks: { 
                             color: '#a0a0b0',
-                            callback: function(value: any) { 
-                                return formatStatsDuration(value, true);
+                            callback: (value) => { 
+                                return formatStatsDuration(value as number, true);
                             }
                         } 
                     }
@@ -274,8 +271,8 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                     legend: { display: datasets.length <= 6, position: 'top', labels: { color: '#a0a0b0'} },
                     tooltip: {
                         callbacks: {
-                            label: function(context: any) {
-                                const val = context.parsed.y;
+                            label: (context) => {
+                                const val = context.parsed.y ?? 0;
                                 return `${context.dataset.label}: ${formatStatsDuration(val, true)}`;
                             }
                         }
@@ -285,6 +282,50 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         });
     }
 
+    private prepareBarChartDatasets(timeRange: any, colors: string[]) {
+        const { logs, groupByMode, chartType } = this.state;
+        const { labels, getBucketIndex } = timeRange;
+
+        const activeKeys = this.getActiveKeys(logs, getBucketIndex, groupByMode);
+        const datasetsMap = this.aggregateDailyData(logs, activeKeys, getBucketIndex, labels.length, groupByMode);
+
+        return Array.from(datasetsMap.entries()).map(([key, data], i) => ({
+            label: key,
+            data: data,
+            backgroundColor: colors[i % colors.length],
+            borderColor: colors[i % colors.length],
+            fill: chartType === 'line' ? false : undefined,
+            tension: 0.3
+        }));
+    }
+
+    private getActiveKeys(logs: ActivitySummary[], getBucketIndex: (date: string) => number, mode: 'media_type' | 'log_name'): Set<string> {
+        const keys = new Set<string>();
+        for (const log of logs) {
+            if (getBucketIndex(log.date) !== -1) {
+                keys.add(mode === 'media_type' ? log.media_type : log.title);
+            }
+        }
+        return keys;
+    }
+
+    private aggregateDailyData(logs: ActivitySummary[], activeKeys: Set<string>, getBucketIndex: (date: string) => number, length: number, mode: 'media_type' | 'log_name') {
+        const map = new Map<string, number[]>();
+        for (const key of activeKeys) {
+            map.set(key, Array(length).fill(0));
+        }
+
+        for (const log of logs) {
+            const index = getBucketIndex(log.date);
+            if (index !== -1) {
+                const key = mode === 'media_type' ? log.media_type : log.title;
+                if (map.has(key)) {
+                    map.get(key)![index] += log.duration_minutes;
+                }
+            }
+        }
+        return map;
+    }
     public destroy() {
         if (this.pieChartInstance) this.pieChartInstance.destroy();
         if (this.barChartInstance) this.barChartInstance.destroy();

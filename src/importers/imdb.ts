@@ -28,10 +28,25 @@ export class ImdbImporter implements MetadataImporter {
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
 
-        let metadata: Partial<ScrapedMetadata> = {};
-        let extraData: Record<string, string> = { "Source URL": url };
+        const metadata: Partial<ScrapedMetadata> = {};
+        const extraData: Record<string, string> = { "Source URL": url };
 
-        // --- Strat 1: JSON-LD (Search all blocks) ---
+        this.extractFromJsonLd(doc, metadata, extraData);
+        this.extractFromDom(doc, metadata, extraData);
+
+        if (!metadata.description && !metadata.coverImageUrl && Object.keys(extraData).length <= 1) {
+            this.handleExtractionFailure(doc);
+        }
+
+        return {
+            title: "",
+            description: metadata.description || "",
+            coverImageUrl: metadata.coverImageUrl || "",
+            extraData
+        };
+    }
+
+    private extractFromJsonLd(doc: Document, metadata: Partial<ScrapedMetadata>, extraData: Record<string, string>) {
         const jsonLdScripts = doc.querySelectorAll('script[type="application/ld+json"]');
         let movieData: any = null;
         
@@ -42,54 +57,59 @@ export class ImdbImporter implements MetadataImporter {
                     movieData = content;
                     break;
                 }
-            } catch (e) { /* skip malformed */ }
+            } catch { /* skip malformed */ }
         }
 
         if (movieData) {
             metadata.description = movieData.description;
             metadata.coverImageUrl = movieData.image;
-            
-            if (movieData.director) {
-                const directors = Array.isArray(movieData.director) ? movieData.director : [movieData.director];
-                extraData["Director"] = directors.map((d: any) => d.name).filter(Boolean).join(", ");
-            }
-            if (movieData.genre) {
-                const genres = Array.isArray(movieData.genre) ? movieData.genre : [movieData.genre];
-                extraData["Genres"] = genres.join(", ");
-            }
-            if (movieData.duration) {
-                extraData["Total Runtime"] = this.parseISO8601Duration(movieData.duration);
-            }
-            if (movieData.datePublished) {
-                const yearMatch = movieData.datePublished.match(/^\d{4}/);
-                if (yearMatch) extraData["Release Year"] = yearMatch[0];
-            }
-            if (movieData.aggregateRating?.ratingValue) {
-                extraData["IMDb Rating"] = movieData.aggregateRating.ratingValue.toString();
-            }
+            this.parseJsonLdFields(movieData, extraData);
         }
+    }
 
-        // --- Strat 2: Fallback CSS Selectors (Fill gaps) ---
+    private parseJsonLdFields(movieData: any, extraData: Record<string, string>) {
+        if (movieData.director) {
+            const directors = Array.isArray(movieData.director) ? movieData.director : [movieData.director];
+            extraData["Director"] = directors.map((d: any) => d.name).filter(Boolean).join(", ");
+        }
+        if (movieData.genre) {
+            const genres = Array.isArray(movieData.genre) ? movieData.genre : [movieData.genre];
+            extraData["Genres"] = genres.join(", ");
+        }
+        if (movieData.duration) {
+            extraData["Total Runtime"] = this.parseISO8601Duration(movieData.duration);
+        }
+        if (movieData.datePublished) {
+            const yearMatch = movieData.datePublished.match(/^\d{4}/);
+            if (yearMatch) extraData["Release Year"] = yearMatch[0];
+        }
+        if (movieData.aggregateRating?.ratingValue) {
+            extraData["IMDb Rating"] = movieData.aggregateRating.ratingValue.toString();
+        }
+    }
+
+    private extractFromDom(doc: Document, metadata: Partial<ScrapedMetadata>, extraData: Record<string, string>) {
         if (!metadata.description) {
             metadata.description = doc.querySelector('span[data-testid="plot-xl"], span[data-testid="plot-l"]')?.textContent?.trim() || "";
         }
         if (!metadata.coverImageUrl) {
             metadata.coverImageUrl = doc.querySelector('section[data-testid="hero-parent"] .ipc-poster img.ipc-image')?.getAttribute('src') || "";
         }
+        this.extractDomFields(doc, extraData);
+    }
+
+    private extractDomFields(doc: Document, extraData: Record<string, string>) {
         if (!extraData["Director"]) {
             const dirLabel = Array.from(doc.querySelectorAll('li[data-testid="title-pc-principal-credit"]'))
                 .find(li => li.querySelector('button, span')?.textContent?.includes("Director"));
             if (dirLabel) {
                 extraData["Director"] = Array.from(dirLabel.querySelectorAll('a.ipc-metadata-list-item__list-content-item'))
-                    .map(a => a.textContent?.trim())
-                    .filter(Boolean)
-                    .join(", ");
+                    .map(a => a.textContent?.trim()).filter(Boolean).join(", ");
             }
         }
         if (!extraData["Genres"]) {
             const genres = Array.from(doc.querySelectorAll('div[data-testid="genres"] a.ipc-chip'))
-                .map(a => a.textContent?.trim())
-                .filter(Boolean);
+                .map(a => a.textContent?.trim()).filter(Boolean);
             if (genres.length > 0) extraData["Genres"] = genres.join(", ");
         }
         if (!extraData["Total Runtime"]) {
@@ -106,23 +126,16 @@ export class ImdbImporter implements MetadataImporter {
             const rating = doc.querySelector('div[data-testid="hero-rating-bar__aggregate-rating__score"] span')?.textContent?.trim();
             if (rating) extraData["IMDb Rating"] = rating;
         }
-
-        if (!metadata.description && !metadata.coverImageUrl && Object.keys(extraData).length <= 1) {
-            // Check if we hit a CAPTCHA or blocking page
-            const title = doc.title.toLowerCase();
-            if (title.includes("captcha") || title.includes("access denied") || title.includes("bot check")) {
-                throw new Error("IMDb blocked the request. Please try again later or check your network.");
-            }
-            throw new Error("Could not extract any data from the IMDb page. The layout might have changed or the URL is invalid.");
-        }
-
-        return {
-            title: "",
-            description: metadata.description || "",
-            coverImageUrl: metadata.coverImageUrl || "",
-            extraData
-        };
     }
+
+    private handleExtractionFailure(doc: Document) {
+        const title = doc.title.toLowerCase();
+        if (title.includes("captcha") || title.includes("access denied") || title.includes("bot check")) {
+            throw new Error("IMDb blocked the request. Please try again later or check your network.");
+        }
+        throw new Error("Could not extract any data from the IMDb page. The layout might have changed or the URL is invalid.");
+    }
+
 
     private parseISO8601Duration(duration: string): string {
         // Simple parser for PT2H23M format

@@ -3,6 +3,12 @@ import { getVersion } from '@tauri-apps/api/app';
 
 declare const __APP_GIT_HASH__: string;
 
+declare global {
+  interface Window {
+    mockDownloadedImagePath?: string;
+  }
+}
+
 export interface MediaCsvRow {
     "Title": string;
     "Media Type": string;
@@ -175,8 +181,8 @@ export async function readFileBytes(path: string): Promise<number[]> {
 }
 
 export async function downloadAndSaveImage(mediaId: number, url: string): Promise<string> {
-  if ((window as any).mockDownloadedImagePath) {
-    return (window as any).mockDownloadedImagePath;
+  if (window.mockDownloadedImagePath) {
+    return window.mockDownloadedImagePath;
   }
   return await invoke('download_and_save_image', { mediaId, url });
 }

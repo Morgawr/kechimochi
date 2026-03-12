@@ -45,79 +45,57 @@ export function getJitenMediaLabel(type: number): string {
 export async function searchJiten(title: string, contentType: string): Promise<JitenResult[]> {
     const mediaType = MEDIA_TYPE_MAP[contentType] || 0;
     
-    const validateResults = (results: JitenResult[]) => {
-        // If there are more than 25 results, it's likely a false positive.
-        if (results.length > 25) return [];
-        return results;
-    };
-
-    // 1. Try original search (with and without mediaType fallback)
-    let results = await performSearch(title, mediaType);
-    if (results.length > 0) {
-        const validated = validateResults(results);
-        if (validated.length > 0) return validated;
-    }
-    if (mediaType > 0) {
-        results = await performSearch(title, 0);
-        if (results.length > 0) {
-            const validated = validateResults(results);
-            if (validated.length > 0) return validated;
-        }
-    }
+    // 1. Try original search
+    let results = await searchWithFallback(title, mediaType);
+    if (results.length > 0) return results;
 
     // 2. Remove punctuation and symbols
-    const noPunctuationTitle = title.replace(/[!！?？.。,:：;；~～()（）\[\]［］{}｛｝]/g, ' ').replace(/\s+/g, ' ').trim();
-    if (noPunctuationTitle && noPunctuationTitle !== title) {
-        results = await performSearch(noPunctuationTitle, mediaType);
-        if (results.length === 0) results = await performSearch(noPunctuationTitle, 0);
-        
-        const validated = validateResults(results);
-        if (validated.length > 0) return validated;
+    const noPunctTitle = title.replace(/[!！?？.。,:：;；~～()（）\[\]［］{}｛｝]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (noPunctTitle && noPunctTitle !== title) {
+        results = await searchWithFallback(noPunctTitle, mediaType);
+        if (results.length > 0) return results;
     }
 
-    // 3. Remove numbers (standard and full-width) and retry
-    const noNumbersTitle = (noPunctuationTitle || title).replace(/[0-9１２３４５６７８９０]/g, '').trim();
-    if (noNumbersTitle && noNumbersTitle !== title && noNumbersTitle !== noPunctuationTitle) {
-        results = await performSearch(noNumbersTitle, mediaType);
-        if (results.length === 0) results = await performSearch(noNumbersTitle, 0);
-        
-        const validated = validateResults(results);
-        if (validated.length > 0) return validated;
+    // 3. Remove numbers
+    const noNumTitle = (noPunctTitle || title).replace(/[0-9１２３４５６７８９０]/g, '').trim();
+    if (noNumTitle && noNumTitle !== title && noNumTitle !== noPunctTitle) {
+        results = await searchWithFallback(noNumTitle, mediaType);
+        if (results.length > 0) return results;
     }
 
-    // 4. Remove words after whitespace sequentially (limit to 3 iterations)
+    // 4. Word-by-word shortening
+    return await searchShortened(title, mediaType);
+}
+
+async function searchWithFallback(query: string, mediaType: number): Promise<JitenResult[]> {
+    let results = await performSearch(query, mediaType);
+    if (results.length > 25) results = [];
+    
+    if (results.length === 0 && mediaType > 0) {
+        results = await performSearch(query, 0);
+        if (results.length > 25) results = [];
+    }
+    return results;
+}
+
+async function searchShortened(title: string, mediaType: number): Promise<JitenResult[]> {
     let currentTitle = title;
-    let iterations = 0;
-    while (iterations < 3) {
-        const lastSpaceIndex = currentTitle.lastIndexOf(' ');
-        const lastFullWidthSpaceIndex = currentTitle.lastIndexOf('　');
-        const splitIndex = Math.max(lastSpaceIndex, lastFullWidthSpaceIndex);
+    for (let i = 0; i < 3; i++) {
+        const lastSpace = Math.max(currentTitle.lastIndexOf(' '), currentTitle.lastIndexOf('　'));
+        if (lastSpace === -1) break;
         
-        if (splitIndex === -1) break;
-        
-        currentTitle = currentTitle.substring(0, splitIndex).trim();
+        currentTitle = currentTitle.substring(0, lastSpace).trim();
         if (!currentTitle) break;
 
-        results = await performSearch(currentTitle, mediaType);
-        if (results.length === 0) results = await performSearch(currentTitle, 0);
-        
-        const validated = validateResults(results);
-        if (validated.length > 0) return validated;
-        
-        iterations++;
+        const results = await searchWithFallback(currentTitle, mediaType);
+        if (results.length > 0) return results;
     }
-
     return [];
 }
 
 async function performSearch(query: string, mediaType: number): Promise<JitenResult[]> {
-    const params = new URLSearchParams({
-        titleFilter: query,
-        limit: '26'
-    });
-    if (mediaType > 0) {
-        params.append('mediaType', mediaType.toString());
-    }
+    const params = new URLSearchParams({ titleFilter: query, limit: '26' });
+    if (mediaType > 0) params.append('mediaType', mediaType.toString());
 
     try {
         const jsonStr = await invoke<string>('fetch_external_json', {
@@ -125,22 +103,24 @@ async function performSearch(query: string, mediaType: number): Promise<JitenRes
             method: 'GET'
         });
         const data = JSON.parse(jsonStr);
-        if (data && data.data && Array.isArray(data.data)) {
-            return data.data.map((deck: any) => ({
-                deckId: deck.deckId,
-                originalTitle: deck.originalTitle,
-                romajiTitle: deck.romajiTitle,
-                englishTitle: deck.englishTitle,
-                mediaType: deck.mediaType,
-                coverName: deck.coverName,
-                parentDeckId: deck.parentDeckId,
-                childrenDeckCount: deck.childrenDeckCount || 0
-            }));
-        }
+        return (data?.data || []).map(mapToJitenResult);
     } catch (e) {
         console.error("Jiten search failed", e);
     }
     return [];
+}
+
+function mapToJitenResult(deck: any): JitenResult {
+    return {
+        deckId: deck.deckId,
+        originalTitle: deck.originalTitle,
+        romajiTitle: deck.romajiTitle,
+        englishTitle: deck.englishTitle,
+        mediaType: deck.mediaType,
+        coverName: deck.coverName,
+        parentDeckId: deck.parentDeckId,
+        childrenDeckCount: deck.childrenDeckCount || 0
+    };
 }
 
 export async function getJitenDeckChildren(deckId: number): Promise<JitenResult[]> {
@@ -150,19 +130,7 @@ export async function getJitenDeckChildren(deckId: number): Promise<JitenResult[
             method: 'GET'
         });
         const json = JSON.parse(jsonStr);
-        const subDecks = json.data?.subDecks;
-        if (subDecks && Array.isArray(subDecks)) {
-            return subDecks.map((child: any) => ({
-                deckId: child.deckId,
-                originalTitle: child.originalTitle,
-                romajiTitle: child.romajiTitle,
-                englishTitle: child.englishTitle,
-                mediaType: child.mediaType,
-                coverName: child.coverName,
-                parentDeckId: child.parentDeckId,
-                childrenDeckCount: child.childrenDeckCount || 0
-            }));
-        }
+        return (json.data?.subDecks || []).map(mapToJitenResult);
     } catch (e) {
         console.error("Jiten get children failed", e);
     }

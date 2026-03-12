@@ -4,7 +4,8 @@ import {
     getAllMedia, getLogsForMedia, importCsv, exportCsv, deleteProfile,
     clearActivities, wipeEverything, exportMediaCsv, analyzeMediaCsv,
     applyMediaImport, switchProfile, listProfiles, getSetting, setSetting,
-    getAppVersion, importMilestonesCsv, exportMilestonesCsv
+    getAppVersion, importMilestonesCsv, exportMilestonesCsv,
+    Media, ActivitySummary
 } from '../api';
 import {
     customPrompt, showExportCsvModal, customAlert, customConfirm,
@@ -406,12 +407,20 @@ export class ProfileView extends Component<ProfileState> {
             "Visual Novel": { totalSpeed: 0, count: 0 }
         };
 
+        await this.processMediaStats(mediaList, stats, cutoffStr);
+
+        await setSetting('stats_report_timestamp', cutoffDate.toISOString());
+        await this.updateSettingStats(stats);
+    }
+
+    private async processMediaStats(mediaList: Media[], stats: Record<string, { totalSpeed: number, count: number }>, cutoffStr: string) {
         for (const media of mediaList) {
             if (media.tracking_status !== 'Complete') continue;
-            if (!stats[media.content_type || ""]) continue;
+            const contentType = media.content_type || "";
+            if (!stats[contentType]) continue;
 
-            let extraData: Record<string, string> = {};
-            try { extraData = JSON.parse(media.extra_data || "{}"); } catch (e) { continue; }
+            const extraData = this.parseExtraData(media.extra_data);
+            if (!extraData) continue;
 
             const charCount = parseInt((extraData["Character count"] || "").replace(/,/g, ''));
             if (isNaN(charCount)) continue;
@@ -419,14 +428,23 @@ export class ProfileView extends Component<ProfileState> {
             const logs = await getLogsForMedia(media.id!);
             if (logs.length === 0 || logs[0].date < cutoffStr) continue;
 
-            const totalMinutes = logs.reduce((acc, log) => acc + log.duration_minutes, 0);
+            const totalMinutes = logs.reduce((acc: number, log: ActivitySummary) => acc + log.duration_minutes, 0);
             if (totalMinutes > 0) {
-                stats[media.content_type!].totalSpeed += charCount / (totalMinutes / 60);
-                stats[media.content_type!].count += 1;
+                stats[contentType].totalSpeed += charCount / (totalMinutes / 60);
+                stats[contentType].count += 1;
             }
         }
+    }
 
-        await setSetting('stats_report_timestamp', cutoffDate.toISOString());
+    private parseExtraData(data: string | undefined): Record<string, string> | null {
+        try {
+            return JSON.parse(data || "{}");
+        } catch {
+            return null;
+        }
+    }
+
+    private async updateSettingStats(stats: Record<string, { totalSpeed: number, count: number }>) {
         for (const key of ["Novel", "Manga", "Visual Novel"]) {
             const s = stats[key];
             const avgSpeed = s.count > 0 ? Math.round(s.totalSpeed / s.count) : 0;

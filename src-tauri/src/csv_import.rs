@@ -177,7 +177,7 @@ pub fn export_logs_csv(conn: &Connection, file_path: &str, start_date: Option<St
     let mut count = 0;
     let mut wtr = csv::Writer::from_path(file_path).map_err(|e| e.to_string())?;
     
-    wtr.write_record(&["Date", "Log Name", "Media Type", "Duration", "Language"]).map_err(|e| e.to_string())?;
+    wtr.write_record(["Date", "Log Name", "Media Type", "Duration", "Language"]).map_err(|e| e.to_string())?;
     
     for log in logs {
         if let Some(start) = &start_date {
@@ -187,7 +187,7 @@ pub fn export_logs_csv(conn: &Connection, file_path: &str, start_date: Option<St
             if &log.date > end { continue; }
         }
         
-        wtr.write_record(&[
+        wtr.write_record([
             &log.date,
             &log.title,
             &log.media_type,

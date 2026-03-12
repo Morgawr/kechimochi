@@ -10,108 +10,78 @@ export class AnilistImporter implements MetadataImporter {
     }
 
     async fetch(url: string): Promise<ScrapedMetadata> {
-        // Extract the Anilist Media ID from the URL using a Regex
         const match = url.match(/\/anime\/(\d+)/);
-        if (!match || !match[1]) {
-            throw new Error("Could not extract Anilist Media ID from URL.");
-        }
+        if (!match?.[1]) throw new Error("Could not extract Anilist Media ID from URL.");
         
         const mediaId = parseInt(match[1], 10);
+        const media = await this.fetchAnilistMedia(mediaId);
+        if (!media) throw new Error("Could not find media data in Anilist response.");
 
+        const title = media.title?.english || media.title?.romaji || "Unknown Anime";
+        const extraData = this.mapExtraData(media, url);
+
+        return {
+            title: title,
+            description: media.description || "",
+            coverImageUrl: media.coverImage?.extraLarge || media.coverImage?.large || "",
+            extraData
+        };
+    }
+
+    private async fetchAnilistMedia(id: number) {
         const query = `
         query ($id: Int) {
           Media (id: $id, type: ANIME) {
             title { romaji english }
             description(asHtml: false)
             coverImage { extraLarge large }
-            episodes
-            season
-            seasonYear
+            episodes season seasonYear
             startDate { year month day }
             endDate { year month day }
-            averageScore
-            source
-            genres
+            averageScore source genres
           }
         }`;
-
-        const variables = { id: mediaId };
-
-        const requestBody = JSON.stringify({
-            query: query,
-            variables: variables
-        });
 
         const responseText: string = await invoke('fetch_external_json', {
             url: "https://graphql.anilist.co",
             method: "POST",
-            body: requestBody,
-            headers: {
-                "Content-Type": "application/json",
-                "Accept": "application/json"
-            }
+            body: JSON.stringify({ query, variables: { id } }),
+            headers: { "Content-Type": "application/json", "Accept": "application/json" }
         });
 
         const json = JSON.parse(responseText);
-        
-        if (json.errors) {
-            console.error("Anilist API returned errors:", json.errors);
-            throw new Error("Anilist API returned an error: " + json.errors[0]?.message);
-        }
+        if (json.errors) throw new Error("Anilist API returned an error: " + json.errors[0]?.message);
+        return json.data?.Media;
+    }
 
-        const m = json.data?.Media;
-        if (!m) {
-            throw new Error("Could not find media data in Anilist response.");
-        }
-
-        // 1. Title
-        const title = m.title?.english || m.title?.romaji || "Unknown Anime";
+    private mapExtraData(m: any, url: string): Record<string, string> {
+        const extras: Record<string, string> = { "Anilist Source": url };
         
-        // 2. Description
-        const cleanDesc = m.description || "";
-        
-        // 3. Cover Image
-        const coverUrl = m.coverImage?.extraLarge || m.coverImage?.large || "";
-
-        // 4. Extra Data Mapping
-        const extras: Record<string, string> = {};
-        
-        extras["Anilist Source"] = url;
-        
-        if (m.episodes) {
-            extras["Episodes"] = m.episodes.toString();
-        }
+        if (m.episodes) extras["Episodes"] = m.episodes.toString();
         
         if (m.season || m.seasonYear) {
-            let seasonStr = m.season ? m.season.charAt(0).toUpperCase() + m.season.substring(1).toLowerCase() : "";
+            const seasonStr = m.season ? m.season.charAt(0).toUpperCase() + m.season.substring(1).toLowerCase() : "";
             extras["Airing Season"] = `${seasonStr} ${m.seasonYear || ""}`.trim();
         }
         
-        if (m.startDate && m.startDate.year) {
-            extras["Start Airing Date"] = `${m.startDate.year}-${m.startDate.month?.toString().padStart(2, '0') || "01"}-${m.startDate.day?.toString().padStart(2, '0') || "01"}`;
-        }
-
-        if (m.endDate && m.endDate.year) {
-            extras["End Airing Date"] = `${m.endDate.year}-${m.endDate.month?.toString().padStart(2, '0') || "01"}-${m.endDate.day?.toString().padStart(2, '0') || "01"}`;
-        }
-
-        if (m.averageScore) {
-            extras["Anilist Score"] = `${m.averageScore}%`;
-        }
-
+        if (m.startDate?.year) extras["Start Airing Date"] = this.formatDate(m.startDate);
+        if (m.endDate?.year) extras["End Airing Date"] = this.formatDate(m.endDate);
+        if (m.averageScore) extras["Anilist Score"] = `${m.averageScore}%`;
+        
         if (m.source) {
-            extras["Original Source"] = m.source.replace(/_/g, ' ').replace(/\w\S*/g, (txt: string) => txt.charAt(0).toUpperCase() + txt.substring(1).toLowerCase());
+            extras["Original Source"] = m.source.replace(/_/g, ' ')
+                .replace(/\w\S*/g, (txt: string) => txt.charAt(0).toUpperCase() + txt.substring(1).toLowerCase());
         }
 
-        if (m.genres && m.genres.length > 0) {
-            extras["Genres"] = m.genres.join(", ");
-        }
+        if (m.genres?.length > 0) extras["Genres"] = m.genres.join(", ");
 
-        return {
-            title: title,
-            description: cleanDesc,
-            coverImageUrl: coverUrl,
-            extraData: extras
-        };
+        return extras;
+    }
+
+    private formatDate(date: { year: number, month?: number, day?: number }): string {
+        const y = date.year;
+        const m = (date.month || 1).toString().padStart(2, '0');
+        const d = (date.day || 1).toString().padStart(2, '0');
+        return `${y}-${m}-${d}`;
     }
 }

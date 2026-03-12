@@ -10,136 +10,120 @@ export class CmoaImporter implements MetadataImporter {
     }
 
     async fetch(url: string): Promise<ScrapedMetadata> {
-        const html = await invoke<string>('fetch_external_json', {
-            url,
-            method: "GET"
-        });
-
+        const html = await invoke<string>('fetch_external_json', { url, method: "GET" });
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
 
-        const extraData: Record<string, string> = {
-            "Cmoa Source": url
-        };
+        const extraData: Record<string, string> = { "Cmoa Source": url };
+        const description = this.extractDescription(doc);
+        const coverImageUrl = this.extractCoverImage(doc);
+        
+        this.extractCategories(doc, extraData);
+        this.extractRating(doc, extraData);
+        this.extractAuthors(doc, extraData);
 
-        // 1. Description
-        let description = "";
+        return { title: "", description, coverImageUrl, extraData };
+    }
+
+    private extractDescription(doc: Document): string {
         const descEl = doc.querySelector('.title_detail_text');
-        if (descEl) {
-            description = descEl.textContent?.trim() || "";
-        } else {
-            const metaDesc = doc.querySelector('meta[property="og:description"]');
-            if (metaDesc) {
-                description = metaDesc.getAttribute('content') || "";
-            }
-        }
-
-        // Clean up description HTML and Cmoa adverts
+        let description = descEl?.textContent?.trim() || doc.querySelector('meta[property="og:description"]')?.getAttribute('content') || "";
+        
         description = description.replace(/<br\s*\/?>/gi, '\n');
-        
-        // Handle common Cmoa boilerplate prefixes:
-        // 1. "コミックシーモアなら無料で試し読み！[Title] [Vol]｜"
-        // 2. "コミックシーモアなら期間限定[X]巻無料！[Title] [Vol] [｜]"
         const prefixRegex = /^コミックシーモアなら(?:無料で試し読み|期間限定\d+巻無料)！.*?[｜巻][\s｜]*/;
-        if (prefixRegex.test(description)) {
-            description = description.replace(prefixRegex, '').trim();
-        }
+        return description.replace(prefixRegex, '').trim();
+    }
 
-        // 2. Cover Image
-        let coverImageUrl = "";
-        const imgEl = doc.querySelector('.title_detail_img img');
-        if (imgEl) {
-            coverImageUrl = imgEl.getAttribute('src') || "";
-        } else {
-            const metaImg = doc.querySelector('meta[property="og:image"]');
-            if (metaImg) {
-                coverImageUrl = metaImg.getAttribute('content') || "";
-            }
-        }
-        
-        if (coverImageUrl && coverImageUrl.startsWith("//")) {
-            coverImageUrl = "https:" + coverImageUrl;
-        }
+    private extractCoverImage(doc: Document): string {
+        let url = doc.querySelector('.title_detail_img img')?.getAttribute('src') || doc.querySelector('meta[property="og:image"]')?.getAttribute('content') || "";
+        if (url.startsWith("//")) url = "https:" + url;
+        return url;
+    }
 
-        // 3. Category Lines (Genres, Tags, Publisher, Publication Date, ISBN)
+    private extractCategories(doc: Document, extraData: Record<string, string>) {
         const categoryLines = doc.querySelectorAll('.category_line');
         categoryLines.forEach(line => {
-            const headerEl = line.querySelector('.category_line_f_l_l');
+            const header = line.querySelector('.category_line_f_l_l')?.textContent?.trim();
             const dataEl = line.querySelector('.category_line_f_r_l');
-            
-            if (!headerEl || !dataEl) return;
-            
-            const header = headerEl.textContent?.trim();
-            
-            if (header === "ジャンル") { // Genre
-                const links = Array.from(dataEl.querySelectorAll('a'))
-                                .map(a => a.textContent?.trim())
-                                .filter(t => t && !t.includes("位)")); // Ignore "(12位)" strings usually appended
-                if (links.length > 0) extraData["Genres"] = links.join(", ");
-            } 
-            else if (header === "作品タグ") { // Tags
-                const links = Array.from(dataEl.querySelectorAll('a'))
-                                .map(a => a.textContent?.trim())
-                                .filter(Boolean);
-                if (links.length > 0) extraData["Tags"] = links.join(", ");
-            }
-            else if (header === "出版社") { // Publisher
-                const a = dataEl.querySelector('a');
-                if (a && a.textContent) extraData["Publisher"] = a.textContent.trim();
-            }
-            else if (header === "出版年月") { // Publication date
-                const text = dataEl.textContent?.replace('：', '').trim();
-                if (text) extraData["Publication Date"] = text;
-            }
-            else if (header === "配信開始日" && !extraData["Publication Date"]) {
-                const text = dataEl.textContent?.replace('：', '').trim();
-                if (text) {
-                    const match = text.match(/(\d{4})年(\d{1,2})月/);
-                    if (match) {
-                        extraData["Publication Date"] = `${match[1]}年${match[2]}月`;
-                    } else {
-                        extraData["Publication Date"] = text;
-                    }
-                }
-            }
-            else if (header === "ISBN") { // ISBN
-                const pre = dataEl.querySelector('pre');
-                if (pre && pre.textContent) extraData["ISBN"] = pre.textContent.trim();
-            }
+            if (header && dataEl) this.parseCategoryLine(header, dataEl, extraData);
         });
+    }
 
-        // 4. Rating (from JSON-LD script or meta)
+    private parseCategoryLine(header: string, dataEl: Element, extraData: Record<string, string>) {
+        switch (header) {
+            case "ジャンル":
+                this.parseGenres(dataEl, extraData);
+                break;
+            case "作品タグ":
+                this.parseTags(dataEl, extraData);
+                break;
+            case "出版社":
+                this.parsePublisher(dataEl, extraData);
+                break;
+            case "出版年月":
+                this.parseYearMonth(dataEl, extraData);
+                break;
+            case "配信開始日":
+                if (!extraData["Publication Date"]) this.parsePublicationDate(dataEl, extraData);
+                break;
+            case "ISBN":
+                this.parseIsbn(dataEl, extraData);
+                break;
+        }
+    }
+
+    private parseGenres(dataEl: Element, extraData: Record<string, string>) {
+        const links = Array.from(dataEl.querySelectorAll('a')).map(a => a.textContent?.trim()).filter(t => t && !t.includes("位)"));
+        if (links.length > 0) extraData["Genres"] = links.join(", ");
+    }
+
+    private parseTags(dataEl: Element, extraData: Record<string, string>) {
+        const links = Array.from(dataEl.querySelectorAll('a')).map(a => a.textContent?.trim()).filter(Boolean);
+        if (links.length > 0) extraData["Tags"] = links.join(", ");
+    }
+
+    private parsePublisher(dataEl: Element, extraData: Record<string, string>) {
+        const a = dataEl.querySelector('a');
+        if (a?.textContent) extraData["Publisher"] = a.textContent.trim();
+    }
+
+    private parseYearMonth(dataEl: Element, extraData: Record<string, string>) {
+        const text = dataEl.textContent?.replace('：', '').trim();
+        if (text) extraData["Publication Date"] = text;
+    }
+
+    private parseIsbn(dataEl: Element, extraData: Record<string, string>) {
+        const pre = dataEl.querySelector('pre');
+        if (pre?.textContent) extraData["ISBN"] = pre.textContent.trim();
+    }
+
+    private parsePublicationDate(dataEl: Element, extraData: Record<string, string>) {
+        const text = dataEl.textContent?.replace('：', '').trim();
+        if (text) {
+            const match = text.match(/(\d{4})年(\d{1,2})月/);
+            extraData["Publication Date"] = match ? `${match[1]}年${match[2]}月` : text;
+        }
+    }
+
+    private extractRating(doc: Document, extraData: Record<string, string>) {
         const scripts = doc.querySelectorAll('script[type="application/ld+json"]');
-        for (const script of scripts) {
-            if (script.textContent && script.textContent.includes("AggregateRating")) {
+        for (const script of Array.from(scripts)) {
+            if (script.textContent?.includes("AggregateRating")) {
                 try {
                     const json = JSON.parse(script.textContent);
                     const rating = json.aggregateRating || json.AggregateRating;
-                    if (rating && rating.ratingValue) {
+                    if (rating?.ratingValue) {
                         extraData["Rating"] = `${rating.ratingValue} Stars`;
                         break;
                     }
-                } catch (e) {
-                    // Ignore JSON parse errors
-                }
+                } catch { /* skip */ }
             }
         }
+    }
 
-        // 5. Authors
+    private extractAuthors(doc: Document, extraData: Record<string, string>) {
         const authorLinks = doc.querySelectorAll('.title_detail_item_name_author, .title_details_author_name a');
-        const authors = Array.from(authorLinks)
-                            .map(a => a.textContent?.trim())
-                            .filter(Boolean);
-        if (authors.length > 0) {
-            // Deduplicate authors if they appear multiple times for logic reasons
-            extraData["Author"] = Array.from(new Set(authors)).join(", ");
-        }
-
-        return {
-            title: "", // Exclude title to allow manual handling
-            description,
-            coverImageUrl,
-            extraData
-        };
+        const authors = Array.from(authorLinks).map(a => a.textContent?.trim()).filter(Boolean);
+        if (authors.length > 0) extraData["Author"] = Array.from(new Set(authors)).join(", ");
     }
 }

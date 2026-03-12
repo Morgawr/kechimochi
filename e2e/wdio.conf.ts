@@ -17,7 +17,11 @@ if (process.env.TEST_RUN_ID) {
     console.log(`[e2e] Worker process using inherited TEST_RUN_ID: ${STABLE_RUN_ID}`);
 }
 
-let tauriDriver: ChildProcess;
+interface ExtendedChildProcess extends ChildProcess {
+  _finalExitCode?: number | null;
+}
+
+let tauriDriver: ExtendedChildProcess;
 
 // Ensure tauri-driver is closed even on unexpected exits
 function onShutdown(fn: () => void) {
@@ -216,7 +220,7 @@ export const config: WebdriverIO.Config = {
     tauriDriver.on('exit', (code: number | null) => {
       console.log(`[e2e] [${specName}] tauri-driver process exited with code: ${code}`);
       log(`[e2e] tauri-driver process exited with code: ${code}\n`);
-      (tauriDriver as any)._finalExitCode = code;
+      tauriDriver._finalExitCode = code;
     });
   },
 
@@ -224,54 +228,18 @@ export const config: WebdriverIO.Config = {
    * Move staged artifacts to final destination and kill driver.
    */
   afterSession: async () => {
-    // 1. Signal driver to stop
-    if (tauriDriver) {
-      const { appendFileSync } = await import('fs');
-      tauriDriver.kill('SIGTERM');
-
-      // 2. WAIT for it to actually die before moving files
-      let attempts = 0;
-      while (tauriDriver && (tauriDriver as any)._finalExitCode === undefined && attempts < 15) {
-        const { execSync } = await import('child_process');
-        try { execSync('sleep 0.2'); } catch { }
-        attempts++;
-      }
-
-      const stageDir = process.env.SPEC_STAGE_DIR;
-      if (stageDir) {
-        const logFile = path.join(stageDir, 'tauri-driver.log');
-        const finalCode = (tauriDriver as any)._finalExitCode;
-        try { appendFileSync(logFile, `\n[e2e] Session Complete with exit code: ${finalCode}\n`); } catch { }
-      }
-    }
+    await stopTauriDriver();
 
     const stageDir = process.env.SPEC_STAGE_DIR;
     const specName = process.env.SPEC_NAME;
-    const finalDir = path.join(LOGS_DIR, specName || 'unknown');
+    const testDir = process.env.KECHIMOCHI_DATA_DIR;
 
     if (stageDir && specName) {
-      const { mkdirSync, existsSync, cpSync, rmSync, readdirSync } = await import('fs');
-
-      if (existsSync(stageDir)) {
-        try {
-          const stagedFiles = readdirSync(stageDir, { recursive: true });
-          console.log(`[e2e] [${specName}] Staging area contains: ${stagedFiles.join(', ')}`);
-
-          mkdirSync(finalDir, { recursive: true });
-          // Use cpSync + rmSync to handle cross-partition moves (more stable than renameSync)
-          cpSync(stageDir, finalDir, { recursive: true });
-          rmSync(stageDir, { recursive: true, force: true });
-        } catch (err) {
-          console.error(`[e2e] [${specName}] Failed to move artifacts:`, err);
-        }
-      }
+      await relocateArtifacts(stageDir, specName);
     }
 
-    // 3. Clean up the isolated data directory
-    const testDir = process.env.KECHIMOCHI_DATA_DIR;
     if (testDir && specName) {
-      cleanupTestDir(testDir);
-      console.log(`[e2e] [${specName}] Cleaned up isolated data directory: ${testDir}`);
+      cleanupTestData(testDir, specName);
     }
   },
 
@@ -294,7 +262,48 @@ export const config: WebdriverIO.Config = {
   /**
    * Clean up the temp test directory after the full run.
    */
-  onComplete: () => {
-    // No-op: Isolation directories are now cleaned up in afterSession
-  },
 };
+
+async function stopTauriDriver() {
+  if (tauriDriver) {
+    const { appendFileSync } = await import('fs');
+    tauriDriver.kill('SIGTERM');
+
+    let attempts = 0;
+    while (tauriDriver && (tauriDriver as any)._finalExitCode === undefined && attempts < 15) {
+      const { execSync } = await import('child_process');
+      try { execSync('sleep 0.2'); } catch { }
+      attempts++;
+    }
+
+    const stageDir = process.env.SPEC_STAGE_DIR;
+    if (stageDir) {
+      const logFile = path.join(stageDir, 'tauri-driver.log');
+      const finalCode = (tauriDriver as any)._finalExitCode;
+      try { appendFileSync(logFile, `\n[e2e] Session Complete with exit code: ${finalCode}\n`); } catch { }
+    }
+  }
+}
+
+async function relocateArtifacts(stageDir: string, specName: string) {
+  const { mkdirSync, existsSync, cpSync, rmSync, readdirSync } = await import('fs');
+  const finalDir = path.join(LOGS_DIR, specName);
+
+  if (existsSync(stageDir)) {
+    try {
+      const stagedFiles = readdirSync(stageDir, { recursive: true });
+      console.log(`[e2e] [${specName}] Staging area contains: ${stagedFiles.join(', ')}`);
+
+      mkdirSync(finalDir, { recursive: true });
+      cpSync(stageDir, finalDir, { recursive: true });
+      rmSync(stageDir, { recursive: true, force: true });
+    } catch (err) {
+      console.error(`[e2e] [${specName}] Failed to move artifacts:`, err);
+    }
+  }
+}
+
+function cleanupTestData(testDir: string, specName: string) {
+  cleanupTestDir(testDir);
+  console.log(`[e2e] [${specName}] Cleaned up isolated data directory: ${testDir}`);
+}

@@ -222,12 +222,17 @@ export class MediaDetail extends Component<MediaDetailState> {
     }
 
     private getContentTypeOptions(media: Media): string {
-        let validOptions: string[] = ['Unknown'];
+        const validOptions: string[] = ['Unknown'];
         const mType = media.media_type;
-        if (mType === 'Reading') validOptions.push('Visual Novel', 'Manga', 'Novel', 'WebNovel', 'NonFiction');
-        else if (mType === 'Playing') validOptions.push('Videogame');
-        else if (mType === 'Listening') validOptions.push('Audio');
-        else if (mType === 'Watching') validOptions.push('Anime', 'Movie', 'Youtube Video', 'Livestream', 'Drama');
+        if (mType === 'Reading') {
+            validOptions.push('Visual Novel', 'Manga', 'Novel', 'WebNovel', 'NonFiction');
+        } else if (mType === 'Playing') {
+            validOptions.push('Videogame');
+        } else if (mType === 'Listening') {
+            validOptions.push('Audio');
+        } else if (mType === 'Watching') {
+            validOptions.push('Anime', 'Movie', 'Youtube Video', 'Livestream', 'Drama');
+        }
         return validOptions.map(opt => `<option value="${opt}" ${opt === media.content_type ? 'selected' : ''}>${opt}</option>`).join('');
     }
 
@@ -280,51 +285,13 @@ export class MediaDetail extends Component<MediaDetailState> {
         const totalMin = logs.reduce((acc, log) => acc + log.duration_minutes, 0);
         const totalStr = formatHhMm(totalMin);
 
-        let verb = "Logged";
-        let totalLabel = "Total Time";
-        if (media.media_type === "Playing") { verb = "Played"; totalLabel = "Total Playtime"; }
-        else if (media.media_type === "Listening") { verb = "Listened"; totalLabel = "Total Listening Time"; }
-        else if (media.media_type === "Watching") { verb = "Watched"; totalLabel = "Total Watchtime"; }
-        else if (media.media_type === "Reading") { verb = "Read"; totalLabel = "Total Readtime"; }
+        const verb = this.getMediaVerb(media.media_type);
+        const totalLabel = this.getTotalTimeLabel(media.media_type);
 
         let readingSpeedHtml = "";
         const isReadingType = ["Novel", "Visual Novel", "Manga", "WebNovel", "NonFiction"].includes(media.content_type || "");
         if (isReadingType && totalMin > 0) {
-            try {
-                const extra = JSON.parse(media.extra_data || "{}");
-                const charRaw = extra["Character count"] || "";
-                const charCount = parseInt(charRaw.replace(/,/g, ''));
-                if (!isNaN(charCount) && charCount > 0) {
-                    if (media.tracking_status === 'Complete') {
-                        const speed = Math.round(charCount / (totalMin / 60));
-                        readingSpeedHtml = `<span style="margin-left: 2rem; color: var(--accent-yellow); font-weight: 800; border: 1px solid var(--accent-yellow); padding: 0.2rem 0.6rem; border-radius: 4px; background: rgba(0,0,0,0.2);">Est. Reading Speed: <strong style="color: var(--text-primary);">${speed.toLocaleString()} char/hr</strong></span>`;
-                    } else {
-                        let speedKey = "";
-                        if (media.content_type === "Novel") speedKey = "stats_novel_speed";
-                        else if (media.content_type === "Manga") speedKey = "stats_manga_speed";
-                        else if (media.content_type === "Visual Novel") speedKey = "stats_vn_speed";
-
-                        if (speedKey) {
-                            const avgSpeedStr = await getSetting(speedKey);
-                            const avgSpeed = parseInt(avgSpeedStr || "0");
-                            if (avgSpeed > 0) {
-                                const estTotalMin = (charCount / avgSpeed) * 60;
-                                const totalEstTotalMin = Math.round(estTotalMin);
-                                const estRemainingMin = Math.max(0, totalEstTotalMin - totalMin);
-                                const completionRate = Math.min(100, Math.round((totalMin / estTotalMin) * 100));
-
-                                const remStr = formatHhMm(estRemainingMin);
-                                const totalEstStr = formatHhMm(totalEstTotalMin);
-
-                                readingSpeedHtml = `
-                                    <span id="est-remaining-time" style="margin-left: 2rem; color: var(--accent-yellow); font-weight: 800; border: 1px solid var(--accent-yellow); padding: 0.2rem 0.6rem; border-radius: 4px; background: rgba(0,0,0,0.2);">Est. remaining time: <strong style="color: var(--text-primary);">${remStr}</strong> (<strong style="color: var(--text-primary);">${totalEstStr}</strong> total)</span>
-                                    <span id="est-completion-rate" style="margin-left: 1rem; color: var(--accent-yellow); font-weight: 800; border: 1px solid var(--accent-yellow); padding: 0.2rem 0.6rem; border-radius: 4px; background: rgba(0,0,0,0.2);">Est. completion rate: <strong style="color: var(--text-primary);">${completionRate}%</strong></span>
-                                `;
-                            }
-                        }
-                    }
-                }
-            } catch (e) { }
+            readingSpeedHtml = await this.calculateReadingStats(media, totalMin);
         }
 
         statsDiv.innerHTML = `
@@ -332,6 +299,70 @@ export class MediaDetail extends Component<MediaDetailState> {
             <span style="color: var(--text-secondary);">Last ${verb}: <strong style="color: var(--text-primary);">${lastLogDate}</strong></span>
             <span style="color: var(--text-secondary);">${totalLabel}: <strong style="color: var(--text-primary);">${totalStr}</strong></span>
             ${readingSpeedHtml}
+        `;
+    }
+
+    private getMediaVerb(mediaType: string): string {
+        switch (mediaType) {
+            case "Playing": return "Played";
+            case "Listening": return "Listened";
+            case "Watching": return "Watched";
+            case "Reading": return "Read";
+            default: return "Logged";
+        }
+    }
+
+    private getTotalTimeLabel(mediaType: string): string {
+        switch (mediaType) {
+            case "Playing": return "Total Playtime";
+            case "Listening": return "Total Listening Time";
+            case "Watching": return "Total Watchtime";
+            case "Reading": return "Total Readtime";
+            default: return "Total Time";
+        }
+    }
+
+    private async calculateReadingStats(media: Media, totalMin: number): Promise<string> {
+        try {
+            const extra = JSON.parse(media.extra_data || "{}");
+            const charRaw = extra["Character count"] || "";
+            const charCount = parseInt(charRaw.replace(/,/g, ''));
+            if (isNaN(charCount) || charCount <= 0) return "";
+
+            if (media.tracking_status === 'Complete') {
+                const speed = Math.round(charCount / (totalMin / 60));
+                return `<span style="margin-left: 2rem; color: var(--accent-yellow); font-weight: 800; border: 1px solid var(--accent-yellow); padding: 0.2rem 0.6rem; border-radius: 4px; background: rgba(0,0,0,0.2);">Est. Reading Speed: <strong style="color: var(--text-primary);">${speed.toLocaleString()} char/hr</strong></span>`;
+            }
+
+            return await this.calculateRemainingTime(media, charCount, totalMin);
+        } catch (e) {
+            return "";
+        }
+    }
+
+    private async calculateRemainingTime(media: Media, charCount: number, totalMin: number): Promise<string> {
+        let speedKey = "";
+        if (media.content_type === "Novel") speedKey = "stats_novel_speed";
+        else if (media.content_type === "Manga") speedKey = "stats_manga_speed";
+        else if (media.content_type === "Visual Novel") speedKey = "stats_vn_speed";
+
+        if (!speedKey) return "";
+
+        const avgSpeedStr = await getSetting(speedKey);
+        const avgSpeed = parseInt(avgSpeedStr || "0");
+        if (avgSpeed <= 0) return "";
+
+        const estTotalMin = (charCount / avgSpeed) * 60;
+        const totalEstTotalMin = Math.round(estTotalMin);
+        const estRemainingMin = Math.max(0, totalEstTotalMin - totalMin);
+        const completionRate = Math.min(100, Math.round((totalMin / estTotalMin) * 100));
+
+        const remStr = formatHhMm(estRemainingMin);
+        const totalEstStr = formatHhMm(totalEstTotalMin);
+
+        return `
+            <span id="est-remaining-time" style="margin-left: 2rem; color: var(--accent-yellow); font-weight: 800; border: 1px solid var(--accent-yellow); padding: 0.2rem 0.6rem; border-radius: 4px; background: rgba(0,0,0,0.2);">Est. remaining time: <strong style="color: var(--text-primary);">${remStr}</strong> (<strong style="color: var(--text-primary);">${totalEstStr}</strong> total)</span>
+            <span id="est-completion-rate" style="margin-left: 1rem; color: var(--accent-yellow); font-weight: 800; border: 1px solid var(--accent-yellow); padding: 0.2rem 0.6rem; border-radius: 4px; background: rgba(0,0,0,0.2);">Est. completion rate: <strong style="color: var(--text-primary);">${completionRate}%</strong></span>
         `;
     }
 
@@ -365,75 +396,19 @@ export class MediaDetail extends Component<MediaDetailState> {
             if (jitenUrl) await this.performMetadataImport(jitenUrl, "Jiten Source");
         });
 
-        const onSave = async (field: keyof Media | string, value: string, isExtra: boolean = false) => {
-            if (isExtra) {
-                let extraData = JSON.parse(this.state.media.extra_data || "{}");
-                extraData[field as string] = value;
-                this.state.media.extra_data = JSON.stringify(extraData);
-            } else {
-                (this.state.media as any)[field] = value;
-            }
-            await updateMedia(this.state.media);
-            this.render();
-        };
-
-        const onRenameKey = async (oldKey: string, newKey: string) => {
-            if (!newKey || newKey === oldKey) {
-                this.render();
-                return;
-            }
-            let extraData = JSON.parse(this.state.media.extra_data || "{}");
-            const val = extraData[oldKey];
-            delete extraData[oldKey];
-            extraData[newKey] = val;
-            this.state.media.extra_data = JSON.stringify(extraData);
-            await updateMedia(this.state.media);
-            this.render();
-        };
 
         const setupEditable = (el: HTMLElement, field: string, options: { isExtra?: boolean, isTextArea?: boolean, isRenameKey?: boolean } = {}) => {
             el.addEventListener('dblclick', () => {
                 const currentVal = options.isRenameKey ? field : (options.isExtra ? (el.textContent === '-' ? '' : el.textContent) : (this.state.media[field as keyof Media] as string) || '');
-                const input = document.createElement(options.isTextArea ? 'textarea' : 'input');
-                if (!options.isTextArea) (input as HTMLInputElement).type = 'text';
-                input.className = 'edit-input';
-                input.value = currentVal || '';
-                input.style.width = '100%';
-                if (options.isTextArea) {
-                    input.style.height = '150px';
-                    input.style.resize = 'vertical';
-                }
-                input.style.background = 'var(--bg-dark)';
-                input.style.color = (options.isRenameKey || options.isExtra) ? 'var(--text-secondary)' : 'var(--text-primary)';
-                if (!options.isRenameKey && !options.isExtra && !options.isTextArea) input.style.color = 'var(--text-primary)';
-                else if (!options.isTextArea) input.style.color = 'var(--text-secondary)';
+                const input = this.createEditInput(currentVal || '', options);
                 
-                // Set default color for non-rename
-                if (!options.isRenameKey && !options.isTextArea) input.style.color = 'var(--text-primary)';
-
-                input.style.border = '1px solid var(--accent-green)';
-                input.style.padding = '0.2rem 0.5rem';
-                input.style.fontSize = options.isRenameKey ? '0.7rem' : 'inherit';
-                if (options.isRenameKey) input.style.textTransform = 'uppercase';
-
                 const save = async () => {
                     const newVal = input.value.trim();
-                    if (options.isRenameKey) {
-                        await onRenameKey(field, newVal);
-                    } else {
-                        await onSave(field, newVal, !!options.isExtra);
-                    }
+                    if (options.isRenameKey) await this.onRenameKey(field, newVal);
+                    else await this.onSave(field, newVal, !!options.isExtra);
                 };
 
-                input.addEventListener('blur', save);
-                input.addEventListener('keydown', ((ev: KeyboardEvent) => {
-                    if (ev.key === 'Enter' && !options.isTextArea) input.blur();
-                    if (ev.key === 'Escape') {
-                        input.removeEventListener('blur', save);
-                        this.render();
-                    }
-                }) as EventListener);
-
+                this.attachEditInputListeners(input, save, options.isTextArea);
                 el.replaceWith(input);
                 input.focus();
                 if (!options.isTextArea) (input as HTMLInputElement).select();
@@ -501,7 +476,7 @@ export class MediaDetail extends Component<MediaDetailState> {
             const key = await customPrompt("Enter field name (e.g. 'Author', 'Source URL'):");
             if (!key) return;
             const val = await customPrompt(`Enter value for "${key}":`);
-            let extraData = JSON.parse(this.state.media.extra_data || "{}");
+            const extraData = JSON.parse(this.state.media.extra_data || "{}");
             extraData[key] = val || "";
             this.state.media.extra_data = JSON.stringify(extraData);
             await updateMedia(this.state.media);
@@ -512,7 +487,7 @@ export class MediaDetail extends Component<MediaDetailState> {
             btn.addEventListener('click', async (e) => {
                 const key = (e.currentTarget as HTMLElement).getAttribute('data-key');
                 if (!key) return;
-                let extraData = JSON.parse(this.state.media.extra_data || "{}");
+                const extraData = JSON.parse(this.state.media.extra_data || "{}");
                 delete extraData[key];
                 this.state.media.extra_data = JSON.stringify(extraData);
                 await updateMedia(this.state.media);
@@ -638,5 +613,75 @@ export class MediaDetail extends Component<MediaDetailState> {
         } catch (e) {
             await customAlert("Import Failed", "Metadata import failed: " + e);
         }
+    }
+
+    private async onSave(field: keyof Media | string, value: string, isExtra: boolean = false) {
+        if (isExtra) {
+            const extraData = JSON.parse(this.state.media.extra_data || "{}");
+            extraData[field as string] = value;
+            this.state.media.extra_data = JSON.stringify(extraData);
+        } else {
+            (this.state.media as unknown as Record<string, unknown>)[field] = value;
+        }
+        await updateMedia(this.state.media);
+        this.render();
+    }
+
+    private async onRenameKey(oldKey: string, newKey: string) {
+        if (!newKey || newKey === oldKey) {
+            this.render();
+            return;
+        }
+        const extraData = JSON.parse(this.state.media.extra_data || "{}");
+        const val = extraData[oldKey];
+        delete extraData[oldKey];
+        extraData[newKey] = val;
+        this.state.media.extra_data = JSON.stringify(extraData);
+        await updateMedia(this.state.media);
+        this.render();
+    }
+
+    private createEditInput(currentVal: string, options: { isExtra?: boolean, isTextArea?: boolean, isRenameKey?: boolean }): HTMLInputElement | HTMLTextAreaElement {
+        const input = document.createElement(options.isTextArea ? 'textarea' : 'input') as (HTMLInputElement | HTMLTextAreaElement);
+        if (!options.isTextArea) (input as HTMLInputElement).type = 'text';
+        
+        input.className = 'edit-input';
+        input.value = currentVal;
+        
+        this.applyEditInputStyles(input, options);
+        return input;
+    }
+
+    private applyEditInputStyles(input: HTMLElement, options: { isRenameKey?: boolean, isTextArea?: boolean, isExtra?: boolean }) {
+        input.style.width = '100%';
+        if (options.isTextArea) {
+            input.style.height = '150px';
+            input.style.resize = 'vertical';
+        }
+        input.style.background = 'var(--bg-dark)';
+        input.style.border = '1px solid var(--accent-green)';
+        input.style.padding = '0.2rem 0.5rem';
+        input.style.fontSize = options.isRenameKey ? '0.7rem' : 'inherit';
+        
+        // Color logic
+        let color = 'var(--text-primary)';
+        if (options.isRenameKey || options.isExtra) color = 'var(--text-secondary)';
+        if (!options.isRenameKey && !options.isTextArea) color = 'var(--text-primary)';
+        input.style.color = color;
+
+        if (options.isRenameKey) {
+            (input as HTMLInputElement).style.textTransform = 'uppercase';
+        }
+    }
+
+    private attachEditInputListeners(input: HTMLInputElement | HTMLTextAreaElement, save: () => Promise<void>, isTextArea?: boolean) {
+        input.addEventListener('blur', save);
+        input.addEventListener('keydown', ((ev: KeyboardEvent) => {
+            if (ev.key === 'Enter' && !isTextArea) input.blur();
+            if (ev.key === 'Escape') {
+                input.removeEventListener('blur', save);
+                this.render();
+            }
+        }) as EventListener);
     }
 }
