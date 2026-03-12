@@ -82,7 +82,7 @@ jobs:
 
       - name: run e2e tests
         env:
-          E2E_MAX_INSTANCES: 4
+          E2E_MAX_INSTANCES: 2
         run: xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" npm run e2e:test
 
       - name: upload e2e logs
