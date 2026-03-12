@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Media {
     pub id: Option<i64>,
     pub title: String,
@@ -14,7 +14,7 @@ pub struct Media {
     pub tracking_status: String, // "Ongoing", "Complete", "Paused", "Dropped", "Not Started", "Untracked"
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ActivityLog {
     pub id: Option<i64>,
     pub media_id: i64,
@@ -22,7 +22,7 @@ pub struct ActivityLog {
     pub date: String, // YYYY-MM-DD
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ActivitySummary {
     pub id: Option<i64>,
     pub media_id: i64,
@@ -33,8 +33,17 @@ pub struct ActivitySummary {
     pub language: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DailyHeatmap {
     pub date: String,
     pub total_minutes: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Milestone {
+    pub id: Option<i64>,
+    pub media_title: String,
+    pub name: String,
+    pub duration: i64,
+    pub date: Option<String>,
 }

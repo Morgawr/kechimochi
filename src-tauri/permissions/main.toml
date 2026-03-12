@@ -28,5 +28,12 @@ commands.allow = [
     "download_and_save_image",
     "get_username",
     "set_setting",
-    "get_setting"
+    "get_setting",
+    "get_milestones",
+    "add_milestone",
+    "delete_milestone",
+    "update_milestone",
+    "export_milestones_csv",
+    "import_milestones_csv",
+    "delete_milestones_for_media"
 ]

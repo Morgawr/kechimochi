@@ -53,3 +53,11 @@ export interface DailyHeatmap {
     date: string;
     total_minutes: number;
 }
+
+export interface Milestone {
+    id?: number;
+    media_title: string;
+    name: string;
+    duration: number;
+    date?: string;
+}

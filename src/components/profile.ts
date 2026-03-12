@@ -4,13 +4,14 @@ import {
     getAllMedia, getLogsForMedia, deleteProfile,
     clearActivities, wipeEverything,
     applyMediaImport, switchProfile, listProfiles, getSetting, setSetting,
-    getAppVersion
+    getAppVersion, importMilestonesCsv, exportMilestonesCsv
 } from '../api';
 import {
     customPrompt, showExportCsvModal, customAlert, customConfirm,
     showMediaCsvConflictModal, initialProfilePrompt
 } from '../modals';
 import { getServices } from '../services';
+import { open, save } from '@tauri-apps/plugin-dialog';
 
 interface ProfileState {
     currentProfile: string;
@@ -162,6 +163,17 @@ export class ProfileView extends Component<ProfileState> {
                     </div>
                 </div>
 
+                <!-- Milestones -->
+                <div class="card" style="display: flex; flex-direction: column; gap: 1rem;">
+                    <h3>Milestones</h3>
+                    <p style="color: var(--text-secondary); font-size: 0.9rem;">Import or export user-specific milestones for the current profile.</p>
+                    
+                    <div style="display: flex; gap: 1rem; margin-top: 0.5rem;">
+                        <button class="btn btn-primary" id="profile-btn-import-milestones" style="flex: 1;">Import Milestones (CSV)</button>
+                        <button class="btn btn-primary" id="profile-btn-export-milestones" style="flex: 1;">Export Milestones (CSV)</button>
+                    </div>
+                </div>
+
                 <!-- Danger Zone -->
                 <div class="card" style="display: flex; flex-direction: column; gap: 1rem; border: 1px solid #ff4757;">
                     <h3 style="color: #ff4757;">Danger Zone</h3>
@@ -286,6 +298,36 @@ export class ProfileView extends Component<ProfileState> {
                 if (count !== null) await customAlert("Success", `Successfully exported ${count} media library entries!`);
             } catch (e) {
                 await customAlert("Error", `Export failed: ${e}`);
+            }
+        });
+
+        // Listeners for milestones (using delegation for robustness)
+        root.addEventListener('click', async (e) => {
+            const target = (e.target as HTMLElement).closest('button');
+            if (!target) return;
+            
+            if (target.id === 'profile-btn-import-milestones') {
+                const selected = await open({ multiple: false, filters: [{ name: 'CSV', extensions: ['csv'] }] });
+                if (selected && typeof selected === 'string') {
+                    try {
+                        const count = await importMilestonesCsv(selected);
+                        await customAlert("Success", `Successfully imported ${count} milestones!`);
+                    } catch (e) {
+                        await customAlert("Error", `Import failed: ${e}`);
+                    }
+                }
+            }
+            
+            if (target.id === 'profile-btn-export-milestones') {
+                const savePath = await save({ filters: [{ name: 'CSV', extensions: ['csv'] }], defaultPath: `kechimochi_${currentProfile}_milestones.csv` });
+                if (savePath) {
+                    try {
+                        const count = await exportMilestonesCsv(savePath);
+                        await customAlert("Success", `Successfully exported ${count} milestones!`);
+                    } catch (e) {
+                        await customAlert("Error", `Export failed: ${e}`);
+                    }
+                }
             }
         });
 

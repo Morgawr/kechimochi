@@ -8,7 +8,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open as tauriOpen, save as tauriSave } from '@tauri-apps/plugin-dialog';
 
 import type { AppServices } from './types';
-import type { Media, ActivityLog, ActivitySummary, DailyHeatmap, MediaCsvRow, MediaConflict } from '../types';
+import type { Media, ActivityLog, ActivitySummary, DailyHeatmap, MediaCsvRow, MediaConflict, Milestone } from '../types';
 
 declare const __APP_GIT_HASH__: string;
 
@@ -87,6 +87,31 @@ export class DesktopServices implements AppServices {
 
     applyMediaImport(records: MediaCsvRow[]): Promise<number> {
         return invoke('apply_media_import', { records });
+    }
+
+    // ── Milestone operations ─────────────────────────────────────────────────
+    getMilestones(mediaTitle: string): Promise<Milestone[]> {
+        return invoke('get_milestones', { mediaTitle });
+    }
+
+    addMilestone(milestone: Milestone): Promise<number> {
+        return invoke('add_milestone', { milestone });
+    }
+
+    deleteMilestone(id: number): Promise<void> {
+        return invoke('delete_milestone', { id });
+    }
+
+    clearMilestones(mediaTitle: string): Promise<void> {
+        return invoke('delete_milestones_for_media', { mediaTitle });
+    }
+
+    exportMilestonesCsv(filePath: string): Promise<number> {
+        return invoke('export_milestones_csv', { filePath });
+    }
+
+    importMilestonesCsv(filePath: string): Promise<number> {
+        return invoke('import_milestones_csv', { filePath });
     }
 
     // ── Cover image operations ────────────────────────────────────────────────

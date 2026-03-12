@@ -18,6 +18,11 @@ export class HeatmapView extends Component<HeatmapViewState> {
     render() {
         this.clear();
         
+        if (isNaN(this.state.year)) {
+            this.container.innerHTML = '<div style="text-align: center; color: var(--text-secondary); padding: 2rem;">No data recorded yet.</div>';
+            return;
+        }
+
         const card = html`
             <div class="card" style="display: flex; flex-direction: column; min-width: 0; height: 100%;">
                 <div style="display: flex; justify-content: center; align-items: center; margin-bottom: 2rem; gap: 1rem;">

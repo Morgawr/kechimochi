@@ -5,6 +5,7 @@ export type {
     DailyHeatmap,
     MediaCsvRow,
     MediaConflict,
+    Milestone,
 } from '../types';
 
 import type {
@@ -14,6 +15,7 @@ import type {
     DailyHeatmap,
     MediaCsvRow,
     MediaConflict,
+    Milestone,
 } from '../types';
 
 /**
@@ -62,6 +64,14 @@ export interface AppServices {
     exportMediaLibrary(profileName: string): Promise<number | null>;
     /** Applies the pre-approved list of media rows returned by analyzeMediaCsvFromPick. */
     applyMediaImport(records: MediaCsvRow[]): Promise<number>;
+
+    // ── Milestone operations ────────────────────────────────────────────────
+    getMilestones(mediaTitle: string): Promise<Milestone[]>;
+    addMilestone(milestone: Milestone): Promise<number>;
+    deleteMilestone(id: number): Promise<void>;
+    clearMilestones(mediaTitle: string): Promise<void>;
+    exportMilestonesCsv(filePath: string): Promise<number>;
+    importMilestonesCsv(filePath: string): Promise<number>;
 
     // ── Cover image operations ────────────────────────────────────────────────
     /** Opens a file picker, uploads the image, and returns the stored reference. */

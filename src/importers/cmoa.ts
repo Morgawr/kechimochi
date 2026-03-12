@@ -111,8 +111,9 @@ export class CmoaImporter implements MetadataImporter {
             if (script.textContent && script.textContent.includes("AggregateRating")) {
                 try {
                     const json = JSON.parse(script.textContent);
-                    if (json.aggregateRating && json.aggregateRating.ratingValue) {
-                        extraData["Rating"] = `${json.aggregateRating.ratingValue} Stars`;
+                    const rating = json.aggregateRating || json.AggregateRating;
+                    if (rating && rating.ratingValue) {
+                        extraData["Rating"] = `${rating.ratingValue} Stars`;
                         break;
                     }
                 } catch (e) {

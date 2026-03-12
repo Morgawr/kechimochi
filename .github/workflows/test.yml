@@ -74,6 +74,35 @@ jobs:
         run: cargo test
         working-directory: src-tauri
 
+      - name: vitest and coverage
+        run: npm run test:coverage
+
+      - name: upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: coverage/
+
+      - name: extract coverage percentage
+        if: github.ref == 'refs/heads/main'
+        id: coverage
+        run: |
+          PERCENT=$(jq -r '.total.lines.pct' coverage/coverage-summary.json)
+          echo "percent=$PERCENT" >> $GITHUB_OUTPUT
+
+      - name: update coverage badge
+        if: github.ref == 'refs/heads/main'
+        uses: Schneegans/dynamic-badges-action@v1.7.0
+        with:
+          auth: ${{ secrets.GIST_TOKEN }}
+          gistID: ${{ secrets.GIST_ID }}
+          filename: kechimochi-coverage.json
+          label: Coverage
+          message: "${{ steps.coverage.outputs.percent }}%"
+          valColorRange: ${{ steps.coverage.outputs.percent }}
+          maxColorRange: 100
+          minColorRange: 0
+
       - name: build e2e debug binary
         run: npm run e2e:build
 
@@ -82,7 +111,7 @@ jobs:
 
       - name: run e2e tests
         env:
-          E2E_MAX_INSTANCES: 4
+          E2E_MAX_INSTANCES: 2
         run: xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" npm run e2e:test
 
       - name: upload e2e logs

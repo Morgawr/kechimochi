@@ -93,7 +93,7 @@ export async function customAlert(title: string, text: string): Promise<void> {
         overlay.innerHTML = `
             <div class="modal-content">
                 <h3>${title}</h3>
-                <p style="margin-top: 1rem; color: var(--text-secondary);">${text}</p>
+                <p id="alert-body" style="margin-top: 1rem; color: var(--text-secondary);">${text}</p>
                 <div style="display: flex; justify-content: flex-end; margin-top: 1.5rem;">
                     <button class="btn btn-primary" id="alert-ok">OK</button>
                 </div>

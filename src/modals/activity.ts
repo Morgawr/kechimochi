@@ -55,7 +55,7 @@ export async function showExportCsvModal(): Promise<{mode: 'all' | 'range', star
     });
 }
 
-export async function showLogActivityModal(): Promise<boolean> {
+export async function showLogActivityModal(prefillMediaTitle?: string): Promise<boolean> {
     return new Promise(async (resolve) => {
         const overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
@@ -72,7 +72,7 @@ export async function showLogActivityModal(): Promise<boolean> {
                 <form id="add-activity-form" style="margin-top: 1rem; display: flex; flex-direction: column; gap: 1rem;">
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">
                         <label style="font-size: 0.85rem; color: var(--text-secondary);">Media Title</label>
-                        <input type="text" id="activity-media" list="media-datalist" autocomplete="off" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm);" required />
+                        <input type="text" id="activity-media" list="media-datalist" autocomplete="off" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm);" value="${prefillMediaTitle || ''}" required />
                         <datalist id="media-datalist">${activeMedia.map(m => `<option value="${m.title}">`).join('')}</datalist>
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">
@@ -95,9 +95,27 @@ export async function showLogActivityModal(): Promise<boolean> {
         let selectedDate = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
         buildCalendar('activity-cal-container', selectedDate, (d) => selectedDate = d);
 
+        if (prefillMediaTitle) {
+            (overlay.querySelector('#activity-duration') as HTMLInputElement).focus();
+        } else {
+            (overlay.querySelector('#activity-media') as HTMLInputElement).focus();
+        }
+
+        const handleEscape = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                cleanup();
+                resolve(false);
+            }
+        };
+
+        window.addEventListener('keydown', handleEscape, true);
+
         const cleanup = () => {
+             window.removeEventListener('keydown', handleEscape, true);
              overlay.classList.remove('active');
-             overlay.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+             overlay.querySelectorAll('[id]').forEach(el => (el as HTMLElement).removeAttribute('id'));
              setTimeout(() => overlay.remove(), 300);
         };
 

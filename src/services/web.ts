@@ -7,7 +7,7 @@
  * to the same origin (so the Vite dev proxy or a bundled server both work).
  */
 import type { AppServices } from './types';
-import type { Media, ActivityLog, ActivitySummary, DailyHeatmap, MediaCsvRow, MediaConflict } from '../types';
+import type { Media, ActivityLog, ActivitySummary, DailyHeatmap, MediaCsvRow, MediaConflict, Milestone } from '../types';
 
 const API_BASE: string = (import.meta.env.VITE_API_BASE_URL as string) || '';
 
@@ -147,6 +147,31 @@ export class WebServices implements AppServices {
 
     applyMediaImport(records: MediaCsvRow[]): Promise<number> {
         return post('/import/media/apply', records);
+    }
+
+    // ── Milestone operations ─────────────────────────────────────────────────
+    getMilestones(_mediaTitle: string): Promise<Milestone[]> {
+        return Promise.reject(new Error('Milestones are not yet supported in web mode.'));
+    }
+
+    addMilestone(_milestone: Milestone): Promise<number> {
+        return Promise.reject(new Error('Milestones are not yet supported in web mode.'));
+    }
+
+    deleteMilestone(_id: number): Promise<void> {
+        return Promise.reject(new Error('Milestones are not yet supported in web mode.'));
+    }
+
+    clearMilestones(_mediaTitle: string): Promise<void> {
+        return Promise.reject(new Error('Milestones are not yet supported in web mode.'));
+    }
+
+    exportMilestonesCsv(_filePath: string): Promise<number> {
+        return Promise.reject(new Error('Milestones are not yet supported in web mode.'));
+    }
+
+    importMilestonesCsv(_filePath: string): Promise<number> {
+        return Promise.reject(new Error('Milestones are not yet supported in web mode.'));
     }
 
     // ── Cover image operations ────────────────────────────────────────────────

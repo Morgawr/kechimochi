@@ -134,3 +134,12 @@ export async function confirmAction(ok: boolean = true): Promise<void> {
     // Wait for this SPECIFIC overlay to be removed from DOM
     await $(`.modal-overlay[data-overlay-id="${overlayId}"]`).waitForExist({ reverse: true, timeout: 5000 });
 }
+/**
+ * Sets the mock path for file save/open dialogs in Tauri.
+ */
+export async function setDialogMockPath(filePath: string): Promise<void> {
+    await browser.execute((p) => {
+        (window as any).mockSavePath = p;
+        (window as any).mockOpenPath = p;
+    }, filePath);
+}

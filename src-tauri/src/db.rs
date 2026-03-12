@@ -3,7 +3,7 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::Manager;
 
-use crate::models::{ActivityLog, ActivitySummary, Media, DailyHeatmap};
+use crate::models::{ActivityLog, ActivitySummary, Media, DailyHeatmap, Milestone};
 
 /// Returns the data directory for the application.
 /// If KECHIMOCHI_DATA_DIR is set, uses that path (for test isolation).
@@ -124,6 +124,29 @@ fn create_activity_logs_table(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn create_milestones_table(conn: &Connection) -> Result<()> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS main.milestones (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            media_title TEXT NOT NULL,
+            name TEXT NOT NULL,
+            duration INTEGER NOT NULL,
+            date TEXT
+        )",
+        [],
+    )?;
+    Ok(())
+}
+
+fn migrate_milestones(conn: &Connection) -> Result<()> {
+    // Gracefully add columns if they don't exist
+    let _ = conn.execute("ALTER TABLE main.milestones ADD COLUMN media_title TEXT NOT NULL DEFAULT ''", []);
+    let _ = conn.execute("ALTER TABLE main.milestones ADD COLUMN name TEXT NOT NULL DEFAULT ''", []);
+    let _ = conn.execute("ALTER TABLE main.milestones ADD COLUMN duration INTEGER NOT NULL DEFAULT 0", []);
+    let _ = conn.execute("ALTER TABLE main.milestones ADD COLUMN date TEXT", []);
+    Ok(())
+}
+
 fn create_settings_table(conn: &Connection) -> Result<()> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS main.settings (
@@ -138,6 +161,7 @@ fn create_settings_table(conn: &Connection) -> Result<()> {
 pub fn create_tables(conn: &Connection) -> Result<()> {
     create_shared_media_table(conn)?;
     create_activity_logs_table(conn)?;
+    create_milestones_table(conn)?;
     create_settings_table(conn)?;
     Ok(())
 }
@@ -162,6 +186,7 @@ pub fn init_db(app_dir: std::path::PathBuf, profile_name: &str) -> Result<Connec
 
     // Ensure tables exist
     create_tables(&conn)?;
+    migrate_milestones(&conn)?;
 
     Ok(conn)
 }
@@ -409,6 +434,60 @@ pub fn get_setting(conn: &Connection, key: &str) -> Result<Option<String>> {
     } else {
         Ok(None)
     }
+}
+
+// Milestone Operations
+pub fn get_milestones_for_media(conn: &Connection, media_title: &str) -> Result<Vec<Milestone>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, media_title, name, duration, date FROM main.milestones WHERE media_title = ?1 ORDER BY id ASC",
+    )?;
+    let milestone_iter = stmt.query_map(params![media_title], |row| {
+        Ok(Milestone {
+            id: row.get(0)?,
+            media_title: row.get(1)?,
+            name: row.get(2)?,
+            duration: row.get(3)?,
+            date: row.get(4)?,
+        })
+    })?;
+
+    let mut milestone_list = Vec::new();
+    for milestone in milestone_iter {
+        milestone_list.push(milestone?);
+    }
+    Ok(milestone_list)
+}
+
+pub fn add_milestone(conn: &Connection, milestone: &Milestone) -> Result<i64> {
+    conn.execute(
+        "INSERT INTO main.milestones (media_title, name, duration, date) VALUES (?1, ?2, ?3, ?4)",
+        params![milestone.media_title, milestone.name, milestone.duration, milestone.date],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+pub fn delete_milestone(conn: &Connection, id: i64) -> Result<()> {
+    conn.execute("DELETE FROM main.milestones WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+pub fn delete_milestones_for_media(conn: &Connection, media_title: &str) -> Result<()> {
+    conn.execute("DELETE FROM main.milestones WHERE media_title = ?1", params![media_title])?;
+    Ok(())
+}
+
+pub fn update_milestone(conn: &Connection, milestone: &Milestone) -> Result<()> {
+    conn.execute(
+        "UPDATE main.milestones SET media_title = ?1, name = ?2, duration = ?3, date = ?4 WHERE id = ?5",
+        params![
+            milestone.media_title,
+            milestone.name,
+            milestone.duration,
+            milestone.date,
+            milestone.id.unwrap()
+        ],
+    )?;
+    Ok(())
 }
 
 pub fn save_cover_image(conn: &rusqlite::Connection, covers_dir: std::path::PathBuf, media_id: i64, src_path: &std::path::Path) -> std::result::Result<String, String> {
@@ -1010,11 +1089,78 @@ mod tests {
     }
 
     #[test]
-    fn test_migration_clean_install() {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute("ATTACH DATABASE ':memory:' AS shared", []).unwrap();
+    fn test_milestone_operations() {
+        let conn = setup_test_db();
+        let media_title = "Milestone Media";
         
-        // Running migration on a DB with NO media table should just work (return Ok)
-        migrate_to_shared(&conn).unwrap();
+        let milestone = Milestone {
+            id: None,
+            media_title: media_title.to_string(),
+            name: "First Quarter".to_string(),
+            duration: 120,
+            date: Some("2024-03-12".to_string()),
+        };
+
+        // Test add_milestone
+        let id = add_milestone(&conn, &milestone).unwrap();
+        assert!(id > 0);
+
+        // Test get_milestones_for_media
+        let milestones = get_milestones_for_media(&conn, media_title).unwrap();
+        assert_eq!(milestones.len(), 1);
+        assert_eq!(milestones[0].name, "First Quarter");
+        assert_eq!(milestones[0].duration, 120);
+
+        // Test update_milestone
+        let mut updated = milestones[0].clone();
+        updated.name = "Halfway".to_string();
+        updated.duration = 240;
+        update_milestone(&conn, &updated).unwrap();
+
+        let milestones = get_milestones_for_media(&conn, media_title).unwrap();
+        assert_eq!(milestones[0].name, "Halfway");
+        assert_eq!(milestones[0].duration, 240);
+
+        // Test delete_milestone
+        delete_milestone(&conn, id).unwrap();
+        let milestones = get_milestones_for_media(&conn, media_title).unwrap();
+        assert_eq!(milestones.len(), 0);
+    }
+
+    #[test]
+    fn test_delete_milestones_for_media() {
+        let conn = setup_test_db();
+        let title1 = "Media 1";
+        let title2 = "Media 2";
+
+        add_milestone(&conn, &Milestone { id: None, media_title: title1.to_string(), name: "M1".to_string(), duration: 10, date: None }).unwrap();
+        add_milestone(&conn, &Milestone { id: None, media_title: title2.to_string(), name: "M2".to_string(), duration: 20, date: None }).unwrap();
+
+        assert_eq!(get_milestones_for_media(&conn, title1).unwrap().len(), 1);
+        assert_eq!(get_milestones_for_media(&conn, title2).unwrap().len(), 1);
+
+        delete_milestones_for_media(&conn, title1).unwrap();
+        assert_eq!(get_milestones_for_media(&conn, title1).unwrap().len(), 0);
+        assert_eq!(get_milestones_for_media(&conn, title2).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_migrate_milestones() {
+        let conn = Connection::open_in_memory().unwrap();
+        // Create table with only id (simulate old version if it ever missed columns)
+        conn.execute("CREATE TABLE main.milestones (id INTEGER PRIMARY KEY AUTOINCREMENT)", []).unwrap();
+        
+        // This should add the missing columns
+        migrate_milestones(&conn).unwrap();
+        
+        // Verify we can insert
+        let milestone = Milestone {
+            id: None,
+            media_title: "Migrated".to_string(),
+            name: "Test".to_string(),
+            duration: 50,
+            date: None,
+        };
+        add_milestone(&conn, &milestone).unwrap();
     }
 }

@@ -2,7 +2,7 @@
  * Media Detail helpers.
  */
 /// <reference types="@wdio/globals/types" />
-import { submitPrompt } from './common.js';
+import { submitPrompt, confirmAction } from './common.js';
 
 /**
  * Clicks the "Mark as Complete" button in Media Detail.
@@ -130,23 +130,9 @@ export async function getDescription(): Promise<string> {
 export async function getExtraField(key: string): Promise<string> {
     const el = await $(`.editable-extra[data-key="${key}"]`);
     await el.waitForExist({ timeout: 5000 });
-    
-    let text = "";
-    await browser.waitUntil(async () => {
-        text = await el.getText();
-        return text !== "" && text !== "-";
-    }, {
-        timeout: 5000,
-        interval: 100,
-        timeoutMsg: `Extra field "${key}" never showed a value`
-    }).catch(() => {});
-    
     return await el.getText();
 }
 
-/**
- * Adds an extra field to the current media item.
- */
 export async function addExtraField(key: string, value: string): Promise<void> {
     const btn = await $('#btn-add-extra');
     await btn.waitForDisplayed({ timeout: 5000 });
@@ -161,6 +147,43 @@ export async function addExtraField(key: string, value: string): Promise<void> {
 }
 
 /**
+ * Edits an extra field value via double-click.
+ */
+export async function editExtraField(key: string, newValue: string): Promise<void> {
+    const card = await $(`.card[data-ekey="${key}"]`);
+    await card.waitForDisplayed({ timeout: 5000 });
+    
+    const el = await card.$(`.editable-extra[data-key="${key}"]`);
+    await el.waitForDisplayed({ timeout: 5000 });
+    await el.scrollIntoView();
+    
+    // Using double click
+    await el.doubleClick();
+    
+    // Wait for input to appear
+    const input = await card.$('input.edit-input');
+    await input.waitForDisplayed({ timeout: 5000 });
+    
+    // Click to focus and use keys to set value
+    await input.click();
+    
+    // Clear existing value if any (though it should be empty or InitialValue replaced)
+    // We can use Ctrl+A and Backspace
+    await browser.keys(['Control', 'a']);
+    await browser.keys(['Backspace']);
+    await browser.keys(newValue);
+    
+    // Verify value was set in the input before blurring
+    await browser.waitUntil(async () => {
+        return (await input.getValue()) === newValue;
+    }, { timeout: 3000, timeoutMsg: `Failed to set value to "${newValue}" in extra field "${key}"` });
+    
+    // Save by pressing Enter
+    await browser.keys(['Enter']);
+    await browser.pause(1500); // Wait for re-render
+}
+
+/**
  * Gets the text value of a projection badge (remaining or completion).
  */
 export async function getProjectionValue(id: string): Promise<string> {
@@ -169,3 +192,96 @@ export async function getProjectionValue(id: string): Promise<string> {
     const strong = await el.$('strong');
     return await strong.getText();
 }
+/**
+ * Adds a new milestone.
+ */
+export async function addMilestone(name: string, hours: string, minutes: string, pickDate: boolean = false): Promise<string | null> {
+    const addBtn = await $('#btn-add-milestone');
+    await addBtn.waitForClickable({ timeout: 5000 });
+    await addBtn.click();
+    
+    const nameInput = await $('#milestone-name');
+    await nameInput.waitForDisplayed({ timeout: 5000 });
+    await nameInput.setValue(name);
+    
+    await (await $('#milestone-hours')).setValue(hours);
+    await (await $('#milestone-minutes')).setValue(minutes);
+    
+    let selectedDate: string | null = null;
+    if (pickDate) {
+        await (await $('#milestone-record-date')).click();
+        const firstDay = await $('.cal-day');
+        await firstDay.waitForDisplayed({ timeout: 5000 });
+        selectedDate = await firstDay.getAttribute('data-date');
+        await firstDay.click();
+    }
+    
+    await (await $('#milestone-confirm')).click();
+    return selectedDate;
+}
+
+/**
+ * Deletes a milestone by index.
+ */
+export async function deleteMilestone(index: number): Promise<void> {
+    const deleteBtns = await $$('.delete-milestone-btn');
+    if (deleteBtns[index]) {
+        await deleteBtns[index].click();
+        await confirmAction(true);
+    }
+}
+
+/**
+ * Clears all milestones for the current media.
+ */
+export async function clearAllMilestones(): Promise<void> {
+    const clearBtn = await $('#btn-clear-milestones');
+    await clearBtn.waitForClickable({ timeout: 5000 });
+    await clearBtn.click();
+    await confirmAction(true);
+}
+
+/**
+ * Gets the consolidated text of the milestone list.
+ */
+export async function getMilestoneListText(): Promise<string> {
+    const list = await $('#milestone-list-container');
+    await list.waitForDisplayed({ timeout: 5000 });
+    return await list.getText();
+}
+
+/**
+ * Logs an activity directly from the Media Detail view using the "+ New Entry" button.
+ */
+export async function logActivityFromDetail(expectedTitle: string, duration: string): Promise<void> {
+    const newEntryBtn = await $('#btn-new-media-entry');
+    await newEntryBtn.waitForDisplayed({ timeout: 5000 });
+    await newEntryBtn.click();
+
+    const modal = await $('.modal-content');
+    await modal.waitForDisplayed({ timeout: 5000 });
+
+    const titleInput = await $('#activity-media');
+    expect(await titleInput.getValue()).toBe(expectedTitle);
+
+    const durationInput = await $('#activity-duration');
+    await browser.waitUntil(async () => await durationInput.isFocused(), {
+        timeout: 2000,
+        timeoutMsg: 'Duration input should be focused when modal opens with pre-filled title'
+    });
+    await durationInput.setValue(duration);
+
+
+    // Pick today in the calendar
+    const todayCell = await $('.cal-day.today');
+    await todayCell.waitForClickable({ timeout: 2000 });
+    await todayCell.click();
+
+    const submitBtn = await $('#add-activity-form button[type="submit"]');
+    await submitBtn.click();
+
+    // Wait for modal to disappear
+    await modal.waitForDisplayed({ reverse: true, timeout: 5000 });
+    await browser.pause(500); // Wait for re-render of logs
+}
+

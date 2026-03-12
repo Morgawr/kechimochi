@@ -1,7 +1,7 @@
 import { Component } from '../../core/component';
 import { html, escapeHTML } from '../../core/html';
-import { Media, ActivitySummary, updateMedia, deleteMedia, getSetting } from '../../api';
-import { customConfirm, customPrompt, showJitenSearchModal, showImportMergeModal } from '../../modals';
+import { Media, ActivitySummary, Milestone, updateMedia, deleteMedia, getSetting, getMilestones, addMilestone, deleteMilestone, clearMilestones, getLogsForMedia } from '../../api';
+import { customAlert, customConfirm, customPrompt, showJitenSearchModal, showImportMergeModal, showAddMilestoneModal, showLogActivityModal } from '../../modals';
 import { isValidImporterUrl, getAvailableSourcesForContentType, fetchMetadataForUrl } from '../../importers';
 import { getServices } from '../../services';
 import { MediaLog } from './MediaLog';
@@ -11,6 +11,7 @@ import { formatHhMm } from '../../utils/time';
 interface MediaDetailState {
     media: Media;
     logs: ActivitySummary[];
+    milestones: Milestone[];
     imgSrc: string | null;
 }
 
@@ -24,7 +25,7 @@ export class MediaDetail extends Component<MediaDetailState> {
     private currentIndex: number;
 
     constructor(container: HTMLElement, media: Media, logs: ActivitySummary[], mediaList: Media[], currentIndex: number, callbacks: { onBack: () => void, onNext: () => void, onPrev: () => void, onNavigate: (index: number) => void, onDelete: () => void }) {
-        super(container, { media, logs, imgSrc: null });
+        super(container, { media, logs, milestones: [], imgSrc: null });
         this.mediaList = mediaList;
         this.currentIndex = currentIndex;
         this.onBack = callbacks.onBack;
@@ -33,6 +34,16 @@ export class MediaDetail extends Component<MediaDetailState> {
         this.onNavigate = callbacks.onNavigate;
         this.onDelete = callbacks.onDelete;
         this.loadImage();
+        this.loadMilestones();
+    }
+
+    private async loadMilestones() {
+        try {
+            const milestones = await getMilestones(this.state.media.title);
+            this.setState({ milestones });
+        } catch (e) {
+            console.error("Failed to load milestones", e);
+        }
     }
 
     private async loadImage() {
@@ -89,6 +100,22 @@ export class MediaDetail extends Component<MediaDetailState> {
                                 <strong>DANGER:</strong> COMPLETELY REMOVES THIS MEDIA AND <strong>ALL</strong> ASSOCIATED WORK LOGS FOR ALL USERS.
                             </div>
                         </div>
+
+                        <!-- Milestones -->
+                        <div class="card" style="margin-top: 1.5rem; padding: 0.5rem; display: flex; flex-direction: column; border: 1px solid var(--border-color);">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; padding: 0 0.2rem;">
+                                <h4 style="margin: 0; color: var(--text-secondary); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em;">Milestones</h4>
+                                <button class="btn btn-ghost" id="btn-add-milestone" style="padding: 0.15rem 0.4rem; font-size: 0.65rem; border-radius: 4px;">+ Add</button>
+                            </div>
+                            <div id="milestone-list-container" style="display: flex; flex-direction: column; gap: 0.3rem; max-height: 400px; overflow-y: auto;">
+                                ${this.renderMilestones()}
+                            </div>
+                            ${this.state.milestones.length > 0 ? html`
+                                <div style="display: flex; justify-content: flex-end; margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.05);">
+                                    <button class="btn btn-ghost" id="btn-clear-milestones" style="padding: 0.2rem 0.4rem; font-size: 0.6rem; border-radius: 4px; color: var(--accent-red); opacity: 0.6; font-weight: 500;">Delete all milestones</button>
+                                </div>
+                            ` : ''}
+                        </div>
                     </div>
 
                     <!-- Right Column: Details -->
@@ -142,7 +169,10 @@ export class MediaDetail extends Component<MediaDetailState> {
 
                         <!-- Activity Logs -->
                         <div class="card" style="margin-top: 1rem; flex: 1; display: flex; flex-direction: column; min-height: 200px;">
-                            <h4 style="margin: 0 0 1rem 0; color: var(--text-secondary);">Recent Activity</h4>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                                <h4 style="margin: 0; color: var(--text-secondary);">Recent Activity</h4>
+                                <button class="btn btn-ghost" id="btn-new-media-entry" style="padding: 0.2rem 0.6rem; font-size: 0.75rem; border-radius: 6px; color: var(--accent-green); border-color: var(--accent-green);">+ New Entry</button>
+                            </div>
                             <div id="media-logs-container" style="display: flex; flex-direction: column; gap: 0.5rem; flex: 1; overflow-y: auto;"></div>
                         </div>
                     </div>
@@ -156,6 +186,27 @@ export class MediaDetail extends Component<MediaDetailState> {
 
         const logsContainer = detailView.querySelector('#media-logs-container') as HTMLElement;
         new MediaLog(logsContainer, logs).render();
+    }
+
+    private renderMilestones(): string {
+        if (this.state.milestones.length === 0) {
+            return `<div style="text-align: center; color: var(--text-secondary); padding: 0.5rem; font-size: 0.75rem; opacity: 0.6;">No milestones yet.</div>`;
+        }
+
+        return this.state.milestones.map(m => {
+            const dateHover = m.date ? `title="Achieved on ${m.date}"` : '';
+            return `
+                <div class="milestone-item" ${dateHover} style="display: flex; align-items: center; justify-content: space-between; padding: 0.3rem 0.5rem; background: rgba(255,255,255,0.03); border-radius: 3px; border: 1px solid rgba(255,255,255,0.05); position: relative;">
+                    <div style="flex: 1; display: flex; flex-direction: column; gap: 0.05rem;">
+                        <span style="font-weight: 600; font-size: 0.8rem; line-height: 1.1;">${escapeHTML(m.name)}</span>
+                        <span style="font-size: 0.7rem; color: var(--text-secondary); opacity: 0.7;">${formatHhMm(m.duration)}</span>
+                    </div>
+                    <button class="delete-milestone-btn" data-id="${m.id}" style="background: transparent; border: none; color: var(--accent-red); cursor: pointer; padding: 0.15rem; display: flex; align-items: center; justify-content: center; opacity: 0.4; transition: opacity 0.2s;">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg>
+                    </button>
+                </div>
+            `;
+        }).join('');
     }
 
     private isActive(status: string): boolean {
@@ -199,7 +250,7 @@ export class MediaDetail extends Component<MediaDetailState> {
 
             return `
                 <div class="card" style="padding: 0.5rem 1rem; position: relative;" data-ekey="${k}">
-                    <div style="font-size: 0.7rem; color: var(--text-secondary); text-transform: uppercase;">${k}</div>
+                    <div class="editable-extra-key" data-key="${k}" title="Double click to rename field" style="font-size: 0.7rem; color: var(--text-secondary); text-transform: uppercase; cursor: pointer;">${k}</div>
                     <div class="editable-extra" data-key="${k}" title="Double click to edit" style="cursor: pointer; font-weight: 500;">${v || '-'}</div>
                     <div class="delete-extra-btn" data-key="${k}" title="Delete field" style="position: absolute; top: 0.5rem; right: 0.5rem; cursor: pointer; color: var(--accent-red); font-size: 0.8rem; font-weight: bold; opacity: 0.6;">&times;</div>
                     ${refreshBtn}
@@ -290,7 +341,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                     await this.loadImage();
                 }
             } catch (e) {
-                alert("Failed to upload image: " + e);
+                await customAlert("Error", "Failed to upload image: " + e);
             }
         });
 
@@ -302,43 +353,98 @@ export class MediaDetail extends Component<MediaDetailState> {
             if (jitenUrl) await this.performMetadataImport(jitenUrl, "Jiten Source");
         });
 
-        const makeEditable = (selector: string, field: keyof Media, isTextArea: boolean = false) => {
-            const el = root.querySelector(selector) as HTMLElement;
-            if (!el) return;
+        const onSave = async (field: keyof Media | string, value: string, isExtra: boolean = false) => {
+            if (isExtra) {
+                let extraData = JSON.parse(this.state.media.extra_data || "{}");
+                extraData[field as string] = value;
+                this.state.media.extra_data = JSON.stringify(extraData);
+            } else {
+                (this.state.media as any)[field] = value;
+            }
+            await updateMedia(this.state.media);
+            this.render();
+        };
+
+        const onRenameKey = async (oldKey: string, newKey: string) => {
+            if (!newKey || newKey === oldKey) {
+                this.render();
+                return;
+            }
+            let extraData = JSON.parse(this.state.media.extra_data || "{}");
+            const val = extraData[oldKey];
+            delete extraData[oldKey];
+            extraData[newKey] = val;
+            this.state.media.extra_data = JSON.stringify(extraData);
+            await updateMedia(this.state.media);
+            this.render();
+        };
+
+        const setupEditable = (el: HTMLElement, field: string, options: { isExtra?: boolean, isTextArea?: boolean, isRenameKey?: boolean } = {}) => {
             el.addEventListener('dblclick', () => {
-                const currentVal = (this.state.media[field] as string) || '';
-                const input = document.createElement(isTextArea ? 'textarea' : 'input');
+                const currentVal = options.isRenameKey ? field : (options.isExtra ? (el.textContent === '-' ? '' : el.textContent) : (this.state.media[field as keyof Media] as string) || '');
+                const input = document.createElement(options.isTextArea ? 'textarea' : 'input');
+                if (!options.isTextArea) (input as HTMLInputElement).type = 'text';
                 input.className = 'edit-input';
-                input.value = currentVal;
+                input.value = currentVal || '';
                 input.style.width = '100%';
-                if (isTextArea) {
+                if (options.isTextArea) {
                     input.style.height = '150px';
                     input.style.resize = 'vertical';
                 }
                 input.style.background = 'var(--bg-dark)';
-                input.style.color = 'var(--text-primary)';
+                input.style.color = (options.isRenameKey || options.isExtra) ? 'var(--text-secondary)' : 'var(--text-primary)';
+                if (!options.isRenameKey && !options.isExtra && !options.isTextArea) input.style.color = 'var(--text-primary)';
+                else if (!options.isTextArea) input.style.color = 'var(--text-secondary)';
+                
+                // Set default color for non-rename
+                if (!options.isRenameKey && !options.isTextArea) input.style.color = 'var(--text-primary)';
+
                 input.style.border = '1px solid var(--accent-green)';
-                input.style.padding = '0.5rem';
+                input.style.padding = '0.2rem 0.5rem';
+                input.style.fontSize = options.isRenameKey ? '0.7rem' : 'inherit';
+                if (options.isRenameKey) input.style.textTransform = 'uppercase';
 
                 const save = async () => {
                     const newVal = input.value.trim();
-                    (this.state.media as any)[field] = newVal;
-                    await updateMedia(this.state.media);
-                    this.render();
+                    if (options.isRenameKey) {
+                        await onRenameKey(field, newVal);
+                    } else {
+                        await onSave(field, newVal, !!options.isExtra);
+                    }
                 };
 
                 input.addEventListener('blur', save);
                 input.addEventListener('keydown', ((ev: KeyboardEvent) => {
-                    if (ev.key === 'Enter' && !isTextArea) (ev.target as HTMLInputElement).blur();
+                    if (ev.key === 'Enter' && !options.isTextArea) input.blur();
+                    if (ev.key === 'Escape') {
+                        input.removeEventListener('blur', save);
+                        this.render();
+                    }
                 }) as EventListener);
 
                 el.replaceWith(input);
                 input.focus();
+                if (!options.isTextArea) (input as HTMLInputElement).select();
             });
         };
 
-        makeEditable('#media-title', 'title', false);
-        makeEditable('#media-desc', 'description', true);
+        const titleEl = root.querySelector('#media-title') as HTMLElement;
+        if (titleEl) setupEditable(titleEl, 'title');
+
+        const descEl = root.querySelector('#media-desc') as HTMLElement;
+        if (descEl) setupEditable(descEl, 'description', { isTextArea: true });
+
+        // Extra fields values
+        root.querySelectorAll('.editable-extra').forEach(el => {
+            const key = (el as HTMLElement).getAttribute('data-key');
+            if (key) setupEditable(el as HTMLElement, key, { isExtra: true });
+        });
+
+        // Extra fields keys (renaming)
+        root.querySelectorAll('.editable-extra-key').forEach(el => {
+            const key = (el as HTMLElement).getAttribute('data-key');
+            if (key) setupEditable(el as HTMLElement, key, { isRenameKey: true });
+        });
 
         root.querySelector('#media-tracking-status')?.addEventListener('change', async (e) => {
             this.state.media.tracking_status = (e.target as HTMLSelectElement).value;
@@ -423,6 +529,56 @@ export class MediaDetail extends Component<MediaDetailState> {
                 if (url) await this.performMetadataImport(url, key || undefined);
             });
         });
+
+        root.querySelector('#btn-add-milestone')?.addEventListener('click', async () => {
+            const milestone = await showAddMilestoneModal(this.state.media.title);
+            if (milestone) {
+                try {
+                    await addMilestone(milestone);
+                    await this.loadMilestones();
+                    this.render();
+                } catch (e) {
+                    await customAlert("Error", "Failed to add milestone: " + e);
+                }
+            }
+        });
+
+        root.querySelector('#btn-clear-milestones')?.addEventListener('click', async () => {
+            if (this.state.milestones.length === 0) return;
+            const ok = await customConfirm("Delete all milestones", `Are you sure you want to permanently delete all milestones for "${this.state.media.title}"?`, "btn-danger", "Delete All");
+            if (ok) {
+                try {
+                    await clearMilestones(this.state.media.title);
+                    await this.loadMilestones();
+                    this.render();
+                } catch (e) {
+                    await customAlert("Error", "Failed to delete milestones: " + e);
+                }
+            }
+        });
+
+        root.querySelectorAll('.delete-milestone-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const id = parseInt((e.currentTarget as HTMLElement).getAttribute('data-id') || "0");
+                if (id && await customConfirm("Delete Milestone", "Are you sure you want to delete this milestone?")) {
+                    try {
+                        await deleteMilestone(id);
+                        await this.loadMilestones();
+                        this.render();
+                    } catch (e) {
+                        await customAlert("Error", "Failed to delete milestone: " + e);
+                    }
+                }
+            });
+        });
+
+        root.querySelector('#btn-new-media-entry')?.addEventListener('click', async () => {
+            const success = await showLogActivityModal(this.state.media.title);
+            if (success) {
+                const logs = await getLogsForMedia(this.state.media.id!);
+                this.setState({ logs });
+            }
+        });
     }
 
     private async performMetadataImport(url: string, key: string = "Source URL") {
@@ -468,7 +624,7 @@ export class MediaDetail extends Component<MediaDetailState> {
             await updateMedia(this.state.media);
             this.render();
         } catch (e) {
-            alert("Metadata import failed: " + e);
+            await customAlert("Import Failed", "Metadata import failed: " + e);
         }
     }
 }

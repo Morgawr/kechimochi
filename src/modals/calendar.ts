@@ -29,7 +29,13 @@ export function buildCalendar(containerId: string, initialDate: string, onSelect
             const isSel = dStr === activeDateStr;
             const bg = isSel ? 'var(--accent-blue)' : 'transparent';
             const fg = isSel ? '#fff' : 'var(--text-primary)';
-            html += `<div class="cal-day" data-date="${dStr}" style="text-align: center; cursor: pointer; padding: 0.3rem 0; font-size: 0.85rem; border-radius: 4px; background: ${bg}; color: ${fg};">${i}</div>`;
+            
+            const today = new Date();
+            const todayStr = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+            const isToday = dStr === todayStr;
+
+            html += `<div class="cal-day ${isToday ? 'today' : ''}" data-date="${dStr}" style="text-align: center; cursor: pointer; padding: 0.3rem 0; font-size: 0.85rem; border-radius: 4px; background: ${bg}; color: ${fg};">${i}</div>`;
+
         }
         html += `</div></div>`;
         container.innerHTML = html;

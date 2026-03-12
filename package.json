@@ -15,7 +15,9 @@
     "e2e:build": "tauri build --debug --no-bundle",
     "e2e:seed": "tsx e2e/fixtures/seed.ts",
     "e2e:test": "npm run e2e:build && wdio run e2e/wdio.conf.ts",
-    "e2e": "npm run e2e:seed && npm run e2e:test"
+    "e2e": "npm run e2e:seed && npm run e2e:test",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
@@ -26,6 +28,7 @@
   "devDependencies": {
     "@tauri-apps/cli": "^2",
     "@types/better-sqlite3": "^7",
+    "@vitest/coverage-v8": "^2.1.8",
     "@wdio/cli": "^9",
     "@wdio/local-runner": "^9",
     "@wdio/mocha-framework": "^9",
@@ -37,6 +40,8 @@
     "edgedriver": "^6.0.1",
     "tsx": "^4",
     "typescript": "~5.6.2",
-    "vite": "^6.0.3"
+    "vite": "^6.0.3",
+    "vitest": "^2.1.8",
+    "happy-dom": "^15.11.7"
   }
 }

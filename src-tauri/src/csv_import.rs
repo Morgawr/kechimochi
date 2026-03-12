@@ -4,7 +4,7 @@ use std::fs::File;
 use std::path::Path;
 
 use crate::db;
-use crate::models::{ActivityLog, Media};
+use crate::models::{ActivityLog, Media, Milestone};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 
 #[derive(Debug, Deserialize)]
@@ -19,6 +19,18 @@ struct CsvRow {
     duration: i64,
     #[serde(rename = "Language")]
     language: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MilestoneCsvRow {
+    #[serde(rename = "Media Title")]
+    pub media_title: String,
+    #[serde(rename = "Name")]
+    pub name: String,
+    #[serde(rename = "Duration")]
+    pub duration: i64,
+    #[serde(rename = "Date")]
+    pub date: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -188,6 +200,71 @@ pub fn export_logs_csv(conn: &Connection, file_path: &str, start_date: Option<St
     
     wtr.flush().map_err(|e| e.to_string())?;
     Ok(count)
+}
+
+pub fn export_milestones_csv(conn: &Connection, file_path: &str) -> Result<usize, String> {
+    let mut stmt = conn.prepare("SELECT id, media_title, name, duration, date FROM main.milestones ORDER BY id ASC")
+        .map_err(|e| e.to_string())?;
+    
+    let milestone_iter = stmt.query_map([], |row| {
+        Ok(MilestoneCsvRow {
+            media_title: row.get(1)?,
+            name: row.get(2)?,
+            duration: row.get(3)?,
+            date: row.get(4)?,
+        })
+    }).map_err(|e| e.to_string())?;
+
+    let mut count = 0;
+    let mut wtr = csv::Writer::from_path(file_path).map_err(|e| e.to_string())?;
+
+    for milestone in milestone_iter {
+        let m = milestone.map_err(|e| e.to_string())?;
+        wtr.serialize(m).map_err(|e| e.to_string())?;
+        count += 1;
+    }
+
+    wtr.flush().map_err(|e| e.to_string())?;
+    Ok(count)
+}
+
+pub fn import_milestones_csv(conn: &mut Connection, file_path: &str) -> Result<usize, String> {
+    let path = Path::new(file_path);
+    if !path.exists() {
+        return Err("File not found".into());
+    }
+
+    let file = File::open(path).map_err(|e| e.to_string())?;
+    let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(file);
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let mut imported_count = 0;
+
+    for result in rdr.deserialize() {
+        let record: MilestoneCsvRow = match result {
+            Ok(r) => r,
+            Err(e) => {
+                println!("Error parsing milestone row: {:?}", e);
+                continue;
+            }
+        };
+
+        let milestone = Milestone {
+            id: None,
+            media_title: record.media_title,
+            name: record.name,
+            duration: record.duration,
+            date: record.date,
+        };
+
+        match db::add_milestone(&tx, &milestone) {
+            Ok(_) => imported_count += 1,
+            Err(e) => println!("Error adding milestone log: {}", e),
+        }
+    }
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(imported_count)
 }
 
 // Parses the CSV and identifies which incoming media exist vs which are new.
@@ -584,5 +661,53 @@ mod tests {
         assert!(content.contains(&BASE64.encode(&fake_image_bytes)));
 
         std::fs::remove_dir_all(temp_dir).ok();
+    }
+
+    #[test]
+    fn test_export_milestones_csv() {
+        let conn = setup_test_db();
+        db::add_milestone(&conn, &Milestone { 
+            id: None, 
+            media_title: "Export M".into(), 
+            name: "M1".into(), 
+            duration: 120, 
+            date: Some("2024-03-12".into()) 
+        }).unwrap();
+
+        let dir = std::env::temp_dir();
+        let path = dir.join("milestones_export.csv");
+        let path_str = path.to_str().unwrap().to_string();
+
+        let count = export_milestones_csv(&conn, &path_str).unwrap();
+        assert_eq!(count, 1);
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("Export M"));
+        assert!(content.contains("M1"));
+        assert!(content.contains("120"));
+        assert!(content.contains("2024-03-12"));
+
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn test_import_milestones_csv() {
+        let mut conn = setup_test_db();
+        let csv_path = write_csv(
+            "Media Title,Name,Duration,Date\n\
+             Imported Media,First Quest,60,2024-01-01\n\
+             Imported Media,Second Quest,120,\n"
+        );
+
+        let count = import_milestones_csv(&mut conn, &csv_path).unwrap();
+        assert_eq!(count, 2);
+
+        let milestones = db::get_milestones_for_media(&conn, "Imported Media").unwrap();
+        assert_eq!(milestones.len(), 2);
+        assert_eq!(milestones[0].name, "First Quest");
+        assert_eq!(milestones[1].name, "Second Quest");
+        assert_eq!(milestones[1].date, None);
+
+        std::fs::remove_file(csv_path).ok();
     }
 }

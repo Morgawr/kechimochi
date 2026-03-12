@@ -167,6 +167,18 @@ cargo test
 cd ..
 ```
 
+#### Frontend Unit Tests
+Frontend logic (API, utilities, etc.) is tested using Vitest.
+
+```bash
+npm run test
+```
+
+For coverage reports:
+```bash
+npm run test:coverage
+```
+
 #### Frontend Type Checking
 Run TypeScript type checking:
 

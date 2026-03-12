@@ -4,7 +4,7 @@ import { waitForAppReady } from '../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../helpers/navigation.js';
 import { resolveConflicts } from '../helpers/import.js';
 import { isMediaVisible } from '../helpers/library.js';
-import { dismissAlert } from '../helpers/common.js';
+import { dismissAlert, setDialogMockPath } from '../helpers/common.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = path.resolve(__dirname, '..', 'fixtures');
@@ -16,18 +16,11 @@ describe('CUJ: Bulk Management (Data Import)', () => {
         await waitForAppReady();
     });
 
-    // Reusable helper to set the mock open path
-    async function setMockOpenPath(filePath: string) {
-        await browser.execute((p) => {
-            (window as any).mockOpenPath = p;
-        }, filePath);
-    }
-
     it('should import media library and handle conflicts', async () => {
         await navigateTo('profile');
         expect(await verifyActiveView('profile')).toBe(true);
 
-        await setMockOpenPath(MEDIA_CSV);
+        await setDialogMockPath(MEDIA_CSV);
         const importMediaBtn = await $('#profile-btn-import-media');
         await importMediaBtn.click();
 
@@ -42,7 +35,7 @@ describe('CUJ: Bulk Management (Data Import)', () => {
     it('should import activity logs and reflect on dashboard', async () => {
         await navigateTo('profile');
         
-        await setMockOpenPath(ACTIVITY_CSV);
+        await setDialogMockPath(ACTIVITY_CSV);
         const importActivitiesBtn = await $('#profile-btn-import-csv');
         await importActivitiesBtn.click();
 

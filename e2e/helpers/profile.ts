@@ -26,3 +26,44 @@ export async function calculateReport(): Promise<void> {
     await okBtn.click();
     await browser.pause(300);
 }
+/**
+ * Exports milestones to a CSV file.
+ */
+export async function exportMilestones(): Promise<void> {
+    const exportBtn = await $('#profile-btn-export-milestones');
+    await exportBtn.waitForDisplayed({ timeout: 5000 });
+    
+    await browser.execute(() => {
+        const el = document.getElementById('profile-btn-export-milestones');
+        if (el) el.click();
+    });
+    
+    // Wait for the custom alert (using the robust body check)
+    await browser.waitUntil(async () => {
+        return await browser.execute(() => document.body.innerText.includes('Successfully exported'));
+    }, { timeout: 20000, timeoutMsg: 'Export success notification never appeared' });
+    
+    const { dismissAlert } = await import('./common.js');
+    await dismissAlert();
+}
+
+/**
+ * Imports milestones from a CSV file.
+ */
+export async function importMilestones(): Promise<void> {
+    const importBtn = await $('#profile-btn-import-milestones');
+    await importBtn.waitForDisplayed({ timeout: 5000 });
+    
+    await browser.execute(() => {
+        const el = document.getElementById('profile-btn-import-milestones');
+        if (el) el.click();
+    });
+    
+    // Wait for the custom alert
+    await browser.waitUntil(async () => {
+        return await browser.execute(() => document.body.innerText.includes('Successfully imported'));
+    }, { timeout: 20000, timeoutMsg: 'Import success notification never appeared' });
+    
+    const { dismissAlert } = await import('./common.js');
+    await dismissAlert();
+}

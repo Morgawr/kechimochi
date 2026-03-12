@@ -6,7 +6,7 @@ use rusqlite::Connection;
 use std::sync::Mutex;
 use tauri::{Manager, State};
 
-use models::{ActivityLog, ActivitySummary, DailyHeatmap, Media};
+use models::{ActivityLog, ActivitySummary, DailyHeatmap, Media, Milestone};
 
 // Database state
 pub struct DbState {
@@ -65,6 +65,48 @@ fn get_heatmap(state: State<DbState>) -> Result<Vec<DailyHeatmap>, String> {
 fn get_logs_for_media(state: State<DbState>, media_id: i64) -> Result<Vec<ActivitySummary>, String> {
     let conn = state.conn.lock().unwrap();
     db::get_logs_for_media(&conn, media_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_milestones(state: State<DbState>, media_title: String) -> Result<Vec<Milestone>, String> {
+    let conn = state.conn.lock().unwrap();
+    db::get_milestones_for_media(&conn, &media_title).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn add_milestone(state: State<DbState>, milestone: Milestone) -> Result<i64, String> {
+    let conn = state.conn.lock().unwrap();
+    db::add_milestone(&conn, &milestone).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_milestone(state: State<DbState>, id: i64) -> Result<(), String> {
+    let conn = state.conn.lock().unwrap();
+    db::delete_milestone(&conn, id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_milestones_for_media(state: State<DbState>, media_title: String) -> Result<(), String> {
+    let conn = state.conn.lock().unwrap();
+    db::delete_milestones_for_media(&conn, &media_title).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn update_milestone(state: State<DbState>, milestone: Milestone) -> Result<(), String> {
+    let conn = state.conn.lock().unwrap();
+    db::update_milestone(&conn, &milestone).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn export_milestones_csv(state: State<DbState>, file_path: String) -> Result<usize, String> {
+    let conn = state.conn.lock().unwrap();
+    csv_import::export_milestones_csv(&conn, &file_path)
+}
+
+#[tauri::command]
+fn import_milestones_csv(state: State<DbState>, file_path: String) -> Result<usize, String> {
+    let mut conn = state.conn.lock().unwrap();
+    csv_import::import_milestones_csv(&mut conn, &file_path)
 }
 
 #[tauri::command]
@@ -290,6 +332,13 @@ pub fn run() {
             delete_profile,
             list_profiles,
             get_logs_for_media,
+            get_milestones,
+            add_milestone,
+            delete_milestone,
+            update_milestone,
+            export_milestones_csv,
+            import_milestones_csv,
+            delete_milestones_for_media,
             upload_cover_image,
             read_file_bytes,
             fetch_remote_bytes,

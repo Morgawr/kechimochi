@@ -647,14 +647,14 @@ input:focus, select:focus {
 }
 
 /* Editable elements styling */
-#media-title, #media-type, #media-desc, .editable-extra, #media-cover-img {
+#media-title, #media-type, #media-desc, .editable-extra, .editable-extra-key, #media-cover-img {
   transition: all var(--transition-fast);
   border-radius: var(--radius-sm);
   padding: 0.2rem;
   margin: -0.2rem;
 }
 
-#media-title:hover, #media-type:hover, #media-desc:hover, .editable-extra:hover, #media-cover-img:hover {
+#media-title:hover, #media-type:hover, #media-desc:hover, .editable-extra:hover, .editable-extra-key:hover, #media-cover-img:hover {
   background-color: var(--bg-card-hover);
   box-shadow: 0 0 0 1px var(--accent-green);
 }
@@ -1221,4 +1221,16 @@ input:checked + .slider:before {
   #charts-container h3 {
     font-size: 1rem !important;
   }
+}
+
+/* Hide number input arrows */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type=number] {
+  -moz-appearance: textfield;
+  appearance: none;
 }
