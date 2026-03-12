@@ -164,7 +164,7 @@ export class MediaDetail extends Component<MediaDetailState> {
 
                         <div class="card" style="display: flex; flex-direction: column; gap: 0.5rem;">
                             <h4 style="margin: 0; color: var(--text-secondary);">Description</h4>
-                            <div id="media-desc" title="Double click to edit description" style="cursor: pointer; white-space: pre-wrap;">${media.description || 'No description provided. Double click here to add one.'}</div>
+                            <div id="media-description" title="Double click to edit description" style="cursor: pointer; white-space: pre-wrap;">${media.description || 'No description provided. Double click here to add one.'}</div>
                         </div>
 
                         <!-- Stats & Extra Fields -->
@@ -501,7 +501,7 @@ export class MediaDetail extends Component<MediaDetailState> {
         const titleEl = root.querySelector('#media-title') as HTMLElement;
         if (titleEl) setupEditable(titleEl, 'title');
 
-        const descEl = root.querySelector('#media-desc') as HTMLElement;
+        const descEl = root.querySelector('#media-description') as HTMLElement;
         if (descEl) setupEditable(descEl, 'description', { isTextArea: true });
 
         // Extra fields values

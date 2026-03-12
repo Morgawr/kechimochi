@@ -90,14 +90,35 @@ export async function clickBackButton(): Promise<void> {
  * Edits the description in Media Detail.
  */
 export async function editDescription(newDescription: string): Promise<void> {
-    const descEl = await $('#media-description');
-    await descEl.waitForDisplayed({ timeout: 5000 });
-    await descEl.doubleClick();
-    
+    await browser.waitUntil(async () => {
+        const descEl = await $('#media-description');
+        return await descEl.isDisplayed().catch(() => false);
+    }, {
+        timeout: 8000,
+        timeoutMsg: 'Description field never became visible'
+    });
+
+    let opened = false;
+    for (let attempt = 0; attempt < 3 && !opened; attempt++) {
+        try {
+            const descEl = await $('#media-description');
+            await descEl.scrollIntoView();
+            await descEl.doubleClick();
+            const textarea = await $('textarea');
+            await textarea.waitForDisplayed({ timeout: 3000 });
+            opened = true;
+        } catch {
+            await browser.pause(200);
+        }
+    }
+
+    if (!opened) {
+        throw new Error('Failed to enter description edit mode after retries');
+    }
+
     const textarea = await $('textarea');
-    await textarea.waitForDisplayed({ timeout: 5000 });
     await textarea.setValue(newDescription);
-    
+
     // Blur to save
     await browser.keys(['Tab']);
     await browser.pause(500); // Wait for re-render

@@ -31,8 +31,39 @@ export async function addMedia(title: string, type: string, contentType?: string
     const confirmBtn = await $('#add-media-confirm');
     await confirmBtn.click();
 
-    // Most additions auto-navigate to detail, so we wait for either detail or grid stabilization
-    await browser.pause(1500);
+    // Addition can either auto-open detail or return to grid depending on timing.
+    // Make this deterministic for tests: if detail is not visible, open the newly added item.
+    await browser.waitUntil(async () => {
+        const detailHeader = await $('#media-detail-header');
+        const grid = await $('#media-grid-container');
+        return (await detailHeader.isDisplayed().catch(() => false)) || (await grid.isDisplayed().catch(() => false));
+    }, {
+        timeout: 8000,
+        timeoutMsg: 'Neither media detail nor grid became ready after adding media'
+    });
+
+    const detailHeader = await $('#media-detail-header');
+    if (!(await detailHeader.isDisplayed().catch(() => false))) {
+        await browser.waitUntil(async () => {
+            const detailNow = await $('#media-detail-header');
+            if (await detailNow.isDisplayed().catch(() => false)) {
+                return true;
+            }
+            const added = await $(`.media-grid-item[data-title="${title}"]`);
+            return await added.isExisting().catch(() => false);
+        }, {
+            timeout: 10000,
+            timeoutMsg: `Added media "${title}" did not appear in detail view or grid in time`
+        });
+
+        const detailAfterWait = await $('#media-detail-header');
+        if (!(await detailAfterWait.isDisplayed().catch(() => false))) {
+            await clickMediaItem(title);
+        }
+
+        const desc = await $('#media-description');
+        await desc.waitForDisplayed({ timeout: 8000 });
+    }
 }
 
 /**

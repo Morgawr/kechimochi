@@ -98,7 +98,7 @@ export class ProfileView extends Component<ProfileState> {
             <div class="animate-fade-in" style="display: flex; flex-direction: column; gap: 2rem; max-width: 600px; margin: 0 auto; padding-top: 1rem; padding-bottom: 2rem;">
                 
                 <div style="text-align: center; margin-bottom: 2rem;">
-                    <h2 style="margin: 0; font-size: 2rem; color: var(--text-primary);">${currentProfile}</h2>
+                    <h2 id="profile-name" style="margin: 0; font-size: 2rem; color: var(--text-primary);">${currentProfile}</h2>
                     <p style="color: var(--text-secondary); margin-top: 0.5rem;">Manage your profile and data</p>
                 </div>
 
