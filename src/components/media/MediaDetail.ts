@@ -8,7 +8,7 @@ import { getServices } from '../../services';
 import { MediaLog } from './MediaLog';
 import { setupCopyButton } from '../../utils/clipboard';
 import { formatHhMm } from '../../utils/time';
-import { TRACKING_STATUSES, ACTIVITY_TYPES, MEDIA_STATUS } from '../../constants';
+import { TRACKING_STATUSES, ACTIVITY_TYPES, MEDIA_STATUS, CONTENT_TYPE_TO_ACTIVITY_TYPE } from '../../constants';
 
 interface MediaDetailState {
     media: Media;
@@ -696,6 +696,15 @@ export class MediaDetail extends Component<MediaDetailState> {
 
             // Title is still automatic if empty
             if (meta.title && !this.state.media.title) this.state.media.title = meta.title;
+
+            // Automatically set content type if unknown
+            if (this.state.media.content_type === "Unknown" && meta.contentType && meta.contentType !== "Unknown") {
+                this.state.media.content_type = meta.contentType;
+                const activityType = CONTENT_TYPE_TO_ACTIVITY_TYPE[meta.contentType];
+                if (activityType) {
+                    this.state.media.media_type = activityType;
+                }
+            }
 
             await updateMedia(this.state.media);
             this.render();

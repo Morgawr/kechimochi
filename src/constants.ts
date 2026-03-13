@@ -55,6 +55,21 @@ export const MEDIA_STATUS = {
     ARCHIVED: 'Archived',
 } as const;
 
+export const CONTENT_TYPE_TO_ACTIVITY_TYPE: Record<string, string> = {
+    'Anime': 'Watching',
+    'Movie': 'Watching',
+    'Novel': 'Reading',
+    'WebNovel': 'Reading',
+    'NonFiction': 'Reading',
+    'Videogame': 'Playing',
+    'Visual Novel': 'Reading',
+    'Manga': 'Reading',
+    'Audio': 'Listening',
+    'Drama': 'Watching',
+    'Livestream': 'Watching',
+    'Youtube Video': 'Watching',
+};
+
 export const FILTERS = {
     ALL: 'All',
 } as const;

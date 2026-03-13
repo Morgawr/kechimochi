@@ -3,6 +3,7 @@ export interface ScrapedMetadata {
     description: string;
     coverImageUrl: string;
     extraData: Record<string, string>;
+    contentType?: string;
 }
 
 export interface MetadataImporter {

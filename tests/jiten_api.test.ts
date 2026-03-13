@@ -103,5 +103,13 @@ describe('jiten_api.ts', () => {
     it('getJitenDeckUrl should return correct URL', () => {
       expect(jiten.getJitenDeckUrl(123)).toBe('https://jiten.moe/decks/123');
     });
+
+    it('getJitenMediaContentType should return correct canonical content type', () => {
+      expect(jiten.getJitenMediaContentType(1)).toBe('Anime');
+      expect(jiten.getJitenMediaContentType(4)).toBe('Novel');
+      expect(jiten.getJitenMediaContentType(7)).toBe('Visual Novel');
+      expect(jiten.getJitenMediaContentType(9)).toBe('Manga');
+      expect(jiten.getJitenMediaContentType(999)).toBe('Unknown');
+    });
   });
 });

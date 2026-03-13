@@ -177,6 +177,36 @@ describe('MediaDetail', () => {
         expect(api.updateMedia).toHaveBeenCalled();
     });
 
+    it('should automatically update content type if Unknown during metadata import', async () => {
+        const unknownMedia = { ...mockMedia, content_type: 'Unknown', media_type: 'None' };
+        vi.mocked(api.getMilestones).mockResolvedValue([]);
+        const mockScraped = {
+            title: 'Scraped',
+            contentType: 'Anime',
+            extraData: {}
+        };
+        vi.mocked(importers.fetchMetadataForUrl).mockResolvedValue(mockScraped as unknown as ScrapedMetadata);
+        vi.mocked(modals.showImportMergeModal).mockResolvedValue({
+            extraData: {}
+        } as any);
+
+        const component = new MediaDetail(container, unknownMedia as unknown as Media, [], [unknownMedia as unknown as Media], 0, mockCallbacks);
+        component.render();
+
+        vi.mocked(modals.customPrompt).mockResolvedValue('https://jiten.moe/decks/1');
+        
+        // Use performMetadataImport directly since it's private but we need to test its logic
+        // Alternatively, trigger it via search-jiten button
+        const searchJitenBtn = container.querySelector('#btn-search-jiten') as HTMLElement;
+        vi.mocked(modals.showJitenSearchModal).mockResolvedValue('https://jiten.moe/decks/1');
+        searchJitenBtn.click();
+
+        await vi.waitFor(() => expect(api.updateMedia).toHaveBeenCalledWith(expect.objectContaining({
+            content_type: 'Anime',
+            media_type: 'Watching'
+        })));
+    });
+
     it('should handle failed metadata import', async () => {
         vi.mocked(importers.getAvailableSourcesForContentType).mockReturnValue(['MockSource']);
         vi.mocked(api.getMilestones).mockResolvedValue([]);

@@ -1,6 +1,6 @@
 import { BaseImporter } from './base';
 import { ScrapedMetadata } from './index';
-import { JITEN_BASE_URL } from '../jiten_api';
+import { JITEN_BASE_URL, getJitenMediaContentType } from '../jiten_api';
 import { fetchExternalJson } from '../platform';
 
 export class JitenImporter extends BaseImporter {
@@ -46,7 +46,8 @@ export class JitenImporter extends BaseImporter {
             title: data.originalTitle || data.romajiTitle || data.englishTitle || "",
             description: data.description || "",
             coverImageUrl: data.parentDeckId ? "" : `https://cdn.jiten.moe/${data.deckId}/cover.jpg`,
-            extraData
+            extraData,
+            contentType: getJitenMediaContentType(data.mediaType)
         };
     }
 }

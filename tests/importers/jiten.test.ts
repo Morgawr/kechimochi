@@ -26,7 +26,8 @@ describe('JitenImporter', () => {
                         originalTitle: 'タイトル',
                         description: 'Desc',
                         characterCount: 1000,
-                        difficultyRaw: 3.5
+                        difficultyRaw: 3.5,
+                        mediaType: 4 // Novel
                     }
                 }
             };
@@ -40,6 +41,7 @@ describe('JitenImporter', () => {
             expect(result.coverImageUrl).toContain('cdn.jiten.moe/123/cover.jpg');
             expect(result.extraData['Character count']).toBe('1,000');
             expect(result.extraData['Jiten difficulty']).toBe('3.50/5');
+            expect(result.contentType).toBe('Novel');
         });
 
         it('should throw error on invalid URL', async () => {

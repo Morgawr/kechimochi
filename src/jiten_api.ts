@@ -43,6 +43,22 @@ export function getJitenMediaLabel(type: number): string {
     }
 }
 
+export function getJitenMediaContentType(type: number): string {
+    switch (type) {
+        case 1: return 'Anime';
+        case 2: return 'Drama';
+        case 3: return 'Movie';
+        case 4: return 'Novel';
+        case 5: return 'NonFiction';
+        case 6: return 'Videogame';
+        case 7: return 'Visual Novel';
+        case 8: return 'WebNovel';
+        case 9: return 'Manga';
+        case 10: return 'Audio';
+        default: return 'Unknown';
+    }
+}
+
 export async function searchJiten(title: string, contentType: string): Promise<JitenResult[]> {
     const mediaType = MEDIA_TYPE_MAP[contentType] || 0;
     
