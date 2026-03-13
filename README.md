@@ -1,7 +1,6 @@
 # Kechimochi
 
 [![Test status](https://github.com/Morgawr/kechimochi/actions/workflows/test.yml/badge.svg)](https://github.com/Morgawr/kechimochi/actions/workflows/test.yml)
-
 ![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/morgawr/ec5ee3f88d6da60d5de0504267e07de7/raw/kechimochi-coverage.json)
 
 <p align="center">
@@ -9,281 +8,65 @@
 </p>
 
 <p align="center">
-  <em>A personal language immersion tracker</em>
+  <em>A personal Japanese immersion tracker</em>
 </p>
 
 ---
 
-> [!CAUTION]
-> **WARNING: VIBE-CODED SOFTWARE: USE AT YOUR OWN RISK**
->
-> This application was **entirely vibe-coded**. That means it was built rapidly with AI assistance,
-> without formal testing, code review, or quality assurance processes. There are certainly bugs
-> lurking in the codebase, edge cases that haven't been considered, and potentially data-loss
-> scenarios that haven't been accounted for.
->
-> **The author takes absolutely no responsibility for:**
-> - Data loss, corruption, or inaccuracy
-> - Application crashes or unexpected behavior
-> - Any consequences resulting from reliance on this software
-> - Security vulnerabilities
-> - Anything else that might go wrong
->
-> **You have been warned.** Back up your data frequently. Use the CSV export feature.
-> Do not rely on this application as your sole source of truth for anything important.
+Status of the project: Pre-release.
 
----
+## Log and Visualize Your Japanese Immersion
 
-## What is Kechimochi?
+Kechimochi is a personal activity tracker built for those who learn Japanese through immersion. It provides a simple way to log time spent with native content, whether you are reading manga, watching anime, playing video games, or listening to podcasts.
 
-Kechimochi is a **desktop activity tracker** designed for people studying languages through immersion. It helps you log, visualize, and analyze time spent consuming media in your target language, whether you're reading manga, watching anime, playing games, or listening to podcasts.
+Designed with a local first philosophy, Kechimochi ensures that your data remains yours. It provides a focused interface to manage your media library and track your study habits without relying on external websites or cloud services.
 
-## Features
+## Core Features
 
 ### Dashboard
-* **Tracking Heatmap**: A GitHub style yearly contribution heatmap showing your daily activity. Navigate between years to view your historical immersion journey.
-* **Study Stats**: A statistics panel providing insights into your habits:
-    * Total lifetime logs and media entries.
-    * Longest consecutive study streak and current active streak.
-    * Daily averages: total and per activity type.
-    * Date of first recorded entry.
-* **Activity Breakdown**: A doughnut chart visualizing time distribution across activity types such as Reading, Watching, or Playing.
-* **Activity Visualization**: Bar or line charts showing immersion over time with configurable ranges:
-    * **Weekly**: Day by day breakdown.
-    * **Monthly**: Week by week breakdown.
-    * **Yearly**: Month by month breakdown.
-* **Recent Activity**: A timeline feed of your latest logged sessions with the ability to delete individual entries.
+A dashboard designed to turn your logs into visible insights. Use the contribution heatmap to track your daily consistency and show off your progress with charts that break down your activity by week, month, and year.
 
-### Library and Media Management
-* **Media Grid**: A grid view to track your media titles.
-* **Power Search**: Real time fuzzy search 
-* **Advanced Filtering**: Filter your library by activity type or status
-* **Media Details**: A comprehensive view for each title including:
-    * **Metadata Management**: Edit titles, descriptions, and custom fields.
-    * **Contextual Tagging**: Smart content types tailored to the activity type.
-    * **Progress Tracking**: Update statuses like Ongoing, Complete, Dropped, etc.
+### Automated Metadata
 
-### Metadata Importers
-Automatically fetch covers, descriptions, and metadata from various sources:
-* **Visual Novels**: VNDB
-* **Manga and Books**: Bookmeter, BookWalker, Cmoa, Shonen Jump Plus
-* **Anime and Movies**: AniList, IMDb
-* **Video Games**: Backloggd
-With Jiten.moe metadata integration
+Kechimochi integrates with various media databases to help you organize your library.
+*   **Visual Novels**: VNDB
+*   **Anime and Movies**: AniList and IMDb
+*   **Manga and Books**: Bookmeter, BookWalker, Cmoa, and Shonen Jump Plus
+*   **Video Games**: Backloggd
+*   **Dictionary Integration**: Jiten.moe metadata support
+
+Are we missing some sites? Let us know by opening an [issue](https://github.com/Morgawr/kechimochi/issues/new) on our issue tracker.
 
 ### Reading Analysis
-* **Reading Report Card**: Analyzes your reading speed across media types.
-* **Progress Projections**: Estimates remaining time and completion rates for active content based on your historical trends.
 
-### Multi-Profile and Personalization
-* **Isolated Profiles**: Create and switch between multiple user profiles, each with its own independent SQLite database.
-* **Theme System**: Choose from 12 curated themes including Light, Dark, Pastel Pink, Molokai, Noctua Brown, and multiple greyscale options.
+The application includes dedicated reading reports to help you understand your pace across different media. It estimates your reading speed and provides progress projections to calculate when you might finish your current book or manga based on your past activity.
 
-### Data Management
-* **Activity Portability**: Import or export activity logs in CSV format.
-* **Library Portability**: Export your entire media library to CSV or import new libraries from other users or backups.
+### Data Ownership and Portability
 
-## Prerequisites
-
-- **Node.js** >= 18
-- **Rust** (latest stable, via [rustup](https://rustup.rs/))
-- **System dependencies** for Tauri on Linux:
-
-```bash
-# Debian/Ubuntu
-sudo apt update
-sudo apt install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
-
-# Fedora
-sudo dnf install webkit2gtk4.1-devel gtk3-devel libappindicator-gtk3-devel librsvg2-devel
-
-# Arch
-sudo pacman -S webkit2gtk-4.1 gtk3 libappindicator-gtk3 librsvg
-```
+Your logs are stored in local SQLite databases, giving you full control over your information.
+*   **CSV Import**: Migrate your existing logs from other spreadsheets or tools.
+*   **CSV Export**: Backup your activity or library at any time.
 
 ## Getting Started
 
-### 1. Clone and install
+Kechimochi is a desktop application built with Tauri. It supports a standalone app interface, as well as a local web page (this requires developer tools to build).
 
-```bash
-git clone https://github.com/Morgawr/kechimochi.git
-cd kechimochi
-npm install
-```
+For details on how to run the software on developer builds (and contribute!) see the [Development.md](Development.md) document.
 
-### 2. Run in development mode
+The software is still in heavy early development. Most core features are already implemented and work and is in a more than usable state, but some core features are still missing or might change significantly before official release. Be aware that you are choosing to trust this software at your own risk.
 
-```bash
-npm run tauri dev
-```
+If you want to run it on dev builds without needing to build it yourself, grab one of the latest  pre-release artifacts from one of the [published artifacts](https://github.com/Morgawr/kechimochi/actions/workflows/publish.yml) for either Linux or Windows.
 
-This will:
-- Start the Vite dev server for hot-reloading the frontend
-- Compile and launch the Rust backend
-- Open the application window
+---
 
-### 2b. Run as a web app (browser mode)
+### LLM Assisted Coding and Quality Assurance
 
-Kechimochi also supports running in a browser using the web adapter.
+This application has been developed with assistance from Large Language Model, use at your own risk. 
 
-Use the combined web start command:
+A lot of the code has not been manually verified by humans, however we do strive for a high level of quality by employing strict tests, development guard rails, and automated checks before merging the code. 
 
-```bash
-npm run web:start
-```
-
-This starts:
-- Vite dev server at `http://localhost:1420`
-- Rust HTTP API server at `http://127.0.0.1:3000`
-
-Then open `http://localhost:1420` in your browser.
-
-If you prefer to run them separately:
-
-```bash
-# Terminal 1
-npm run web:server
-
-# Terminal 2
-npm run web:dev
-```
-
-> [!NOTE]
-> The Vite dev server proxies `/api` to `http://127.0.0.1:3000` by default.
-> You can override the API target with `VITE_API_BASE_URL`.
-
-To build and preview the web frontend:
-
-```bash
-npm run web:build
-npm run preview
-```
-
-### 3. Build a standalone binary
-
-```bash
-# On Arch Linux (or if AppImage build fails with strip errors)
-NO_STRIP=true npx tauri build
-
-# On Debian/Ubuntu/Fedora
-npx tauri build
-```
-
-The compiled binary and packages will be at:
-
-```
-src-tauri/target/release/kechimochi              # raw binary
-src-tauri/target/release/bundle/appimage/         # .AppImage (portable)
-src-tauri/target/release/bundle/deb/              # .deb (Debian/Ubuntu)
-```
-
-You can run the AppImage directly:
-
-```bash
-chmod +x src-tauri/target/release/bundle/appimage/kechimochi_*.AppImage
-./src-tauri/target/release/bundle/appimage/kechimochi_*.AppImage
-```
-
-Or just run the raw binary:
-
-```bash
-./src-tauri/target/release/kechimochi
-```
-
-> [!NOTE]
-> On Arch Linux, `linuxdeploy`'s bundled `strip` tool is incompatible with Arch's newer ELF
-> format. Setting `NO_STRIP=true` skips the stripping step and resolves the issue. The resulting
-> AppImage will be slightly larger but functionally identical.
-
-### 4. Running Tests
-
-#### Backend Tests
-Run the Rust test suite to verify database operations and logic:
-
-```bash
-cd src-tauri
-cargo test
-cd ..
-```
-
-#### Frontend Unit Tests
-Frontend logic (API, utilities, etc.) is tested using Vitest.
-
-```bash
-npm run test
-```
-
-For coverage reports:
-```bash
-npm run test:coverage
-```
-
-#### Frontend Type Checking
-Run TypeScript type checking:
-
-```bash
-npx tsc --noEmit
-```
-
-#### End-to-End (E2E) Tests
-Kechimochi uses WebdriverIO and Tauri Driver for automated E2E testing. These tests run on isolated temporary databases and do not affect your personal data.
-
-**Setup E2E Prerequisites:**
-Ensure `tauri-driver` is installed:
-```bash
-cargo install tauri-driver
-```
-
-**Run E2E Tests:**
-The `npm run e2e` command builds the app in debug mode, seeds the test databases, and executes the full suite:
-
-```bash
-npm run e2e
-```
-
-**Parallel Execution:**
-Tests run in parallel by default (2 instances). You can configure the number of parallel workers using the `E2E_MAX_INSTANCES` environment variable:
-
-```bash
-E2E_MAX_INSTANCES=4 npm run e2e:test
-```
-
-**Run Specific Specs:**
-To run only specific test files:
-
-```bash
-npm run e2e:test -- --spec specs/profile.spec.ts
-```
-
-## CSV Format
-
-For importing data, use the following CSV format:
-
-```csv
-Date,Log Name,Media Type,Duration,Language
-2024-01-15,ある魔女が死ぬまで,Reading,45,Japanese
-2024-01-15,Final Fantasy 7,Playing,120,Japanese
-2024-01-16,呪術廻戦,Watching,25,Japanese
-```
-
-| Column       | Description                                          |
-|-------------|------------------------------------------------------|
-| `Date`      | `YYYY-MM-DD` format                                 |
-| `Log Name`  | Title of the media                                   |
-| `Media Type`| One of: `Reading`, `Watching`, `Playing`, `Listening`, `None` |
-| `Duration`  | Duration in minutes (integer)                        |
-| `Language`  | Language tag (e.g., `Japanese`, `Korean`)             |
-
-## Data Storage
-
-All data is stored locally in SQLite databases in your system's application data directory:
-
-- **Linux**: `~/.local/share/com.morg.kechimochi/`
-- **macOS**: `~/Library/Application Support/com.morg.kechimochi/`
-- **Windows**: `C:\Users\<user>\AppData\Roaming\com.morg.kechimochi\`
-
-Each profile has its own database file named `kechimochi_<profilename>.db`.
+Kechimochi is built on a foundation of test suites and automated checks. We maintain unit tests for frontend and backend logic, along with an end to end (e2e) testing infrastructure. These automated systems run on every change to help prevent regressions and ensure that features remain stable as the project evolves.
 
 ## License
 
-This project is provided as-is with no warranty. See the warning at the top of this document.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
