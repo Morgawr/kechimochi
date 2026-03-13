@@ -9,6 +9,7 @@
  * (HTTP) adapter.
  */
 import type { AppServices } from './types';
+/* eslint-disable no-console */
 import { DesktopServices } from './desktop';
 import { WebServices } from './web';
 
@@ -21,7 +22,7 @@ function isVitestRuntime(): boolean {
 }
 
 function hasTauriRuntimeGlobals(): boolean {
-    const w = window as any;
+    const w = window as unknown as Record<string, unknown>;
     return Boolean(
         w.__TAURI_INTERNALS__ ||
         w.__TAURI__ ||

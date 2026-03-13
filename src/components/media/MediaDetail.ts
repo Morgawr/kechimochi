@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 import { Component } from '../../core/component';
 import { html, escapeHTML } from '../../core/html';
 import { Media, ActivitySummary, Milestone, updateMedia, deleteMedia, getSetting, getMilestones, addMilestone, deleteMilestone, clearMilestones, getLogsForMedia, readFileBytes, downloadAndSaveImage } from '../../api';
@@ -16,11 +17,11 @@ interface MediaDetailState {
 }
 
 export class MediaDetail extends Component<MediaDetailState> {
-    private onBack: () => void;
-    private onNext: () => void;
-    private onPrev: () => void;
-    private onNavigate: (index: number) => void;
-    private onDelete: () => void;
+    private readonly onBack: () => void;
+    private readonly onNext: () => void;
+    private readonly onPrev: () => void;
+    private readonly onNavigate: (index: number) => void;
+    private readonly onDelete: () => void;
     private mediaList: Media[];
     private currentIndex: number;
     private readonly onViewportResize: () => void;
@@ -35,7 +36,7 @@ export class MediaDetail extends Component<MediaDetailState> {
         this.onNavigate = callbacks.onNavigate;
         this.onDelete = callbacks.onDelete;
         this.onViewportResize = () => this.syncViewportLayout();
-        window.addEventListener('resize', this.onViewportResize);
+        globalThis.addEventListener('resize', this.onViewportResize);
         this.loadImage();
         this.loadMilestones();
     }
@@ -51,7 +52,7 @@ export class MediaDetail extends Component<MediaDetailState> {
 
     private async loadImage() {
         const { cover_image } = this.state.media;
-        let src: string | null = null;
+        let src: string | null;
         if (getServices().isDesktop()) {
             const bytes = await readFileBytes(cover_image);
             const blob = new Blob([new Uint8Array(bytes)]);
@@ -209,7 +210,7 @@ export class MediaDetail extends Component<MediaDetailState> {
         const mainSlot = this.container.querySelector('#media-milestones-slot-main') as HTMLElement | null;
         if (!card || !leftSlot || !mainSlot) return;
 
-        const useMainColumn = window.matchMedia('(max-width: 1024px)').matches;
+        const useMainColumn = globalThis.matchMedia('(max-width: 1024px)').matches;
         (useMainColumn ? mainSlot : leftSlot).appendChild(card);
     }
 
@@ -225,7 +226,7 @@ export class MediaDetail extends Component<MediaDetailState> {
         const milestonesCard = this.container.querySelector('#media-milestones-card') as HTMLElement | null;
         if (!coverEl || !coverColumn || !deleteBlock || !milestonesCard) return;
 
-        const isDesktop = window.matchMedia('(min-width: 1025px)').matches;
+        const isDesktop = globalThis.matchMedia('(min-width: 1025px)').matches;
         if (!isDesktop) {
             coverEl.style.height = '';
             coverEl.style.width = '';
@@ -237,8 +238,8 @@ export class MediaDetail extends Component<MediaDetailState> {
 
         const deleteStyles = getComputedStyle(deleteBlock);
         const milestoneStyles = getComputedStyle(milestonesCard);
-        const deleteOuter = deleteBlock.offsetHeight + parseFloat(deleteStyles.marginTop || '0');
-        const milestoneOuter = milestonesCard.offsetHeight + parseFloat(milestoneStyles.marginTop || '0');
+        const deleteOuter = deleteBlock.offsetHeight + Number.parseFloat(deleteStyles.marginTop || '0');
+        const milestoneOuter = milestonesCard.offsetHeight + Number.parseFloat(milestoneStyles.marginTop || '0');
         const availableForCover = coverColumn.clientHeight - deleteOuter - milestoneOuter - 8;
         if (availableForCover <= 0) return;
 
@@ -284,7 +285,7 @@ export class MediaDetail extends Component<MediaDetailState> {
     }
 
     private getContentTypeOptions(media: Media): string {
-        let validOptions: string[] = ['Unknown'];
+        const validOptions: string[] = ['Unknown'];
         const mType = media.media_type;
         if (mType === 'Reading') validOptions.push('Visual Novel', 'Manga', 'Novel', 'WebNovel', 'NonFiction');
         else if (mType === 'Playing') validOptions.push('Videogame');
@@ -329,6 +330,45 @@ export class MediaDetail extends Component<MediaDetailState> {
         }).join('');
     }
 
+    private async computeReadingSpeedHtml(media: Media, totalMin: number): Promise<string> {
+        try {
+            const extra = JSON.parse(media.extra_data || "{}");
+            const charRaw = extra["Character count"] || "";
+            const charCount = Number.parseInt(charRaw.replaceAll(',', ''), 10);
+            if (isNaN(charCount) || charCount <= 0) return "";
+
+            if (media.tracking_status === 'Complete') {
+                const speed = Math.round(charCount / (totalMin / 60));
+                return `<span style="margin-left: 2rem; color: var(--accent-yellow); font-weight: 800; border: 1px solid var(--accent-yellow); padding: 0.2rem 0.6rem; border-radius: 4px; background: rgba(0,0,0,0.2);">Est. Reading Speed: <strong style="color: var(--text-primary);">${speed.toLocaleString()} char/hr</strong></span>`;
+            }
+
+            let speedKey = "";
+            if (media.content_type === "Novel") speedKey = "stats_novel_speed";
+            else if (media.content_type === "Manga") speedKey = "stats_manga_speed";
+            else if (media.content_type === "Visual Novel") speedKey = "stats_vn_speed";
+            if (!speedKey) return "";
+
+            const avgSpeedStr = await getSetting(speedKey);
+            const avgSpeed = Number.parseInt(avgSpeedStr || "0", 10);
+            if (avgSpeed <= 0) return "";
+
+            const estTotalMin = (charCount / avgSpeed) * 60;
+            const totalEstTotalMin = Math.round(estTotalMin);
+            const estRemainingMin = Math.max(0, totalEstTotalMin - totalMin);
+            const completionRate = Math.min(100, Math.round((totalMin / estTotalMin) * 100));
+            const remStr = formatHhMm(estRemainingMin);
+            const totalEstStr = formatHhMm(totalEstTotalMin);
+
+            return `
+                <span id="est-remaining-time" style="margin-left: 2rem; color: var(--accent-yellow); font-weight: 800; border: 1px solid var(--accent-yellow); padding: 0.2rem 0.6rem; border-radius: 4px; background: rgba(0,0,0,0.2);">Est. remaining time: <strong style="color: var(--text-primary);">${remStr}</strong> (<strong style="color: var(--text-primary);">${totalEstStr}</strong> total)</span>
+                <span id="est-completion-rate" style="margin-left: 1rem; color: var(--accent-yellow); font-weight: 800; border: 1px solid var(--accent-yellow); padding: 0.2rem 0.6rem; border-radius: 4px; background: rgba(0,0,0,0.2);">Est. completion rate: <strong style="color: var(--text-primary);">${completionRate}%</strong></span>
+            `;
+        } catch (e) {
+            console.warn("Could not compute reading speed stats", e);
+            return "";
+        }
+    }
+
     private async renderStats(root: HTMLElement) {
         const statsDiv = root.querySelector('#media-first-last-stats') as HTMLElement;
         const { logs, media } = this.state;
@@ -349,45 +389,8 @@ export class MediaDetail extends Component<MediaDetailState> {
         else if (media.media_type === "Watching") { verb = "Watched"; totalLabel = "Total Watchtime"; }
         else if (media.media_type === "Reading") { verb = "Read"; totalLabel = "Total Readtime"; }
 
-        let readingSpeedHtml = "";
         const isReadingType = ["Novel", "Visual Novel", "Manga", "WebNovel", "NonFiction"].includes(media.content_type || "");
-        if (isReadingType && totalMin > 0) {
-            try {
-                const extra = JSON.parse(media.extra_data || "{}");
-                const charRaw = extra["Character count"] || "";
-                const charCount = parseInt(charRaw.replace(/,/g, ''));
-                if (!isNaN(charCount) && charCount > 0) {
-                    if (media.tracking_status === 'Complete') {
-                        const speed = Math.round(charCount / (totalMin / 60));
-                        readingSpeedHtml = `<span style="margin-left: 2rem; color: var(--accent-yellow); font-weight: 800; border: 1px solid var(--accent-yellow); padding: 0.2rem 0.6rem; border-radius: 4px; background: rgba(0,0,0,0.2);">Est. Reading Speed: <strong style="color: var(--text-primary);">${speed.toLocaleString()} char/hr</strong></span>`;
-                    } else {
-                        let speedKey = "";
-                        if (media.content_type === "Novel") speedKey = "stats_novel_speed";
-                        else if (media.content_type === "Manga") speedKey = "stats_manga_speed";
-                        else if (media.content_type === "Visual Novel") speedKey = "stats_vn_speed";
-
-                        if (speedKey) {
-                            const avgSpeedStr = await getSetting(speedKey);
-                            const avgSpeed = parseInt(avgSpeedStr || "0");
-                            if (avgSpeed > 0) {
-                                const estTotalMin = (charCount / avgSpeed) * 60;
-                                const totalEstTotalMin = Math.round(estTotalMin);
-                                const estRemainingMin = Math.max(0, totalEstTotalMin - totalMin);
-                                const completionRate = Math.min(100, Math.round((totalMin / estTotalMin) * 100));
-
-                                const remStr = formatHhMm(estRemainingMin);
-                                const totalEstStr = formatHhMm(totalEstTotalMin);
-
-                                readingSpeedHtml = `
-                                    <span id="est-remaining-time" style="margin-left: 2rem; color: var(--accent-yellow); font-weight: 800; border: 1px solid var(--accent-yellow); padding: 0.2rem 0.6rem; border-radius: 4px; background: rgba(0,0,0,0.2);">Est. remaining time: <strong style="color: var(--text-primary);">${remStr}</strong> (<strong style="color: var(--text-primary);">${totalEstStr}</strong> total)</span>
-                                    <span id="est-completion-rate" style="margin-left: 1rem; color: var(--accent-yellow); font-weight: 800; border: 1px solid var(--accent-yellow); padding: 0.2rem 0.6rem; border-radius: 4px; background: rgba(0,0,0,0.2);">Est. completion rate: <strong style="color: var(--text-primary);">${completionRate}%</strong></span>
-                                `;
-                            }
-                        }
-                    }
-                }
-            } catch (e) { }
-        }
+        const readingSpeedHtml = isReadingType && totalMin > 0 ? await this.computeReadingSpeedHtml(media, totalMin) : "";
 
         statsDiv.innerHTML = `
             <span style="color: var(--text-secondary);">First ${verb}: <strong style="color: var(--text-primary);">${firstLogDate}</strong></span>
@@ -401,7 +404,7 @@ export class MediaDetail extends Component<MediaDetailState> {
         root.querySelector('#btn-back-grid')?.addEventListener('click', this.onBack);
         root.querySelector('#media-next')?.addEventListener('click', this.onNext);
         root.querySelector('#media-prev')?.addEventListener('click', this.onPrev);
-        root.querySelector('#media-select')?.addEventListener('change', (e) => this.onNavigate(parseInt((e.target as HTMLSelectElement).value)));
+        root.querySelector('#media-select')?.addEventListener('change', (e) => this.onNavigate(Number.parseInt((e.target as HTMLSelectElement).value, 10)));
 
         root.querySelector('#media-cover-img')?.addEventListener('dblclick', async () => {
             try {
@@ -425,11 +428,11 @@ export class MediaDetail extends Component<MediaDetailState> {
 
         const onSave = async (field: keyof Media | string, value: string, isExtra: boolean = false) => {
             if (isExtra) {
-                let extraData = JSON.parse(this.state.media.extra_data || "{}");
+                const extraData = JSON.parse(this.state.media.extra_data || "{}");
                 extraData[field as string] = value;
                 this.state.media.extra_data = JSON.stringify(extraData);
             } else {
-                (this.state.media as any)[field] = value;
+                (this.state.media as unknown as Record<string, unknown>)[field as string] = value;
             }
             await updateMedia(this.state.media);
             this.render();
@@ -440,7 +443,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                 this.render();
                 return;
             }
-            let extraData = JSON.parse(this.state.media.extra_data || "{}");
+            const extraData = JSON.parse(this.state.media.extra_data || "{}");
             const val = extraData[oldKey];
             delete extraData[oldKey];
             extraData[newKey] = val;
@@ -451,7 +454,14 @@ export class MediaDetail extends Component<MediaDetailState> {
 
         const setupEditable = (el: HTMLElement, field: string, options: { isExtra?: boolean, isTextArea?: boolean, isRenameKey?: boolean } = {}) => {
             el.addEventListener('dblclick', () => {
-                const currentVal = options.isRenameKey ? field : (options.isExtra ? (el.textContent === '-' ? '' : el.textContent) : (this.state.media[field as keyof Media] as string) || '');
+                let currentVal: string | null;
+                if (options.isRenameKey) {
+                    currentVal = field;
+                } else if (options.isExtra) {
+                    currentVal = el.textContent === '-' ? '' : el.textContent;
+                } else {
+                    currentVal = (this.state.media[field as keyof Media] as string) || '';
+                }
                 const input = document.createElement(options.isTextArea ? 'textarea' : 'input');
                 if (!options.isTextArea) (input as HTMLInputElement).type = 'text';
                 input.className = 'edit-input';
@@ -462,12 +472,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                     input.style.resize = 'vertical';
                 }
                 input.style.background = 'var(--bg-dark)';
-                input.style.color = (options.isRenameKey || options.isExtra) ? 'var(--text-secondary)' : 'var(--text-primary)';
-                if (!options.isRenameKey && !options.isExtra && !options.isTextArea) input.style.color = 'var(--text-primary)';
-                else if (!options.isTextArea) input.style.color = 'var(--text-secondary)';
-                
-                // Set default color for non-rename
-                if (!options.isRenameKey && !options.isTextArea) input.style.color = 'var(--text-primary)';
+                input.style.color = options.isRenameKey ? 'var(--text-secondary)' : 'var(--text-primary)';
 
                 input.style.border = '1px solid var(--accent-green)';
                 input.style.padding = '0.2rem 0.5rem';
@@ -506,13 +511,13 @@ export class MediaDetail extends Component<MediaDetailState> {
 
         // Extra fields values
         root.querySelectorAll('.editable-extra').forEach(el => {
-            const key = (el as HTMLElement).getAttribute('data-key');
+            const key = (el as HTMLElement).dataset.key;
             if (key) setupEditable(el as HTMLElement, key, { isExtra: true });
         });
 
         // Extra fields keys (renaming)
         root.querySelectorAll('.editable-extra-key').forEach(el => {
-            const key = (el as HTMLElement).getAttribute('data-key');
+            const key = (el as HTMLElement).dataset.key;
             if (key) setupEditable(el as HTMLElement, key, { isRenameKey: true });
         });
 
@@ -559,7 +564,7 @@ export class MediaDetail extends Component<MediaDetailState> {
             const key = await customPrompt("Enter field name (e.g. 'Author', 'Source URL'):");
             if (!key) return;
             const val = await customPrompt(`Enter value for "${key}":`);
-            let extraData = JSON.parse(this.state.media.extra_data || "{}");
+            const extraData = JSON.parse(this.state.media.extra_data || "{}");
             extraData[key] = val || "";
             this.state.media.extra_data = JSON.stringify(extraData);
             await updateMedia(this.state.media);
@@ -570,7 +575,7 @@ export class MediaDetail extends Component<MediaDetailState> {
             btn.addEventListener('click', async (e) => {
                 const key = (e.currentTarget as HTMLElement).getAttribute('data-key');
                 if (!key) return;
-                let extraData = JSON.parse(this.state.media.extra_data || "{}");
+                const extraData = JSON.parse(this.state.media.extra_data || "{}");
                 delete extraData[key];
                 this.state.media.extra_data = JSON.stringify(extraData);
                 await updateMedia(this.state.media);
@@ -594,8 +599,8 @@ export class MediaDetail extends Component<MediaDetailState> {
         root.querySelectorAll('.refresh-extra-btn').forEach(btn => {
             btn.addEventListener('click', async (e) => {
                 const target = e.currentTarget as HTMLElement;
-                const url = target.getAttribute('data-url');
-                const key = target.getAttribute('data-key');
+                const url = target.dataset.url;
+                const key = target.dataset.key;
                 if (url) await this.performMetadataImport(url, key || undefined);
             });
         });
@@ -629,7 +634,7 @@ export class MediaDetail extends Component<MediaDetailState> {
 
         root.querySelectorAll('.delete-milestone-btn').forEach(btn => {
             btn.addEventListener('click', async (e) => {
-                const id = parseInt((e.currentTarget as HTMLElement).getAttribute('data-id') || "0");
+                const id = Number.parseInt((e.currentTarget as HTMLElement).dataset.id || "0", 10);
                 if (id && await customConfirm("Delete Milestone", "Are you sure you want to delete this milestone?")) {
                     try {
                         await deleteMilestone(id);

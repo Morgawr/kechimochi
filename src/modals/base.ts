@@ -1,3 +1,12 @@
+import { escapeHTML } from '../core/html';
+
+function sanitizeButtonClass(input: string): string {
+    if (/^[a-zA-Z0-9\-_\s]+$/.test(input)) {
+        return input;
+    }
+    return 'btn-danger';
+}
+
 export function createOverlay(): { overlay: HTMLDivElement, cleanup: () => void } {
     const g = globalThis as unknown as Record<string, number>;
     g.__modalCounter = (g.__modalCounter || 0) + 1;
@@ -24,14 +33,17 @@ export function createOverlay(): { overlay: HTMLDivElement, cleanup: () => void 
 export async function customPrompt(title: string, defaultValue = "", text = ""): Promise<string | null> {
     return new Promise((resolve) => {
         const { overlay, cleanup } = createOverlay();
+        const escapedTitle = escapeHTML(title);
+        const escapedDefaultValue = escapeHTML(defaultValue);
+        const escapedText = text ? escapeHTML(text) : '';
         
         overlay.innerHTML = `
             <div class="modal-content">
-                <h3>${title}</h3>
+                <h3>${escapedTitle}</h3>
                 <div style="margin-top: 1rem;">
-                    <input type="text" id="prompt-input" style="width: 100%; border: 1px solid var(--border-color); background: var(--bg-dark); color: var(--text-primary); padding: 0.5rem; border-radius: var(--radius-sm);" value="${defaultValue}" autocomplete="off" />
+                    <input type="text" id="prompt-input" style="width: 100%; border: 1px solid var(--border-color); background: var(--bg-dark); color: var(--text-primary); padding: 0.5rem; border-radius: var(--radius-sm);" value="${escapedDefaultValue}" autocomplete="off" />
                 </div>
-                ${text ? `<p style="margin-top: 0.5rem; font-size: 0.85rem; color: var(--text-secondary);">${text}</p>` : ''}
+                ${escapedText ? `<p style="margin-top: 0.5rem; font-size: 0.85rem; color: var(--text-secondary);">${escapedText}</p>` : ''}
                 <div style="display: flex; justify-content: flex-end; gap: 1rem; margin-top: 1.5rem;">
                     <button class="btn btn-ghost" id="prompt-cancel">Cancel</button>
                     <button class="btn btn-primary" id="prompt-confirm">OK</button>
@@ -55,14 +67,18 @@ export async function customPrompt(title: string, defaultValue = "", text = ""):
 export async function customConfirm(title: string, text: string, confirmButtonClass = "btn-danger", confirmButtonText = "Yes"): Promise<boolean> {
     return new Promise((resolve) => {
         const { overlay, cleanup } = createOverlay();
+        const escapedTitle = escapeHTML(title);
+        const escapedText = escapeHTML(text);
+        const safeConfirmButtonClass = sanitizeButtonClass(confirmButtonClass);
+        const escapedConfirmButtonText = escapeHTML(confirmButtonText);
         
         overlay.innerHTML = `
             <div class="modal-content">
-                <h3>${title}</h3>
-                <p style="margin-top: 1rem; color: var(--text-secondary);">${text}</p>
+                <h3>${escapedTitle}</h3>
+                <p style="margin-top: 1rem; color: var(--text-secondary);">${escapedText}</p>
                 <div style="display: flex; justify-content: flex-end; gap: 1rem; margin-top: 1.5rem;">
                     <button class="btn btn-ghost" id="confirm-cancel">Cancel</button>
-                    <button class="btn ${confirmButtonClass}" id="confirm-ok">${confirmButtonText}</button>
+                    <button class="btn ${safeConfirmButtonClass}" id="confirm-ok">${escapedConfirmButtonText}</button>
                 </div>
             </div>
         `;
@@ -75,11 +91,13 @@ export async function customConfirm(title: string, text: string, confirmButtonCl
 export async function customAlert(title: string, text: string): Promise<void> {
     return new Promise((resolve) => {
         const { overlay, cleanup } = createOverlay();
+        const escapedTitle = escapeHTML(title);
+        const escapedText = escapeHTML(text);
         
         overlay.innerHTML = `
             <div class="modal-content">
-                <h3>${title}</h3>
-                <p id="alert-body" style="margin-top: 1rem; color: var(--text-secondary);">${text}</p>
+                <h3>${escapedTitle}</h3>
+                <p id="alert-body" style="margin-top: 1rem; color: var(--text-secondary);">${escapedText}</p>
                 <div style="display: flex; justify-content: flex-end; margin-top: 1.5rem;">
                     <button class="btn btn-primary" id="alert-ok">OK</button>
                 </div>

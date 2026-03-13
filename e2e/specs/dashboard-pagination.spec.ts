@@ -1,13 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { randomUUID } from 'node:crypto';
 import { waitForAppReady } from '../helpers/setup.js';
 import { submitPrompt } from '../helpers/common.js';
 
 async function seedLogsViaCsv(count: number) {
     const dataDir = process.env.KECHIMOCHI_DATA_DIR || os.tmpdir();
-    // eslint-disable-next-line sonarjs/pseudo-random
-    const csvPath = path.join(dataDir, `seed_${Math.random().toString(36).substring(7)}.csv`);
+    const csvPath = path.join(dataDir, `seed_${randomUUID()}.csv`);
     const logs = [
         'Date,Log Name,Media Type,Duration,Language',
         ...Array.from({ length: count }, () => '2024-03-31,Test Media,Reading,10,Japanese')

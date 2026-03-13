@@ -1,13 +1,24 @@
+/* eslint-disable no-console */
 /**
  * WebdriverIO configuration for kechimochi e2e tests.
  */
 
 import os from 'os';
 import path from 'path';
+import { randomUUID } from 'node:crypto';
 import { spawn, type ChildProcess } from 'child_process';
-import { fileURLToPath } from 'url';
-import { existsSync } from 'fs';
+import { fileURLToPath } from 'node:url';
+import { existsSync } from 'node:fs';
 import { prepareTestDir, cleanupTestDir } from './helpers/setup.js';
+
+interface TauriSessionCaps {
+    port?: number;
+    'tauri:options': {
+        envs?: Record<string, string>;
+        [key: string]: unknown;
+    };
+    [key: string]: unknown;
+}
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
@@ -19,6 +30,7 @@ if (process.env.TEST_RUN_ID) {
 }
 
 let tauriDriver: ChildProcess;
+let tauriDriverExitCode: number | null | undefined;
 
 function delay(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -63,6 +75,20 @@ function onShutdown(fn: () => void) {
 
 onShutdown(() => { tauriDriver?.kill(); });
 
+async function moveArtifactsToFinalDir(stageDir: string, specName: string, finalDir: string): Promise<void> {
+  const { mkdirSync, existsSync, cpSync, rmSync, readdirSync } = await import('node:fs');
+  if (!existsSync(stageDir)) return;
+  try {
+    const stagedFiles = readdirSync(stageDir, { recursive: true });
+    console.log(`[e2e] [${specName}] Staging area contains: ${stagedFiles.join(', ')}`);
+    mkdirSync(finalDir, { recursive: true });
+    cpSync(stageDir, finalDir, { recursive: true });
+    rmSync(stageDir, { recursive: true, force: true });
+  } catch (err) {
+    console.error(`[e2e] [${specName}] Failed to move artifacts:`, err);
+  }
+}
+
 export const config: WebdriverIO.Config = {
   // ==================
   // Runner Configuration
@@ -81,14 +107,14 @@ export const config: WebdriverIO.Config = {
   // ==================
   // Capabilities
   // ==================
-  maxInstances: parseInt(process.env.E2E_MAX_INSTANCES || '2'),
+  maxInstances: Number.parseInt(process.env.E2E_MAX_INSTANCES || '2', 10),
   capabilities: [{
     'tauri:options': {
       application: path.resolve(
         __dirname, '..', 'src-tauri', 'target', 'debug', 'kechimochi'
       ),
     },
-  } as any],
+  } as WebdriverIO.Capabilities],
 
   // ==================
   // Test Configuration
@@ -147,7 +173,7 @@ export const config: WebdriverIO.Config = {
    */
   onPrepare: async () => {
     // Ensure logs directory exists
-    const { mkdirSync } = await import('fs');
+    const { mkdirSync } = await import('node:fs');
     mkdirSync(LOGS_DIR, { recursive: true });
     process.env.TEST_RUN_ID = STABLE_RUN_ID;
 
@@ -159,7 +185,7 @@ export const config: WebdriverIO.Config = {
    * Spawn tauri-driver right before each WebDriver session.
    * This is the correct hook per the official Tauri docs.
    */
-  beforeSession: async (config: any, caps: any, specs: string[]) => {
+  beforeSession: async (_config: unknown, caps: TauriSessionCaps, specs: string[]) => {
     const specFile = specs[0];
     const specName = path.basename(specFile, '.spec.ts');
     
@@ -169,7 +195,7 @@ export const config: WebdriverIO.Config = {
 
     // 2. Dynamic Port Assignment (offset by worker ID)
     // WDIO_WORKER_ID looks like "0-0", "0-1", etc.
-    const workerIndex = parseInt(process.env.WDIO_WORKER_ID?.split('-')[1] || '0');
+    const workerIndex = Number.parseInt(process.env.WDIO_WORKER_ID?.split('-')[1] || '0', 10);
     const tauriDriverPort = 4444 + workerIndex;
     const nativeDriverPort = 5555 + workerIndex;
     
@@ -178,8 +204,8 @@ export const config: WebdriverIO.Config = {
     caps.port = tauriDriverPort;
 
     // 3. Create a transient staging directory in /tmp
-    const STAGE_DIR = path.join(os.tmpdir(), `kechimochi-e2e-${Math.random().toString(36).slice(2)}`);
-    const { mkdirSync, appendFileSync, existsSync } = await import('fs');
+    const STAGE_DIR = path.join(os.tmpdir(), `kechimochi-e2e-${randomUUID()}`);
+    const { mkdirSync, appendFileSync, existsSync } = await import('node:fs');
     mkdirSync(STAGE_DIR, { recursive: true });
 
     process.env.SPEC_STAGE_DIR = STAGE_DIR;
@@ -206,7 +232,7 @@ export const config: WebdriverIO.Config = {
     // Helper to log safely even if stageDir disappears during move
     const log = (msg: string | Buffer) => {
       if (existsSync(STAGE_DIR)) {
-        try { appendFileSync(logFile, msg); } catch { }
+        try { appendFileSync(logFile, msg); } catch { /* ignore transient fs errors */ }
       }
     };
 
@@ -253,7 +279,7 @@ export const config: WebdriverIO.Config = {
     tauriDriver.on('exit', (code: number | null) => {
       console.log(`[e2e] [${specName}] tauri-driver process exited with code: ${code}`);
       log(`[e2e] tauri-driver process exited with code: ${code}\n`);
-      (tauriDriver as any)._finalExitCode = code;
+      tauriDriverExitCode = code;
     });
   },
 
@@ -263,12 +289,12 @@ export const config: WebdriverIO.Config = {
   afterSession: async () => {
     // 1. Signal driver to stop
     if (tauriDriver) {
-      const { appendFileSync } = await import('fs');
+      const { appendFileSync } = await import('node:fs');
       tauriDriver.kill('SIGTERM');
 
       // 2. WAIT for it to actually die before moving files
       let attempts = 0;
-      while (tauriDriver && (tauriDriver as any)._finalExitCode === undefined && attempts < 15) {
+      while (tauriDriverExitCode === undefined && attempts < 15) {
         await delay(200);
         attempts++;
       }
@@ -276,8 +302,8 @@ export const config: WebdriverIO.Config = {
       const stageDir = process.env.SPEC_STAGE_DIR;
       if (stageDir) {
         const logFile = path.join(stageDir, 'tauri-driver.log');
-        const finalCode = (tauriDriver as any)._finalExitCode;
-        try { appendFileSync(logFile, `\n[e2e] Session Complete with exit code: ${finalCode}\n`); } catch { }
+        const finalCode = tauriDriverExitCode;
+        try { appendFileSync(logFile, `\n[e2e] Session Complete with exit code: ${finalCode}\n`); } catch { /* ignore transient fs errors */ }
       }
     }
 
@@ -286,21 +312,7 @@ export const config: WebdriverIO.Config = {
     const finalDir = path.join(LOGS_DIR, specName || 'unknown');
 
     if (stageDir && specName) {
-      const { mkdirSync, existsSync, cpSync, rmSync, readdirSync } = await import('fs');
-
-      if (existsSync(stageDir)) {
-        try {
-          const stagedFiles = readdirSync(stageDir, { recursive: true });
-          console.log(`[e2e] [${specName}] Staging area contains: ${stagedFiles.join(', ')}`);
-
-          mkdirSync(finalDir, { recursive: true });
-          // Use cpSync + rmSync to handle cross-partition moves (more stable than renameSync)
-          cpSync(stageDir, finalDir, { recursive: true });
-          rmSync(stageDir, { recursive: true, force: true });
-        } catch (err) {
-          console.error(`[e2e] [${specName}] Failed to move artifacts:`, err);
-        }
-      }
+      await moveArtifactsToFinalDir(stageDir, specName, finalDir);
     }
 
     // 3. Clean up the isolated data directory
@@ -314,13 +326,13 @@ export const config: WebdriverIO.Config = {
   /**
    * After each test, capture screenshot on failure.
    */
-  afterTest: async (test: any, _context: any, { passed }: { passed: boolean }) => {
+  afterTest: async (test: { title?: string }, _context: unknown, { passed }: { passed: boolean }) => {
     if (!passed) {
       const stageDir = process.env.SPEC_STAGE_DIR;
       if (stageDir) {
         const sanitizedTitle = (test.title || 'unknown').replace(/[^a-zA-Z0-9]/g, '_');
         const failDir = path.join(stageDir, 'failures');
-        const { mkdirSync } = await import('fs');
+        const { mkdirSync } = await import('node:fs');
         mkdirSync(failDir, { recursive: true });
         await browser.saveScreenshot(path.join(failDir, `${sanitizedTitle}.png`));
       }

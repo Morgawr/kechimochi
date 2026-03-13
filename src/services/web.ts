@@ -9,7 +9,7 @@
 import type { AppServices } from './types';
 import type { Media, ActivityLog, ActivitySummary, DailyHeatmap, MediaCsvRow, MediaConflict, Milestone } from '../types';
 
-const API_BASE: string = (import.meta.env.VITE_API_BASE_URL as string) || '';
+const API_BASE: string = import.meta.env.VITE_API_BASE_URL || '';
 
 function apiUrl(path: string): string {
     return `${API_BASE}/api${path}`;
@@ -124,7 +124,7 @@ export class WebServices implements AppServices {
         if (!res.ok) throw new Error(await res.text());
         const blob = await res.blob();
         triggerDownload(blob, 'kechimochi_activities.csv');
-        return parseInt(res.headers.get('X-Row-Count') ?? '0', 10);
+        return Number.parseInt(res.headers.get('X-Row-Count') ?? '0', 10);
     }
 
     async analyzeMediaCsvFromPick(): Promise<MediaConflict[] | null> {
@@ -142,7 +142,7 @@ export class WebServices implements AppServices {
         if (!res.ok) throw new Error(await res.text());
         const blob = await res.blob();
         triggerDownload(blob, 'kechimochi_media_library.csv');
-        return parseInt(res.headers.get('X-Row-Count') ?? '0', 10);
+        return Number.parseInt(res.headers.get('X-Row-Count') ?? '0', 10);
     }
 
     applyMediaImport(records: MediaCsvRow[]): Promise<number> {
@@ -175,7 +175,7 @@ export class WebServices implements AppServices {
         if (!res.ok) throw new Error(await res.text());
         const blob = await res.blob();
         triggerDownload(blob, 'kechimochi_milestones.csv');
-        return parseInt(res.headers.get('X-Row-Count') ?? '0', 10);
+        return Number.parseInt(res.headers.get('X-Row-Count') ?? '0', 10);
     }
 
     async importMilestonesCsv(_filePath: string): Promise<number> {
@@ -226,9 +226,9 @@ export class WebServices implements AppServices {
     }
 
     // ── Window management (noop) ──────────────────────────────────────────────
-    minimizeWindow(): void {}
-    maximizeWindow(): void {}
-    closeWindow():    void {}
+    minimizeWindow(): void { return; }
+    maximizeWindow(): void { return; }
+    closeWindow():    void { return; }
 
     isDesktop(): boolean { return false; }
 }

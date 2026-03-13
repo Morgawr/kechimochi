@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 /**
  * Seed script: generates deterministic fixture databases for e2e testing.
  * Run with: npx tsx e2e/fixtures/seed.ts
@@ -9,9 +10,9 @@
  */
 
 import Database from 'better-sqlite3';
-import * as fs from 'fs';
-import * as path from 'path';
-import { fileURLToPath } from 'url';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const FIXTURES_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SHARED_DB_PATH = path.join(FIXTURES_DIR, 'kechimochi_shared_media.db');

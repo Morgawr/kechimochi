@@ -7,11 +7,11 @@ describe('Responsive Styling CUJ', () => {
   });
 
   after(async () => {
-    await (browser as any).setWindowSize(1280, 1200);
+    await browser.setWindowSize(1280, 1200);
   });
 
   it('should collapse nav controls and iconify Log Activity on narrow mobile width', async () => {
-    await (browser as any).setWindowSize(740, 1200);
+    await browser.setWindowSize(740, 1200);
     await browser.pause(300);
 
     const responsive = await browser.execute(() => {
@@ -38,7 +38,7 @@ describe('Responsive Styling CUJ', () => {
     await navigateTo('dashboard');
     expect(await verifyActiveView('dashboard')).toBe(true);
 
-    await (browser as any).setWindowSize(1000, 1200);
+    await browser.setWindowSize(1000, 1200);
     await browser.pause(350);
 
     const stacked = await browser.execute(() => {
@@ -81,7 +81,7 @@ describe('Responsive Styling CUJ', () => {
     const title = await $('#media-title');
     await title.waitForDisplayed({ timeout: 10000 });
 
-    await (browser as any).setWindowSize(760, 1200);
+    await browser.setWindowSize(760, 1200);
     await browser.pause(350);
 
     const mediaLayout = await browser.execute(() => {

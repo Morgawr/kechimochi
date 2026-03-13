@@ -227,15 +227,15 @@ export class ProfileView extends Component<ProfileState> {
         return html`
             <div style="display: flex; flex-direction: column; gap: 0.75rem;">
                 <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.5rem;">
-                    <span>Average Novel Reading Speed: <strong>${parseInt(report.novelSpeed).toLocaleString()} char/hr</strong></span>
+                    <span>Average Novel Reading Speed: <strong>${Number.parseInt(report.novelSpeed, 10).toLocaleString()} char/hr</strong></span>
                     <span style="color: var(--text-secondary); font-size: 0.85rem;">(out of ${report.novelCount} books)</span>
                 </div>
                 <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.5rem;">
-                    <span>Average Manga Reading Speed: <strong>${parseInt(report.mangaSpeed).toLocaleString()} char/hr</strong></span>
+                    <span>Average Manga Reading Speed: <strong>${Number.parseInt(report.mangaSpeed, 10).toLocaleString()} char/hr</strong></span>
                     <span style="color: var(--text-secondary); font-size: 0.85rem;">(out of ${report.mangaCount} manga)</span>
                 </div>
                 <div style="display: flex; justify-content: space-between;">
-                    <span>Average Visual Novel Reading Speed: <strong>${parseInt(report.vnSpeed).toLocaleString()} char/hr</strong></span>
+                    <span>Average Visual Novel Reading Speed: <strong>${Number.parseInt(report.vnSpeed, 10).toLocaleString()} char/hr</strong></span>
                     <span style="color: var(--text-secondary); font-size: 0.85rem;">(out of ${report.vnCount} VNs)</span>
                 </div>
             </div>
@@ -265,9 +265,12 @@ export class ProfileView extends Component<ProfileState> {
             const modeData = await showExportCsvModal();
             if (!modeData) return;
             try {
-                const count = modeData.mode === 'range'
-                    ? await getServices().exportActivities(modeData.start, modeData.end)
-                    : await getServices().exportActivities();
+                let count: number | null;
+                if (modeData.mode === 'range') {
+                    count = await getServices().exportActivities(modeData.start, modeData.end);
+                } else {
+                    count = await getServices().exportActivities();
+                }
                 if (count !== null) await customAlert("Success", `Successfully exported ${count} activity logs!`);
             } catch (e) {
                 await customAlert("Error", `Export failed: ${e}`);
@@ -369,7 +372,7 @@ export class ProfileView extends Component<ProfileState> {
                 await this.loadData();
                 this.render();
                 await customAlert("Success", "Reading report card calculated successfully!");
-            } catch (e) {
+            } catch {
                 await customAlert("Error", "Failed to calculate report card.");
             } finally {
                 btn.disabled = false;
@@ -392,13 +395,12 @@ export class ProfileView extends Component<ProfileState> {
         };
 
         for (const media of mediaList) {
-            if (media.tracking_status !== 'Complete') continue;
-            if (!stats[media.content_type || ""]) continue;
+            if (media.tracking_status !== 'Complete' || !stats[media.content_type ?? ""]) continue;
 
-            let extraData: Record<string, string> = {};
-            try { extraData = JSON.parse(media.extra_data || "{}"); } catch (e) { continue; }
+            let extraData: Record<string, string>;
+            try { extraData = JSON.parse(media.extra_data || "{}"); } catch { continue; }
 
-            const charCount = parseInt((extraData["Character count"] || "").replace(/,/g, ''));
+            const charCount = Number.parseInt((extraData["Character count"] || "").replaceAll(',', ''), 10);
             if (isNaN(charCount)) continue;
 
             const logs = await getLogsForMedia(media.id!);
@@ -411,13 +413,17 @@ export class ProfileView extends Component<ProfileState> {
             }
         }
 
+        await this.saveReportStats(stats, cutoffDate);
+    }
+
+    private async saveReportStats(stats: Record<string, { totalSpeed: number, count: number }>, cutoffDate: Date): Promise<void> {
         await setSetting('stats_report_timestamp', cutoffDate.toISOString());
+        const prefixMap: Record<string, string> = { "Novel": "novel", "Manga": "manga", "Visual Novel": "vn" };
         for (const key of ["Novel", "Manga", "Visual Novel"]) {
             const s = stats[key];
             const avgSpeed = s.count > 0 ? Math.round(s.totalSpeed / s.count) : 0;
-            const prefix = key === "Visual Novel" ? "vn" : key.toLowerCase();
-            await setSetting(`stats_${prefix}_speed`, avgSpeed.toString());
-            await setSetting(`stats_${prefix}_count`, s.count.toString());
+            await setSetting(`stats_${prefixMap[key]}_speed`, avgSpeed.toString());
+            await setSetting(`stats_${prefixMap[key]}_count`, s.count.toString());
         }
     }
 }

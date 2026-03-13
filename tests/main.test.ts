@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import * as api from '../src/api';
+import type { ActivitySummary } from '../src/api';
 import * as modals from '../src/modals';
 
 const mockWindow = {
@@ -31,7 +32,7 @@ vi.mock('../src/api', () => ({
         if (key === 'theme') return Promise.resolve('dark');
         return Promise.resolve(null);
     }),
-    getLogs: vi.fn(() => Promise.resolve([{ date: '2024-01-01', total_minutes: 0, title: 'T', media_id: 1, media_type: 'M', language: 'J' } as any])),
+    getLogs: vi.fn(() => Promise.resolve([{ id: 0, date: '2024-01-01', duration_minutes: 0, title: 'T', media_id: 1, media_type: 'M', language: 'J' } as ActivitySummary])),
     getAllMedia: vi.fn(() => Promise.resolve([])),
     getHeatmap: vi.fn(() => Promise.resolve([{ date: '2024-01-01', total_minutes: 10 }])),
     getMilestones: vi.fn(() => Promise.resolve([])),

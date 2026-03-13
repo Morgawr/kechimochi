@@ -220,7 +220,14 @@ class App {
             localStorage.setItem('kechimochi_profile', this.currentProfile);
         }
 
-        this.selectProfileEl.innerHTML = profiles.map(p => `<option value="${p}">${p}</option>`).join('');
+        this.selectProfileEl.replaceChildren(
+            ...profiles.map(profile => {
+                const option = document.createElement('option');
+                option.value = profile;
+                option.textContent = profile;
+                return option;
+            })
+        );
         this.selectProfileEl.value = this.currentProfile;
     }
 

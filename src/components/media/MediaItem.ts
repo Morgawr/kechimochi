@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 import { Component } from '../../core/component';
 import { html } from '../../core/html';
 import { Media } from '../../api';
@@ -10,7 +11,7 @@ interface MediaItemState {
 }
 
 export class MediaItem extends Component<MediaItemState> {
-    private static imageCache: Map<string, string> = new Map();
+    private static readonly imageCache: Map<string, string> = new Map();
 
     constructor(container: HTMLElement, media: Media, onClick: () => void) {
         super(container, { media, imgSrc: null });
@@ -76,12 +77,13 @@ export class MediaItem extends Component<MediaItemState> {
 
         this.clear();
 
+        const noImageLabel = media.cover_image ? 'Loading...' : 'No Image';
         const content = imgSrc
             ? html`<img src="${imgSrc}" style="width: 100%; height: 100%; object-fit: cover; display: block;" alt="${media.title}" />`
             : html`
                 <div class="image-placeholder" style="flex: 1; display: flex; flex-direction: column; padding: 1.2rem 1rem; color: var(--text-secondary); text-align: center; justify-content: space-between;">
                     <div class="grid-item-title" style="font-size: 0.9rem; font-weight: 600; color: var(--text-primary); display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; line-height: 1.3;">${media.title}</div>
-                    <div style="font-size: 0.75rem; opacity: 0.6; text-transform: uppercase; letter-spacing: 1px;">${media.cover_image ? 'Loading...' : 'No Image'}</div>
+                    <div style="font-size: 0.75rem; opacity: 0.6; text-transform: uppercase; letter-spacing: 1px;">${noImageLabel}</div>
                 </div>
             `;
 

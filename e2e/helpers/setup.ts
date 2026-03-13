@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 /**
  * Test environment setup/teardown helpers.
  */
@@ -50,6 +51,16 @@ export function cleanupTestDir(testDir: string): void {
   }
 }
 
+async function normalizeWindowSize(): Promise<void> {
+  try {
+    await browser.setWindowSize(1280, 1200);
+    await browser.execute(() => {
+      document.documentElement.style.zoom = '1';
+      (document.body as HTMLElement).style.zoom = '1';
+    });
+  } catch { /* environment may not support setWindowSize, continue */ }
+}
+
 /**
  * Waits for the app to be ready by polling for a known DOM element.
  * Also ensures the system date is mocked to 2024-03-31 for consistent stats/charts.
@@ -64,21 +75,13 @@ export async function waitForAppReady(timeout = 30000): Promise<void> {
   console.log(`[e2e] Ensuring app is ready and date is mocked to ${MOCK_DATE}...`);
 
   // Keep visual snapshots deterministic across different host DPI settings.
-  try {
-    await (browser as any).setWindowSize(1280, 1200);
-    await (browser as any).execute(() => {
-      document.documentElement.style.zoom = '1';
-      (document.body as HTMLElement).style.zoom = '1';
-    });
-  } catch (e) {
-    console.warn('[e2e] Failed to normalize window size/zoom:', e);
-  }
+  await normalizeWindowSize();
 
   // 1. First, wait for the window to have a valid origin and the DOM to be somewhat ready.
   // We check document.readyState to ensure we aren't on about:blank or a transitional state.
-  await (browser as any).waitUntil(
+  await browser.waitUntil(
     async () => {
-      const readyState = await (browser as any).execute(() => document.readyState).catch(() => '');
+      const readyState = await browser.execute(() => document.readyState).catch(() => '');
       if (readyState !== 'complete') return false;
       
       const el = await $('#app');
@@ -99,18 +102,18 @@ export async function waitForAppReady(timeout = 30000): Promise<void> {
   let attempts = 0;
   while (!setResolved && attempts < 6 && timeLeft() > 7000) {
     try {
-      await (browser as any).execute((date: string) => {
+      await browser.execute((date: string) => {
         sessionStorage.setItem('kechimochi_mock_date', date);
       }, MOCK_DATE);
       setResolved = true;
-    } catch (e: any) {
-      const message = String(e?.message || '');
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
       if (message.includes('insecure') || message.includes('Access is denied')) {
         attempts++;
         console.warn(`[e2e] sessionStorage not ready (attempt ${attempts}), retrying in 500ms...`);
         await browser.pause(500);
       } else {
-        console.error('[e2e] Non-security error setting mock date:', e.message);
+        console.error('[e2e] Non-security error setting mock date:', message);
         break; // Fatal error
       }
     }
@@ -119,28 +122,20 @@ export async function waitForAppReady(timeout = 30000): Promise<void> {
   // 3. Refresh to apply the mock date only if we successfully set it.
   if (setResolved) {
     console.log(`[e2e] Refreshing to apply mock date...`);
-    await (browser as any).refresh();
+    await browser.refresh();
   } else {
     console.warn('[e2e] Proceeding without mocked date because storage was unavailable in this session');
   }
 
   // Some environments reset zoom/window metrics after refresh.
-  try {
-    await (browser as any).setWindowSize(1280, 1200);
-    await (browser as any).execute(() => {
-      document.documentElement.style.zoom = '1';
-      (document.body as HTMLElement).style.zoom = '1';
-    });
-  } catch (e) {
-    console.warn('[e2e] Failed to re-apply window size/zoom after refresh:', e);
-  }
+  await normalizeWindowSize();
 
   // 4. Poll for final app readiness.
   // Some flows can land on initial profile prompt or non-dashboard views first,
   // so we accept any stable app shell state.
   let retries = 0;
   const finalTimeout = Math.max(1500, Math.min(timeout, timeLeft()));
-  await (browser as any).waitUntil(
+  await browser.waitUntil(
     async () => {
       retries++;
       const dashboardNav = await $('[data-view="dashboard"]');
