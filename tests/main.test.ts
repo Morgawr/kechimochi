@@ -164,7 +164,7 @@ describe('main.ts initialization', () => {
         vi.mocked(modals.showLogActivityModal).mockResolvedValue(true);
         
         const addActivityBtn = document.getElementById('btn-add-activity');
-        await addActivityBtn?.dispatchEvent(new Event('click'));
+        addActivityBtn?.dispatchEvent(new Event('click'));
         
         await vi.waitFor(() => expect(modals.showLogActivityModal).toHaveBeenCalled());
     });

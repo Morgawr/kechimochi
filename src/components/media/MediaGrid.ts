@@ -3,6 +3,7 @@ import { html, escapeHTML } from '../../core/html';
 import { Media, addMedia } from '../../api';
 import { MediaItem } from './MediaItem';
 import { showAddMediaModal } from '../../modals';
+import { FILTERS, TRACKING_STATUSES, MEDIA_STATUS } from '../../constants';
 
 interface MediaGridState {
     mediaList: Media[];
@@ -82,11 +83,11 @@ export class MediaGrid extends Component<MediaGridState> {
                 </div>
                 <input type="text" id="grid-search-filter" placeholder="Search title..." style="flex: 1; min-width: 0; padding: 0.4rem 0.8rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color); background: var(--bg-dark); color: var(--text-primary); outline: none;" value="${this.state.searchQuery}" autocomplete="off" />
                 <select id="grid-status-select" style="padding: 0.4rem 0.8rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color); background: var(--bg-dark); color: var(--text-primary); outline: none; cursor: pointer;">
-                    <option value="All" ${this.state.statusFilter === 'All' ? 'selected' : ''}>All Statuses</option>
-                    ${["Ongoing", "Complete", "Paused", "Dropped", "Not Started", "Untracked"].map(s => `<option value="${s}" ${this.state.statusFilter === s ? 'selected' : ''}>${s}</option>`).join('')}
+                    <option value="${FILTERS.ALL}" ${this.state.statusFilter === FILTERS.ALL ? 'selected' : ''}>All Statuses</option>
+                    ${TRACKING_STATUSES.map(s => `<option value="${s}" ${this.state.statusFilter === s ? 'selected' : ''}>${s}</option>`).join('')}
                 </select>
                 <select id="grid-type-select" style="padding: 0.4rem 0.8rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color); background: var(--bg-dark); color: var(--text-primary); outline: none; cursor: pointer;">
-                    <option value="All" ${this.state.typeFilter === 'All' ? 'selected' : ''}>All Types</option>
+                    <option value="${FILTERS.ALL}" ${this.state.typeFilter === FILTERS.ALL ? 'selected' : ''}>All Types</option>
                     ${uniqueTypes.map(t => `<option value="${escapeHTML(t)}" ${this.state.typeFilter === t ? 'selected' : ''}>${escapeHTML(t)}</option>`).join('')}
                 </select>
                 <div style="display: flex; align-items: center; gap: 0.6rem; user-select: none;">
@@ -110,7 +111,7 @@ export class MediaGrid extends Component<MediaGridState> {
             const newId = await addMedia({
                 title: result.title,
                 media_type: result.type,
-                status: "Active",
+                status: MEDIA_STATUS.ACTIVE,
                 language: "Japanese",
                 description: "",
                 cover_image: "",
@@ -178,9 +179,9 @@ export class MediaGrid extends Component<MediaGridState> {
 
         const filteredList = mediaList.filter(media => {
             const matchesQuery = media.title.toLowerCase().includes(searchQuery.toLowerCase());
-            const typeMatch = typeFilter === 'All' || (media.content_type || 'Unknown') === typeFilter;
-            const statusMatch = statusFilter === 'All' || media.tracking_status === statusFilter;
-            const isArchived = media.status === 'Archived';
+            const typeMatch = typeFilter === FILTERS.ALL || (media.content_type || 'Unknown') === typeFilter;
+            const statusMatch = statusFilter === FILTERS.ALL || media.tracking_status === statusFilter;
+            const isArchived = media.status === MEDIA_STATUS.ARCHIVED;
             const showStatus = !hideArchived || !isArchived;
             return matchesQuery && typeMatch && statusMatch && showStatus;
         });

@@ -8,6 +8,7 @@ import { ActivityCharts } from './dashboard/ActivityCharts';
 import { setupCopyButton } from '../utils/clipboard';
 import { formatLoggedDuration } from '../utils/time';
 import { Logger } from '../core/logger';
+import { VIEW_NAMES, EVENTS } from '../constants';
 
 interface DashboardState {
     logs: ActivitySummary[];
@@ -167,31 +168,33 @@ export class Dashboard extends Component<DashboardState> {
     }
 
     private updateStats() {
-        if (!this.containers.stats) return;
-        if (!this.statsComponent) {
-            this.statsComponent = new StatsCard(this.containers.stats, { logs: this.state.logs, mediaList: this.state.mediaList });
-        } else {
-            this.statsComponent.setState({ logs: this.state.logs, mediaList: this.state.mediaList });
+        if (this.containers.stats) {
+            if (!this.statsComponent) {
+                this.statsComponent = new StatsCard(this.containers.stats, { logs: this.state.logs, mediaList: this.state.mediaList });
+            } else {
+                this.statsComponent.setState({ logs: this.state.logs, mediaList: this.state.mediaList });
+            }
+            this.statsComponent.render();
         }
-        this.statsComponent.render();
     }
 
     private updateHeatmap() {
-        if (!this.containers.heatmap) return;
-        if (!this.heatmapComponent) {
-            this.heatmapComponent = new HeatmapView(this.containers.heatmap, { 
-                heatmapData: this.state.heatmapData, 
-                year: this.state.currentHeatmapYear 
-            }, (dir) => {
-                this.setState({ currentHeatmapYear: this.state.currentHeatmapYear + dir });
-            });
-        } else {
-            this.heatmapComponent.setState({ 
-                heatmapData: this.state.heatmapData, 
-                year: this.state.currentHeatmapYear 
-            });
+        if (this.containers.heatmap) {
+            if (!this.heatmapComponent) {
+                this.heatmapComponent = new HeatmapView(this.containers.heatmap, { 
+                    heatmapData: this.state.heatmapData, 
+                    year: this.state.currentHeatmapYear 
+                }, (dir) => {
+                    this.setState({ currentHeatmapYear: this.state.currentHeatmapYear + dir });
+                });
+            } else {
+                this.heatmapComponent.setState({ 
+                    heatmapData: this.state.heatmapData, 
+                    year: this.state.currentHeatmapYear 
+                });
+            }
+            this.heatmapComponent.render();
         }
-        this.heatmapComponent.render();
     }
 
     private updateCharts() {
@@ -346,7 +349,7 @@ export class Dashboard extends Component<DashboardState> {
         list.querySelectorAll('.dashboard-media-link').forEach(link => {
             link.addEventListener('click', (e) => {
                 const mediaId = (e.currentTarget as HTMLElement).dataset.mediaId;
-                globalThis.dispatchEvent(new CustomEvent('app-navigate', { detail: { view: 'media', focusMediaId: Number.parseInt(mediaId!, 10) } }));
+                globalThis.dispatchEvent(new CustomEvent(EVENTS.APP_NAVIGATE, { detail: { view: VIEW_NAMES.MEDIA, focusMediaId: Number.parseInt(mediaId!, 10) } }));
             });
         });
     }

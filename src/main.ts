@@ -11,7 +11,7 @@ import {
 } from './modals';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Logger } from './core/logger';
-import { STORAGE_KEYS, SETTING_KEYS } from './constants';
+import { STORAGE_KEYS, SETTING_KEYS, VIEW_NAMES, EVENTS, DEFAULTS } from './constants';
 
 // Support global date mocking for E2E tests
 let mockDateStr: string | null = null;
@@ -47,11 +47,11 @@ if (mockDateStr) {
 
 const appWindow = getCurrentWindow();
 
-type ViewType = 'dashboard' | 'media' | 'profile';
+type ViewType = typeof VIEW_NAMES[keyof typeof VIEW_NAMES];
 
 class App {
-    private currentView: ViewType = 'dashboard';
-    private currentProfile: string = localStorage.getItem(STORAGE_KEYS.CURRENT_PROFILE) || '';
+    private currentView: ViewType = VIEW_NAMES.DASHBOARD;
+    private currentProfile: string = localStorage.getItem(STORAGE_KEYS.CURRENT_PROFILE) || DEFAULTS.PROFILE;
 
     private readonly dashboard: Dashboard;
     private readonly mediaView: MediaView;
@@ -141,7 +141,7 @@ class App {
             localStorage.setItem(STORAGE_KEYS.CURRENT_PROFILE, this.currentProfile);
             await switchProfile(this.currentProfile);
             await this.loadTheme();
-            localStorage.setItem(STORAGE_KEYS.THEME_CACHE, document.body.dataset.theme || 'pastel-pink');
+            localStorage.setItem(STORAGE_KEYS.THEME_CACHE, document.body.dataset.theme || DEFAULTS.THEME);
             this.resetViews();
             this.renderCurrentView();
         });
@@ -169,7 +169,7 @@ class App {
             if (yes) {
                 await deleteProfile(this.currentProfile);
                 const updatedProfiles = await listProfiles();
-                this.currentProfile = updatedProfiles.length > 0 ? updatedProfiles[0] : 'default';
+                this.currentProfile = updatedProfiles.length > 0 ? updatedProfiles[0] : DEFAULTS.PROFILE;
                 localStorage.setItem(STORAGE_KEYS.CURRENT_PROFILE, this.currentProfile);
                 await switchProfile(this.currentProfile);
                 await this.loadTheme();
@@ -184,25 +184,25 @@ class App {
         document.getElementById('btn-add-activity')?.addEventListener('click', async () => {
             const success = await showLogActivityModal();
             if (success) {
-                if (this.currentView === 'dashboard') await this.dashboard.loadData();
-                else if (this.currentView === 'media') await this.mediaView.loadData();
+                if (this.currentView === VIEW_NAMES.DASHBOARD) await this.dashboard.loadData();
+                else if (this.currentView === VIEW_NAMES.MEDIA) await this.mediaView.loadData();
                 this.renderCurrentView();
             }
         });
     }
 
     private setupEventListeners() {
-        globalThis.addEventListener('app-navigate', (e: Event) => {
+        globalThis.addEventListener(EVENTS.APP_NAVIGATE, (e: Event) => {
             const detail = (e as CustomEvent).detail;
             if (detail?.view) {
-                if (detail.view === 'media' && detail.focusMediaId !== undefined) {
-                    this.switchView('media');
+                if (detail.view === VIEW_NAMES.MEDIA && detail.focusMediaId !== undefined) {
+                    this.switchView(VIEW_NAMES.MEDIA);
                     this.mediaView.jumpToMedia(detail.focusMediaId);
                 }
             }
         });
 
-        globalThis.addEventListener('profile-updated', () => {
+        globalThis.addEventListener(EVENTS.PROFILE_UPDATED, () => {
             this.loadTheme();
             this.ensureProfilesList();
         });
@@ -234,7 +234,7 @@ class App {
     }
 
     private async loadTheme() {
-        const theme = await getSetting(SETTING_KEYS.THEME) || 'pastel-pink';
+        const theme = await getSetting(SETTING_KEYS.THEME) || DEFAULTS.THEME;
         document.body.dataset.theme = theme;
         localStorage.setItem(STORAGE_KEYS.THEME_CACHE, theme);
     }
@@ -256,13 +256,13 @@ class App {
     }
 
     private renderCurrentView() {
-        this.dashboardContainer.style.display = this.currentView === 'dashboard' ? 'block' : 'none';
-        this.mediaContainer.style.display = this.currentView === 'media' ? 'block' : 'none';
-        this.profileContainer.style.display = this.currentView === 'profile' ? 'block' : 'none';
+        this.dashboardContainer.style.display = this.currentView === VIEW_NAMES.DASHBOARD ? 'block' : 'none';
+        this.mediaContainer.style.display = this.currentView === VIEW_NAMES.MEDIA ? 'block' : 'none';
+        this.profileContainer.style.display = this.currentView === VIEW_NAMES.PROFILE ? 'block' : 'none';
 
-        if (this.currentView === 'dashboard') this.dashboard.render();
-        else if (this.currentView === 'media') this.mediaView.render();
-        else if (this.currentView === 'profile') this.profileView.render();
+        if (this.currentView === VIEW_NAMES.DASHBOARD) this.dashboard.render();
+        else if (this.currentView === VIEW_NAMES.MEDIA) this.mediaView.render();
+        else if (this.currentView === VIEW_NAMES.PROFILE) this.profileView.render();
     }
 }
 

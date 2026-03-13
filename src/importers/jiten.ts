@@ -17,7 +17,7 @@ export class JitenImporter implements MetadataImporter {
     }
 
     async fetch(url: string): Promise<ScrapedMetadata> {
-        const deckIdMatch = url.match(/\/decks\/(\d+)/);
+        const deckIdMatch = (/\/decks\/(\d+)/).exec(url);
         if (!deckIdMatch) {
             throw new Error("Invalid Jiten.moe URL. Could not find Deck ID.");
         }

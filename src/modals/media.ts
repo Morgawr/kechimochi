@@ -2,6 +2,7 @@ import { MediaConflict, MediaCsvRow, Media } from '../api';
 import { searchJiten, getJitenCoverUrl, getJitenDeckUrl, getJitenDeckChildren, JitenResult, getJitenMediaLabel } from '../jiten_api';
 import { customAlert, createOverlay } from './base';
 import { escapeHTML } from '../core/html';
+import { ACTIVITY_TYPES } from '../constants';
 
 export async function showAddMediaModal(): Promise<{title: string, type: string, contentType: string} | null> {
     return new Promise((resolve) => {
@@ -18,11 +19,7 @@ export async function showAddMediaModal(): Promise<{title: string, type: string,
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">
                         <label style="font-size: 0.85rem; color: var(--text-secondary);">Activity Type</label>
                         <select id="add-media-type" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); outline: none;">
-                            <option value="Reading">Reading</option>
-                            <option value="Watching">Watching</option>
-                            <option value="Playing">Playing</option>
-                            <option value="Listening">Listening</option>
-                            <option value="None">None</option>
+                            ${ACTIVITY_TYPES.map(type => `<option value="${type}">${type}</option>`).join('')}
                         </select>
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">

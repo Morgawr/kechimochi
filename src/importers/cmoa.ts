@@ -100,7 +100,7 @@ export class CmoaImporter implements MetadataImporter {
     private parsePublicationDate(dataEl: Element, extraData: Record<string, string>) {
         const text = dataEl.textContent?.replace('：', '').trim();
         if (text) {
-            const match = text.match(/(\d{4})年(\d{1,2})月/);
+            const match = (/(\d{4})年(\d{1,2})月/).exec(text);
             extraData["Publication Date"] = match ? `${match[1]}年${match[2]}月` : text;
         }
     }

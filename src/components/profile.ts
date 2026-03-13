@@ -13,7 +13,7 @@ import {
 } from '../modals';
 import { open, save } from '../utils/dialogs';
 import { Logger } from '../core/logger';
-import { STORAGE_KEYS, SETTING_KEYS } from '../constants';
+import { STORAGE_KEYS, SETTING_KEYS, DEFAULTS } from '../constants';
 
 interface ProfileState {
     currentProfile: string;
@@ -35,8 +35,8 @@ export class ProfileView extends Component<ProfileState> {
 
     constructor(container: HTMLElement) {
         super(container, {
-            currentProfile: localStorage.getItem(STORAGE_KEYS.CURRENT_PROFILE) || 'default',
-            theme: localStorage.getItem(STORAGE_KEYS.THEME_CACHE) || 'pastel-pink',
+            currentProfile: localStorage.getItem(STORAGE_KEYS.CURRENT_PROFILE) || DEFAULTS.PROFILE,
+            theme: localStorage.getItem(STORAGE_KEYS.THEME_CACHE) || DEFAULTS.THEME,
             report: {
                 novelSpeed: '0',
                 novelCount: '0',
@@ -51,7 +51,7 @@ export class ProfileView extends Component<ProfileState> {
         });
     }
     async loadData() {
-        const theme = await getSetting(SETTING_KEYS.THEME) || 'pastel-pink';
+        const theme = await getSetting(SETTING_KEYS.THEME) || DEFAULTS.THEME;
         const novelSpeed = await getSetting(SETTING_KEYS.STATS_NOVEL_SPEED) || '0';
         const novelCount = await getSetting(SETTING_KEYS.STATS_NOVEL_COUNT) || '0';
         const mangaSpeed = await getSetting(SETTING_KEYS.STATS_MANGA_SPEED) || '0';
@@ -61,7 +61,7 @@ export class ProfileView extends Component<ProfileState> {
         const timestamp = await getSetting(SETTING_KEYS.STATS_REPORT_TIMESTAMP) || '';
         const appVersion = await getAppVersion();
 
-        const currentProfile = localStorage.getItem(STORAGE_KEYS.CURRENT_PROFILE) || 'default';
+        const currentProfile = localStorage.getItem(STORAGE_KEYS.CURRENT_PROFILE) || DEFAULTS.PROFILE;
         localStorage.setItem(STORAGE_KEYS.THEME_CACHE, theme);
         this.setState({
             currentProfile,
@@ -96,7 +96,7 @@ export class ProfileView extends Component<ProfileState> {
             return;
         }
 
-        const localStorageProfile = localStorage.getItem(STORAGE_KEYS.CURRENT_PROFILE) || 'default';
+        const localStorageProfile = localStorage.getItem(STORAGE_KEYS.CURRENT_PROFILE) || DEFAULTS.PROFILE;
         if (this.state.currentProfile !== localStorageProfile) {
             this.loadData().catch(e => Logger.error("Failed to reload profile data", e));
             return;
@@ -385,7 +385,7 @@ export class ProfileView extends Component<ProfileState> {
                 if (name === currentProfile) {
                     await deleteProfile(currentProfile);
                     const updatedProfiles = await listProfiles();
-                    const nextProfile = updatedProfiles.length > 0 ? updatedProfiles[0] : 'default';
+                    const nextProfile = updatedProfiles.length > 0 ? updatedProfiles[0] : DEFAULTS.PROFILE;
                     localStorage.setItem(STORAGE_KEYS.CURRENT_PROFILE, nextProfile);
                     await switchProfile(nextProfile);
                     globalThis.location.reload();

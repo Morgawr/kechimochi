@@ -92,8 +92,9 @@ export class BookwalkerImporter implements MetadataImporter {
         dts.forEach(dt => {
             const header = dt.textContent?.trim();
             const dd = dt.nextElementSibling;
-            if (!header || !dd || dd.tagName.toLowerCase() !== 'dd') return;
-            this.parseDtDd(header, dd, extraData);
+            if (header && dd?.tagName.toLowerCase() === 'dd') {
+                this.parseDtDd(header, dd, extraData);
+            }
         });
     }
 

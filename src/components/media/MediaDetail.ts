@@ -8,6 +8,7 @@ import { MediaLog } from './MediaLog';
 import { setupCopyButton } from '../../utils/clipboard';
 import { formatHhMm } from '../../utils/time';
 import { Logger } from '../../core/logger';
+import { TRACKING_STATUSES, ACTIVITY_TYPES, MEDIA_STATUS, EXTRA_FIELD_LABELS } from '../../constants';
 
 interface MediaDetailState {
     media: Media;
@@ -144,10 +145,10 @@ export class MediaDetail extends Component<MediaDetailState> {
                             </div>
                             <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem; align-items: center; flex-wrap: wrap;">
                                 <select class="badge badge-select ${this.getTrackingStatusClass(media.tracking_status)}" id="media-tracking-status" title="Click to edit tracking status">
-                                    ${["Ongoing", "Complete", "Paused", "Dropped", "Not Started", "Untracked"].map(opt => `<option value="${opt}" ${opt === media.tracking_status ? 'selected' : ''}>${opt}</option>`).join('')}
+                                    ${TRACKING_STATUSES.map(opt => `<option value="${opt}" ${opt === media.tracking_status ? 'selected' : ''}>${opt}</option>`).join('')}
                                 </select>
                                 <select class="badge badge-select" id="media-type" title="Click to edit activity type">
-                                    ${["Reading", "Watching", "Playing", "Listening", "None"].map(opt => `<option value="${opt}" ${opt === media.media_type ? 'selected' : ''}>${opt}</option>`).join('')}
+                                    ${ACTIVITY_TYPES.map(opt => `<option value="${opt}" ${opt === media.media_type ? 'selected' : ''}>${opt}</option>`).join('')}
                                 </select>
                                 <select class="badge badge-select badge-content" id="media-content-type" title="Click to edit content type">
                                     ${this.getContentTypeOptions(media)}
@@ -158,7 +159,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                                         <input type="checkbox" id="status-toggle" ${this.isActive(media.status) ? 'checked' : ''}>
                                         <span class="slider"></span>
                                     </label>
-                                    <span id="status-label" style="font-weight: 600; font-size: 0.75rem; text-transform: uppercase;">${this.isActive(media.status) ? 'Active' : 'Archived'}</span>
+                                    <span id="status-label" style="font-weight: 600; font-size: 0.75rem; text-transform: uppercase;">${this.isActive(media.status) ? MEDIA_STATUS.ACTIVE : MEDIA_STATUS.ARCHIVED}</span>
                                 </span>
                                 <button class="btn btn-ghost" id="btn-search-jiten" style="padding: 0.2rem 0.8rem; font-size: 0.75rem; border-color: var(--accent-purple); color: var(--accent-purple); border-radius: 12px; height: 1.6rem; margin-left: 0.5rem;">Search on Jiten.moe</button>
                                  ${media.tracking_status === 'Complete' ? '' : html`<button class="btn btn-ghost" id="btn-mark-complete" style="padding: 0.2rem 0.8rem; font-size: 0.75rem; border-color: var(--accent-green); color: var(--accent-green); border-radius: 12px; height: 1.6rem; margin-left: 0.5rem;">Mark as complete</button>`}
@@ -225,7 +226,7 @@ export class MediaDetail extends Component<MediaDetailState> {
     }
 
     private isActive(status: string): boolean {
-        return status !== 'Archived';
+        return status !== MEDIA_STATUS.ARCHIVED;
     }
 
     private getContentTypeOptions(media: Media): string {
@@ -333,7 +334,7 @@ export class MediaDetail extends Component<MediaDetailState> {
     private async calculateReadingStats(media: Media, totalMin: number): Promise<string> {
         try {
             const extra = JSON.parse(media.extra_data || "{}");
-            const charRaw = extra["Character count"] || "";
+            const charRaw = extra[EXTRA_FIELD_LABELS.CHARACTER_COUNT] || "";
             const charCount = Number.parseInt(charRaw.replaceAll(',', ''), 10);
             if (Number.isNaN(charCount) || charCount <= 0) return "";
 
@@ -471,7 +472,7 @@ export class MediaDetail extends Component<MediaDetailState> {
 
         root.querySelector('#status-toggle')?.addEventListener('change', async (e) => {
             const active = (e.target as HTMLInputElement).checked;
-            this.state.media.status = active ? 'Active' : 'Archived';
+            this.state.media.status = active ? MEDIA_STATUS.ACTIVE : MEDIA_STATUS.ARCHIVED;
             await updateMedia(this.state.media);
             this.render();
         });
@@ -634,7 +635,7 @@ export class MediaDetail extends Component<MediaDetailState> {
         }
     }
 
-    private async onSave(field: keyof Media | string, value: string, isExtra: boolean = false) {
+    private async onSave(field: keyof Media | (string & {}), value: string, isExtra: boolean = false) {
         if (isExtra) {
             const extraData = JSON.parse(this.state.media.extra_data || "{}");
             extraData[field] = value;

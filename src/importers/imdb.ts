@@ -84,7 +84,7 @@ export class ImdbImporter implements MetadataImporter {
             if (yearMatch) extraData["Release Year"] = yearMatch[0];
         }
         if ((movieData.aggregateRating as Record<string, unknown>)?.ratingValue) {
-            extraData["IMDb Rating"] = (movieData.aggregateRating as Record<string, unknown>).ratingValue!.toString();
+            extraData["IMDb Rating"] = String((movieData.aggregateRating as Record<string, unknown>).ratingValue!);
         }
     }
 
