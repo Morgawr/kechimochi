@@ -8,7 +8,7 @@ export interface ScrapedMetadata {
 export interface MetadataImporter {
     name: string;
     supportedContentTypes: string[];
-    matchUrl(url: string, contentType: string): boolean;
+    matchUrl(url: string, contentType?: string): boolean;
     fetch(url: string, targetVolume?: number): Promise<ScrapedMetadata>;
 }
 
@@ -45,7 +45,7 @@ export async function fetchMetadataForUrl(url: string, contentType: string, targ
     if (mock) return mock;
     const importer = importers.find(i => i.matchUrl(url, contentType));
     if (!importer) {
-        throw new Error("No importer available for this URL and/or Content Type.");
+        throw new Error("Content importer not supported. If you want to request a new metadata import source, please file a request at https://github.com/Morgawr/kechimochi/issues");
     }
     return await importer.fetch(url, targetVolume);
 }
@@ -54,10 +54,10 @@ export function isValidImporterUrl(url: string, contentType: string): boolean {
     return importers.some(i => i.matchUrl(url, contentType));
 }
 
-export function getImportersForContentType(contentType: string): MetadataImporter[] {
+export function getRecommendedImportersForContentType(contentType: string): MetadataImporter[] {
     return importers.filter(i => i.supportedContentTypes.includes(contentType));
 }
 
 export function getAvailableSourcesForContentType(contentType: string): string[] {
-    return getImportersForContentType(contentType).map(i => i.name);
+    return getRecommendedImportersForContentType(contentType).map(i => i.name);
 }

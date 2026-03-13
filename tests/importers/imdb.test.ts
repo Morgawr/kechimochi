@@ -20,8 +20,8 @@ describe('ImdbImporter', () => {
             expect(importer.matchUrl('https://imdb.com/title/tt12345/', 'Anime')).toBe(true);
         });
 
-        it('should NOT match invalid URLs or types', () => {
-            expect(importer.matchUrl('https://www.imdb.com/title/tt12345/', 'Manga')).toBe(false);
+        it('should match IMDb URLs regardless of content type', () => {
+            expect(importer.matchUrl('https://www.imdb.com/title/tt12345/', 'Manga')).toBe(true);
             expect(importer.matchUrl('https://google.com', 'Movie')).toBe(false);
         });
     });
@@ -54,6 +54,7 @@ describe('ImdbImporter', () => {
 
             expect(result.description).toBe('JSON-LD Desc');
             expect(result.coverImageUrl).toBe('https://img.imdb.com/123.jpg');
+            expect(result.extraData['Source (IMDB)']).toBe('https://imdb.com/title/tt123/');
             expect(result.extraData['Director']).toBe('Nolan');
             expect(result.extraData['Genres']).toBe('Action, Sci-Fi');
             expect(result.extraData['Total Runtime']).toBe('2h 28m');

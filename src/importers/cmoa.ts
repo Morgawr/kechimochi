@@ -4,9 +4,8 @@ import { fetchExternalJson } from '../platform';
 export class CmoaImporter implements MetadataImporter {
     name = "Cmoa";
     supportedContentTypes = ["Reading", "Manga"];
-    matchUrl(url: string, contentType: string): boolean {
-        // We only allow Cmoa urls. They can be for Reading/Manga
-        return this.supportedContentTypes.includes(contentType) && url.includes("cmoa.jp/");
+    matchUrl(url: string, _contentType?: string): boolean {
+        return url.includes("cmoa.jp/");
     }
 
     async fetch(url: string): Promise<ScrapedMetadata> {
@@ -14,7 +13,7 @@ export class CmoaImporter implements MetadataImporter {
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
 
-        const extraData: Record<string, string> = { "Cmoa Source": url };
+        const extraData: Record<string, string> = { [`Source (${this.name})`]: url };
         const description = this.extractDescription(doc);
         const coverImageUrl = this.extractCoverImage(doc);
         

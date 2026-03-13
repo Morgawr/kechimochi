@@ -20,8 +20,8 @@ describe('VndbImporter', () => {
             expect(importer.matchUrl('https://vndb.org/v1', 'Visual Novel')).toBe(true);
         });
 
-        it('should NOT match invalid URLs or types', () => {
-            expect(importer.matchUrl('https://vndb.org/v5850', 'Manga')).toBe(false);
+        it('should match VNDB URLs regardless of content type', () => {
+            expect(importer.matchUrl('https://vndb.org/v5850', 'Manga')).toBe(true);
             expect(importer.matchUrl('https://google.com', 'Visual Novel')).toBe(false);
             expect(importer.matchUrl('https://vndb.org/u123', 'Visual Novel')).toBe(false);
             expect(importer.matchUrl('not a url', 'Visual Novel')).toBe(false);
@@ -70,6 +70,7 @@ describe('VndbImporter', () => {
 
             expect(result.description).toBe('A great VN.');
             expect(result.coverImageUrl).toBe('https://img.vndb.org/cv/123.jpg');
+            expect(result.extraData['Source (VNDB)']).toBe('https://vndb.org/v5850');
             expect(result.extraData['Developer']).toBe('Dev Team');
             expect(result.extraData['Publisher']).toBe('Pub Co');
             expect(result.extraData['Release Date']).toBe('2010-01-01');

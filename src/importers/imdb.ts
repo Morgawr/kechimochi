@@ -4,9 +4,7 @@ import { fetchExternalJson } from '../platform';
 export class ImdbImporter implements MetadataImporter {
     name = "IMDB";
     supportedContentTypes = ["Anime", "Movie", "Live Action", "Drama"];
-    matchUrl(url: string, contentType: string): boolean {
-        if (!this.supportedContentTypes.includes(contentType)) return false;
-
+    matchUrl(url: string, _contentType?: string): boolean {
         try {
             const u = new URL(url);
             return (u.hostname === "www.imdb.com" || u.hostname === "imdb.com") && u.pathname.startsWith("/title/");
@@ -25,7 +23,7 @@ export class ImdbImporter implements MetadataImporter {
         const doc = parser.parseFromString(html, 'text/html');
 
         const metadata: Partial<ScrapedMetadata> = {};
-        const extraData: Record<string, string> = { "Source URL": url };
+        const extraData: Record<string, string> = { [`Source (${this.name})`]: url };
 
         this.extractFromJsonLd(doc, metadata, extraData);
         this.extractFromDom(doc, metadata, extraData);

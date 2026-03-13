@@ -4,9 +4,8 @@ import { fetchExternalJson } from '../platform';
 export class BookmeterImporter implements MetadataImporter {
     name = "Bookmeter";
     supportedContentTypes = ["Novel"];
-    matchUrl(url: string, contentType: string): boolean {
-        // We only allow Bookmeter urls for Novel
-        return this.supportedContentTypes.includes(contentType) && url.includes("bookmeter.com/books/");
+    matchUrl(url: string, _contentType?: string): boolean {
+        return url.includes("bookmeter.com/books/");
     }
 
     async fetch(url: string): Promise<ScrapedMetadata> {
@@ -14,7 +13,7 @@ export class BookmeterImporter implements MetadataImporter {
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
 
-        const extraData: Record<string, string> = { "Bookmeter Source": url };
+        const extraData: Record<string, string> = { [`Source (${this.name})`]: url };
         const description = this.extractDescription(doc);
         const coverImageUrl = doc.querySelector<HTMLMetaElement>('meta[property="og:image"]')?.content || "";
         

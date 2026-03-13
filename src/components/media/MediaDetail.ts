@@ -3,7 +3,7 @@ import { Component } from '../../core/component';
 import { html, escapeHTML } from '../../core/html';
 import { Media, ActivitySummary, Milestone, updateMedia, deleteMedia, getSetting, getMilestones, addMilestone, deleteMilestone, clearMilestones, getLogsForMedia, readFileBytes, downloadAndSaveImage } from '../../api';
 import { customAlert, customConfirm, customPrompt, showJitenSearchModal, showImportMergeModal, showAddMilestoneModal, showLogActivityModal } from '../../modals';
-import { isValidImporterUrl, getAvailableSourcesForContentType, fetchMetadataForUrl } from '../../importers';
+import { isValidImporterUrl, fetchMetadataForUrl } from '../../importers';
 import { getServices } from '../../services';
 import { MediaLog } from './MediaLog';
 import { setupCopyButton } from '../../utils/clipboard';
@@ -180,7 +180,7 @@ export class MediaDetail extends Component<MediaDetailState> {
 
                         <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
                             <button class="btn btn-ghost" id="btn-add-extra" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">+ Add Extra Field</button>
-                            ${getAvailableSourcesForContentType(media.content_type || "Unknown").length > 0 ? html`<button class="btn btn-ghost btn-meta-fetch" id="btn-import-meta" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">Fetch Metadata from URL</button>` : ''}
+                            <button class="btn btn-ghost btn-meta-fetch" id="btn-import-meta" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">Fetch Metadata from URL</button>
                             <button class="btn btn-ghost btn-meta-clear" id="btn-clear-meta" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">Clear Metadata</button>
                         </div>
 
@@ -426,7 +426,7 @@ export class MediaDetail extends Component<MediaDetailState> {
 
         root.querySelector('#btn-search-jiten')?.addEventListener('click', async () => {
             const jitenUrl = await showJitenSearchModal(this.state.media);
-            if (jitenUrl) await this.performMetadataImport(jitenUrl, "Jiten Source");
+            if (jitenUrl) await this.performMetadataImport(jitenUrl);
         });
 
         const onSave = async (field: string, value: string, isExtra: boolean = false) => {
@@ -564,7 +564,7 @@ export class MediaDetail extends Component<MediaDetailState> {
         });
 
         root.querySelector('#btn-add-extra')?.addEventListener('click', async () => {
-            const key = await customPrompt("Enter field name (e.g. 'Author', 'Source URL'):");
+            const key = await customPrompt("Enter field name (e.g. 'Author', 'Artist'):");
             if (!key) return;
             const val = await customPrompt(`Enter value for "${key}":`);
             const extraData = JSON.parse(this.state.media.extra_data || "{}");
@@ -603,8 +603,7 @@ export class MediaDetail extends Component<MediaDetailState> {
             btn.addEventListener('click', async (e) => {
                 const target = e.currentTarget as HTMLElement;
                 const url = target.dataset.url;
-                const key = target.dataset.key;
-                if (url) await this.performMetadataImport(url, key || undefined);
+                if (url) await this.performMetadataImport(url);
             });
         });
 
@@ -659,14 +658,13 @@ export class MediaDetail extends Component<MediaDetailState> {
         });
     }
 
-    private async performMetadataImport(url: string, key: string = "Source URL") {
+    private async performMetadataImport(url: string) {
         try {
             const meta = await fetchMetadataForUrl(url, this.state.media.content_type || "Unknown");
             if (!meta) return;
 
-            // Prepare scraped data to include the source URL as a field
+            // Prepare scraped data
             const scrapedMeta = { ...meta };
-            scrapedMeta.extraData = { ...meta.extraData, [key]: url };
 
             const currentExtraData = JSON.parse(this.state.media.extra_data || "{}");
             const merged = await showImportMergeModal(scrapedMeta, {

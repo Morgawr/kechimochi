@@ -8,8 +8,8 @@ describe('importers/index.ts', () => {
         expect(importersIndex.isValidImporterUrl('https://google.com', 'Visual Novel')).toBe(false);
     });
 
-    it('getImportersForContentType should return relevant importers', () => {
-        const novelImporters = importersIndex.getImportersForContentType('Visual Novel');
+    it('getRecommendedImportersForContentType should return relevant importers', () => {
+        const novelImporters = importersIndex.getRecommendedImportersForContentType('Visual Novel');
         expect(novelImporters.some(i => i.name === 'VNDB')).toBe(true);
     });
 
@@ -29,6 +29,6 @@ describe('importers/index.ts', () => {
 
     it('fetchMetadataForUrl should throw error if no importer found', async () => {
         await expect(importersIndex.fetchMetadataForUrl('https://invalid.com', 'None'))
-            .rejects.toThrow("No importer available for this URL and/or Content Type.");
+            .rejects.toThrow("Content importer not supported. If you want to request a new metadata import source, please file a request at https://github.com/Morgawr/kechimochi/issues");
     });
 });

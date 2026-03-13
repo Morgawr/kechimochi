@@ -6,8 +6,8 @@ export class ShonenjumpplusImporter implements MetadataImporter {
     name = "Shonen Jump Plus";
     supportedContentTypes = ["Reading", "Manga"];
 
-    matchUrl(url: string, contentType: string): boolean {
-        return this.supportedContentTypes.includes(contentType) && url.includes("shonenjumpplus.com/episode/");
+    matchUrl(url: string, _contentType?: string): boolean {
+        return url.includes("shonenjumpplus.com/episode/");
     }
 
     async fetch(url: string, _targetVolume?: number): Promise<ScrapedMetadata> {
@@ -18,7 +18,7 @@ export class ShonenjumpplusImporter implements MetadataImporter {
         const coverImageUrl = this.extractCoverImage(doc);
         const rssUrl = doc.querySelector<HTMLLinkElement>('link[rel="alternate"][type="application/rss+xml"]')?.href;
 
-        const extraData: Record<string, string> = { "Source": url };
+        const extraData: Record<string, string> = { [`Source (${this.name})`]: url };
         let description = "";
 
         if (rssUrl) {

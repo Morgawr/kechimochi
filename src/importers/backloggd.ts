@@ -4,8 +4,7 @@ import { fetchExternalJson } from '../platform';
 export class BackloggdImporter implements MetadataImporter {
     name = "Backloggd";
     supportedContentTypes = ["Videogame"];
-    matchUrl(url: string, contentType: string): boolean {
-        if (!this.supportedContentTypes.includes(contentType)) return false;
+    matchUrl(url: string, _contentType?: string): boolean {
         try {
             const u = new URL(url);
             return u.hostname === "backloggd.com" && u.pathname.startsWith("/games/");
@@ -51,7 +50,7 @@ export class BackloggdImporter implements MetadataImporter {
         }
 
         const extraData: Record<string, string> = {
-            "Source URL": url
+            [`Source (${this.name})`]: url
         };
 
         // 3. Game Details (Released, Genres, Platforms)

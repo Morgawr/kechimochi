@@ -18,8 +18,7 @@ interface AnilistMedia {
 export class AnilistImporter implements MetadataImporter {
     name = "Anilist";
     supportedContentTypes = ["Anime"];
-    matchUrl(url: string, contentType: string): boolean {
-        if (!this.supportedContentTypes.includes(contentType)) return false;
+    matchUrl(url: string, _contentType?: string): boolean {
         return url.includes("anilist.co/anime/");
     }
 
@@ -70,7 +69,7 @@ export class AnilistImporter implements MetadataImporter {
     }
 
     private mapExtraData(m: AnilistMedia, url: string): Record<string, string> {
-        const extras: Record<string, string> = { "Anilist Source": url };
+        const extras: Record<string, string> = { [`Source (${this.name})`]: url };
         
         if (m.episodes) extras["Episodes"] = m.episodes.toString();
         

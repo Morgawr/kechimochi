@@ -19,8 +19,7 @@ export class VndbImporter implements MetadataImporter {
     name = "VNDB";
     supportedContentTypes = ["Visual Novel"];
     
-    matchUrl(url: string, contentType: string): boolean {
-        if (!this.supportedContentTypes.includes(contentType)) return false;
+    matchUrl(url: string, _contentType?: string): boolean {
         try {
             const u = new URL(url);
             return u.hostname === "vndb.org" && u.pathname.startsWith("/v") && !Number.isNaN(Number.parseInt(u.pathname.substring(2), 10));
@@ -42,7 +41,7 @@ export class VndbImporter implements MetadataImporter {
         const release = await this.fetchEarliestRelease(vnId);
 
         const extraData: Record<string, string> = {
-            "Source URL": url,
+            [`Source (${this.name})`]: url,
             "Release Date": release.releaseDate,
             "Developer": release.developer,
             "Publisher": release.publisher

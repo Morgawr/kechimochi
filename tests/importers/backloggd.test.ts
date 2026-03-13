@@ -20,8 +20,8 @@ describe('BackloggdImporter', () => {
             expect(importer.matchUrl('https://backloggd.com/games/persona-5/', 'Videogame')).toBe(true);
         });
 
-        it('should NOT match invalid URLs or types', () => {
-            expect(importer.matchUrl('https://backloggd.com/games/persona-5/', 'Anime')).toBe(false);
+        it('should match Backloggd URLs regardless of content type', () => {
+            expect(importer.matchUrl('https://backloggd.com/games/persona-5/', 'Anime')).toBe(true);
             expect(importer.matchUrl('https://google.com', 'Videogame')).toBe(false);
         });
     });
@@ -61,6 +61,7 @@ describe('BackloggdImporter', () => {
 
             expect(result.description).toBe('A JRPG masterpiece.');
             expect(result.coverImageUrl).toBe('https://img.backloggd.com/t_cover_big_2x/123.jpg'); // protocol-relative + high-res fix
+            expect(result.extraData['Source (Backloggd)']).toBe('https://backloggd.com/games/p5/');
             expect(result.extraData['Release Date']).toBe('Sep 15, 2016');
             expect(result.extraData['Genres']).toBe('RPGs');
             expect(result.extraData['Platforms']).toBe('PlayStation 4');

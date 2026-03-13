@@ -6,8 +6,7 @@ export class JitenImporter implements MetadataImporter {
     name = "Jiten.moe";
     supportedContentTypes = ["Anime", "Manga", "Novel", "WebNovel", "NonFiction", "Drama", "Videogame", "Visual Novel", "Movie", "Audio"];
 
-    matchUrl(url: string, contentType: string): boolean {
-        if (!this.supportedContentTypes.includes(contentType)) return false;
+    matchUrl(url: string, _contentType?: string): boolean {
         try {
             const u = new URL(url);
             return (u.hostname === "jiten.moe" || u.hostname === "www.jiten.moe") && u.pathname.startsWith("/decks/");
@@ -33,7 +32,7 @@ export class JitenImporter implements MetadataImporter {
             throw new Error("Could not find media data in Jiten.moe response.");
         }
 
-        const extraData: Record<string, string> = { "Jiten source": url };
+        const extraData: Record<string, string> = { [`Source (${this.name})`]: url };
 
         if (data.characterCount) extraData["Character count"] = data.characterCount.toLocaleString();
         if (data.wordCount) extraData["Word count"] = data.wordCount.toLocaleString();

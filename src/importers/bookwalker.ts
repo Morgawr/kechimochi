@@ -5,8 +5,8 @@ import { Logger } from '../core/logger';
 export class BookwalkerImporter implements MetadataImporter {
     name = "Bookwalker";
     supportedContentTypes = ["Reading", "Manga"];
-    matchUrl(url: string, contentType: string): boolean {
-        return this.supportedContentTypes.includes(contentType) && url.includes("bookwalker.jp/");
+    matchUrl(url: string, _contentType?: string): boolean {
+        return url.includes("bookwalker.jp/");
     }
 
     async fetch(url: string, targetVolume?: number): Promise<ScrapedMetadata> {
@@ -23,7 +23,7 @@ export class BookwalkerImporter implements MetadataImporter {
             }
         }
 
-        const extraData: Record<string, string> = { "Bookwalker Source": currentUrl };
+        const extraData: Record<string, string> = { [`Source (${this.name})`]: currentUrl };
         const description = this.extractDescription(doc);
         const coverImageUrl = this.extractCoverImage(doc);
         this.extractProperties(doc, extraData);

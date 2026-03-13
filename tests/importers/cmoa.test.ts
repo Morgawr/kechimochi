@@ -20,8 +20,8 @@ describe('CmoaImporter', () => {
             expect(importer.matchUrl('https://www.cmoa.jp/title/123/', 'Reading')).toBe(true);
         });
 
-        it('should NOT match invalid URLs or types', () => {
-            expect(importer.matchUrl('https://www.cmoa.jp/title/123/', 'Anime')).toBe(false);
+        it('should match Cmoa URLs regardless of content type', () => {
+            expect(importer.matchUrl('https://www.cmoa.jp/title/123/', 'Anime')).toBe(true);
             expect(importer.matchUrl('https://google.com', 'Manga')).toBe(false);
         });
     });

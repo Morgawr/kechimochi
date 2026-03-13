@@ -19,8 +19,8 @@ describe('AnilistImporter', () => {
             expect(importer.matchUrl('https://anilist.co/anime/123/Some-Title/', 'Anime')).toBe(true);
         });
 
-        it('should NOT match invalid URLs or types', () => {
-            expect(importer.matchUrl('https://anilist.co/anime/123', 'Manga')).toBe(false);
+        it('should match Anilist URLs regardless of content type', () => {
+            expect(importer.matchUrl('https://anilist.co/anime/123', 'Manga')).toBe(true);
             expect(importer.matchUrl('https://google.com', 'Anime')).toBe(false);
         });
     });
@@ -54,6 +54,7 @@ describe('AnilistImporter', () => {
             expect(result.extraData['Episodes']).toBe('12');
             expect(result.extraData['Airing Season']).toBe('Summer 2024');
             expect(result.extraData['Anilist Score']).toBe('85%');
+            expect(result.extraData['Source (Anilist)']).toBe('https://anilist.co/anime/123/');
             expect(result.extraData['Original Source']).toBe('Light Novel');
         });
 
