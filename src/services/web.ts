@@ -38,8 +38,8 @@ async function get<T>(path: string): Promise<T> {
 async function post<T>(path: string, body?: unknown): Promise<T> {
     const res = await fetch(apiUrl(path), {
         method: 'POST',
-        headers: body !== undefined ? { 'Content-Type': 'application/json' } : {},
-        body: body !== undefined ? JSON.stringify(body) : undefined,
+        headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
     });
     return parseJsonResponse<T>(res);
 }

@@ -21,7 +21,7 @@ export class DesktopServices implements AppServices {
     }
 
     private getMockValue(key: 'mockOpenPath' | 'mockSavePath'): string | null {
-        const globalCandidate = (window as unknown as Record<string, unknown>)[key];
+        const globalCandidate = (globalThis as unknown as Record<string, unknown>)[key];
         if (typeof globalCandidate === 'string' && globalCandidate.length > 0) return globalCandidate;
         return null;
     }
@@ -59,9 +59,9 @@ export class DesktopServices implements AppServices {
 
     async getAppVersion(): Promise<string> {
         const base = await getVersion();
-        const hash = typeof __APP_GIT_HASH__ !== 'undefined'
-            ? __APP_GIT_HASH__
-            : ((globalThis as Record<string, unknown>).__APP_GIT_HASH__ as string) || 'dev';
+        const hash = __APP_GIT_HASH__ === undefined
+            ? ((globalThis as Record<string, unknown>).__APP_GIT_HASH__ as string) || 'dev'
+            : __APP_GIT_HASH__;
         return base.startsWith('0.') ? `0.0.0-dev.${hash}` : base;
     }
 

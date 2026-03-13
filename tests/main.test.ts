@@ -138,7 +138,7 @@ describe('main.ts initialization', () => {
     it('should handle app-navigate event', async () => {
         await bootApp();
 
-        window.dispatchEvent(new CustomEvent('app-navigate', { 
+        globalThis.dispatchEvent(new CustomEvent('app-navigate', { 
             detail: { view: 'media', focusMediaId: 123 } 
         }));
         
@@ -171,7 +171,7 @@ describe('main.ts initialization', () => {
         await bootApp();
 
         vi.mocked(api.listProfiles).mockResolvedValue(['test-user']);
-        window.dispatchEvent(new Event('profile-updated'));
+        globalThis.dispatchEvent(new Event('profile-updated'));
 
         await vi.waitFor(() => expect(api.listProfiles).toHaveBeenCalled());
     });

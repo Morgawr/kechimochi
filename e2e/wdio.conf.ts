@@ -3,10 +3,10 @@
  * WebdriverIO configuration for kechimochi e2e tests.
  */
 
-import os from 'os';
-import path from 'path';
+import os from 'node:os';
+import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { spawn, type ChildProcess } from 'child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
 import { prepareTestDir, cleanupTestDir } from './helpers/setup.js';
@@ -22,7 +22,7 @@ interface TauriSessionCaps {
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
-const STABLE_RUN_ID = process.env.TEST_RUN_ID || new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+const STABLE_RUN_ID = process.env.TEST_RUN_ID || new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-').slice(0, 19);
 const LOGS_DIR = path.join(__dirname, 'logs', `test_run_${STABLE_RUN_ID}`);
 
 if (process.env.TEST_RUN_ID) {
@@ -146,7 +146,7 @@ export const config: WebdriverIO.Config = {
       blockOutStatusBar: true,
       blockOutToolBar: true,
       clearRuntimeFolder: false, // Set to false to prevent it from clearing our custom dirs
-      misMatchTolerance: 10.0,
+      misMatchTolerance: 10,
       compareOptions: {
         threshold: 0.5,
         includeAA: true,
@@ -330,7 +330,7 @@ export const config: WebdriverIO.Config = {
     if (!passed) {
       const stageDir = process.env.SPEC_STAGE_DIR;
       if (stageDir) {
-        const sanitizedTitle = (test.title || 'unknown').replace(/[^a-zA-Z0-9]/g, '_');
+        const sanitizedTitle = (test.title || 'unknown').replaceAll(/[^a-zA-Z0-9]/g, '_');
         const failDir = path.join(stageDir, 'failures');
         const { mkdirSync } = await import('node:fs');
         mkdirSync(failDir, { recursive: true });

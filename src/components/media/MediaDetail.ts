@@ -22,8 +22,8 @@ export class MediaDetail extends Component<MediaDetailState> {
     private readonly onPrev: () => void;
     private readonly onNavigate: (index: number) => void;
     private readonly onDelete: () => void;
-    private mediaList: Media[];
-    private currentIndex: number;
+    private readonly mediaList: Media[];
+    private readonly currentIndex: number;
     private readonly onViewportResize: () => void;
 
     constructor(container: HTMLElement, media: Media, logs: ActivitySummary[], mediaList: Media[], currentIndex: number, callbacks: { onBack: () => void, onNext: () => void, onPrev: () => void, onNavigate: (index: number) => void, onDelete: () => void }) {
@@ -37,6 +37,9 @@ export class MediaDetail extends Component<MediaDetailState> {
         this.onDelete = callbacks.onDelete;
         this.onViewportResize = () => this.syncViewportLayout();
         globalThis.addEventListener('resize', this.onViewportResize);
+    }
+
+    protected override onMount() {
         this.loadImage();
         this.loadMilestones();
     }
@@ -159,7 +162,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                                     <span id="status-label" style="font-weight: 600; font-size: 0.75rem; text-transform: uppercase;">${this.isActive(media.status) ? 'Active' : 'Archived'}</span>
                                 </span>
                                 <button class="btn btn-ghost" id="btn-search-jiten" style="padding: 0.2rem 0.8rem; font-size: 0.75rem; border-color: var(--accent-purple); color: var(--accent-purple); border-radius: 12px; height: 1.6rem; margin-left: 0.5rem;">Search on Jiten.moe</button>
-                                ${media.tracking_status !== 'Complete' ? html`<button class="btn btn-ghost" id="btn-mark-complete" style="padding: 0.2rem 0.8rem; font-size: 0.75rem; border-color: var(--accent-green); color: var(--accent-green); border-radius: 12px; height: 1.6rem; margin-left: 0.5rem;">Mark as complete</button>` : ''}
+                                ${media.tracking_status === 'Complete' ? '' : html`<button class="btn btn-ghost" id="btn-mark-complete" style="padding: 0.2rem 0.8rem; font-size: 0.75rem; border-color: var(--accent-green); color: var(--accent-green); border-radius: 12px; height: 1.6rem; margin-left: 0.5rem;">Mark as complete</button>`}
                             </div>
                         </div>
 
@@ -205,9 +208,9 @@ export class MediaDetail extends Component<MediaDetailState> {
     }
 
     private placeMilestonesCard() {
-        const card = this.container.querySelector('#media-milestones-card') as HTMLElement | null;
-        const leftSlot = this.container.querySelector('#media-milestones-slot-left') as HTMLElement | null;
-        const mainSlot = this.container.querySelector('#media-milestones-slot-main') as HTMLElement | null;
+        const card = this.container.querySelector<HTMLElement>('#media-milestones-card');
+        const leftSlot = this.container.querySelector<HTMLElement>('#media-milestones-slot-left');
+        const mainSlot = this.container.querySelector<HTMLElement>('#media-milestones-slot-main');
         if (!card || !leftSlot || !mainSlot) return;
 
         const useMainColumn = globalThis.matchMedia('(max-width: 1024px)').matches;
@@ -220,10 +223,10 @@ export class MediaDetail extends Component<MediaDetailState> {
     }
 
     private adjustDesktopCoverSize() {
-        const coverEl = this.container.querySelector('#media-cover-img') as HTMLElement | null;
-        const coverColumn = this.container.querySelector('#media-cover-column') as HTMLElement | null;
-        const deleteBlock = this.container.querySelector('#media-delete-block') as HTMLElement | null;
-        const milestonesCard = this.container.querySelector('#media-milestones-card') as HTMLElement | null;
+        const coverEl = this.container.querySelector<HTMLElement>('#media-cover-img');
+        const coverColumn = this.container.querySelector<HTMLElement>('#media-cover-column');
+        const deleteBlock = this.container.querySelector<HTMLElement>('#media-delete-block');
+        const milestonesCard = this.container.querySelector<HTMLElement>('#media-milestones-card');
         if (!coverEl || !coverColumn || !deleteBlock || !milestonesCard) return;
 
         const isDesktop = globalThis.matchMedia('(min-width: 1025px)').matches;
@@ -335,7 +338,7 @@ export class MediaDetail extends Component<MediaDetailState> {
             const extra = JSON.parse(media.extra_data || "{}");
             const charRaw = extra["Character count"] || "";
             const charCount = Number.parseInt(charRaw.replaceAll(',', ''), 10);
-            if (isNaN(charCount) || charCount <= 0) return "";
+            if (Number.isNaN(charCount) || charCount <= 0) return "";
 
             if (media.tracking_status === 'Complete') {
                 const speed = Math.round(charCount / (totalMin / 60));
@@ -426,13 +429,13 @@ export class MediaDetail extends Component<MediaDetailState> {
             if (jitenUrl) await this.performMetadataImport(jitenUrl, "Jiten Source");
         });
 
-        const onSave = async (field: keyof Media | string, value: string, isExtra: boolean = false) => {
+        const onSave = async (field: string, value: string, isExtra: boolean = false) => {
             if (isExtra) {
                 const extraData = JSON.parse(this.state.media.extra_data || "{}");
-                extraData[field as string] = value;
+                extraData[field] = value;
                 this.state.media.extra_data = JSON.stringify(extraData);
             } else {
-                (this.state.media as unknown as Record<string, unknown>)[field as string] = value;
+                (this.state.media as unknown as Record<string, unknown>)[field] = value;
             }
             await updateMedia(this.state.media);
             this.render();
@@ -573,7 +576,7 @@ export class MediaDetail extends Component<MediaDetailState> {
 
         root.querySelectorAll('.delete-extra-btn').forEach(btn => {
             btn.addEventListener('click', async (e) => {
-                const key = (e.currentTarget as HTMLElement).getAttribute('data-key');
+                const key = (e.currentTarget as HTMLElement).dataset.key;
                 if (!key) return;
                 const extraData = JSON.parse(this.state.media.extra_data || "{}");
                 delete extraData[key];
@@ -685,7 +688,7 @@ export class MediaDetail extends Component<MediaDetailState> {
             // Handle cover image merge
             if (merged.coverImageUrl && this.state.media.id) {
                 try {
-                    const newPath = await downloadAndSaveImage(this.state.media.id!, merged.coverImageUrl);
+                    const newPath = await downloadAndSaveImage(this.state.media.id, merged.coverImageUrl);
                     this.state.media.cover_image = newPath;
                     await this.loadImage(); // Reload blob URL for the new image
                 } catch (err) {

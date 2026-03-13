@@ -15,10 +15,10 @@ describe('Responsive Styling CUJ', () => {
     await browser.pause(300);
 
     const responsive = await browser.execute(() => {
-      const text = document.querySelector('.activity-btn-text') as HTMLElement | null;
-      const icon = document.querySelector('.activity-btn-icon') as HTMLElement | null;
-      const spacer = document.getElementById('nav-spacer') as HTMLElement | null;
-      const controls = document.getElementById('nav-controls-row') as HTMLElement | null;
+      const text = document.querySelector<HTMLElement>('.activity-btn-text');
+      const icon = document.querySelector<HTMLElement>('.activity-btn-icon');
+      const spacer = document.getElementById('nav-spacer');
+      const controls = document.getElementById('nav-controls-row');
 
       return {
         textDisplay: text ? getComputedStyle(text).display : null,

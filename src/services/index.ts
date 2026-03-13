@@ -8,12 +8,12 @@
  * the Tauri webview and use the desktop adapter; otherwise we use the web
  * (HTTP) adapter.
  */
-import type { AppServices } from './types';
 /* eslint-disable no-console */
+import type { AppServices } from './types';
 import { DesktopServices } from './desktop';
 import { WebServices } from './web';
 
-export type { AppServices };
+export type { AppServices } from './types';
 
 let _services: AppServices | null = null;
 
@@ -22,7 +22,7 @@ function isVitestRuntime(): boolean {
 }
 
 function hasTauriRuntimeGlobals(): boolean {
-    const w = window as unknown as Record<string, unknown>;
+    const w = globalThis as unknown as Record<string, unknown>;
     return Boolean(
         w.__TAURI_INTERNALS__ ||
         w.__TAURI__ ||
@@ -43,9 +43,9 @@ function isDesktopRuntime(): boolean {
     }
 
     // Some runtimes expose a custom protocol/origin.
-    const protocol = window.location?.protocol || '';
+    const protocol = globalThis.location?.protocol || '';
     if (protocol === 'tauri:') return true;
-    const origin = window.location?.origin || '';
+    const origin = globalThis.location?.origin || '';
     if (origin.startsWith('tauri://')) return true;
 
     // Fallback for contexts where globals are not yet injected at detection time.
@@ -59,7 +59,7 @@ function isClearlyWebRuntime(): boolean {
 
     if (hasDesktopRuntimeUserAgent()) return false;
 
-    const protocol = window.location?.protocol || '';
+    const protocol = globalThis.location?.protocol || '';
     // In normal browser web mode this is http(s).
     return protocol === 'http:' || protocol === 'https:';
 }

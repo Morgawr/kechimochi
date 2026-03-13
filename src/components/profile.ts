@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 import { Component } from '../core/component';
 import { html } from '../core/html';
 import {
@@ -78,16 +79,14 @@ export class ProfileView extends Component<ProfileState> {
         });
     }
 
-    async render() {
+    render() {
         const localStorageProfile = localStorage.getItem('kechimochi_profile') || 'default';
         const needsLoad = !this.state.isInitialized || this.state.currentProfile !== localStorageProfile;
         if (!this.isRefreshing && needsLoad) {
             this.isRefreshing = true;
-            try {
-                await this.loadData();
-            } finally {
-                this.isRefreshing = false;
-            }
+            this.loadData()
+                .catch(e => console.error('Failed to load profile data', e))
+                .finally(() => { this.isRefreshing = false; });
             return;
         }
 
@@ -347,7 +346,7 @@ export class ProfileView extends Component<ProfileState> {
                 const nextProfile = updatedProfiles.length > 0 ? updatedProfiles[0] : 'default';
                 localStorage.setItem('kechimochi_profile', nextProfile);
                 await switchProfile(nextProfile);
-                window.location.reload();
+                globalThis.location.reload();
             }
         });
 
@@ -358,7 +357,7 @@ export class ProfileView extends Component<ProfileState> {
                 const initialName = await initialProfilePrompt("User");
                 localStorage.setItem('kechimochi_profile', initialName);
                 await switchProfile(initialName);
-                window.location.reload();
+                globalThis.location.reload();
             }
         });
 
@@ -401,15 +400,15 @@ export class ProfileView extends Component<ProfileState> {
             try { extraData = JSON.parse(media.extra_data || "{}"); } catch { continue; }
 
             const charCount = Number.parseInt((extraData["Character count"] || "").replaceAll(',', ''), 10);
-            if (isNaN(charCount)) continue;
+            if (Number.isNaN(charCount)) continue;
 
             const logs = await getLogsForMedia(media.id!);
             if (logs.length === 0 || logs[0].date < cutoffStr) continue;
 
             const totalMinutes = logs.reduce((acc, log) => acc + log.duration_minutes, 0);
             if (totalMinutes > 0) {
-                stats[media.content_type!].totalSpeed += charCount / (totalMinutes / 60);
-                stats[media.content_type!].count += 1;
+                stats[media.content_type ?? ""].totalSpeed += charCount / (totalMinutes / 60);
+                stats[media.content_type ?? ""].count += 1;
             }
         }
 

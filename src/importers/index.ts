@@ -35,7 +35,7 @@ export const importers: MetadataImporter[] = [
 ];
 
 function getMockMetadata(): ScrapedMetadata | null {
-    const direct = (window as unknown as Record<string, unknown>).mockMetadata;
+    const direct = (globalThis as unknown as Record<string, unknown>).mockMetadata;
     if (direct) return direct as ScrapedMetadata;
     return null;
 }

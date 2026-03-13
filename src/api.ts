@@ -74,7 +74,7 @@ export function exportMilestonesCsv(filePath: string): Promise<number> { return 
 export function importMilestonesCsv(filePath: string): Promise<number> { return getServices().importMilestonesCsv(filePath); }
 
 export async function downloadAndSaveImage(mediaId: number, url: string): Promise<string> {
-  const direct = window.mockDownloadedImagePath;
+  const direct = (globalThis as unknown as Record<string, unknown>).mockDownloadedImagePath;
   if (typeof direct === 'string' && direct.length > 0) {
     return direct;
   }

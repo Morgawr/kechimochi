@@ -1,8 +1,7 @@
 /* eslint-disable no-console */
 import { Component } from '../../core/component';
 import { html } from '../../core/html';
-import { Media } from '../../api';
-import { readFileBytes } from '../../api';
+import { Media, readFileBytes } from '../../api';
 import { getServices } from '../../services';
 
 interface MediaItemState {
@@ -71,9 +70,9 @@ export class MediaItem extends Component<MediaItemState> {
         const badgeHtml = (contentType !== 'Unknown' && contentType.trim() !== '')
             ? `<div class="grid-item-type-badge">${contentType}</div>`
             : '';
-        const ledHtml = media.tracking_status !== 'Untracked' 
-            ? `<div class="status-led ${this.getTrackingStatusClass(media.tracking_status)}" title="Status: ${media.tracking_status}"></div>` 
-            : '';
+        const ledHtml = media.tracking_status === 'Untracked'
+            ? ''
+            : `<div class="status-led ${this.getTrackingStatusClass(media.tracking_status)}" title="Status: ${media.tracking_status}"></div>`;
 
         this.clear();
 

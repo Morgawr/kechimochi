@@ -3,10 +3,10 @@
  * Test environment setup/teardown helpers.
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
-import { fileURLToPath } from 'url';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = path.resolve(__dirname, '..', 'fixtures');
@@ -56,7 +56,7 @@ async function normalizeWindowSize(): Promise<void> {
     await browser.setWindowSize(1280, 1200);
     await browser.execute(() => {
       document.documentElement.style.zoom = '1';
-      (document.body as HTMLElement).style.zoom = '1';
+      document.body.style.zoom = '1';
     });
   } catch { /* environment may not support setWindowSize, continue */ }
 }
