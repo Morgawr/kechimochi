@@ -188,7 +188,7 @@ describe('MediaDetail', () => {
         vi.mocked(importers.fetchMetadataForUrl).mockResolvedValue(mockScraped as unknown as ScrapedMetadata);
         vi.mocked(modals.showImportMergeModal).mockResolvedValue({
             extraData: {}
-        } as any);
+        } as unknown as { extraData: Record<string, string> });
 
         const component = new MediaDetail(container, unknownMedia as unknown as Media, [], [unknownMedia as unknown as Media], 0, mockCallbacks);
         component.render();
