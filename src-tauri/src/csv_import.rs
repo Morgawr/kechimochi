@@ -19,6 +19,8 @@ struct CsvRow {
     duration: i64,
     #[serde(rename = "Language")]
     language: String,
+    #[serde(rename = "Characters")]
+    characters: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -29,6 +31,8 @@ pub struct MilestoneCsvRow {
     pub name: String,
     #[serde(rename = "Duration")]
     pub duration: i64,
+    #[serde(rename = "Characters")]
+    pub characters: i64,
     #[serde(rename = "Date")]
     pub date: Option<String>,
 }
@@ -123,6 +127,7 @@ pub fn import_csv(conn: &mut Connection, file_path: &str) -> Result<usize, Strin
             id: None,
             media_id,
             duration_minutes: record.duration,
+            characters: record.characters.unwrap_or(0),
             date: formatted_date,
         };
 
@@ -177,7 +182,7 @@ pub fn export_logs_csv(conn: &Connection, file_path: &str, start_date: Option<St
     let mut count = 0;
     let mut wtr = csv::Writer::from_path(file_path).map_err(|e| e.to_string())?;
     
-    wtr.write_record(["Date", "Log Name", "Media Type", "Duration", "Language"]).map_err(|e| e.to_string())?;
+    wtr.write_record(["Date", "Log Name", "Media Type", "Duration", "Language", "Characters"]).map_err(|e| e.to_string())?;
     
     for log in logs {
         if let Some(start) = &start_date {
@@ -192,7 +197,8 @@ pub fn export_logs_csv(conn: &Connection, file_path: &str, start_date: Option<St
             &log.title,
             &log.media_type,
             &log.duration_minutes.to_string(),
-            &log.language
+            &log.language,
+            &log.characters.to_string()
         ]).map_err(|e| e.to_string())?;
         
         count += 1;
@@ -203,7 +209,7 @@ pub fn export_logs_csv(conn: &Connection, file_path: &str, start_date: Option<St
 }
 
 pub fn export_milestones_csv(conn: &Connection, file_path: &str) -> Result<usize, String> {
-    let mut stmt = conn.prepare("SELECT id, media_title, name, duration, date FROM main.milestones ORDER BY id ASC")
+    let mut stmt = conn.prepare("SELECT id, media_title, name, duration, characters, date FROM main.milestones ORDER BY id ASC")
         .map_err(|e| e.to_string())?;
     
     let milestone_iter = stmt.query_map([], |row| {
@@ -211,7 +217,8 @@ pub fn export_milestones_csv(conn: &Connection, file_path: &str) -> Result<usize
             media_title: row.get(1)?,
             name: row.get(2)?,
             duration: row.get(3)?,
-            date: row.get(4)?,
+            characters: row.get(4)?,
+            date: row.get(5)?,
         })
     }).map_err(|e| e.to_string())?;
 
@@ -254,6 +261,7 @@ pub fn import_milestones_csv(conn: &mut Connection, file_path: &str) -> Result<u
             media_title: record.media_title,
             name: record.name,
             duration: record.duration,
+            characters: record.characters,
             date: record.date,
         };
 
@@ -435,9 +443,9 @@ mod tests {
     fn test_import_csv_basic() {
         let mut conn = setup_test_db();
         let csv_path = write_csv(
-            "Date,Log Name,Media Type,Duration,Language\n\
-             2024-01-15,ある魔女が死ぬまで,Reading,45,Japanese\n\
-             2024-01-16,呪術廻戦,Watching,25,Japanese\n"
+            "Date,Log Name,Media Type,Duration,Language,Characters\n\
+             2024-01-15,ある魔女が死ぬまで,Reading,45,Japanese,1000\n\
+             2024-01-16,呪術廻戦,Watching,25,Japanese,0\n"
         );
 
         let count = import_csv(&mut conn, &csv_path).unwrap();
@@ -569,9 +577,9 @@ mod tests {
         let conn = setup_test_db();
         let m_id = db::add_media_with_id(&conn, &sample_media("Log Test")).unwrap();
         
-        db::add_log(&conn, &ActivityLog { id: None, media_id: m_id, duration_minutes: 30, date: "2024-01-01".to_string() }).unwrap();
-        db::add_log(&conn, &ActivityLog { id: None, media_id: m_id, duration_minutes: 45, date: "2024-02-01".to_string() }).unwrap();
-        db::add_log(&conn, &ActivityLog { id: None, media_id: m_id, duration_minutes: 60, date: "2024-03-01".to_string() }).unwrap();
+        db::add_log(&conn, &ActivityLog { id: None, media_id: m_id, duration_minutes: 30, characters: 100, date: "2024-01-01".to_string() }).unwrap();
+        db::add_log(&conn, &ActivityLog { id: None, media_id: m_id, duration_minutes: 45, characters: 200, date: "2024-02-01".to_string() }).unwrap();
+        db::add_log(&conn, &ActivityLog { id: None, media_id: m_id, duration_minutes: 60, characters: 300, date: "2024-03-01".to_string() }).unwrap();
 
         let dir = std::env::temp_dir();
         let path = dir.join("export_logs_test.csv");
@@ -584,6 +592,7 @@ mod tests {
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("2024-02-01"));
         assert!(content.contains("45"));
+        assert!(content.contains("200")); // Characters
         assert!(!content.contains("2024-01-01"));
         assert!(!content.contains("2024-03-01"));
 
@@ -671,6 +680,7 @@ mod tests {
             media_title: "Export M".into(), 
             name: "M1".into(), 
             duration: 120, 
+            characters: 500,
             date: Some("2024-03-12".into()) 
         }).unwrap();
 
@@ -685,6 +695,7 @@ mod tests {
         assert!(content.contains("Export M"));
         assert!(content.contains("M1"));
         assert!(content.contains("120"));
+        assert!(content.contains("500"));
         assert!(content.contains("2024-03-12"));
 
         std::fs::remove_file(path).ok();
@@ -694,9 +705,9 @@ mod tests {
     fn test_import_milestones_csv() {
         let mut conn = setup_test_db();
         let csv_path = write_csv(
-            "Media Title,Name,Duration,Date\n\
-             Imported Media,First Quest,60,2024-01-01\n\
-             Imported Media,Second Quest,120,\n"
+            "Media Title,Name,Duration,Characters,Date\n\
+             Imported Media,First Quest,60,100,2024-01-01\n\
+             Imported Media,Second Quest,120,200,\n"
         );
 
         let count = import_milestones_csv(&mut conn, &csv_path).unwrap();
@@ -705,8 +716,30 @@ mod tests {
         let milestones = db::get_milestones_for_media(&conn, "Imported Media").unwrap();
         assert_eq!(milestones.len(), 2);
         assert_eq!(milestones[0].name, "First Quest");
+        assert_eq!(milestones[0].characters, 100);
         assert_eq!(milestones[1].name, "Second Quest");
+        assert_eq!(milestones[1].characters, 200);
         assert_eq!(milestones[1].date, None);
+
+        std::fs::remove_file(csv_path).ok();
+    }
+
+    #[test]
+    fn test_import_activity_backwards_compatibility() {
+        let mut conn = setup_test_db();
+        // Missing "Characters" column
+        let csv_path = write_csv(
+            "Date,Log Name,Media Type,Duration,Language\n\
+             2024-01-15,Old Format,Reading,45,Japanese\n"
+        );
+
+        let count = import_csv(&mut conn, &csv_path).unwrap();
+        assert_eq!(count, 1);
+
+        let logs = db::get_logs(&conn).unwrap();
+        assert_eq!(logs[0].title, "Old Format");
+        assert_eq!(logs[0].duration_minutes, 45);
+        assert_eq!(logs[0].characters, 0); // Default value
 
         std::fs::remove_file(csv_path).ok();
     }

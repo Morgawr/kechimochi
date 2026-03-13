@@ -117,6 +117,7 @@ fn create_activity_logs_table(conn: &Connection) -> Result<()> {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             media_id INTEGER NOT NULL,
             duration_minutes INTEGER NOT NULL,
+            characters INTEGER NOT NULL DEFAULT 0,
             date TEXT NOT NULL
         )",
         [],
@@ -131,6 +132,7 @@ fn create_milestones_table(conn: &Connection) -> Result<()> {
             media_title TEXT NOT NULL,
             name TEXT NOT NULL,
             duration INTEGER NOT NULL,
+            characters INTEGER NOT NULL DEFAULT 0,
             date TEXT
         )",
         [],
@@ -143,7 +145,13 @@ fn migrate_milestones(conn: &Connection) -> Result<()> {
     let _ = conn.execute("ALTER TABLE main.milestones ADD COLUMN media_title TEXT NOT NULL DEFAULT ''", []);
     let _ = conn.execute("ALTER TABLE main.milestones ADD COLUMN name TEXT NOT NULL DEFAULT ''", []);
     let _ = conn.execute("ALTER TABLE main.milestones ADD COLUMN duration INTEGER NOT NULL DEFAULT 0", []);
+    let _ = conn.execute("ALTER TABLE main.milestones ADD COLUMN characters INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE main.milestones ADD COLUMN date TEXT", []);
+    Ok(())
+}
+
+fn migrate_to_character_tracking(conn: &Connection) -> Result<()> {
+    let _ = conn.execute("ALTER TABLE main.activity_logs ADD COLUMN characters INTEGER NOT NULL DEFAULT 0", []);
     Ok(())
 }
 
@@ -187,6 +195,7 @@ pub fn init_db(app_dir: std::path::PathBuf, profile_name: &str) -> Result<Connec
     // Ensure tables exist
     create_tables(&conn)?;
     migrate_milestones(&conn)?;
+    migrate_to_character_tracking(&conn)?;
 
     Ok(conn)
 }
@@ -326,9 +335,12 @@ pub fn delete_media(conn: &Connection, id: i64) -> Result<()> {
 
 // Activity Log Operations
 pub fn add_log(conn: &Connection, log: &ActivityLog) -> Result<i64> {
+    if log.duration_minutes == 0 && log.characters == 0 {
+        return Err(rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Activity must have either duration or characters"))));
+    }
     conn.execute(
-        "INSERT INTO main.activity_logs (media_id, duration_minutes, date) VALUES (?1, ?2, ?3)",
-        params![log.media_id, log.duration_minutes, log.date],
+        "INSERT INTO main.activity_logs (media_id, duration_minutes, characters, date) VALUES (?1, ?2, ?3, ?4)",
+        params![log.media_id, log.duration_minutes, log.characters, log.date],
     )?;
     Ok(conn.last_insert_rowid())
 }
@@ -345,7 +357,7 @@ pub fn clear_activities(conn: &Connection) -> Result<()> {
 
 pub fn get_logs(conn: &Connection) -> Result<Vec<ActivitySummary>> {
     let mut stmt = conn.prepare(
-        "SELECT a.id, a.media_id, m.title, m.media_type, a.duration_minutes, a.date, m.language 
+        "SELECT a.id, a.media_id, m.title, m.media_type, a.duration_minutes, a.characters, a.date, m.language 
          FROM main.activity_logs a 
          JOIN shared.media m ON a.media_id = m.id
          ORDER BY a.date DESC",
@@ -357,8 +369,9 @@ pub fn get_logs(conn: &Connection) -> Result<Vec<ActivitySummary>> {
             title: row.get(2)?,
             media_type: row.get(3)?,
             duration_minutes: row.get(4)?,
-            date: row.get(5)?,
-            language: row.get(6)?,
+            characters: row.get(5)?,
+            date: row.get(6)?,
+            language: row.get(7)?,
         })
     })?;
 
@@ -371,7 +384,7 @@ pub fn get_logs(conn: &Connection) -> Result<Vec<ActivitySummary>> {
 
 pub fn get_logs_for_media(conn: &Connection, media_id: i64) -> Result<Vec<ActivitySummary>> {
     let mut stmt = conn.prepare(
-        "SELECT a.id, a.media_id, m.title, m.media_type, a.duration_minutes, a.date, m.language 
+        "SELECT a.id, a.media_id, m.title, m.media_type, a.duration_minutes, a.characters, a.date, m.language 
          FROM main.activity_logs a 
          JOIN shared.media m ON a.media_id = m.id
          WHERE a.media_id = ?1
@@ -384,8 +397,9 @@ pub fn get_logs_for_media(conn: &Connection, media_id: i64) -> Result<Vec<Activi
             title: row.get(2)?,
             media_type: row.get(3)?,
             duration_minutes: row.get(4)?,
-            date: row.get(5)?,
-            language: row.get(6)?,
+            characters: row.get(5)?,
+            date: row.get(6)?,
+            language: row.get(7)?,
         })
     })?;
 
@@ -398,7 +412,7 @@ pub fn get_logs_for_media(conn: &Connection, media_id: i64) -> Result<Vec<Activi
 
 pub fn get_heatmap(conn: &Connection) -> Result<Vec<DailyHeatmap>> {
     let mut stmt = conn.prepare(
-        "SELECT date, SUM(duration_minutes) as total_minutes 
+        "SELECT date, SUM(duration_minutes) as total_minutes, SUM(characters) as total_characters
          FROM main.activity_logs 
          GROUP BY date 
          ORDER BY date ASC",
@@ -407,6 +421,7 @@ pub fn get_heatmap(conn: &Connection) -> Result<Vec<DailyHeatmap>> {
         Ok(DailyHeatmap {
             date: row.get(0)?,
             total_minutes: row.get(1)?,
+            total_characters: row.get(2)?,
         })
     })?;
 
@@ -439,7 +454,7 @@ pub fn get_setting(conn: &Connection, key: &str) -> Result<Option<String>> {
 // Milestone Operations
 pub fn get_milestones_for_media(conn: &Connection, media_title: &str) -> Result<Vec<Milestone>> {
     let mut stmt = conn.prepare(
-        "SELECT id, media_title, name, duration, date FROM main.milestones WHERE media_title = ?1 ORDER BY id ASC",
+        "SELECT id, media_title, name, duration, characters, date FROM main.milestones WHERE media_title = ?1 ORDER BY id ASC",
     )?;
     let milestone_iter = stmt.query_map(params![media_title], |row| {
         Ok(Milestone {
@@ -447,7 +462,8 @@ pub fn get_milestones_for_media(conn: &Connection, media_title: &str) -> Result<
             media_title: row.get(1)?,
             name: row.get(2)?,
             duration: row.get(3)?,
-            date: row.get(4)?,
+            characters: row.get(4)?,
+            date: row.get(5)?,
         })
     })?;
 
@@ -459,9 +475,12 @@ pub fn get_milestones_for_media(conn: &Connection, media_title: &str) -> Result<
 }
 
 pub fn add_milestone(conn: &Connection, milestone: &Milestone) -> Result<i64> {
+    if milestone.duration == 0 && milestone.characters == 0 {
+        return Err(rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Milestone must have either duration or characters"))));
+    }
     conn.execute(
-        "INSERT INTO main.milestones (media_title, name, duration, date) VALUES (?1, ?2, ?3, ?4)",
-        params![milestone.media_title, milestone.name, milestone.duration, milestone.date],
+        "INSERT INTO main.milestones (media_title, name, duration, characters, date) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![milestone.media_title, milestone.name, milestone.duration, milestone.characters, milestone.date],
     )?;
     Ok(conn.last_insert_rowid())
 }
@@ -478,11 +497,12 @@ pub fn delete_milestones_for_media(conn: &Connection, media_title: &str) -> Resu
 
 pub fn update_milestone(conn: &Connection, milestone: &Milestone) -> Result<()> {
     conn.execute(
-        "UPDATE main.milestones SET media_title = ?1, name = ?2, duration = ?3, date = ?4 WHERE id = ?5",
+        "UPDATE main.milestones SET media_title = ?1, name = ?2, duration = ?3, characters = ?4, date = ?5 WHERE id = ?6",
         params![
             milestone.media_title,
             milestone.name,
             milestone.duration,
+            milestone.characters,
             milestone.date,
             milestone.id.unwrap()
         ],
@@ -731,6 +751,7 @@ mod tests {
             id: None,
             media_id,
             duration_minutes: 60,
+            characters: 0,
             date: "2024-01-15".to_string(),
         };
         add_log(&conn, &log).unwrap();
@@ -754,7 +775,7 @@ mod tests {
     fn test_delete_log() {
         let conn = setup_test_db();
         let media_id = add_media_with_id(&conn, &sample_media("Log")).unwrap();
-        let log_id = add_log(&conn, &ActivityLog { id: None, media_id, duration_minutes: 30, date: "2024-01-01".to_string() }).unwrap();
+        let log_id = add_log(&conn, &ActivityLog { id: None, media_id, duration_minutes: 30, characters: 0, date: "2024-01-01".to_string() }).unwrap();
         
         assert_eq!(get_logs(&conn).unwrap().len(), 1);
         delete_log(&conn, log_id).unwrap();
@@ -771,6 +792,7 @@ mod tests {
             id: None,
             media_id,
             duration_minutes: 45,
+            characters: 100,
             date: "2024-03-01".to_string(),
         };
         let log_id = add_log(&conn, &log).unwrap();
@@ -784,6 +806,23 @@ mod tests {
     }
 
     #[test]
+    fn test_add_log_validation() {
+        let conn = setup_test_db();
+        let media_id = add_media_with_id(&conn, &sample_media("Validation")).unwrap();
+
+        let log = ActivityLog {
+            id: None,
+            media_id,
+            duration_minutes: 0,
+            characters: 0,
+            date: "2024-03-01".to_string(),
+        };
+        let result = add_log(&conn, &log);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Activity must have either duration or characters"));
+    }
+
+    #[test]
     fn test_get_heatmap_aggregation() {
         let conn = setup_test_db();
         let media = sample_media("ハイキュー");
@@ -794,12 +833,14 @@ mod tests {
             id: None,
             media_id,
             duration_minutes: 30,
+            characters: 100,
             date: "2024-06-01".to_string(),
         }).unwrap();
         add_log(&conn, &ActivityLog {
             id: None,
             media_id,
             duration_minutes: 45,
+            characters: 200,
             date: "2024-06-01".to_string(),
         }).unwrap();
 
@@ -808,6 +849,7 @@ mod tests {
             id: None,
             media_id,
             duration_minutes: 20,
+            characters: 50,
             date: "2024-06-02".to_string(),
         }).unwrap();
 
@@ -815,8 +857,10 @@ mod tests {
         assert_eq!(heatmap.len(), 2);
         assert_eq!(heatmap[0].date, "2024-06-01");
         assert_eq!(heatmap[0].total_minutes, 75); // 30 + 45
+        assert_eq!(heatmap[0].total_characters, 300); // 100 + 200
         assert_eq!(heatmap[1].date, "2024-06-02");
         assert_eq!(heatmap[1].total_minutes, 20);
+        assert_eq!(heatmap[1].total_characters, 50);
     }
 
     #[test]
@@ -825,8 +869,8 @@ mod tests {
         let m1_id = add_media_with_id(&conn, &sample_media("Media 1")).unwrap();
         let m2_id = add_media_with_id(&conn, &sample_media("Media 2")).unwrap();
 
-        add_log(&conn, &ActivityLog { id: None, media_id: m1_id, duration_minutes: 30, date: "2024-01-01".to_string() }).unwrap();
-        add_log(&conn, &ActivityLog { id: None, media_id: m2_id, duration_minutes: 60, date: "2024-01-01".to_string() }).unwrap();
+        add_log(&conn, &ActivityLog { id: None, media_id: m1_id, duration_minutes: 10, characters: 0, date: "2024-03-01".to_string() }).unwrap();
+        add_log(&conn, &ActivityLog { id: None, media_id: m2_id, duration_minutes: 10, characters: 0, date: "2024-03-02".to_string() }).unwrap();
 
         let m1_logs = get_logs_for_media(&conn, m1_id).unwrap();
         assert_eq!(m1_logs.len(), 1);
@@ -857,7 +901,7 @@ mod tests {
     fn test_clear_activities() {
         let conn = setup_test_db();
         let media_id = add_media_with_id(&conn, &sample_media("Test")).unwrap();
-        add_log(&conn, &ActivityLog { id: None, media_id, duration_minutes: 30, date: "2024-01-01".to_string() }).unwrap();
+        add_log(&conn, &ActivityLog { id: None, media_id, duration_minutes: 30, characters: 0, date: "2024-01-01".to_string() }).unwrap();
         
         assert_eq!(get_logs(&conn).unwrap().len(), 1);
         
@@ -877,7 +921,7 @@ mod tests {
             status: "Archived".to_string(),
             ..sample_media("Archived Recent")
         }).unwrap();
-        add_log(&conn, &ActivityLog { id: None, media_id: m1_id, duration_minutes: 10, date: "2024-03-01".to_string() }).unwrap();
+        add_log(&conn, &ActivityLog { id: None, media_id: m1_id, duration_minutes: 10, characters: 0, date: "2024-03-01".to_string() }).unwrap();
 
         // 2. Active entry but NOT ongoing (should be middle: Tier 1)
         let m2_id = add_media_with_id(&conn, &Media {
@@ -885,7 +929,7 @@ mod tests {
             tracking_status: "Complete".to_string(),
             ..sample_media("Active Complete")
         }).unwrap();
-        add_log(&conn, &ActivityLog { id: None, media_id: m2_id, duration_minutes: 10, date: "2024-03-02".to_string() }).unwrap();
+        add_log(&conn, &ActivityLog { id: None, media_id: m2_id, duration_minutes: 10, characters: 0, date: "2024-03-02".to_string() }).unwrap();
 
         // 3. Ongoing media with older activity (should be first: Tier 0)
         let m3_id = add_media_with_id(&conn, &Media {
@@ -893,7 +937,7 @@ mod tests {
             tracking_status: "Ongoing".to_string(),
             ..sample_media("Ongoing Old")
         }).unwrap();
-        add_log(&conn, &ActivityLog { id: None, media_id: m3_id, duration_minutes: 10, date: "2024-01-01".to_string() }).unwrap();
+        add_log(&conn, &ActivityLog { id: None, media_id: m3_id, duration_minutes: 10, characters: 0, date: "2024-01-01".to_string() }).unwrap();
 
         // 4. Ongoing media with NO activity (should be after Tier 0 with activity)
         let _m4_id = add_media_with_id(&conn, &Media {
@@ -1098,6 +1142,7 @@ mod tests {
             media_title: media_title.to_string(),
             name: "First Quarter".to_string(),
             duration: 120,
+            characters: 0,
             date: Some("2024-03-12".to_string()),
         };
 
@@ -1128,13 +1173,29 @@ mod tests {
     }
 
     #[test]
+    fn test_add_milestone_validation() {
+        let conn = setup_test_db();
+        let milestone = Milestone {
+            id: None,
+            media_title: "Validation".to_string(),
+            name: "Zero".to_string(),
+            duration: 0,
+            characters: 0,
+            date: None,
+        };
+        let result = add_milestone(&conn, &milestone);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Milestone must have either duration or characters"));
+    }
+
+    #[test]
     fn test_delete_milestones_for_media() {
         let conn = setup_test_db();
         let title1 = "Media 1";
         let title2 = "Media 2";
 
-        add_milestone(&conn, &Milestone { id: None, media_title: title1.to_string(), name: "M1".to_string(), duration: 10, date: None }).unwrap();
-        add_milestone(&conn, &Milestone { id: None, media_title: title2.to_string(), name: "M2".to_string(), duration: 20, date: None }).unwrap();
+        add_milestone(&conn, &Milestone { id: None, media_title: title1.to_string(), name: "M1".to_string(), duration: 10, characters: 0, date: None }).unwrap();
+        add_milestone(&conn, &Milestone { id: None, media_title: title2.to_string(), name: "M2".to_string(), duration: 20, characters: 0, date: None }).unwrap();
 
         assert_eq!(get_milestones_for_media(&conn, title1).unwrap().len(), 1);
         assert_eq!(get_milestones_for_media(&conn, title2).unwrap().len(), 1);
@@ -1159,6 +1220,7 @@ mod tests {
             media_title: "Migrated".to_string(),
             name: "Test".to_string(),
             duration: 50,
+            characters: 0,
             date: None,
         };
         add_milestone(&conn, &milestone).unwrap();

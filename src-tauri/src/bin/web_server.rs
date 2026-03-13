@@ -604,6 +604,7 @@ mod tests {
             media_title: media_title.to_string(),
             name: name.to_string(),
             duration,
+            characters: 0,
             date: Some("2024-03-01".to_string()),
         }
     }
@@ -677,12 +678,14 @@ mod tests {
                 id: None,
                 media_id: media_a,
                 duration_minutes: 30,
+                characters: 0,
                 date: "2024-01-01".to_string(),
             }).unwrap();
             db::add_log(&conn, &models::ActivityLog {
                 id: None,
                 media_id: media_b,
                 duration_minutes: 45,
+                characters: 0,
                 date: "2024-01-02".to_string(),
             }).unwrap();
         }
@@ -779,6 +782,7 @@ mod tests {
                 id: None,
                 media_id,
                 duration_minutes: 20,
+                characters: 0,
                 date: "2024-03-01".to_string(),
             }).unwrap();
         }

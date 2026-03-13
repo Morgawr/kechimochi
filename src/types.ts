@@ -36,6 +36,7 @@ export interface ActivityLog {
     id?: number;
     media_id: number;
     duration_minutes: number;
+    characters: number;
     date: string;
 }
 
@@ -45,6 +46,7 @@ export interface ActivitySummary {
     title: string;
     media_type: string;
     duration_minutes: number;
+    characters: number;
     date: string;
     language: string;
 }
@@ -52,6 +54,7 @@ export interface ActivitySummary {
 export interface DailyHeatmap {
     date: string;
     total_minutes: number;
+    total_characters: number;
 }
 
 export interface Milestone {
@@ -59,5 +62,6 @@ export interface Milestone {
     media_title: string;
     name: string;
     duration: number;
+    characters: number;
     date?: string;
 }

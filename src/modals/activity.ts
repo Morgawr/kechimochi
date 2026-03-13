@@ -132,7 +132,7 @@ export async function showLogActivityModal(prefillMediaTitle?: string): Promise<
                 mediaId = await addMedia({ title: mediaTitle, media_type: typeResp, status: "Active", language: "Japanese", description: "", cover_image: "", extra_data: "{}", content_type: "Unknown", tracking_status: "Untracked" });
             }
 
-            await addLog({ media_id: mediaId, duration_minutes: duration, date: selectedDate });
+            await addLog({ media_id: mediaId, duration_minutes: duration, characters: 0, date: selectedDate });
             newCleanup();
             resolve(true);
         });

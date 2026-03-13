@@ -19,6 +19,7 @@ pub struct ActivityLog {
     pub id: Option<i64>,
     pub media_id: i64,
     pub duration_minutes: i64,
+    pub characters: i64,
     pub date: String, // YYYY-MM-DD
 }
 
@@ -29,6 +30,7 @@ pub struct ActivitySummary {
     pub title: String,
     pub media_type: String,
     pub duration_minutes: i64,
+    pub characters: i64,
     pub date: String,
     pub language: String,
 }
@@ -37,6 +39,7 @@ pub struct ActivitySummary {
 pub struct DailyHeatmap {
     pub date: String,
     pub total_minutes: i64,
+    pub total_characters: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -45,5 +48,6 @@ pub struct Milestone {
     pub media_title: String,
     pub name: String,
     pub duration: i64,
+    pub characters: i64,
     pub date: Option<String>,
 }

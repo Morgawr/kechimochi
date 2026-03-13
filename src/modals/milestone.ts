@@ -95,6 +95,7 @@ export async function showAddMilestoneModal(mediaTitle: string): Promise<Milesto
                 media_title: mediaTitle,
                 name: name,
                 duration: totalDuration,
+                characters: 0,
                 date: selectedDate
             });
         };
