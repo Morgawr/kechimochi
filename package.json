@@ -11,6 +11,7 @@
     "web:dev": "vite --host 0.0.0.0 --port 1420",
     "web:start": "concurrently -k -n vite,api -c cyan,green \"npm run web:dev\" \"npm run web:server\"",
     "web:build": "tsc && vite build",
+    "web:release": "npm run web:build && cargo build --manifest-path src-tauri/Cargo.toml --bin web_server --release",
     "web:server": "cross-env PORT=3000 cargo run --manifest-path src-tauri/Cargo.toml --bin web_server",
     "tauri": "tauri",
     "e2e:build": "tauri build --debug --no-bundle",

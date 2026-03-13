@@ -62,7 +62,7 @@ Your logs are stored in local SQLite databases, giving you full control over you
 
 ## Getting Started
 
-Kechimochi is a desktop application built with Tauri. It supports a standalone app interface, as well as a local web page (this requires developer tools to build).
+Kechimochi is a desktop application built with Tauri. It supports a standalone app interface, as well as a self hosted web application.
 
 For details on how to run the software on developer builds (and contribute!) see the [Development.md](Development.md) document.
 

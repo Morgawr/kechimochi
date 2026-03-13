@@ -33,5 +33,5 @@ base64 = { version = "0.22.1", features = ["alloc"] }
 # Web server (used only by the web-server binary)
 axum = { version = "0.7", features = ["multipart"] }
 tokio = { version = "1", features = ["full"] }
-tower-http = { version = "0.5", features = ["cors"] }
+tower-http = { version = "0.5", features = ["cors", "fs"] }
 tempfile = "3"

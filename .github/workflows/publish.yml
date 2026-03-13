@@ -7,6 +7,107 @@ on:
       - completed
 
 jobs:
+  publish-web-linux:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: install node dependencies
+        run: npm install
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: cache rust dependencies
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: set artifact version
+        id: web_versioning
+        run: |
+          SHA_SHORT=$(git rev-parse --short HEAD)
+          VERSION="0.0.0-dev.${SHA_SHORT}"
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: build web release artifacts
+        run: npm run web:release
+
+      - name: package web artifact payload
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release-web/linux | Out-Null
+          Copy-Item -Recurse dist release-web/linux/dist
+          Copy-Item src-tauri/target/release/web_server release-web/linux/web_server
+          Copy-Item README.md release-web/linux/README.md
+          Compress-Archive -Path release-web/linux/* -DestinationPath release-web/kechimochi-web-linux-${{ steps.web_versioning.outputs.VERSION }}.zip -Force
+
+      - name: upload web artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kechimochi-web-linux-${{ steps.web_versioning.outputs.VERSION }}
+          path: release-web/kechimochi-web-linux-${{ steps.web_versioning.outputs.VERSION }}.zip
+
+  publish-web-windows:
+    runs-on: windows-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: install node dependencies
+        run: npm install
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: cache rust dependencies
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: set artifact version
+        id: web_versioning
+        shell: bash
+        run: |
+          SHA_SHORT=$(git rev-parse --short HEAD)
+          VERSION="0.0.0-dev.${SHA_SHORT}"
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: build web release artifacts
+        run: npm run web:release
+
+      - name: package web artifact payload
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release-web/windows | Out-Null
+          Copy-Item -Recurse dist release-web/windows/dist
+          Copy-Item src-tauri/target/release/web_server.exe release-web/windows/web_server.exe
+          Copy-Item README.md release-web/windows/README.md
+          Compress-Archive -Path release-web/windows/* -DestinationPath release-web/kechimochi-web-windows-${{ steps.web_versioning.outputs.VERSION }}.zip -Force
+
+      - name: upload web artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kechimochi-web-windows-${{ steps.web_versioning.outputs.VERSION }}
+          path: release-web/kechimochi-web-windows-${{ steps.web_versioning.outputs.VERSION }}.zip
+
   publish-linux:
     runs-on: ubuntu-latest
     if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository }}

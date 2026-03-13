@@ -138,6 +138,38 @@ npx tauri build
 
 The compiled packages (AppImage, deb, etc.) will be located in `src-tauri/target/release/bundle/`.
 
+### Web Release (Self Hosted)
+
+To build the web release artifacts (frontend + standalone Rust web server):
+
+```bash
+npm run web:release
+```
+
+This produces:
+
+*   Frontend build output in `dist/`
+*   Backend binary in `src-tauri/target/release/` (`web_server` on Linux/macOS, `web_server.exe` on Windows)
+
+Run the server from the project root:
+
+```bash
+# Linux/macOS
+./src-tauri/target/release/web_server
+
+# Windows (PowerShell)
+.\src-tauri\target\release\web_server.exe
+```
+
+By default, the server expects `dist/` to be available and serves both the SPA and `/api/*` endpoints from a single process.
+
+Optional environment variables:
+
+*   `PORT`: listen port (default `3000`)
+*   `HOST`: bind host (default `0.0.0.0`)
+*   `KECHIMOCHI_DATA_DIR`: override application data directory
+*   `KECHIMOCHI_WEB_DIST_DIR`: override frontend build directory (defaults to `dist`)
+
 ## Contributing
 
 We welcome contributions to Kechimochi! To ensure the project maintains its standard of quality, please follow these guidelines when submitting a Pull Request (PR) on GitHub.
