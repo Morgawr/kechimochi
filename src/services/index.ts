@@ -8,7 +8,7 @@
  * the Tauri webview and use the desktop adapter; otherwise we use the web
  * (HTTP) adapter.
  */
-/* eslint-disable no-console */
+import { Logger } from '../core/logger';
 import type { AppServices } from './types';
 import { DesktopServices } from './desktop';
 import { WebServices } from './web';
@@ -88,7 +88,7 @@ export function getServices(): AppServices {
         if (isVitestRuntime() || isDesktopRuntime()) {
             _services = new DesktopServices();
         } else if (isClearlyWebRuntime()) {
-            console.warn('[kechimochi] Services were accessed before init; using web adapter lazily');
+            Logger.warn('[kechimochi] Services were accessed before init; using web adapter lazily');
             _services = new WebServices();
         } else {
             throw new Error(
@@ -105,7 +105,7 @@ export async function initServices(): Promise<AppServices> {
     if (isDesktop) {
         _services = new DesktopServices();
     } else {
-        console.warn('[kechimochi] Desktop runtime not detected, using web services adapter');
+        Logger.warn('[kechimochi] Desktop runtime not detected, using web services adapter');
         _services = new WebServices();
     }
     return _services;

@@ -1,4 +1,3 @@
-/* eslint-disable no-console */
 /**
  * Seed script: generates deterministic fixture databases for e2e testing.
  * Run with: npx tsx e2e/fixtures/seed.ts
@@ -10,9 +9,10 @@
  */
 
 import Database from 'better-sqlite3';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import fs from 'node:fs';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { Logger } from '../../src/core/logger';
 
 const FIXTURES_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SHARED_DB_PATH = path.join(FIXTURES_DIR, 'kechimochi_shared_media.db');
@@ -190,7 +190,7 @@ function createPlaceholderImage(filepath: string) {
 
 // ---------- Main ----------
 function main() {
-  console.log('Seeding e2e fixture databases...');
+  Logger.info('Seeding e2e fixture databases...');
 
   // Clean up existing fixtures
   for (const f of [SHARED_DB_PATH, USER_DB_PATH]) {
@@ -241,7 +241,7 @@ function main() {
     mediaIds.set(entry.title, Number(result.lastInsertRowid));
   }
 
-  console.log(`  Created ${MEDIA_ENTRIES.length} media entries in shared DB`);
+  Logger.info(`  Created ${MEDIA_ENTRIES.length} media entries in shared DB`);
   sharedDb.close();
 
   // --- User DB ---
@@ -270,21 +270,21 @@ function main() {
   for (const log of logs) {
     insertLog.run(log);
   }
-  console.log(`  Created ${logs.length} activity log entries in user DB`);
+  Logger.info(`  Created ${logs.length} activity log entries in user DB`);
 
   // Insert default settings
   const insertSetting = userDb.prepare(`
     INSERT INTO settings (key, value) VALUES (@key, @value)
   `);
   insertSetting.run({ key: 'theme', value: 'pastel-pink' });
-  console.log(`  Inserted default settings`);
+  Logger.info(`  Inserted default settings`);
 
   userDb.close();
 
-  console.log('Done! Fixture databases created:');
-  console.log(`  ${SHARED_DB_PATH}`);
-  console.log(`  ${USER_DB_PATH}`);
-  console.log(`  ${COVERS_DIR}/`);
+  Logger.info('Done! Fixture databases created:');
+  Logger.info(`  ${SHARED_DB_PATH}`);
+  Logger.info(`  ${USER_DB_PATH}`);
+  Logger.info(`  ${COVERS_DIR}/`);
 }
 
 main();

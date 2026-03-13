@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { Logger } from '../../src/core/logger';
 import { waitForAppReady } from '../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../helpers/navigation.js';
 import { dismissAlert } from '../helpers/common.js';
@@ -79,8 +80,7 @@ describe('CUJ: Data Management (CSV Export)', () => {
         await exportBtn.click();
     } catch (e: unknown) {
         // Fallback to JS click if element is obscured, ignoring the initial click error
-        // eslint-disable-next-line no-console
-        if (process.env.DEBUG) console.warn('Standard click failed, using fallback', (e as Error).message);
+        if (process.env.DEBUG) Logger.warn('Standard click failed, using fallback', (e as Error).message);
         await browser.execute((el: unknown) => (el as HTMLElement).click(), exportBtn);
     }
 

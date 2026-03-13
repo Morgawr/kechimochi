@@ -2,6 +2,7 @@
  * Profile view helpers.
  */
 /// <reference types="@wdio/globals/types" />
+import { Logger } from '../../src/core/logger';
 
 /**
  * Triggers report calculation in the Profile view.
@@ -19,8 +20,7 @@ export async function calculateReport(): Promise<void> {
     expect(await title.getText()).toBe('Success');
     
     const text = overlay.$('p');
-    // eslint-disable-next-line no-console
-    console.log(`[E2E-TRACE] calculateReport: ${await text.getText()}`);
+    Logger.info(`[E2E-TRACE] calculateReport: ${await text.getText()}`);
     
     // Close it
     const okBtn = overlay.$('#alert-ok');

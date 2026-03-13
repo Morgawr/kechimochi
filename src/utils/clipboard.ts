@@ -1,3 +1,5 @@
+import { Logger } from '../core/logger';
+
 /**
  * Sets up a copy button with an icon and success animation.
  * @param btn The button element to attach the listener to.
@@ -18,8 +20,7 @@ export function setupCopyButton(btn: HTMLElement, textToCopy: string) {
                 btn.innerHTML = originalSvg;
             }, 2000);
         } catch (err) {
-            // eslint-disable-next-line no-console
-            console.error('Failed to copy text: ', err);
+            Logger.error('Failed to copy text: ', err);
         }
     });
 }

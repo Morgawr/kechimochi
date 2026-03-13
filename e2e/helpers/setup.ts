@@ -1,12 +1,8 @@
-/* eslint-disable no-console */
-/**
- * Test environment setup/teardown helpers.
- */
-
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import * as os from 'node:os';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { Logger } from '../../src/core/logger';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = path.resolve(__dirname, '..', 'fixtures');
@@ -72,7 +68,7 @@ export async function waitForAppReady(timeout = 30000): Promise<void> {
   const timeLeft = () => Math.max(0, timeout - (Date.now() - startTs));
   const phaseBudget = (maxMs: number, minMs = 1000) => Math.max(minMs, Math.min(maxMs, Math.max(0, timeLeft() - reserveMs)));
 
-  console.log(`[e2e] Ensuring app is ready and date is mocked to ${MOCK_DATE}...`);
+  Logger.info(`[e2e] Ensuring app is ready and date is mocked to ${MOCK_DATE}...`);
 
   // Keep visual snapshots deterministic across different host DPI settings.
   await normalizeWindowSize();
@@ -93,7 +89,7 @@ export async function waitForAppReady(timeout = 30000): Promise<void> {
       interval: 1000,
     }
   ).catch(() => {
-    console.warn('[e2e] Initial readyState/app check timed out, proceeding anyway...');
+    Logger.warn('[e2e] Initial readyState/app check timed out, proceeding anyway...');
   });
 
   // 2. Try to set mock date in sessionStorage with a retry loop for "insecure" errors.
@@ -110,10 +106,10 @@ export async function waitForAppReady(timeout = 30000): Promise<void> {
       const message = e instanceof Error ? e.message : String(e);
       if (message.includes('insecure') || message.includes('Access is denied')) {
         attempts++;
-        console.warn(`[e2e] sessionStorage not ready (attempt ${attempts}), retrying in 500ms...`);
+        Logger.warn(`[e2e] sessionStorage not ready (attempt ${attempts}), retrying in 500ms...`);
         await browser.pause(500);
       } else {
-        console.error('[e2e] Non-security error setting mock date:', message);
+        Logger.error('[e2e] Non-security error setting mock date:', message);
         break; // Fatal error
       }
     }
@@ -121,10 +117,10 @@ export async function waitForAppReady(timeout = 30000): Promise<void> {
 
   // 3. Refresh to apply the mock date only if we successfully set it.
   if (setResolved) {
-    console.log(`[e2e] Refreshing to apply mock date...`);
+    Logger.info(`[e2e] Refreshing to apply mock date...`);
     await browser.refresh();
   } else {
-    console.warn('[e2e] Proceeding without mocked date because storage was unavailable in this session');
+    Logger.warn('[e2e] Proceeding without mocked date because storage was unavailable in this session');
   }
 
   // Some environments reset zoom/window metrics after refresh.
@@ -149,7 +145,7 @@ export async function waitForAppReady(timeout = 30000): Promise<void> {
       const promptVisible = await initialPrompt.isDisplayed().catch(() => false);
 
       if (retries % 5 === 0) {
-        console.log(`[e2e] Final app ready check #${retries}...`);
+        Logger.info(`[e2e] Final app ready check #${retries}...`);
       }
 
       return (containerVisible && (dashboardVisible || profileVisible)) || promptVisible;
@@ -162,15 +158,15 @@ export async function waitForAppReady(timeout = 30000): Promise<void> {
   ).catch(async () => {
     const appRootExists = await $('#app').isExisting().catch(() => false);
     if (appRootExists) {
-      console.warn('[e2e] App shell not fully ready, proceeding with degraded readiness because #app exists');
+      Logger.warn('[e2e] App shell not fully ready, proceeding with degraded readiness because #app exists');
       return;
     }
     throw new Error('App did not reach a stable ready UI state after startup');
   });
 
   if (setResolved) {
-    console.log('[e2e] App is ready and date is mocked');
+    Logger.info('[e2e] App is ready and date is mocked');
   } else {
-    console.log('[e2e] App is ready (mock date unavailable this run)');
+    Logger.info('[e2e] App is ready (mock date unavailable this run)');
   }
 }

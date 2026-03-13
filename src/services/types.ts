@@ -1,4 +1,4 @@
-export type {
+import type {
     Media,
     ActivityLog,
     ActivitySummary,
@@ -8,7 +8,7 @@ export type {
     Milestone,
 } from '../types';
 
-import type {
+export type {
     Media,
     ActivityLog,
     ActivitySummary,

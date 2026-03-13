@@ -2,6 +2,7 @@
  * Library (Media Grid) helpers.
  */
 /// <reference types="@wdio/globals/types" />
+import { Logger } from '../../src/core/logger';
 import { navigateTo, verifyActiveView } from './navigation.js';
 
 /**
@@ -137,8 +138,7 @@ async function findMediaItemInternal(title: string, timeout = 5000) {
             const dataset = await it.getProperty('dataset') as Record<string, string>;
             titles.push(dataset.title);
         }
-        // eslint-disable-next-line no-console
-        console.log(`[E2E] Media item "${title}" not found. Current grid items: [${titles.join(', ')}]`);
+        Logger.info(`[E2E] Media item "${title}" not found. Current grid items: [${titles.join(', ')}]`);
         return null;
     }
 }

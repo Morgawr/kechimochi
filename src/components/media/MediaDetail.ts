@@ -1,4 +1,4 @@
-/* eslint-disable no-console */
+import { Logger } from '../../core/logger';
 import { Component } from '../../core/component';
 import { html, escapeHTML } from '../../core/html';
 import { Media, ActivitySummary, Milestone, updateMedia, deleteMedia, getSetting, getMilestones, addMilestone, deleteMilestone, clearMilestones, getLogsForMedia, readFileBytes, downloadAndSaveImage } from '../../api';
@@ -50,7 +50,7 @@ export class MediaDetail extends Component<MediaDetailState> {
             const milestones = await getMilestones(this.state.media.title);
             this.setState({ milestones });
         } catch (e) {
-            console.error("Failed to load milestones", e);
+            Logger.error("Failed to load milestones", e);
         }
     }
 
@@ -303,7 +303,7 @@ export class MediaDetail extends Component<MediaDetailState> {
         try {
             extraData = JSON.parse(media.extra_data || "{}");
         } catch (e) {
-            console.warn("Could not parse extra data", e);
+            Logger.warn("Could not parse extra data", e);
         }
 
         const sortedEntries = Object.entries(extraData).sort((a, b) => {
@@ -368,7 +368,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                 <span id="est-completion-rate" style="margin-left: 1rem; color: var(--accent-yellow); font-weight: 800; border: 1px solid var(--accent-yellow); padding: 0.2rem 0.6rem; border-radius: 4px; background: rgba(0,0,0,0.2);">Est. completion rate: <strong style="color: var(--text-primary);">${completionRate}%</strong></span>
             `;
         } catch (e) {
-            console.warn("Could not compute reading speed stats", e);
+            Logger.warn("Could not compute reading speed stats", e);
             return "";
         }
     }
@@ -692,7 +692,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                     this.state.media.cover_image = newPath;
                     await this.loadImage(); // Reload blob URL for the new image
                 } catch (err) {
-                    console.error("Failed to download new cover", err);
+                    Logger.error("Failed to download new cover", err);
                 }
             }
 

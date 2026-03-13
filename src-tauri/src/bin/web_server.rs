@@ -316,7 +316,7 @@ async fn import_activities(
     let path = tmp.path().to_str().ok_or_else(|| AppError("Invalid temp path".into()))?.to_owned();
     let count = {
         let mut conn = s.conn.lock().await;
-        csv_import::import_csv(&mut *conn, &path).ae()?
+        csv_import::import_csv(&mut conn, &path).ae()?
     };
     Ok(Json(serde_json::json!({ "count": count })))
 }
@@ -362,7 +362,7 @@ async fn apply_media_import_handler(
 ) -> HandlerResult<Json<usize>> {
     let covers_dir = s.data_dir.join("covers");
     let mut conn = s.conn.lock().await;
-    csv_import::apply_media_import(covers_dir, &mut *conn, records).ae().map(Json)
+    csv_import::apply_media_import(covers_dir, &mut conn, records).ae().map(Json)
 }
 
 async fn export_media_handler(State(s): State<Shared>) -> HandlerResult<Response> {
@@ -389,7 +389,7 @@ async fn import_milestones(
     let path = tmp.path().to_str().ok_or_else(|| AppError("Invalid temp path".into()))?.to_owned();
     let count = {
         let mut conn = s.conn.lock().await;
-        csv_import::import_milestones_csv(&mut *conn, &path).ae()?
+        csv_import::import_milestones_csv(&mut conn, &path).ae()?
     };
     Ok(Json(serde_json::json!({ "count": count })))
 }

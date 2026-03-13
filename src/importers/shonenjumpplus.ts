@@ -1,5 +1,6 @@
 import { MetadataImporter, ScrapedMetadata } from './index';
 import { fetchExternalJson } from '../platform';
+import { Logger } from '../core/logger';
 
 export class ShonenjumpplusImporter implements MetadataImporter {
     name = "Shonen Jump Plus";
@@ -53,8 +54,7 @@ export class ShonenjumpplusImporter implements MetadataImporter {
 
             return { description, author, pubDate };
         } catch (e) {
-            // eslint-disable-next-line no-console
-            console.error("Failed to fetch or parse RSS feed:", e);
+            Logger.error("Failed to fetch or parse RSS feed:", e);
             return null;
         }
     }

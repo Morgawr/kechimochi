@@ -1,4 +1,3 @@
-/* eslint-disable no-console */
 /**
  * WebdriverIO configuration for kechimochi e2e tests.
  */
@@ -10,6 +9,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
 import { prepareTestDir, cleanupTestDir } from './helpers/setup.js';
+import { Logger } from '../src/core/logger';
 
 interface TauriSessionCaps {
     port?: number;
@@ -26,7 +26,7 @@ const STABLE_RUN_ID = process.env.TEST_RUN_ID || new Date().toISOString().replac
 const LOGS_DIR = path.join(__dirname, 'logs', `test_run_${STABLE_RUN_ID}`);
 
 if (process.env.TEST_RUN_ID) {
-    console.log(`[e2e] Worker process using inherited TEST_RUN_ID: ${STABLE_RUN_ID}`);
+    Logger.info(`[e2e] Worker process using inherited TEST_RUN_ID: ${STABLE_RUN_ID}`);
 }
 
 let tauriDriver: ChildProcess;
@@ -51,11 +51,18 @@ function resolveNativeDriverPath(): string | null {
   if (process.env.EDGE_DRIVER_PATH && existsSync(process.env.EDGE_DRIVER_PATH)) {
     return process.env.EDGE_DRIVER_PATH;
   }
+  if (process.env.WEBKIT_DRIVER_PATH && existsSync(process.env.WEBKIT_DRIVER_PATH)) {
+    return process.env.WEBKIT_DRIVER_PATH;
+  }
 
   if (process.platform === 'win32') {
     const local = path.resolve(__dirname, '..', 'node_modules', '.bin', 'edgedriver.cmd');
     if (existsSync(local)) return local;
   } else {
+    // Linux/macOS
+    const systemWebKit = '/usr/bin/WebKitWebDriver';
+    if (existsSync(systemWebKit)) return systemWebKit;
+
     const local = path.resolve(__dirname, '..', 'node_modules', '.bin', 'edgedriver');
     if (existsSync(local)) return local;
   }
@@ -80,12 +87,12 @@ async function moveArtifactsToFinalDir(stageDir: string, specName: string, final
   if (!existsSync(stageDir)) return;
   try {
     const stagedFiles = readdirSync(stageDir, { recursive: true });
-    console.log(`[e2e] [${specName}] Staging area contains: ${stagedFiles.join(', ')}`);
+    Logger.info(`[e2e] [${specName}] Staging area contains: ${stagedFiles.join(', ')}`);
     mkdirSync(finalDir, { recursive: true });
     cpSync(stageDir, finalDir, { recursive: true });
     rmSync(stageDir, { recursive: true, force: true });
   } catch (err) {
-    console.error(`[e2e] [${specName}] Failed to move artifacts:`, err);
+    Logger.error(`[e2e] [${specName}] Failed to move artifacts:`, err);
   }
 }
 
@@ -177,8 +184,8 @@ export const config: WebdriverIO.Config = {
     mkdirSync(LOGS_DIR, { recursive: true });
     process.env.TEST_RUN_ID = STABLE_RUN_ID;
 
-    console.log(`[e2e] Test run ID: ${STABLE_RUN_ID}`);
-    console.log(`[e2e] Logs directory: ${LOGS_DIR}`);
+    Logger.info(`[e2e] Test run ID: ${STABLE_RUN_ID}`);
+    Logger.info(`[e2e] Logs directory: ${LOGS_DIR}`);
   },
 
   /**
@@ -236,8 +243,8 @@ export const config: WebdriverIO.Config = {
       }
     };
 
-    console.log(`\n[e2e] [${specName}] Worker ${process.env.WDIO_WORKER_ID} starting...`);
-    console.log(`[e2e] [${specName}] Port: ${tauriDriverPort}, Data: ${testDir}`);
+    Logger.info(`\n[e2e] [${specName}] Worker ${process.env.WDIO_WORKER_ID} starting...`);
+    Logger.info(`[e2e] [${specName}] Port: ${tauriDriverPort}, Data: ${testDir}`);
 
     // 5. Spawn driver
     const nativeDriverPath = resolveNativeDriverPath();
@@ -267,17 +274,17 @@ export const config: WebdriverIO.Config = {
     tauriDriver.stderr?.on('data', log);
 
     // Wait for driver
-    console.log(`[e2e] [${specName}] Initializing tauri-driver (3s)...`);
+    Logger.info(`[e2e] [${specName}] Initializing tauri-driver (3s)...`);
     await delay(3000);
 
     tauriDriver.on('error', (error: Error) => {
-      console.error(`[e2e] [${specName}] tauri-driver error:`, error);
+      Logger.error(`[e2e] [${specName}] tauri-driver error:`, error);
       log(`[e2e] tauri-driver error: ${error.message}\n`);
       process.exit(1);
     });
 
     tauriDriver.on('exit', (code: number | null) => {
-      console.log(`[e2e] [${specName}] tauri-driver process exited with code: ${code}`);
+      Logger.info(`[e2e] [${specName}] tauri-driver process exited with code: ${code}`);
       log(`[e2e] tauri-driver process exited with code: ${code}\n`);
       tauriDriverExitCode = code;
     });
@@ -319,7 +326,7 @@ export const config: WebdriverIO.Config = {
     const testDir = process.env.KECHIMOCHI_DATA_DIR;
     if (testDir && specName) {
       cleanupTestDir(testDir);
-      console.log(`[e2e] [${specName}] Cleaned up isolated data directory: ${testDir}`);
+      Logger.info(`[e2e] [${specName}] Cleaned up isolated data directory: ${testDir}`);
     }
   },
 

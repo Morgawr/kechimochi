@@ -1,4 +1,4 @@
-/* eslint-disable no-console */
+import { Logger } from '../../core/logger';
 import { Component } from '../../core/component';
 import { html } from '../../core/html';
 import { Media, readFileBytes } from '../../api';
@@ -48,7 +48,7 @@ export class MediaItem extends Component<MediaItemState> {
             MediaItem.imageCache.set(cover_image, src);
             this.setState({ imgSrc: src });
         } catch (e) {
-            console.error("Failed to load image", e);
+            Logger.error("Failed to load image", e);
         }
     }
 

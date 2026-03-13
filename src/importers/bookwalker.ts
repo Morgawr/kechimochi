@@ -1,5 +1,6 @@
 import { MetadataImporter, ScrapedMetadata } from './index';
 import { fetchExternalJson } from '../platform';
+import { Logger } from '../core/logger';
 
 export class BookwalkerImporter implements MetadataImporter {
     name = "Bookwalker";
@@ -41,8 +42,7 @@ export class BookwalkerImporter implements MetadataImporter {
         }
 
         if (!seriesUrl) {
-            // eslint-disable-next-line no-console
-            console.warn(`Could not find a Series List link. Using original URL.`);
+            Logger.warn(`Could not find a Series List link. Using original URL.`);
             return null;
         }
 
@@ -57,8 +57,7 @@ export class BookwalkerImporter implements MetadataImporter {
             return { url: fullUrl, doc: parser.parseFromString(html, 'text/html') };
         }
 
-        // eslint-disable-next-line no-console
-        console.warn(`Could not find Volume ${targetVolume} on series list. Using original URL.`);
+        Logger.warn(`Could not find Volume ${targetVolume} on series list. Using original URL.`);
         return null;
     }
 

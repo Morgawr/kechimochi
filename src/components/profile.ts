@@ -1,4 +1,4 @@
-/* eslint-disable no-console */
+import { Logger } from '../core/logger';
 import { Component } from '../core/component';
 import { html } from '../core/html';
 import {
@@ -87,7 +87,7 @@ export class ProfileView extends Component<ProfileState> {
         if (!this.isRefreshing && needsLoad) {
             this.isRefreshing = true;
             this.loadData()
-                .catch(e => console.error('Failed to load profile data', e))
+                .catch(e => Logger.error('Failed to load profile data', e))
                 .finally(() => { this.isRefreshing = false; });
             return;
         }
