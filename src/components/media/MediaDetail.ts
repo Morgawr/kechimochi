@@ -8,7 +8,7 @@ import { getServices } from '../../services';
 import { MediaLog } from './MediaLog';
 import { setupCopyButton } from '../../utils/clipboard';
 import { formatHhMm } from '../../utils/time';
-import { TRACKING_STATUSES, ACTIVITY_TYPES, MEDIA_STATUS, EXTRA_FIELD_LABELS } from '../../constants';
+import { TRACKING_STATUSES, ACTIVITY_TYPES, MEDIA_STATUS } from '../../constants';
 
 interface MediaDetailState {
     media: Media;
