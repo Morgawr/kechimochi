@@ -40,7 +40,7 @@ describe('CUJ: Content Lifecycle (Manual Archiving)', () => {
         expect(await isMediaVisible('呪術廻戦')).toBe(true);
 
         // Verify archived visual indicator (opacity 0.6)
-        const item = await $(`[data-title="呪術廻戦"]`);
+        const item = $(`[data-title="呪術廻戦"]`);
         expect(await item.getCSSProperty('opacity')).toMatchObject({ value: 0.6 });
     });
 });

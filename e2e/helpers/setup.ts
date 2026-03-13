@@ -66,7 +66,7 @@ export async function waitForAppReady(timeout = 30000): Promise<void> {
       const readyState = await browser.execute(() => document.readyState).catch(() => '');
       if (readyState !== 'complete') return false;
       
-      const el = await $('#app');
+      const el = $('#app');
       return await el.isExisting().catch(() => false);
     },
     {
@@ -113,7 +113,7 @@ export async function waitForAppReady(timeout = 30000): Promise<void> {
   await browser.waitUntil(
     async () => {
       retries++;
-      const el = await $('[data-view="dashboard"]');
+      const el = $('[data-view="dashboard"]');
       const displayed = await el.isDisplayed().catch(() => false);
 
       if (retries % 5 === 0) {

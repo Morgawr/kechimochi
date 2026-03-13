@@ -7,23 +7,23 @@
  * Triggers report calculation in the Profile view.
  */
 export async function calculateReport(): Promise<void> {
-    const btn = await $('#profile-btn-calculate-report');
+    const btn = $('#profile-btn-calculate-report');
     await btn.waitForDisplayed({ timeout: 5000 });
     await btn.click();
     
     // Wait for the success alert (modal-overlay + modal-content)
-    const overlay = await $('.modal-overlay');
+    const overlay = $('.modal-overlay');
     await overlay.waitForDisplayed({ timeout: 10000 });
     
-    const title = await overlay.$('h3');
+    const title = overlay.$('h3');
     expect(await title.getText()).toBe('Success');
     
-    const text = await overlay.$('p');
+    const text = overlay.$('p');
     // eslint-disable-next-line no-console
     console.log(`[E2E-TRACE] calculateReport: ${await text.getText()}`);
     
     // Close it
-    const okBtn = await overlay.$('#alert-ok');
+    const okBtn = overlay.$('#alert-ok');
     await okBtn.click();
     await browser.pause(300);
 }
@@ -31,7 +31,7 @@ export async function calculateReport(): Promise<void> {
  * Exports milestones to a CSV file.
  */
 export async function exportMilestones(): Promise<void> {
-    const exportBtn = await $('#profile-btn-export-milestones');
+    const exportBtn = $('#profile-btn-export-milestones');
     await exportBtn.waitForDisplayed({ timeout: 5000 });
     
     await browser.execute(() => {
@@ -52,7 +52,7 @@ export async function exportMilestones(): Promise<void> {
  * Imports milestones from a CSV file.
  */
 export async function importMilestones(): Promise<void> {
-    const importBtn = await $('#profile-btn-import-milestones');
+    const importBtn = $('#profile-btn-import-milestones');
     await importBtn.waitForDisplayed({ timeout: 5000 });
     
     await browser.execute(() => {

@@ -18,7 +18,7 @@ describe('Factory Reset CUJ', () => {
     await navigateTo('profile');
     expect(await verifyActiveView('profile')).toBe(true);
     
-    const profileNameEl = await $('#profile-name');
+    const profileNameEl = $('#profile-name');
     await browser.waitUntil(async () => {
         return (await profileNameEl.getText()) === 'TESTUSER';
     }, { timeout: 5000, timeoutMsg: 'Profile name did not match TESTUSER' });
@@ -26,32 +26,32 @@ describe('Factory Reset CUJ', () => {
   });
 
   it('should perform factory reset and wipe all data', async () => {
-    const wipeBtn = await $('#profile-btn-wipe-everything');
-    await browser.execute((el: HTMLElement) => el.scrollIntoView(), wipeBtn);
+    const wipeBtn = $('#profile-btn-wipe-everything');
+    await wipeBtn.scrollIntoView();
     await wipeBtn.click();
 
     await submitPrompt('WIPE_EVERYTHING');
 
-    const initialInput = await $('#initial-prompt-input');
+    const initialInput = $('#initial-prompt-input');
     await initialInput.waitForDisplayed({ timeout: 10000 });
   });
 
   it('should prompt for a new user name and create BESTUSER', async () => {
-    const initialInput = await $('#initial-prompt-input');
+    const initialInput = $('#initial-prompt-input');
     await initialInput.setValue('BESTUSER');
 
-    const startBtn = await $('#initial-prompt-confirm');
+    const startBtn = $('#initial-prompt-confirm');
     await startBtn.click();
 
     // App should navigate to dashboard after creation
-    await (await $('[data-view="dashboard"]')).waitForDisplayed();
+    await $('[data-view="dashboard"]').waitForDisplayed();
     expect(await verifyActiveView('dashboard')).toBe(true);
   });
 
   it('should verify dashboard is empty', async () => {
     await navigateTo('dashboard');
     
-    const emptyState = await $('p=No activity logged yet.');
+    const emptyState = $('p=No activity logged yet.');
     expect(await emptyState.isDisplayed()).toBe(true);
 
     const bodyText = await $('body').getText();
@@ -69,7 +69,7 @@ describe('Factory Reset CUJ', () => {
     await navigateTo('profile');
     expect(await verifyActiveView('profile')).toBe(true);
 
-    const profileNameEl = await $('#profile-name');
+    const profileNameEl = $('#profile-name');
     await browser.waitUntil(async () => {
         return (await profileNameEl.getText()) === 'BESTUSER';
     }, { timeout: 5000, timeoutMsg: 'Profile name did not match BESTUSER after reset' });

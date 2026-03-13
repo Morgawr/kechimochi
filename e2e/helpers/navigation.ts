@@ -40,7 +40,7 @@ export async function verifyActiveView(view: ViewName): Promise<boolean> {
  */
 export async function verifyViewNotBroken(): Promise<void> {
   // Check view container has content
-  const container = await $('#view-container');
+  const container = $('#view-container');
   const html = await container.getHTML();
   expect(html.length).toBeGreaterThan(10);
 

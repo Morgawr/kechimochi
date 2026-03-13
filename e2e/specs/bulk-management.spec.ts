@@ -21,7 +21,7 @@ describe('CUJ: Bulk Management (Data Import)', () => {
         expect(await verifyActiveView('profile')).toBe(true);
 
         await setDialogMockPath(MEDIA_CSV);
-        const importMediaBtn = await $('#profile-btn-import-media');
+        const importMediaBtn = $('#profile-btn-import-media');
         await importMediaBtn.click();
 
         // Our bulk_media.csv contains "呪術廻戦" which exists, so conflict modal will show.
@@ -36,16 +36,16 @@ describe('CUJ: Bulk Management (Data Import)', () => {
         await navigateTo('profile');
         
         await setDialogMockPath(ACTIVITY_CSV);
-        const importActivitiesBtn = await $('#profile-btn-import-csv');
+        const importActivitiesBtn = $('#profile-btn-import-csv');
         await importActivitiesBtn.click();
 
-        await $('#alert-ok').waitForDisplayed({ timeout: 5000 });
+        $('#alert-ok').waitForDisplayed({ timeout: 5000 });
         await dismissAlert();
 
         await navigateTo('dashboard');
         expect(await verifyActiveView('dashboard')).toBe(true);
 
-        const recentLogs = await $('#recent-logs-list');
+        const recentLogs = $('#recent-logs-list');
         await browser.waitUntil(async () => {
             const text = await recentLogs.getText();
             return text.includes('Bulk Imported Manga') && text.includes('60 minutes');

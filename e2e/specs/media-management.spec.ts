@@ -40,7 +40,7 @@ describe('Media Management CUJs', () => {
       await gridItem.waitForDisplayed({ timeout: 5000 });
       await gridItem.click();
 
-      const statusSelect = await $('#media-tracking-status');
+      const statusSelect = $('#media-tracking-status');
       await statusSelect.waitForExist();
       await statusSelect.selectByVisibleText('Ongoing');
 
@@ -49,7 +49,7 @@ describe('Media Management CUJs', () => {
       const backBtn = await $('#btn-back-grid');
       await backBtn.click();
 
-      const statusLabel = await $(`.media-grid-item[data-title="Cyberpunk 2077"] .status-ongoing`);
+      const statusLabel = $(`.media-grid-item[data-title="Cyberpunk 2077"] .status-ongoing`);
       expect(await statusLabel.isExisting()).toBe(true);
     });
 
@@ -58,7 +58,7 @@ describe('Media Management CUJs', () => {
       // but just in case, let's make sure we are there
       const detailTitle = await $('#media-title');
       if (!(await detailTitle.isDisplayed()) || (await detailTitle.getText()) !== 'Cyberpunk 2077') {
-        const gridItem = await $(`.media-grid-item[data-title="Cyberpunk 2077"]`);
+        const gridItem = $(`.media-grid-item[data-title="Cyberpunk 2077"]`);
         await gridItem.waitForDisplayed({ timeout: 5000 });
         await gridItem.click();
         await browser.pause(2000); // Allow onMount (milestones, image) to complete
@@ -69,8 +69,20 @@ describe('Media Management CUJs', () => {
       const updatedValue = 'UpdatedValue';
 
       await addExtraField(fieldKey, initialValue);
+      
+      // Verification with retry/wait via helper and explicit check
       expect(await getExtraField(fieldKey)).toBe(initialValue);
+      
       await editExtraField(fieldKey, updatedValue);
+      
+      // The helper now waits for the text to appear, but let's be extra safe
+      await browser.waitUntil(async () => {
+        return (await getExtraField(fieldKey)) === updatedValue;
+      }, {
+        timeout: 5000,
+        timeoutMsg: `Expected extra field "${fieldKey}" to be updated to "${updatedValue}"`
+      });
+      
       expect(await getExtraField(fieldKey)).toBe(updatedValue);
     });
 
@@ -80,7 +92,7 @@ describe('Media Management CUJs', () => {
         await logActivityFromDetail('Cyberpunk 2077', duration);
 
         // Verify it appears in the logs list in detail view
-        const logsContainer = await $('#media-logs-container');
+        const logsContainer = $('#media-logs-container');
         await browser.waitUntil(async () => {
             const text = await logsContainer.getText();
             return text.includes(`${duration} Minutes`);
@@ -98,7 +110,7 @@ describe('Media Management CUJs', () => {
       await browser.pause(1000);
 
       // Now find the link on dashboard
-      const mediaLink = await $('.dashboard-media-link');
+      const mediaLink = $('.dashboard-media-link');
       await mediaLink.waitForDisplayed({ timeout: 5000 });
       await mediaLink.scrollIntoView();
       await mediaLink.waitForClickable({ timeout: 2000 });
@@ -109,7 +121,7 @@ describe('Media Management CUJs', () => {
       await mediaLink.click();
 
       // Verify it navigated to media detail
-      const detailTitleEl = await $('#media-title');
+      const detailTitleEl = $('#media-title');
       await detailTitleEl.waitForExist({ timeout: 5000 });
 
       await browser.waitUntil(async () => {

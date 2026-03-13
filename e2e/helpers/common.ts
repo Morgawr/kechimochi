@@ -29,7 +29,7 @@ export async function assertTextVisible(text: string): Promise<void> {
     });
   } catch {
     // Fallback: search in page text content
-    const body = await $('body');
+    const body = $('body');
     const bodyText = await body.getText();
     expect(bodyText).toContain(text);
   }
@@ -65,7 +65,7 @@ export async function takeAndCompareScreenshot(tag: string): Promise<void> {
  * If timeout is 0, it behaves as a conditional dismissal (no-op if not present).
  */
 export async function dismissAlert(timeout = 5000): Promise<void> {
-    const okBtn = await $('#alert-ok');
+    const okBtn = $('#alert-ok');
     try {
         if (timeout > 0) {
             await okBtn.waitForDisplayed({ timeout });
@@ -73,7 +73,7 @@ export async function dismissAlert(timeout = 5000): Promise<void> {
         
         if (await okBtn.isDisplayed()) {
             // Get the specific overlay ID to wait for its removal
-            const overlay = await okBtn.$('./ancestor::div[contains(@class, "modal-overlay")]');
+            const overlay = okBtn.$('./ancestor::div[contains(@class, "modal-overlay")]');
             const dataset = await overlay.getProperty('dataset') as Record<string, string>;
             const overlayId = dataset.overlayId;
             
@@ -92,11 +92,11 @@ export async function dismissAlert(timeout = 5000): Promise<void> {
  * Handle a custom prompt modal by entering a value and confirming
  */
 export async function submitPrompt(value: string): Promise<void> {
-    const input = await $('#prompt-input');
+    const input = $('#prompt-input');
     await input.waitForDisplayed({ timeout: 5000 });
     
     // Get the specific overlay ID to wait for its removal
-    const overlay = await input.$('./ancestor::div[contains(@class, "modal-overlay")]');
+    const overlay = input.$('./ancestor::div[contains(@class, "modal-overlay")]');
     const dataset = await overlay.getProperty('dataset') as Record<string, string>;
     const overlayId = dataset.overlayId;
 
@@ -111,7 +111,7 @@ export async function submitPrompt(value: string): Promise<void> {
         return (await input.getValue()) === value;
     }, { timeout: 3000, timeoutMsg: 'Failed to set value in prompt input' });
 
-    const confirmBtn = await $('#prompt-confirm');
+    const confirmBtn = $('#prompt-confirm');
     await confirmBtn.waitForClickable({ timeout: 2000 });
     await confirmBtn.click();
 
@@ -124,11 +124,11 @@ export async function submitPrompt(value: string): Promise<void> {
  */
 export async function confirmAction(ok: boolean = true): Promise<void> {
     const btnSelector = ok ? '#confirm-ok' : '#confirm-cancel';
-    const btn = await $(btnSelector);
+    const btn = $(btnSelector);
     await btn.waitForDisplayed({ timeout: 5000 });
     
     // Get the specific overlay ID to wait for its removal
-    const overlay = await btn.$('./ancestor::div[contains(@class, "modal-overlay")]');
+    const overlay = btn.$('./ancestor::div[contains(@class, "modal-overlay")]');
     const dataset = await overlay.getProperty('dataset') as Record<string, string>;
     const overlayId = dataset.overlayId;
 

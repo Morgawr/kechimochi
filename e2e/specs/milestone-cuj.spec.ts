@@ -46,11 +46,11 @@ describe('Milestone CUJ Test', () => {
         const selectedDate = await addMilestone('Dated Milestone', '1', '20', true);
 
         await browser.waitUntil(async () => {
-            const itemsCount = await $$('.milestone-item').length;
-            return itemsCount === 2;
+            const items = await $$('.milestone-item');
+            return (await items.length) === 2;
         }, { timeout: 10000 });
 
-        const datedItem = await $(`.milestone-item[title="Achieved on ${selectedDate}"]`);
+        const datedItem = $(`.milestone-item[title="Achieved on ${selectedDate}"]`);
         await datedItem.waitForExist({ timeout: 5000 });
         expect(await datedItem.isExisting()).toBe(true);
     });
@@ -60,8 +60,8 @@ describe('Milestone CUJ Test', () => {
         await deleteMilestone(1);
 
         await browser.waitUntil(async () => {
-            const itemsCount = await $$('.milestone-item').length;
-            return itemsCount === 1;
+            const items = await $$('.milestone-item');
+            return (await items.length) === 1;
         }, { timeout: 10000 });
 
         const textAfterSingle = await getMilestoneListText();
@@ -93,7 +93,7 @@ describe('Milestone CUJ Test', () => {
 
         // Clear state before import
         await navigateTo('media');
-        const gridItem = await $(`.media-grid-item[data-title="${mediaTitle}"]`);
+        const gridItem = $(`.media-grid-item[data-title="${mediaTitle}"]`);
         await gridItem.waitForDisplayed({ timeout: 15000 });
         await gridItem.click();
         await clearAllMilestones();
@@ -106,7 +106,7 @@ describe('Milestone CUJ Test', () => {
         // Final verification
         await navigateTo('media');
         await browser.pause(2000);
-        const finalGridItem = await $(`.media-grid-item[data-title="${mediaTitle}"]`);
+        const finalGridItem = $(`.media-grid-item[data-title="${mediaTitle}"]`);
         await finalGridItem.waitForDisplayed({ timeout: 15000 });
         await finalGridItem.click();
 

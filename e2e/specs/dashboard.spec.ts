@@ -8,13 +8,13 @@ describe('Dashboard CUJ', () => {
   });
 
   it('should display the dashboard view on launch', async () => {
-    const dashLink = await $('[data-view="dashboard"]');
+    const dashLink = $('[data-view="dashboard"]');
     const classes = await dashLink.getProperty('className');
     expect(classes).toContain('active');
   });
 
   it('should render the heatmap', async () => {
-    const heatmap = await $('.heatmap');
+    const heatmap = $('.heatmap');
     expect(await heatmap.isDisplayed()).toBe(true);
   });
 

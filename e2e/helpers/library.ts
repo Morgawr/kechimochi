@@ -12,23 +12,23 @@ export async function addMedia(title: string, type: string, contentType?: string
         await navigateTo('media');
     }
 
-    const addBtn = await $('#btn-add-media-grid');
+    const addBtn = $('#btn-add-media-grid');
     await addBtn.click();
 
-    const titleInput = await $('#add-media-title');
+    const titleInput = $('#add-media-title');
     await titleInput.waitForDisplayed({ timeout: 5000 });
     await titleInput.setValue(title);
 
-    const typeSelect = await $('#add-media-type');
+    const typeSelect = $('#add-media-type');
     await typeSelect.selectByVisibleText(type);
 
     if (contentType) {
-        const contentSelect = await $('#add-media-content-type');
+        const contentSelect = $('#add-media-content-type');
         await contentSelect.waitForDisplayed({ timeout: 5000 });
         await contentSelect.selectByVisibleText(contentType);
     }
 
-    const confirmBtn = await $('#add-media-confirm');
+    const confirmBtn = $('#add-media-confirm');
     await confirmBtn.click();
 
     // Most additions auto-navigate to detail, so we wait for either detail or grid stabilization
@@ -39,7 +39,7 @@ export async function addMedia(title: string, type: string, contentType?: string
  * Set the search query in the library grid.
  */
 export async function setSearchQuery(query: string): Promise<void> {
-    const input = await $('#grid-search-filter');
+    const input = $('#grid-search-filter');
     await input.waitForDisplayed({ timeout: 5000 });
 
     // Clicking and using keys is often more reliable for triggering 'input' events in all drivers
@@ -59,7 +59,7 @@ export async function setSearchQuery(query: string): Promise<void> {
  * Set the media type filter in the library grid.
  */
 export async function setMediaTypeFilter(type: string): Promise<void> {
-    const select = await $('#grid-type-select');
+    const select = $('#grid-type-select');
     await select.waitForDisplayed({ timeout: 5000 });
     await select.selectByAttribute('value', type);
     await browser.pause(300);
@@ -69,7 +69,7 @@ export async function setMediaTypeFilter(type: string): Promise<void> {
  * Set the tracking status filter in the library grid.
  */
 export async function setTrackingStatusFilter(status: string): Promise<void> {
-    const select = await $('#grid-status-select');
+    const select = $('#grid-status-select');
     await select.waitForDisplayed({ timeout: 5000 });
     await select.selectByAttribute('value', status);
     await browser.pause(300);
@@ -79,12 +79,12 @@ export async function setTrackingStatusFilter(status: string): Promise<void> {
  * Toggle the "Hide Archived" checkbox in the library grid.
  */
 export async function setHideArchived(hide: boolean): Promise<void> {
-    const checkbox = await $('#grid-hide-archived');
+    const checkbox = $('#grid-hide-archived');
     await checkbox.waitForExist({ timeout: 5000 });
     const isChecked = await checkbox.isSelected();
     if (isChecked !== hide) {
         // The input itself is hidden (opacity 0), so we click the slider (.slider)
-        const slider = await checkbox.nextElement();
+        const slider = checkbox.nextElement();
         await slider.click();
         await browser.pause(300);
     }
@@ -98,7 +98,7 @@ async function findMediaItemInternal(title: string, timeout = 5000) {
     try {
         await itemProxy.waitForExist({ timeout });
         // Resolved element is what we return
-        return await itemProxy;
+        return itemProxy;
     } catch {
         const allItems = await $$('.media-grid-item');
         const titles = [];
@@ -116,7 +116,7 @@ async function findMediaItemInternal(title: string, timeout = 5000) {
  * Check if a media item with a specific title is currently visible in the grid.
  */
 export async function isMediaVisible(title: string): Promise<boolean> {
-    const grid = await $('#media-grid-container');
+    const grid = $('#media-grid-container');
     await grid.waitForDisplayed({ timeout: 10000 }).catch(() => { });
 
     const item = await findMediaItemInternal(title);
@@ -128,7 +128,7 @@ export async function isMediaVisible(title: string): Promise<boolean> {
  * Check if a media item with a specific title is currently not visible in the grid.
  */
 export async function isMediaNotVisible(title: string): Promise<boolean> {
-    const grid = await $('#media-grid-container');
+    const grid = $('#media-grid-container');
     await grid.waitForDisplayed({ timeout: 10000 }).catch(() => { });
 
     const itemProxy = $(`.media-grid-item[data-title="${title}"]`);

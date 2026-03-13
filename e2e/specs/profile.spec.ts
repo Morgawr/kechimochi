@@ -17,14 +17,14 @@ describe('Profile CUJ', () => {
   });
 
   it('should display the theme selector', async () => {
-    const themeSelect = await $('#profile-select-theme');
+    const themeSelect = $('#profile-select-theme');
     if (await themeSelect.isExisting()) {
       expect(await themeSelect.isDisplayed()).toBe(true);
     }
   });
 
   it('should display reading speed report card', async () => {
-    const reportSection = await $('#profile-report-card');
+    const reportSection = $('#profile-report-card');
     if (await reportSection.isExisting()) {
       expect(await reportSection.isDisplayed()).toBe(true);
     }
