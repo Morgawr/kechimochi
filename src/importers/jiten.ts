@@ -1,8 +1,9 @@
-import { ScrapedMetadata, MetadataImporter } from './index';
+import { BaseImporter } from './base';
+import { ScrapedMetadata } from './index';
 import { JITEN_BASE_URL } from '../jiten_api';
 import { fetchExternalJson } from '../platform';
 
-export class JitenImporter implements MetadataImporter {
+export class JitenImporter extends BaseImporter {
     name = "Jiten.moe";
     supportedContentTypes = ["Anime", "Manga", "Novel", "WebNovel", "NonFiction", "Drama", "Videogame", "Visual Novel", "Movie", "Audio"];
 
@@ -32,7 +33,7 @@ export class JitenImporter implements MetadataImporter {
             throw new Error("Could not find media data in Jiten.moe response.");
         }
 
-        const extraData: Record<string, string> = { [`Source (${this.name})`]: url };
+        const extraData = this.createExtraData(url);
 
         if (data.characterCount) extraData["Character count"] = data.characterCount.toLocaleString();
         if (data.wordCount) extraData["Word count"] = data.wordCount.toLocaleString();

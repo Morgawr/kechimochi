@@ -2,10 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AnilistImporter } from '../../src/importers/anilist';
 import { invoke } from '@tauri-apps/api/core';
 
-vi.mock('@tauri-apps/api/core', () => ({
-    invoke: vi.fn(),
-}));
-
 describe('AnilistImporter', () => {
     let importer: AnilistImporter;
 

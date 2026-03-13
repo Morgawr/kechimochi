@@ -2,10 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BookwalkerImporter } from '../../src/importers/bookwalker';
 import { invoke } from '@tauri-apps/api/core';
 
-vi.mock('@tauri-apps/api/core', () => ({
-    invoke: vi.fn(),
-}));
-
 describe('BookwalkerImporter', () => {
     let importer: BookwalkerImporter;
 

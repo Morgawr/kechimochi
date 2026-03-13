@@ -2,10 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { JitenImporter } from '../../src/importers/jiten';
 import { invoke } from '@tauri-apps/api/core';
 
-vi.mock('@tauri-apps/api/core', () => ({
-    invoke: vi.fn(),
-}));
-
 describe('JitenImporter', () => {
     let importer: JitenImporter;
 

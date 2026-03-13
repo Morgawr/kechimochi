@@ -2,10 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ShonenjumpplusImporter } from '../../src/importers/shonenjumpplus';
 import { invoke } from '@tauri-apps/api/core';
 
-vi.mock('@tauri-apps/api/core', () => ({
-    invoke: vi.fn(),
-}));
-
 describe('ShonenjumpplusImporter', () => {
     let importer: ShonenjumpplusImporter;
 

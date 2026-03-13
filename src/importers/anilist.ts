@@ -1,4 +1,5 @@
-import { MetadataImporter, ScrapedMetadata } from './index';
+import { BaseImporter } from './base';
+import { ScrapedMetadata } from './index';
 import { fetchExternalJson } from '../platform';
 
 interface AnilistMedia {
@@ -15,7 +16,7 @@ interface AnilistMedia {
     genres?: string[];
 }
 
-export class AnilistImporter implements MetadataImporter {
+export class AnilistImporter extends BaseImporter {
     name = "Anilist";
     supportedContentTypes = ["Anime"];
     matchUrl(url: string, _contentType?: string): boolean {
@@ -69,7 +70,7 @@ export class AnilistImporter implements MetadataImporter {
     }
 
     private mapExtraData(m: AnilistMedia, url: string): Record<string, string> {
-        const extras: Record<string, string> = { [`Source (${this.name})`]: url };
+        const extras = this.createExtraData(url);
         
         if (m.episodes) extras["Episodes"] = m.episodes.toString();
         

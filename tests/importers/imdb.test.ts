@@ -2,10 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ImdbImporter } from '../../src/importers/imdb';
 import { invoke } from '@tauri-apps/api/core';
 
-vi.mock('@tauri-apps/api/core', () => ({
-    invoke: vi.fn(),
-}));
-
 describe('ImdbImporter', () => {
     let importer: ImdbImporter;
 

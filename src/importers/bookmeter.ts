@@ -1,7 +1,7 @@
-import { MetadataImporter, ScrapedMetadata } from './index';
-import { fetchExternalJson } from '../platform';
+import { BaseImporter } from './base';
+import { ScrapedMetadata } from './index';
 
-export class BookmeterImporter implements MetadataImporter {
+export class BookmeterImporter extends BaseImporter {
     name = "Bookmeter";
     supportedContentTypes = ["Novel"];
     matchUrl(url: string, _contentType?: string): boolean {
@@ -9,17 +9,15 @@ export class BookmeterImporter implements MetadataImporter {
     }
 
     async fetch(url: string): Promise<ScrapedMetadata> {
-        const html = await fetchExternalJson(url, "GET");
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
+        const doc = await this.fetchHtml(url);
 
-        const extraData: Record<string, string> = { [`Source (${this.name})`]: url };
+        const extraData = this.createExtraData(url);
         const description = this.extractDescription(doc);
         const coverImageUrl = doc.querySelector<HTMLMetaElement>('meta[property="og:image"]')?.content || "";
         
         this.extractPageCount(doc, extraData);
         this.extractPublisher(doc, extraData);
-        this.extractAuthor(html, extraData);
+        this.extractAuthor(doc, extraData);
 
         return { title: "", description, coverImageUrl, extraData };
     }
@@ -58,11 +56,10 @@ export class BookmeterImporter implements MetadataImporter {
         }
     }
 
-    private extractAuthor(html: string, extraData: Record<string, string>) {
-        const authorRegex = /class="header__authors">.*?href="\/search\?author=[^"]+">([^<]+)<\/a>/is;
-        const authorMatch = authorRegex.exec(html);
-        if (authorMatch) {
-            extraData["Author"] = authorMatch[1].trim();
+    private extractAuthor(doc: Document, extraData: Record<string, string>) {
+        const authorEl = doc.querySelector('.header__authors a');
+        if (authorEl) {
+            extraData["Author"] = authorEl.textContent?.trim() || "";
         }
     }
 }

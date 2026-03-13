@@ -1,8 +1,8 @@
-import { MetadataImporter, ScrapedMetadata } from './index';
-import { fetchExternalJson } from '../platform';
+import { BaseImporter } from './base';
+import { ScrapedMetadata } from './index';
 import { Logger } from '../core/logger';
 
-export class BookwalkerImporter implements MetadataImporter {
+export class BookwalkerImporter extends BaseImporter {
     name = "Bookwalker";
     supportedContentTypes = ["Reading", "Manga"];
     matchUrl(url: string, _contentType?: string): boolean {
@@ -11,19 +11,17 @@ export class BookwalkerImporter implements MetadataImporter {
 
     async fetch(url: string, targetVolume?: number): Promise<ScrapedMetadata> {
         let currentUrl = url;
-        const parser = new DOMParser();
-        const html = await fetchExternalJson(currentUrl, "GET");
-        let doc = parser.parseFromString(html, 'text/html');
+        let doc = await this.fetchHtml(currentUrl);
 
         if (targetVolume !== undefined) {
-            const routed = await this.routeToVolume(doc, currentUrl, targetVolume, parser);
+            const routed = await this.routeToVolume(doc, currentUrl, targetVolume);
             if (routed) {
                 currentUrl = routed.url;
                 doc = routed.doc;
             }
         }
 
-        const extraData: Record<string, string> = { [`Source (${this.name})`]: currentUrl };
+        const extraData = this.createExtraData(currentUrl);
         const description = this.extractDescription(doc);
         const coverImageUrl = this.extractCoverImage(doc);
         this.extractProperties(doc, extraData);
@@ -31,7 +29,7 @@ export class BookwalkerImporter implements MetadataImporter {
         return { title: "", description, coverImageUrl, extraData };
     }
 
-    private async routeToVolume(doc: Document, currentUrl: string, targetVolume: number, parser: DOMParser): Promise<{ url: string, doc: Document } | null> {
+    private async routeToVolume(doc: Document, currentUrl: string, targetVolume: number): Promise<{ url: string, doc: Document } | null> {
         let seriesUrl = "";
 
         if (currentUrl.includes("/list/") && currentUrl.includes("/series/")) {
@@ -46,15 +44,13 @@ export class BookwalkerImporter implements MetadataImporter {
             return null;
         }
 
-        const seriesHtml = await fetchExternalJson(seriesUrl, "GET");
-        const seriesDoc = parser.parseFromString(seriesHtml, 'text/html');
+        const seriesDoc = await this.fetchHtml(seriesUrl);
         const foundUrl = this.findVolumeUrl(seriesDoc, targetVolume);
 
         if (foundUrl) {
             let fullUrl = foundUrl;
             if (!fullUrl.startsWith("http")) fullUrl = "https://bookwalker.jp" + fullUrl;
-            const html = await fetchExternalJson(fullUrl, "GET");
-            return { url: fullUrl, doc: parser.parseFromString(html, 'text/html') };
+            return { url: fullUrl, doc: await this.fetchHtml(fullUrl) };
         }
 
         Logger.warn(`Could not find Volume ${targetVolume} on series list. Using original URL.`);

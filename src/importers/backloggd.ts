@@ -1,7 +1,7 @@
-import { ScrapedMetadata, MetadataImporter } from './index';
-import { fetchExternalJson } from '../platform';
+import { BaseImporter } from './base';
+import { ScrapedMetadata } from './index';
 
-export class BackloggdImporter implements MetadataImporter {
+export class BackloggdImporter extends BaseImporter {
     name = "Backloggd";
     supportedContentTypes = ["Videogame"];
     matchUrl(url: string, _contentType?: string): boolean {
@@ -14,10 +14,7 @@ export class BackloggdImporter implements MetadataImporter {
     }
 
     async fetch(url: string): Promise<ScrapedMetadata> {
-        const html = await fetchExternalJson(url, "GET");
-
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
+        const doc = await this.fetchHtml(url);
 
         // 1. Description from Meta Tags
         let description = "";
@@ -49,9 +46,7 @@ export class BackloggdImporter implements MetadataImporter {
             }
         }
 
-        const extraData: Record<string, string> = {
-            [`Source (${this.name})`]: url
-        };
+        const extraData = this.createExtraData(url);
 
         // 3. Game Details (Released, Genres, Platforms)
         // Backloggd uses detail rows

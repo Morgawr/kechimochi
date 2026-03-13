@@ -2,10 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BackloggdImporter } from '../../src/importers/backloggd';
 import { invoke } from '@tauri-apps/api/core';
 
-vi.mock('@tauri-apps/api/core', () => ({
-    invoke: vi.fn(),
-}));
-
 describe('BackloggdImporter', () => {
     let importer: BackloggdImporter;
 

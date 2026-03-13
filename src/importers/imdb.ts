@@ -1,7 +1,7 @@
-import { ScrapedMetadata, MetadataImporter } from './index';
-import { fetchExternalJson } from '../platform';
+import { BaseImporter } from './base';
+import { ScrapedMetadata } from './index';
 
-export class ImdbImporter implements MetadataImporter {
+export class ImdbImporter extends BaseImporter {
     name = "IMDB";
     supportedContentTypes = ["Anime", "Movie", "Live Action", "Drama"];
     matchUrl(url: string, _contentType?: string): boolean {
@@ -14,16 +14,13 @@ export class ImdbImporter implements MetadataImporter {
     }
 
     async fetch(url: string): Promise<ScrapedMetadata> {
-        const html = await fetchExternalJson(url, "GET", undefined, {
+        const doc = await this.fetchHtml(url, {
             "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
             "Accept-Language": "en-US,en;q=0.5",
         });
 
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
-
         const metadata: Partial<ScrapedMetadata> = {};
-        const extraData: Record<string, string> = { [`Source (${this.name})`]: url };
+        const extraData = this.createExtraData(url);
 
         this.extractFromJsonLd(doc, metadata, extraData);
         this.extractFromDom(doc, metadata, extraData);

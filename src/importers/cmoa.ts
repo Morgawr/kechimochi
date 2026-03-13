@@ -1,7 +1,7 @@
-import { MetadataImporter, ScrapedMetadata } from './index';
-import { fetchExternalJson } from '../platform';
+import { BaseImporter } from './base';
+import { ScrapedMetadata } from './index';
 
-export class CmoaImporter implements MetadataImporter {
+export class CmoaImporter extends BaseImporter {
     name = "Cmoa";
     supportedContentTypes = ["Reading", "Manga"];
     matchUrl(url: string, _contentType?: string): boolean {
@@ -9,11 +9,9 @@ export class CmoaImporter implements MetadataImporter {
     }
 
     async fetch(url: string): Promise<ScrapedMetadata> {
-        const html = await fetchExternalJson(url, "GET");
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
+        const doc = await this.fetchHtml(url);
 
-        const extraData: Record<string, string> = { [`Source (${this.name})`]: url };
+        const extraData = this.createExtraData(url);
         const description = this.extractDescription(doc);
         const coverImageUrl = this.extractCoverImage(doc);
         
