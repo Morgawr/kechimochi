@@ -58,6 +58,7 @@ describe('modals/activity.ts', () => {
             expect(api.addLog).toHaveBeenCalledWith({
                 media_id: 10,
                 duration_minutes: 45,
+                characters: 0,
                 date: expect.any(String)
             });
         });

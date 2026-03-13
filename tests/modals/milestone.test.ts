@@ -30,6 +30,7 @@ describe('modals/milestone.ts', () => {
             media_title: 'Test Media',
             name: 'Finish Chapter 1',
             duration: 150,
+            characters: 0,
             date: undefined
         });
     });
