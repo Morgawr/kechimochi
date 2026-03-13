@@ -83,8 +83,9 @@ export class ImdbImporter implements MetadataImporter {
             const yearMatch = /^\d{4}/.exec(movieData.datePublished as string);
             if (yearMatch) extraData["Release Year"] = yearMatch[0];
         }
-        if ((movieData.aggregateRating as Record<string, unknown>)?.ratingValue) {
-            extraData["IMDb Rating"] = String((movieData.aggregateRating as Record<string, unknown>).ratingValue!);
+        const rating = (movieData.aggregateRating as Record<string, unknown>)?.ratingValue;
+        if (rating !== undefined && rating !== null) {
+            extraData["IMDb Rating"] = typeof rating === 'object' ? JSON.stringify(rating) : String(rating);
         }
     }
 

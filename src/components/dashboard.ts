@@ -169,10 +169,10 @@ export class Dashboard extends Component<DashboardState> {
 
     private updateStats() {
         if (this.containers.stats) {
-            if (!this.statsComponent) {
-                this.statsComponent = new StatsCard(this.containers.stats, { logs: this.state.logs, mediaList: this.state.mediaList });
-            } else {
+            if (this.statsComponent) {
                 this.statsComponent.setState({ logs: this.state.logs, mediaList: this.state.mediaList });
+            } else {
+                this.statsComponent = new StatsCard(this.containers.stats, { logs: this.state.logs, mediaList: this.state.mediaList });
             }
             this.statsComponent.render();
         }
@@ -180,17 +180,17 @@ export class Dashboard extends Component<DashboardState> {
 
     private updateHeatmap() {
         if (this.containers.heatmap) {
-            if (!this.heatmapComponent) {
+            if (this.heatmapComponent) {
+                this.heatmapComponent.setState({ 
+                    heatmapData: this.state.heatmapData, 
+                    year: this.state.currentHeatmapYear 
+                });
+            } else {
                 this.heatmapComponent = new HeatmapView(this.containers.heatmap, { 
                     heatmapData: this.state.heatmapData, 
                     year: this.state.currentHeatmapYear 
                 }, (dir) => {
                     this.setState({ currentHeatmapYear: this.state.currentHeatmapYear + dir });
-                });
-            } else {
-                this.heatmapComponent.setState({ 
-                    heatmapData: this.state.heatmapData, 
-                    year: this.state.currentHeatmapYear 
                 });
             }
             this.heatmapComponent.render();

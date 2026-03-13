@@ -1,7 +1,7 @@
 import { Component } from '../core/component';
 import { html } from '../core/html';
 import { Media, ActivitySummary, getAllMedia, getLogsForMedia, getSetting, setSetting } from '../api';
-import { MediaGrid, MediaFilters } from './media/MediaGrid';
+import { MediaGrid } from './media/MediaGrid';
 import { MediaDetail } from './media/MediaDetail';
 import { Logger } from '../core/logger';
 import { SETTING_KEYS } from '../constants';
@@ -198,7 +198,7 @@ export class MediaView extends Component<MediaViewState> {
             },
             (filters) => {
                 const oldHideArchived = this.state.gridFilters.hideArchived;
-                this.state.gridFilters = { ...this.state.gridFilters, ...filters as MediaFilters };
+                this.state.gridFilters = { ...this.state.gridFilters, ...filters };
                 if (filters.hideArchived !== undefined && oldHideArchived !== filters.hideArchived) {
                     void setSetting(SETTING_KEYS.GRID_HIDE_ARCHIVED, filters.hideArchived.toString());
                 }
