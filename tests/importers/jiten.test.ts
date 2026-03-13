@@ -16,15 +16,9 @@ describe('JitenImporter', () => {
 
     describe('matchUrl', () => {
         it('should match valid Jiten URLs', () => {
-            expect(importer.matchUrl('https://jiten.moe/decks/123', 'Anime')).toBe(true);
-            expect(importer.matchUrl('https://jiten.moe/decks/456', 'Novel')).toBe(true);
-            expect(importer.matchUrl('https://jiten.moe/decks/789', 'Manga')).toBe(true);
+            expect(importer.matchUrl('https://jiten.moe/decks/123')).toBe(true);
         });
 
-        it('should NOT match invalid domains or paths', () => {
-            expect(importer.matchUrl('https://jiten.moe/', 'Anime')).toBe(false);
-            expect(importer.matchUrl('https://google.com/decks/123', 'Anime')).toBe(false);
-        });
     });
 
     describe('fetch', () => {

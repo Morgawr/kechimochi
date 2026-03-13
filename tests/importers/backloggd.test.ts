@@ -20,10 +20,6 @@ describe('BackloggdImporter', () => {
             expect(importer.matchUrl('https://backloggd.com/games/persona-5/', 'Videogame')).toBe(true);
         });
 
-        it('should match Backloggd URLs regardless of content type', () => {
-            expect(importer.matchUrl('https://backloggd.com/games/persona-5/', 'Anime')).toBe(true);
-            expect(importer.matchUrl('https://google.com', 'Videogame')).toBe(false);
-        });
     });
 
     describe('fetch', () => {

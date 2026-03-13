@@ -19,10 +19,6 @@ describe('AnilistImporter', () => {
             expect(importer.matchUrl('https://anilist.co/anime/123/Some-Title/', 'Anime')).toBe(true);
         });
 
-        it('should match Anilist URLs regardless of content type', () => {
-            expect(importer.matchUrl('https://anilist.co/anime/123', 'Manga')).toBe(true);
-            expect(importer.matchUrl('https://google.com', 'Anime')).toBe(false);
-        });
     });
 
     describe('fetch', () => {

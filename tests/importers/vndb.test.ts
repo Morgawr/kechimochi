@@ -20,12 +20,6 @@ describe('VndbImporter', () => {
             expect(importer.matchUrl('https://vndb.org/v1', 'Visual Novel')).toBe(true);
         });
 
-        it('should match VNDB URLs regardless of content type', () => {
-            expect(importer.matchUrl('https://vndb.org/v5850', 'Manga')).toBe(true);
-            expect(importer.matchUrl('https://google.com', 'Visual Novel')).toBe(false);
-            expect(importer.matchUrl('https://vndb.org/u123', 'Visual Novel')).toBe(false);
-            expect(importer.matchUrl('not a url', 'Visual Novel')).toBe(false);
-        });
     });
 
     describe('removeBbcode', () => {

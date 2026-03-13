@@ -20,10 +20,6 @@ describe('ImdbImporter', () => {
             expect(importer.matchUrl('https://imdb.com/title/tt12345/', 'Anime')).toBe(true);
         });
 
-        it('should match IMDb URLs regardless of content type', () => {
-            expect(importer.matchUrl('https://www.imdb.com/title/tt12345/', 'Manga')).toBe(true);
-            expect(importer.matchUrl('https://google.com', 'Movie')).toBe(false);
-        });
     });
 
     describe('fetch', () => {

@@ -16,7 +16,7 @@ describe('BookwalkerImporter', () => {
 
     describe('matchUrl', () => {
         it('should match valid Bookwalker URLs', () => {
-            expect(importer.matchUrl('https://bookwalker.jp/de123/', 'Manga')).toBe(true);
+            expect(importer.matchUrl('https://bookwalker.jp/de123/')).toBe(true);
         });
     });
 

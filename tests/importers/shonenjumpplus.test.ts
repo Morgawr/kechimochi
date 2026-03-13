@@ -16,7 +16,7 @@ describe('ShonenjumpplusImporter', () => {
 
     describe('matchUrl', () => {
         it('should match valid Shonen Jump Plus URLs', () => {
-            expect(importer.matchUrl('https://shonenjumpplus.com/episode/123', 'Manga')).toBe(true);
+            expect(importer.matchUrl('https://shonenjumpplus.com/episode/123')).toBe(true);
         });
     });
 

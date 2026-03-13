@@ -16,7 +16,7 @@ describe('BookmeterImporter', () => {
 
     describe('matchUrl', () => {
         it('should match valid Bookmeter URLs', () => {
-            expect(importer.matchUrl('https://bookmeter.com/books/123', 'Novel')).toBe(true);
+            expect(importer.matchUrl('https://bookmeter.com/books/123')).toBe(true);
         });
     });
 
