@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Dashboard } from '../../src/components/dashboard';
 import * as api from '../../src/api';
-import { ActivityLog } from '../../src/api';
+import { ActivitySummary } from '../../src/api';
 import { customConfirm } from '../../src/modals';
 
 vi.mock('../../src/api', () => ({
@@ -9,6 +9,8 @@ vi.mock('../../src/api', () => ({
     getHeatmap: vi.fn(),
     getAllMedia: vi.fn(),
     deleteLog: vi.fn(),
+    getSetting: vi.fn(),
+    setSetting: vi.fn(),
 }));
 
 vi.mock('../../src/modals', () => ({
@@ -59,8 +61,8 @@ describe('Dashboard', () => {
 
     it('should handle pagination', async () => {
         const mockLog = { id: 1, title: 'T', media_id: 1, duration_minutes: 10, date: '2024-01-01', media_type: 'Type', language: 'J' };
-        const logs = Array.from({ length: 20 }, () => ({ ...mockLog }));
-        vi.mocked(api.getLogs).mockResolvedValue(logs as unknown as ActivityLog[]);
+        const logs: ActivitySummary[] = Array.from({ length: 20 }, () => ({ ...mockLog }));
+        vi.mocked(api.getLogs).mockResolvedValue(logs);
         vi.mocked(api.getHeatmap).mockResolvedValue([]);
         vi.mocked(api.getAllMedia).mockResolvedValue([]);
 
@@ -80,8 +82,8 @@ describe('Dashboard', () => {
     });
 
     it('should prompt before deleting a log', async () => {
-        const logs = [{ id: 456, title: 'To Delete', media_id: 1, duration_minutes: 10, date: '2024-01-01', media_type: 'Type', language: 'J' }];
-        vi.mocked(api.getLogs).mockResolvedValue(logs as unknown as ActivityLog[]);
+        const logs: ActivitySummary[] = [{ id: 456, title: 'To Delete', media_id: 1, duration_minutes: 10, date: '2024-01-01', media_type: 'Type', language: 'J' }];
+        vi.mocked(api.getLogs).mockResolvedValue(logs);
         vi.mocked(api.getHeatmap).mockResolvedValue([]);
         vi.mocked(api.getAllMedia).mockResolvedValue([]);
         
@@ -101,5 +103,26 @@ describe('Dashboard', () => {
             expect(customConfirm).toHaveBeenCalled();
             expect(api.deleteLog).toHaveBeenCalledWith(456);
         });
+    });
+    it('should load chart settings on mount', async () => {
+        vi.mocked(api.getLogs).mockResolvedValue([]);
+        vi.mocked(api.getHeatmap).mockResolvedValue([]);
+        vi.mocked(api.getAllMedia).mockResolvedValue([]);
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === 'dashboard_chart_type') return 'line';
+            if (key === 'dashboard_group_by') return 'log_name';
+            return null;
+        });
+
+        const dashboard = new Dashboard(container);
+        await vi.waitFor(() => {
+            // @ts-expect-error - accessing private state
+            if (!dashboard.state.isInitialized) throw new Error('Not initialized');
+        });
+
+        // @ts-expect-error - accessing private state
+        expect(dashboard.state.chartParams.chartType).toBe('line');
+        // @ts-expect-error - accessing private state
+        expect(dashboard.state.chartParams.groupByMode).toBe('log_name');
     });
 });

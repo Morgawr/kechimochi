@@ -29,6 +29,8 @@ export const SETTING_KEYS = {
     STATS_VN_COUNT: 'stats_vn_count',
     STATS_REPORT_TIMESTAMP: 'stats_report_timestamp',
     GRID_HIDE_ARCHIVED: 'grid_hide_archived',
+    DASHBOARD_CHART_TYPE: 'dashboard_chart_type',
+    DASHBOARD_GROUP_BY: 'dashboard_group_by',
 } as const;
 
 export const DEFAULTS = {

@@ -1,6 +1,6 @@
 import { Component } from '../core/component';
 import { html, escapeHTML } from '../core/html';
-import { getLogs, getHeatmap, getAllMedia, ActivitySummary, DailyHeatmap, deleteLog, Media } from '../api';
+import { getLogs, getHeatmap, getAllMedia, ActivitySummary, DailyHeatmap, deleteLog, Media, getSetting, setSetting } from '../api';
 import { customConfirm } from '../modals';
 import { StatsCard } from './dashboard/StatsCard';
 import { HeatmapView } from './dashboard/HeatmapView';
@@ -8,7 +8,7 @@ import { ActivityCharts } from './dashboard/ActivityCharts';
 import { setupCopyButton } from '../utils/clipboard';
 import { formatLoggedDuration } from '../utils/time';
 import { Logger } from '../core/logger';
-import { VIEW_NAMES, EVENTS } from '../constants';
+import { VIEW_NAMES, EVENTS, SETTING_KEYS } from '../constants';
 
 interface DashboardState {
     logs: ActivitySummary[];
@@ -65,12 +65,23 @@ export class Dashboard extends Component<DashboardState> {
         if (this.isRefreshing) return;
         this.isRefreshing = true;
         try {
-            const [logs, heatmapData, mediaList] = await Promise.all([
+            const [logs, heatmapData, mediaList, savedChartType, savedGroupBy] = await Promise.all([
                 getLogs(),
                 getHeatmap(),
-                getAllMedia()
+                getAllMedia(),
+                getSetting(SETTING_KEYS.DASHBOARD_CHART_TYPE),
+                getSetting(SETTING_KEYS.DASHBOARD_GROUP_BY)
             ]);
-            this.setState({ logs, heatmapData, mediaList, isInitialized: true });
+
+            const chartParams = { ...this.state.chartParams };
+            if (savedChartType === 'bar' || savedChartType === 'line') {
+                chartParams.chartType = savedChartType;
+            }
+            if (savedGroupBy === 'media_type' || savedGroupBy === 'log_name') {
+                chartParams.groupByMode = savedGroupBy;
+            }
+
+            this.setState({ logs, heatmapData, mediaList, chartParams, isInitialized: true });
         } catch (error) {
             Logger.error("Failed to load dashboard data:", error);
         } finally {
@@ -205,6 +216,16 @@ export class Dashboard extends Component<DashboardState> {
             { logs: this.state.logs, ...this.state.chartParams },
             (newParams) => {
                 this.setState({ chartParams: { ...this.state.chartParams, ...newParams } });
+                
+                // Persist changes
+                if (newParams.chartType) {
+                    setSetting(SETTING_KEYS.DASHBOARD_CHART_TYPE, newParams.chartType)
+                        .catch(e => Logger.error("Failed to save dashboard chart type setting", e));
+                }
+                if (newParams.groupByMode) {
+                    setSetting(SETTING_KEYS.DASHBOARD_GROUP_BY, newParams.groupByMode)
+                        .catch(e => Logger.error("Failed to save dashboard group by setting", e));
+                }
             }
         );
         this.activeChartsComponent.render();
