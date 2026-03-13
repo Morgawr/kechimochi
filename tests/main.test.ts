@@ -3,6 +3,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import * as api from '../src/api';
 import { ActivityLog } from '../src/api';
 import * as modals from '../src/modals';
+import { STORAGE_KEYS, SETTING_KEYS } from '../src/constants';
 
 const mockWindow = {
     minimize: vi.fn(),
@@ -30,7 +31,7 @@ vi.mock('../src/api', () => ({
     listProfiles: vi.fn(() => Promise.resolve(['test-user'])),
     getUsername: vi.fn(() => Promise.resolve('os-user')),
     getSetting: vi.fn((key) => {
-        if (key === 'theme') return Promise.resolve('dark');
+        if (key === SETTING_KEYS.THEME) return Promise.resolve('dark');
         return Promise.resolve(null);
     }),
     getLogs: vi.fn(() => Promise.resolve([{ date: '2024-01-01', total_minutes: 0, title: 'T', media_id: 1, media_type: 'M', language: 'J' } as unknown as ActivityLog])),
@@ -72,7 +73,7 @@ describe('main.ts initialization', () => {
         `;
         
         // Mock localStorage
-        const store: Record<string, string> = { 'kechimochi_profile': 'test-user' };
+        const store: Record<string, string> = { [STORAGE_KEYS.CURRENT_PROFILE]: 'test-user' };
         vi.stubGlobal('localStorage', {
             getItem: vi.fn(key => store[key] || null),
             setItem: vi.fn((key, val) => store[key] = val),

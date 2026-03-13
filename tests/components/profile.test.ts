@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ProfileView } from '../../src/components/profile';
 import * as api from '../../src/api';
 import { Media } from '../../src/api';
+import { STORAGE_KEYS, SETTING_KEYS } from '../../src/constants';
 
 vi.mock('../../src/api', () => ({
     getSetting: vi.fn(),
@@ -38,7 +39,7 @@ describe('ProfileView', () => {
         vi.clearAllMocks();
         
         // Mock localStorage
-        const store: Record<string, string> = { 'kechimochi_profile': 'test-user' };
+        const store: Record<string, string> = { [STORAGE_KEYS.CURRENT_PROFILE]: 'test-user' };
         vi.stubGlobal('localStorage', {
             getItem: vi.fn(key => store[key] || null),
             setItem: vi.fn((key, val) => store[key] = val),
@@ -47,8 +48,8 @@ describe('ProfileView', () => {
 
     it('should load settings and render profile name', async () => {
         vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === 'theme') return 'pastel-pink';
-            if (key === 'stats_report_timestamp') return '2024-01-01T00:00:00Z';
+            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
+            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '2024-01-01T00:00:00Z';
             return '0';
         });
         vi.mocked(api.getAppVersion).mockResolvedValue('1.2.3');
@@ -69,8 +70,8 @@ describe('ProfileView', () => {
         // We need to wait for loadData to finish which calls getSetting('stats_report_timestamp')
         // Since we mocked it to return 'dark', we must pass a valid date instead.
         vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === 'theme') return 'dark';
-            if (key === 'stats_report_timestamp') return '';
+            if (key === SETTING_KEYS.THEME) return 'dark';
+            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
             return '0';
         });
 
@@ -82,7 +83,7 @@ describe('ProfileView', () => {
         select.value = 'molokai';
         select.dispatchEvent(new Event('change'));
 
-        expect(api.setSetting).toHaveBeenCalledWith('theme', 'molokai');
+        expect(api.setSetting).toHaveBeenCalledWith(SETTING_KEYS.THEME, 'molokai');
     });
 
     it('should calculate report', async () => {
@@ -101,7 +102,7 @@ describe('ProfileView', () => {
         const calcBtn = container.querySelector('#profile-btn-calculate-report') as HTMLButtonElement;
         calcBtn.click();
 
-        await vi.waitFor(() => expect(api.setSetting).toHaveBeenCalledWith('stats_novel_speed', '10000'));
+        await vi.waitFor(() => expect(api.setSetting).toHaveBeenCalledWith(SETTING_KEYS.STATS_NOVEL_SPEED, '10000'));
         expect(modals.customAlert).toHaveBeenCalledWith("Success", expect.stringContaining("calculated"));
     });
 
@@ -135,8 +136,8 @@ describe('ProfileView', () => {
         const calcBtn = container.querySelector('#profile-btn-calculate-report') as HTMLButtonElement;
         calcBtn.click();
 
-        await vi.waitFor(() => expect(api.setSetting).toHaveBeenCalledWith('stats_manga_speed', '100'));
-        expect(api.setSetting).toHaveBeenCalledWith('stats_vn_speed', '5000');
+        await vi.waitFor(() => expect(api.setSetting).toHaveBeenCalledWith(SETTING_KEYS.STATS_MANGA_SPEED, '100'));
+        expect(api.setSetting).toHaveBeenCalledWith(SETTING_KEYS.STATS_VN_SPEED, '5000');
     });
 
     it('should clear activities on confirm', async () => {

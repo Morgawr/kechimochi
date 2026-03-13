@@ -10,22 +10,22 @@ import {
     initialProfilePrompt, showLogActivityModal
 } from './modals';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { Logger } from './core/logger';
+import { STORAGE_KEYS, SETTING_KEYS } from './constants';
 
 // Support global date mocking for E2E tests
 let mockDateStr: string | null = null;
 try {
-    mockDateStr = sessionStorage.getItem('kechimochi_mock_date');
-    if (localStorage.getItem('kechimochi_mock_date')) {
-        localStorage.removeItem('kechimochi_mock_date');
+    mockDateStr = sessionStorage.getItem(STORAGE_KEYS.MOCK_DATE);
+    if (localStorage.getItem(STORAGE_KEYS.MOCK_DATE)) {
+        localStorage.removeItem(STORAGE_KEYS.MOCK_DATE);
     }
 } catch (e) {
-    // eslint-disable-next-line no-console
-    console.warn('[kechimochi] Failed to access storage for mock date:', e);
+    Logger.warn('[kechimochi] Failed to access storage for mock date:', e);
 }
 
 if (mockDateStr) {
-    // eslint-disable-next-line no-console
-    console.log(`[kechimochi] Mocking system date to: ${mockDateStr}`);
+    Logger.info(`[kechimochi] Mocking system date to: ${mockDateStr}`);
     const originalDate = Date;
     const frozenTimestamp = new Date(mockDateStr + "T12:00:00Z").getTime();
 
@@ -51,7 +51,7 @@ type ViewType = 'dashboard' | 'media' | 'profile';
 
 class App {
     private currentView: ViewType = 'dashboard';
-    private currentProfile: string = localStorage.getItem('kechimochi_profile') || '';
+    private currentProfile: string = localStorage.getItem(STORAGE_KEYS.CURRENT_PROFILE) || '';
 
     private readonly dashboard: Dashboard;
     private readonly mediaView: MediaView;
@@ -138,9 +138,10 @@ class App {
     private setupProfileControls() {
         this.selectProfileEl.addEventListener('change', async () => {
             this.currentProfile = this.selectProfileEl.value;
-            localStorage.setItem('kechimochi_profile', this.currentProfile);
+            localStorage.setItem(STORAGE_KEYS.CURRENT_PROFILE, this.currentProfile);
             await switchProfile(this.currentProfile);
             await this.loadTheme();
+            localStorage.setItem(STORAGE_KEYS.THEME_CACHE, document.body.dataset.theme || 'pastel-pink');
             this.resetViews();
             this.renderCurrentView();
         });
@@ -149,7 +150,7 @@ class App {
             const newProfile = await customPrompt("Enter new user profile name:");
             if (newProfile && newProfile.trim() !== '') {
                 this.currentProfile = newProfile.trim();
-                localStorage.setItem('kechimochi_profile', this.currentProfile);
+                localStorage.setItem(STORAGE_KEYS.CURRENT_PROFILE, this.currentProfile);
                 await switchProfile(this.currentProfile);
                 await this.loadTheme();
                 await this.ensureProfilesList();
@@ -169,7 +170,7 @@ class App {
                 await deleteProfile(this.currentProfile);
                 const updatedProfiles = await listProfiles();
                 this.currentProfile = updatedProfiles.length > 0 ? updatedProfiles[0] : 'default';
-                localStorage.setItem('kechimochi_profile', this.currentProfile);
+                localStorage.setItem(STORAGE_KEYS.CURRENT_PROFILE, this.currentProfile);
                 await switchProfile(this.currentProfile);
                 await this.loadTheme();
                 await this.ensureProfilesList();
@@ -214,15 +215,15 @@ class App {
             const osUsername = await getUsername();
             const initialName = await initialProfilePrompt(osUsername);
             this.currentProfile = initialName;
-            localStorage.setItem('kechimochi_profile', this.currentProfile);
+            localStorage.setItem(STORAGE_KEYS.CURRENT_PROFILE, this.currentProfile);
             await switchProfile(this.currentProfile);
             profiles = await listProfiles();
         } else if (!profiles.includes(this.currentProfile)) {
             this.currentProfile = profiles[0];
-            localStorage.setItem('kechimochi_profile', this.currentProfile);
+            localStorage.setItem(STORAGE_KEYS.CURRENT_PROFILE, this.currentProfile);
         }
 
-        this.selectProfileEl.innerHTML = profiles.map(p => `<option value="${p}">${p}</option>`).join('');
+        this.selectProfileEl.innerHTML = profiles.map((p: string) => `<option value="${p}">${p}</option>`).join('');
         this.selectProfileEl.value = this.currentProfile;
     }
 
@@ -233,8 +234,9 @@ class App {
     }
 
     private async loadTheme() {
-        const theme = await getSetting('theme') || 'pastel-pink';
+        const theme = await getSetting(SETTING_KEYS.THEME) || 'pastel-pink';
         document.body.dataset.theme = theme;
+        localStorage.setItem(STORAGE_KEYS.THEME_CACHE, theme);
     }
 
     private async switchView(view: ViewType) {
@@ -266,7 +268,6 @@ class App {
 
 document.addEventListener('DOMContentLoaded', () => {
     App.start().catch(e => {
-        // eslint-disable-next-line no-console
-        console.error('Failed to start application:', e);
+        Logger.error('Failed to start application:', e);
     });
 });

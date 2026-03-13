@@ -21,7 +21,7 @@
 }
 
 /* Pastel Pink (Default) */
-body, body[data-theme='pastel-pink'] {
+body[data-theme='pastel-pink'] {
   --bg-dark: #2e232b;
   --bg-card: #3d2e37;
   --bg-card-hover: #4f3b47;
