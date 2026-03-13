@@ -798,6 +798,32 @@ input:focus, select:focus {
     color: var(--text-secondary);
 }
 
+
+/* Status LED Icons */
+.status-led {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    z-index: 10;
+    box-shadow: 0 0 4px rgba(0, 0, 0, 0.5), inset 0 0 2px rgba(255, 255, 255, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.status-led.status-ongoing { background-color: #2196F3 !important; }
+.status-led.status-complete { background-color: #4CAF50 !important; }
+.status-led.status-paused { background-color: #FFEB3B !important; }
+.status-led.status-dropped { background-color: #F44336 !important; }
+.status-led.status-not-started { background-color: #FFFFFF !important; }
+
+/* Ensure the LED stands out in all themes */
+[data-theme='light'] .status-led {
+    box-shadow: 0 0 2px rgba(0, 0, 0, 0.3);
+    border-color: rgba(0, 0, 0, 0.1);
+}
+
 .status-ongoing { background-color: #1c5a8a !important; color: #ffffff !important; }
 .status-complete { background-color: #1e8449 !important; color: #ffffff !important; }
 .status-paused { background-color: #f1c40f !important; color: #000000 !important; }

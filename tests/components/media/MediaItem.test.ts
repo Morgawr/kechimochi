@@ -65,6 +65,7 @@ describe('MediaItem', () => {
         expect(disconnect).toHaveBeenCalled();
     });
 
+
     it('should handle image load failure', async () => {
         const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
@@ -81,5 +82,25 @@ describe('MediaItem', () => {
         expect(component.state.imgSrc).toBeNull();
 
         consoleSpy.mockRestore();
+    });
+
+    it('should render status LED for tracked media', () => {
+        const media = { title: 'Test Media', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' };
+        const component = new MediaItem(container, media as unknown as Media, vi.fn());
+        component.render();
+
+        const led = container.querySelector('.status-led');
+        expect(led).not.toBeNull();
+        expect(led?.classList.contains('status-ongoing')).toBe(true);
+        expect((led as HTMLElement).title).toBe('Status: Ongoing');
+    });
+
+    it('should NOT render status LED for untracked media', () => {
+        const media = { title: 'Test Media', status: 'Active', content_type: 'Anime', tracking_status: 'Untracked' };
+        const component = new MediaItem(container, media as unknown as Media, vi.fn());
+        component.render();
+
+        const led = container.querySelector('.status-led');
+        expect(led).toBeNull();
     });
 });

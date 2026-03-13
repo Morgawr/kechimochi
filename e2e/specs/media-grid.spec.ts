@@ -21,6 +21,20 @@ describe('Media Grid CUJ', () => {
     expect(mediaItems.length).toBeGreaterThan(0);
   });
 
+  it('should display status LEDs on media items', async () => {
+    const statusLeds = await $$('.media-grid-item .status-led');
+    // At least some items in the seed data should be tracked (Ongoing, Complete, etc.)
+    expect(statusLeds.length).toBeGreaterThan(0);
+    
+    // Check that at least one is visible and has correct attributes
+    const firstLed = statusLeds[0];
+    expect(await firstLed.isDisplayed()).toBe(true);
+    
+    // Verify it has the expected class prefix
+    const className = await firstLed.getAttribute('class');
+    expect(className).toContain('status-led');
+  });
+
   it('should have a working search bar', async () => {
     const searchInput = await $('#grid-search-filter');
     if (await searchInput.isExisting()) {
