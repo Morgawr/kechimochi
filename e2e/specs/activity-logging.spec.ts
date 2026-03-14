@@ -43,12 +43,20 @@ describe('CUJ: Log Daily Activity', () => {
     await navigateTo('dashboard');
     expect(await verifyActiveView('dashboard')).toBe(true);
 
-    const recentActivity = $('#recent-logs-list');
-    const text = await recentActivity.getText();
-    expect(text).toContain('Final Fantasy 7');
-    expect(text).toContain('60 minutes');
-    expect(text).toContain('1,000 characters');
-    expect(text).toContain('500 characters'); // For the 0-minute entry
+    // Verify 60min/1000chars entry
+    const entry1 = $(`.dashboard-activity-item[data-activity-title="Final Fantasy 7"]`);
+    await entry1.waitForExist({ timeout: 3000 });
+    const text1 = await entry1.getText();
+    expect(text1).toContain('60 minutes');
+    expect(text1).toMatch(/1,?000 characters/);
+
+    // Verify 500chars entry (might same title, so we can check if there are 2)
+    const entries = await $$(`.dashboard-activity-item[data-activity-title="Final Fantasy 7"]`);
+    expect(entries.length).toBe(2);
+    
+    // Check the specific 500 characters entry
+    const listText = await $('#recent-logs-list').getText();
+    expect(listText).toContain('500 characters');
   });
 
   it('should verify that "Final Fantasy 7" now exists in the media tab', async () => {

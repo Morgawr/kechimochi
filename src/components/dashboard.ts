@@ -344,7 +344,7 @@ export class Dashboard extends Component<DashboardState> {
             }
 
             return `
-                <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem; background: var(--bg-dark); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+                <div class="dashboard-activity-item" data-activity-title="${escapedTitle}" style="display: flex; justify-content: space-between; align-items: center; padding: 1rem; background: var(--bg-dark); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
                     <div style="display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap;">
                         <span style="color: var(--accent-green); font-weight: 500;">${escapedProfile}</span> 
                         <span style="color: var(--text-secondary);">logged</span> 

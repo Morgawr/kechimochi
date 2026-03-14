@@ -63,7 +63,7 @@ describe('Media Grid CUJ', () => {
 
     // Detail view should show -- check for detail-specific elements
     const detailView = $('#media-root');
-    await detailView.waitForDisplayed({ timeout: 10000 });
+    await detailView.waitForDisplayed({ timeout: 3000 });
     expect(await detailView.isDisplayed()).toBe(true);
     
     expect(await $('#media-detail-header').isDisplayed()).toBe(true);

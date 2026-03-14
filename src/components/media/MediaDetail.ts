@@ -271,7 +271,7 @@ export class MediaDetail extends Component<MediaDetailState> {
         return this.state.milestones.map(m => {
             const dateHover = m.date ? `title="Achieved on ${m.date}"` : '';
             return `
-                <div class="milestone-item" ${dateHover} style="display: flex; align-items: center; justify-content: space-between; padding: 0.3rem 0.5rem; background: rgba(255,255,255,0.03); border-radius: 3px; border: 1px solid rgba(255,255,255,0.05); position: relative;">
+                <div class="milestone-item" data-milestone-name="${escapeHTML(m.name)}" ${dateHover} style="display: flex; align-items: center; justify-content: space-between; padding: 0.3rem 0.5rem; background: rgba(255,255,255,0.03); border-radius: 3px; border: 1px solid rgba(255,255,255,0.05); position: relative;">
                     <div style="flex: 1; display: flex; flex-direction: column; gap: 0.05rem;">
                         <span style="font-weight: 600; font-size: 0.8rem; line-height: 1.1;">${escapeHTML(m.name)}</span>
                         <span style="font-size: 0.7rem; color: var(--text-secondary); opacity: 0.7;">

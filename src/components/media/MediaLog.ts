@@ -28,7 +28,7 @@ export class MediaLog extends Component<MediaLogState> {
             const separator = (durationStr && charStr) ? ' | ' : '';
  
             const entry = html`
-                <div style="display: flex; justify-content: space-between; padding: 0.5rem; border-bottom: 1px solid var(--border-color); font-size: 0.9rem;">
+                <div class="media-detail-log-item" data-duration="${log.duration_minutes}" data-characters="${log.characters}" style="display: flex; justify-content: space-between; padding: 0.5rem; border-bottom: 1px solid var(--border-color); font-size: 0.9rem;">
                     <span><span style="color: var(--text-secondary);">Activity:</span> ${durationStr}${separator}${charStr}</span>
                     <span style="color: var(--text-secondary);">${log.date}</span>
                 </div>

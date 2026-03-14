@@ -94,7 +94,7 @@ export async function editDescription(newDescription: string): Promise<void> {
         const descEl = await $('#media-description');
         return await descEl.isDisplayed().catch(() => false);
     }, {
-        timeout: 8000,
+        timeout: 5000,
         timeoutMsg: 'Description field never became visible'
     });
 
@@ -206,7 +206,7 @@ export async function editExtraField(key: string, newValue: string): Promise<voi
 
         const newInput = $(inputSelector);
         return await newInput.isExisting() && await newInput.isDisplayed();
-    }, { timeout: 10000, interval: 1000, timeoutMsg: `Failed to open edit mode for ${key}` });
+    }, { timeout: 5000, interval: 1000, timeoutMsg: `Failed to open edit mode for ${key}` });
 
     const input = $(inputSelector);
     await input.waitForClickable({ timeout: 2000 });
@@ -273,6 +273,10 @@ export async function addMilestone(name: string, hours: string, minutes: string,
     }
 
     await $('#milestone-confirm').click();
+    
+    // Wait for the modal to disappear for stability
+    await $('#milestone-name').waitForExist({ reverse: true, timeout: 3000 });
+    
     return selectedDate;
 }
 
