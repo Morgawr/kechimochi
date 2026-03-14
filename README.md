@@ -62,13 +62,66 @@ Your logs are stored in local SQLite databases, giving you full control over you
 
 ## Getting Started
 
-Kechimochi is a desktop application built with Tauri. It supports a standalone app interface, as well as a local web page (this requires developer tools to build).
+Kechimochi is a desktop application built with Tauri. It supports a standalone app interface, as well as a self hosted web application.
 
 For details on how to run the software on developer builds (and contribute!) see the [Development.md](Development.md) document.
 
 The software is still in heavy early development. Most core features are already implemented and work and is in a more than usable state, but some core features are still missing or might change significantly before official release. Be aware that you are choosing to trust this software at your own risk.
 
 If you want to run it on dev builds without needing to build it yourself, grab one of the latest  pre-release artifacts from one of the [published artifacts](https://github.com/Morgawr/kechimochi/actions/workflows/publish.yml) for either Linux or Windows.
+
+### Docker (Self Hosted)
+
+Kechimochi web mode is available as a container image on GitHub Container Registry:
+
+*   `ghcr.io/morgawr/kechimochi:latest`
+
+Run with Docker:
+
+```bash
+docker run -d \
+  --name kechimochi \
+  -p 3000:3000 \
+  -v /path/to/kechimochi-data:/data \
+  -e TZ=UTC \
+  ghcr.io/morgawr/kechimochi:latest
+```
+
+Then open `http://<your-server-ip>:3000`.
+
+The `/data` volume contains your SQLite databases and covers, so keep it on persistent storage.
+
+### Docker Compose Example
+
+```yaml
+services:
+  kechimochi:
+    image: ghcr.io/morgawr/kechimochi:latest
+    container_name: kechimochi
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      TZ: UTC
+      KECHIMOCHI_DATA_DIR: /data
+      PORT: 3000
+      HOST: 0.0.0.0
+    volumes:
+      - /path/to/kechimochi-data:/data
+```
+
+Start it with:
+
+```bash
+docker compose up -d
+```
+
+Update to the newest image:
+
+```bash
+docker compose pull
+docker compose up -d
+```
 
 ---
 
