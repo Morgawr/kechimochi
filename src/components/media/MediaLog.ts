@@ -1,5 +1,5 @@
 import { Component } from '../../core/component';
-import { html } from '../../core/html';
+import { html, escapeHTML } from '../../core/html';
 import { ActivitySummary, deleteLog } from '../../api';
 import { formatLoggedDuration } from '../../utils/time';
 import { showLogActivityModal } from '../../modals/activity';
@@ -26,7 +26,7 @@ export class MediaLog extends Component<MediaLogState> {
 
         this.state.logs.forEach(log => {
             const durationStr = log.duration_minutes > 0 ? formatLoggedDuration(log.duration_minutes, true) : '';
-            const charStr = log.characters > 0 ? `${log.characters.toLocaleString()} chars` : '';
+            const charStr = log.characters > 0 ? `${escapeHTML(log.characters.toLocaleString())} chars` : '';
             const separator = (durationStr && charStr) ? ' | ' : '';
  
             const entry = html`

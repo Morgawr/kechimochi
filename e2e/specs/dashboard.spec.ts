@@ -1,7 +1,6 @@
 import { waitForAppReady } from '../helpers/setup.js';
-import { verifyViewNotBroken } from '../helpers/navigation.js';
+import { verifyViewNotBroken, navigateTo } from '../helpers/navigation.js';
 import { takeAndCompareScreenshot } from '../helpers/common.js';
-import { navigateTo } from '../helpers/navigation.js';
 import { logActivity, editMostRecentLog } from '../helpers/dashboard.js';
 
 describe('Dashboard CUJ', () => {

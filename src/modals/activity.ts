@@ -2,14 +2,19 @@ import { getAllMedia, addLog, updateLog, addMedia, updateMedia, ActivitySummary 
 import { buildCalendar } from './calendar';
 import { customPrompt, customAlert, createOverlay } from './base';
 import { Logger } from '../core/logger';
+import { escapeHTML } from '../core/html';
+
+const pad = (n: number) => n.toString().padStart(2, '0');
+const getTodayStr = () => {
+    const today = new Date();
+    return `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+};
 
 export async function showExportCsvModal(): Promise<{mode: 'all' | 'range', start?: string, end?: string} | null> {
     return new Promise((resolve) => {
         const { overlay, cleanup } = createOverlay();
         
-        const pad = (n: number) => n.toString().padStart(2, '0');
-        const today = new Date();
-        const todayStr = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+        const todayStr = getTodayStr();
         
         overlay.innerHTML = `
             <div class="modal-content" style="max-width: 90vw; width: max-content;">
@@ -56,14 +61,17 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
 
         const activeMedia = mediaList.filter(m => m.status !== 'Archived' && m.tracking_status === 'Ongoing');
 
+        const escapedTitle = escapeHTML(editLog?.title || prefillMediaTitle || '');
+        const activeMediaOptions = activeMedia.map(m => `<option value="${escapeHTML(m.title)}">`).join('');
+
         overlay.innerHTML = `
             <div class="modal-content" style="width: 450px;">
                 <h3>${editLog ? 'Edit Activity' : 'Log Activity'}</h3>
                 <form id="add-activity-form" style="margin-top: 1rem; display: flex; flex-direction: column; gap: 1rem;">
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">
                         <label style="font-size: 0.85rem; color: var(--text-secondary);">Media Title</label>
-                        <input type="text" id="activity-media" list="media-datalist" autocomplete="off" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm);" value="${editLog?.title || prefillMediaTitle || ''}" ${editLog ? 'disabled' : ''} required oninvalid="this.setCustomValidity('Media Title is required')" oninput="this.setCustomValidity('')" />
-                        <datalist id="media-datalist">${activeMedia.map(m => `<option value="${m.title}">`).join('')}</datalist>
+                        <input type="text" id="activity-media" list="media-datalist" autocomplete="off" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm);" value="${escapedTitle}" ${editLog ? 'disabled' : ''} required oninvalid="this.setCustomValidity('Media Title is required')" oninput="this.setCustomValidity('')" />
+                        <datalist id="media-datalist">${activeMediaOptions}</datalist>
                     </div>
                     <div style="display: flex; gap: 1rem; width: 100%;">
                         <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.5rem;">
@@ -86,9 +94,7 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
                 </form>
             </div>`;
 
-        const pad = (n: number) => n.toString().padStart(2, '0');
-        const today = new Date();
-        let selectedDate = editLog?.date || `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+        let selectedDate = editLog?.date || getTodayStr();
         buildCalendar('activity-cal-container', selectedDate, (d) => selectedDate = d);
 
         if (editLog || prefillMediaTitle) {

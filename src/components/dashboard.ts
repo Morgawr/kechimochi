@@ -140,7 +140,7 @@ export class Dashboard extends Component<DashboardState> {
         this.clear();
         this.statsComponent = null;
         this.heatmapComponent = null;
-        
+
         const root = html`<div class="dashboard-root animate-fade-in" style="display: flex; flex-direction: column; gap: 2rem;"></div>`;
         this.container.appendChild(root);
 
@@ -194,14 +194,14 @@ export class Dashboard extends Component<DashboardState> {
     private updateHeatmap() {
         if (this.containers.heatmap) {
             if (this.heatmapComponent) {
-                this.heatmapComponent.setState({ 
-                    heatmapData: this.state.heatmapData, 
-                    year: this.state.currentHeatmapYear 
+                this.heatmapComponent.setState({
+                    heatmapData: this.state.heatmapData,
+                    year: this.state.currentHeatmapYear
                 });
             } else {
-                this.heatmapComponent = new HeatmapView(this.containers.heatmap, { 
-                    heatmapData: this.state.heatmapData, 
-                    year: this.state.currentHeatmapYear 
+                this.heatmapComponent = new HeatmapView(this.containers.heatmap, {
+                    heatmapData: this.state.heatmapData,
+                    year: this.state.currentHeatmapYear
                 }, (dir) => {
                     this.setState({ currentHeatmapYear: this.state.currentHeatmapYear + dir });
                 });
@@ -218,7 +218,7 @@ export class Dashboard extends Component<DashboardState> {
             { logs: this.state.logs, ...this.state.chartParams },
             (newParams) => {
                 this.setState({ chartParams: { ...this.state.chartParams, ...newParams } });
-                
+
                 // Persist changes
                 if (newParams.chartType) {
                     setSetting(SETTING_KEYS.DASHBOARD_CHART_TYPE, newParams.chartType)
@@ -243,11 +243,11 @@ export class Dashboard extends Component<DashboardState> {
 
         // Update Pagination
         if (showPagination) {
-            const prevButtonHtml = currentPage > 1 
-                ? `<button class="btn btn-ghost" id="prev-page" style="font-size: 1.2rem; padding: 0.2rem 1rem;">&lt;&lt;</button>` 
+            const prevButtonHtml = currentPage > 1
+                ? `<button class="btn btn-ghost" id="prev-page" style="font-size: 1.2rem; padding: 0.2rem 1rem;">&lt;&lt;</button>`
                 : '<div style="width: 3rem;"></div>';
-            const nextButtonHtml = currentPage < totalPages 
-                ? `<button class="btn btn-ghost" id="next-page" style="font-size: 1.2rem; padding: 0.2rem 1rem;">&gt;&gt;</button>` 
+            const nextButtonHtml = currentPage < totalPages
+                ? `<button class="btn btn-ghost" id="next-page" style="font-size: 1.2rem; padding: 0.2rem 1rem;">&gt;&gt;</button>`
                 : '<div style="width: 3rem;"></div>';
 
             this.containers.pagination.innerHTML = `
@@ -336,11 +336,11 @@ export class Dashboard extends Component<DashboardState> {
 
             let activityDesc = '';
             if (log.duration_minutes > 0 && log.characters > 0) {
-                activityDesc = `<span>${escapeHTML(formatLoggedDuration(log.duration_minutes, true))}</span> <span style="color: var(--text-secondary);">and</span> <span>${log.characters.toLocaleString()} characters</span>`;
+                activityDesc = `<span>${escapeHTML(formatLoggedDuration(log.duration_minutes, true))}</span> <span style="color: var(--text-secondary);">and</span> <span>${escapeHTML(log.characters.toLocaleString())} characters</span>`;
             } else if (log.duration_minutes > 0) {
                 activityDesc = `<span>${escapeHTML(formatLoggedDuration(log.duration_minutes, true))}</span>`;
             } else if (log.characters > 0) {
-                activityDesc = `<span>${log.characters.toLocaleString()} characters</span>`;
+                activityDesc = `<span>${escapeHTML(log.characters.toLocaleString())} characters</span>`;
             }
 
             return `
