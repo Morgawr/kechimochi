@@ -87,6 +87,7 @@ export class WebServices implements AppServices {
     deleteMedia(id: number):                 Promise<void>             { return del(`/media/${id}`); }
 
     addLog(log: ActivityLog):               Promise<number>           { return post('/logs', log); }
+    updateLog(log: ActivityLog):            Promise<void>             { return put(`/logs/${log.id}`, log); }
     deleteLog(id: number):                  Promise<void>             { return del(`/logs/${id}`); }
     getLogs():                              Promise<ActivitySummary[]> { return get('/logs'); }
     getHeatmap():                           Promise<DailyHeatmap[]>   { return get('/logs/heatmap'); }

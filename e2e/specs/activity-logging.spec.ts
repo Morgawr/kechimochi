@@ -47,7 +47,7 @@ describe('CUJ: Log Daily Activity', () => {
     const entry1 = $(`.dashboard-activity-item[data-activity-title="Final Fantasy 7"]`);
     await entry1.waitForExist({ timeout: 3000 });
     const text1 = await entry1.getText();
-    expect(text1).toContain('60 minutes');
+    expect(text1).toContain('60 Minutes');
     expect(text1).toMatch(/1,?000 characters/);
 
     // Verify 500chars entry (might same title, so we can check if there are 2)

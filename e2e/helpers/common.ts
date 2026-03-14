@@ -167,3 +167,40 @@ export async function setDialogMockPath(filePath: string): Promise<void> {
         (globalThis as unknown as { mockSavePath: string, mockOpenPath: string }).mockOpenPath = p;
     }, filePath);
 }
+
+/**
+ * Shared logic for editing an activity log via the modal.
+ */
+export async function performActivityEdit(btnSelector: string, newDuration: string, newCharacters: string = "0"): Promise<void> {
+    const editBtn = $(btnSelector);
+    await editBtn.waitForDisplayed({ timeout: 5000 });
+    await editBtn.scrollIntoView();
+    await editBtn.waitForClickable({ timeout: 3000 });
+    await editBtn.click();
+
+    const modal = $('.modal-content');
+    await modal.waitForDisplayed({ timeout: 3000 });
+
+    // Verify it's in edit mode
+    const modalTitle = modal.$('h3');
+    await browser.waitUntil(async () => (await modalTitle.getText()) === 'Edit Activity', {
+        timeout: 3000,
+        timeoutMsg: 'Modal did not enter Edit Activity mode'
+    });
+
+    const durationInput = $('#activity-duration');
+    await durationInput.waitForDisplayed({ timeout: 3000 });
+    await durationInput.setValue(newDuration);
+
+    const charInput = $('#activity-characters');
+    if (await charInput.isExisting()) {
+        await charInput.setValue(newCharacters);
+    }
+
+    const submitBtn = $('#add-activity-form button[type="submit"]');
+    await submitBtn.waitForClickable({ timeout: 2000 });
+    await submitBtn.click();
+
+    await modal.waitForDisplayed({ reverse: true, timeout: 5000 });
+    await browser.pause(500); // reduced from 1000
+}

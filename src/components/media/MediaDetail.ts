@@ -206,6 +206,13 @@ export class MediaDetail extends Component<MediaDetailState> {
 
         const logsContainer = detailView.querySelector('#media-logs-container') as HTMLElement;
         new MediaLog(logsContainer, logs).render();
+
+        logsContainer.addEventListener('activity-updated', async () => {
+            if (this.state.media.id) {
+                const updatedLogs = await getLogsForMedia(this.state.media.id);
+                this.setState({ logs: updatedLogs });
+            }
+        });
     }
 
     private placeMilestonesCard() {

@@ -350,6 +350,17 @@ pub fn delete_log(conn: &Connection, id: i64) -> Result<()> {
     Ok(())
 }
 
+pub fn update_log(conn: &Connection, log: &ActivityLog) -> Result<()> {
+    if log.duration_minutes == 0 && log.characters == 0 {
+        return Err(rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Activity must have either duration or characters"))));
+    }
+    conn.execute(
+        "UPDATE main.activity_logs SET media_id = ?1, duration_minutes = ?2, characters = ?3, date = ?4 WHERE id = ?5",
+        params![log.media_id, log.duration_minutes, log.characters, log.date, log.id.unwrap()],
+    )?;
+    Ok(())
+}
+
 pub fn clear_activities(conn: &Connection) -> Result<()> {
     conn.execute("DELETE FROM main.activity_logs", [])?;
     Ok(())
@@ -1224,5 +1235,34 @@ mod tests {
             date: None,
         };
         add_milestone(&conn, &milestone).unwrap();
+    }
+
+    #[test]
+    fn test_update_log() {
+        let conn = setup_test_db();
+        let media_id = add_media_with_id(&conn, &sample_media("Update Test")).unwrap();
+        let log = ActivityLog {
+            id: None,
+            media_id,
+            duration_minutes: 30,
+            characters: 0,
+            date: "2024-01-01".to_string(),
+        };
+        let id = add_log(&conn, &log).unwrap();
+
+        let updated_log = ActivityLog {
+            id: Some(id),
+            media_id,
+            duration_minutes: 45,
+            characters: 100,
+            date: "2024-01-02".to_string(),
+        };
+        update_log(&conn, &updated_log).unwrap();
+
+        let logs = get_logs_for_media(&conn, media_id).unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].duration_minutes, 45);
+        assert_eq!(logs[0].characters, 100);
+        assert_eq!(logs[0].date, "2024-01-02");
     }
 }

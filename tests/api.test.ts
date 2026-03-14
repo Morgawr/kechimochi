@@ -48,6 +48,12 @@ describe('api.ts', () => {
       expect(invoke).toHaveBeenCalledWith('add_log', { log });
     });
 
+    it('updateLog calls invoke update_log', async () => {
+        const log = { id: 123, media_id: 1, duration_minutes: 60, characters: 0, date: '2024-03-01' };
+        await api.updateLog(log);
+        expect(invoke).toHaveBeenCalledWith('update_log', { log });
+    });
+
     it('deleteLog should call invoke', async () => {
       await api.deleteLog(1);
       expect(invoke).toHaveBeenCalledWith('delete_log', { id: 1 });

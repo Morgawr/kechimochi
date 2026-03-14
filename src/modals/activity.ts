@@ -1,6 +1,7 @@
-import { getAllMedia, addLog, addMedia, updateMedia } from '../api';
+import { getAllMedia, addLog, updateLog, addMedia, updateMedia, ActivitySummary } from '../api';
 import { buildCalendar } from './calendar';
 import { customPrompt, customAlert, createOverlay } from './base';
+import { Logger } from '../core/logger';
 
 export async function showExportCsvModal(): Promise<{mode: 'all' | 'range', start?: string, end?: string} | null> {
     return new Promise((resolve) => {
@@ -48,7 +49,7 @@ export async function showExportCsvModal(): Promise<{mode: 'all' | 'range', star
     });
 }
 
-export async function showLogActivityModal(prefillMediaTitle?: string): Promise<boolean> {
+export async function showLogActivityModal(prefillMediaTitle?: string, editLog?: ActivitySummary): Promise<boolean> {
     const mediaList = await getAllMedia();
     return new Promise((resolve) => {
         const { overlay, cleanup } = createOverlay();
@@ -57,21 +58,21 @@ export async function showLogActivityModal(prefillMediaTitle?: string): Promise<
 
         overlay.innerHTML = `
             <div class="modal-content" style="width: 450px;">
-                <h3>Log Activity</h3>
+                <h3>${editLog ? 'Edit Activity' : 'Log Activity'}</h3>
                 <form id="add-activity-form" style="margin-top: 1rem; display: flex; flex-direction: column; gap: 1rem;">
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">
                         <label style="font-size: 0.85rem; color: var(--text-secondary);">Media Title</label>
-                        <input type="text" id="activity-media" list="media-datalist" autocomplete="off" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm);" value="${prefillMediaTitle || ''}" required oninvalid="this.setCustomValidity('Media Title is required')" oninput="this.setCustomValidity('')" />
+                        <input type="text" id="activity-media" list="media-datalist" autocomplete="off" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm);" value="${editLog?.title || prefillMediaTitle || ''}" ${editLog ? 'disabled' : ''} required oninvalid="this.setCustomValidity('Media Title is required')" oninput="this.setCustomValidity('')" />
                         <datalist id="media-datalist">${activeMedia.map(m => `<option value="${m.title}">`).join('')}</datalist>
                     </div>
                     <div style="display: flex; gap: 1rem; width: 100%;">
                         <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.5rem;">
                             <label style="font-size: 0.85rem; color: var(--text-secondary);">Duration (mins)</label>
-                            <input type="number" id="activity-duration" value="0" min="0" step="1" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); width: 100%;" />
+                            <input type="number" id="activity-duration" value="${editLog?.duration_minutes || 0}" min="0" step="1" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); width: 100%;" />
                         </div>
                         <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.5rem;">
                             <label style="font-size: 0.85rem; color: var(--text-secondary);">Characters</label>
-                            <input type="number" id="activity-characters" value="0" min="0" step="1" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); width: 100%;" />
+                            <input type="number" id="activity-characters" value="${editLog?.characters || 0}" min="0" step="1" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); width: 100%;" />
                         </div>
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 0.5rem; align-items: center;">
@@ -80,17 +81,17 @@ export async function showLogActivityModal(prefillMediaTitle?: string): Promise<
                     </div>
                     <div style="display: flex; justify-content: flex-end; gap: 1rem; margin-top: 0.5rem;">
                         <button type="button" class="btn btn-ghost" id="activity-cancel">Cancel</button>
-                        <button type="submit" class="btn btn-primary">Log Activity</button>
+                        <button type="submit" class="btn btn-primary">${editLog ? 'Update Activity' : 'Log Activity'}</button>
                     </div>
                 </form>
             </div>`;
 
         const pad = (n: number) => n.toString().padStart(2, '0');
         const today = new Date();
-        let selectedDate = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+        let selectedDate = editLog?.date || `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
         buildCalendar('activity-cal-container', selectedDate, (d) => selectedDate = d);
 
-        if (prefillMediaTitle) {
+        if (editLog || prefillMediaTitle) {
             overlay.querySelector<HTMLInputElement>('#activity-duration')!.focus();
         } else {
             overlay.querySelector<HTMLInputElement>('#activity-media')!.focus();
@@ -113,12 +114,40 @@ export async function showLogActivityModal(prefillMediaTitle?: string): Promise<
              originalCleanup();
         };
 
+        const resolveMediaId = async (title: string): Promise<number | null> => {
+            const existingMedia = mediaList.find(m => m.title.toLowerCase() === title.toLowerCase());
+            if (existingMedia?.id) {
+                if (existingMedia.status === 'Archived') {
+                    existingMedia.status = 'Active';
+                    await updateMedia(existingMedia);
+                }
+                return existingMedia.id;
+            }
+
+            const typeResp = await customPrompt(`"${title}" is new! What type of media is this?`, "Reading");
+            if (!typeResp) return null;
+            
+            return await addMedia({ 
+                title, 
+                media_type: typeResp, 
+                status: "Active", 
+                language: "Japanese", 
+                description: "", 
+                cover_image: "", 
+                extra_data: "{}", 
+                content_type: "Unknown", 
+                tracking_status: "Untracked" 
+            });
+        };
+
         overlay.querySelector('#activity-cancel')!.addEventListener('click', () => { newCleanup(); resolve(false); });
         overlay.querySelector('#add-activity-form')!.addEventListener('submit', async (e) => {
             e.preventDefault();
-            const mediaTitle = overlay.querySelector<HTMLInputElement>('#activity-media')!.value.trim();
+            const mediaTitleRaw = overlay.querySelector<HTMLInputElement>('#activity-media')!.value.trim();
+            const mediaTitle = mediaTitleRaw || (editLog ? editLog.title : '');
             const duration = Number.parseInt(overlay.querySelector<HTMLInputElement>('#activity-duration')!.value, 10) || 0;
             const characters = Number.parseInt(overlay.querySelector<HTMLInputElement>('#activity-characters')!.value, 10) || 0;
+            
             if (!mediaTitle) {
                 await customAlert("Required Field", "Please enter a Media Title.");
                 return;
@@ -128,24 +157,26 @@ export async function showLogActivityModal(prefillMediaTitle?: string): Promise<
                 return;
             }
 
-            const existingMedia = mediaList.find(m => m.title.toLowerCase() === mediaTitle.toLowerCase());
-            let mediaId: number;
-
-            if (existingMedia?.id) {
-                mediaId = existingMedia.id;
-                if (existingMedia.status === 'Archived') {
-                    existingMedia.status = 'Active';
-                    await updateMedia(existingMedia);
+            try {
+                if (editLog) {
+                    await updateLog({
+                        id: editLog.id,
+                        media_id: editLog.media_id,
+                        duration_minutes: duration,
+                        characters,
+                        date: selectedDate
+                    });
+                } else {
+                    const mediaId = await resolveMediaId(mediaTitle);
+                    if (mediaId === null) return;
+                    await addLog({ media_id: mediaId, duration_minutes: duration, characters, date: selectedDate });
                 }
-            } else {
-                const typeResp = await customPrompt(`"${mediaTitle}" is new! What type of media is this?`, "Reading");
-                if (!typeResp) return;
-                mediaId = await addMedia({ title: mediaTitle, media_type: typeResp, status: "Active", language: "Japanese", description: "", cover_image: "", extra_data: "{}", content_type: "Unknown", tracking_status: "Untracked" });
+                newCleanup();
+                resolve(true);
+            } catch (err) {
+                Logger.error("Failed to save activity", err);
+                await customAlert("Error", "Failed to save activity: " + err);
             }
-
-            await addLog({ media_id: mediaId, duration_minutes: duration, characters, date: selectedDate });
-            newCleanup();
-            resolve(true);
         });
     });
 }

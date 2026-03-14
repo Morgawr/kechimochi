@@ -41,6 +41,7 @@ export class DesktopServices implements AppServices {
     deleteMedia(id: number):                 Promise<void>            { return invoke('delete_media', { id }); }
 
     addLog(log: ActivityLog):               Promise<number>          { return invoke('add_log', { log }); }
+    updateLog(log: ActivityLog):            Promise<void>            { return invoke('update_log', { log }); }
     deleteLog(id: number):                  Promise<void>            { return invoke('delete_log', { id }); }
     getLogs():                              Promise<ActivitySummary[]>{ return invoke('get_logs'); }
     getHeatmap():                           Promise<DailyHeatmap[]>  { return invoke('get_heatmap'); }

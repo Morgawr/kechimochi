@@ -2,7 +2,7 @@ import { waitForAppReady } from '../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../helpers/navigation.js';
 import { addMedia } from '../helpers/library.js';
 import { logActivity } from '../helpers/dashboard.js';
-import { addExtraField, editExtraField, getExtraField, logActivityFromDetail } from '../helpers/media-detail.js';
+import { addExtraField, editExtraField, getExtraField, logActivityFromDetail, editMostRecentLogFromDetail } from '../helpers/media-detail.js';
 
 describe('Media Management CUJs', () => {
   before(async () => {
@@ -91,11 +91,23 @@ describe('Media Management CUJs', () => {
       const duration = '123';
       await logActivityFromDetail('Cyberpunk 2077', duration);
 
-      // Verify it appears in the logs list in detail view using markers
-      const logEntry = $(`.media-detail-log-item[data-duration="${duration}"]`);
-      await logEntry.waitForExist({ timeout: 3000 });
+      // Verify it appears in the logs list in detail view - use partial text match for duration
+      const logEntry = $('.media-detail-log-item*=123 Minutes');
+      await logEntry.waitForExist({ timeout: 5000 });
       
       expect(await logEntry.isDisplayed()).toBe(true);
+    });
+
+    it('should edit a log from detail view and verify it updates', async () => {
+      // Still in detail view for Cyberpunk 2077
+      const newDuration = '150';
+      await editMostRecentLogFromDetail(newDuration);
+
+      // Verify it updates in the list
+      const updatedEntry = $('.media-detail-log-item*=150 Minutes');
+      await updatedEntry.waitForExist({ timeout: 5000 });
+      
+      expect(await updatedEntry.isDisplayed()).toBe(true);
     });
   });
 

@@ -36,6 +36,7 @@ export interface AppServices {
     deleteMedia(id: number): Promise<void>;
 
     addLog(log: ActivityLog): Promise<number>;
+    updateLog(log: ActivityLog): Promise<void>;
     deleteLog(id: number): Promise<void>;
     getLogs(): Promise<ActivitySummary[]>;
     getHeatmap(): Promise<DailyHeatmap[]>;

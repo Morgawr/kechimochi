@@ -1,6 +1,8 @@
 import { waitForAppReady } from '../helpers/setup.js';
 import { verifyViewNotBroken } from '../helpers/navigation.js';
 import { takeAndCompareScreenshot } from '../helpers/common.js';
+import { navigateTo } from '../helpers/navigation.js';
+import { logActivity, editMostRecentLog } from '../helpers/dashboard.js';
 
 describe('Dashboard CUJ', () => {
   before(async () => {
@@ -29,5 +31,27 @@ describe('Dashboard CUJ', () => {
 
   it('should match the baseline screenshot', async () => {
     await takeAndCompareScreenshot('dashboard-initial');
+  });
+
+  it('should allow editing an activity from the timeline', async () => {
+    await navigateTo('dashboard');
+    
+    const duration = '45';
+    const newDuration = '60';
+    
+    // Log an activity first
+    await logActivity('STEINS;GATE', duration);
+    
+    // Verify it appeared
+    const logEntry = $('.dashboard-activity-item*=45 Minutes');
+    await logEntry.waitForExist({ timeout: 5000 });
+    
+    // Edit it
+    await editMostRecentLog(newDuration);
+    
+    // Verify it updated
+    const updatedEntry = $('.dashboard-activity-item*=60 Minutes');
+    await updatedEntry.waitForExist({ timeout: 5000 });
+    expect(await updatedEntry.isDisplayed()).toBe(true);
   });
 });

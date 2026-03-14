@@ -2,7 +2,7 @@
  * Media Detail helpers.
  */
 /// <reference types="@wdio/globals/types" />
-import { submitPrompt, confirmAction } from './common.js';
+import { submitPrompt, confirmAction, performActivityEdit } from './common.js';
 
 /**
  * Clicks the "Mark as Complete" button in Media Detail.
@@ -347,5 +347,12 @@ export async function logActivityFromDetail(expectedTitle: string, duration: str
     // Wait for modal to disappear
     await modal.waitForDisplayed({ reverse: true, timeout: 5000 });
     await browser.pause(500); // Wait for re-render of logs
+}
+
+/**
+ * Edits the most recent log in the Media Detail view.
+ */
+export async function editMostRecentLogFromDetail(newDuration: string, newCharacters: string = "0"): Promise<void> {
+    await performActivityEdit('.media-detail-log-item .edit-log-btn', newDuration, newCharacters);
 }
 

@@ -2,7 +2,7 @@
  * Dashboard-specific helpers.
  */
 /// <reference types="@wdio/globals/types" />
-import { confirmAction } from './common.js';
+import { confirmAction, performActivityEdit } from './common.js';
 
 /**
  * High-level helper to log an activity from the dashboard
@@ -66,6 +66,13 @@ export async function deleteMostRecentLog(): Promise<void> {
     
     // Stabilize dashboard after deletion
     await browser.pause(300);
+}
+
+/**
+ * Clicks the edit button for the most recent log in the dashboard timeline and updates it.
+ */
+export async function editMostRecentLog(newDuration: string, newCharacters: string = "0"): Promise<void> {
+    await performActivityEdit('.dashboard-activity-item .edit-log-btn', newDuration, newCharacters);
 }
 
 /**

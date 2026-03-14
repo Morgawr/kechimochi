@@ -8,6 +8,7 @@ commands.allow = [
     "delete_media",
     "add_log",
     "delete_log",
+    "update_log",
     "get_logs",
     "get_heatmap",
     "import_csv",

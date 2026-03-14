@@ -49,6 +49,6 @@ describe('CUJ: Bulk Management (Data Import)', () => {
         const recentLog = $(`.dashboard-activity-item[data-activity-title="Bulk Imported Manga"]`);
         await recentLog.waitForExist({ timeout: 5000 });
         const text = await recentLog.getText();
-        expect(text).toContain('60 minutes');
+        expect(text).toContain('60 Minutes');
     });
 });

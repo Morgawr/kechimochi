@@ -46,6 +46,7 @@ export function updateMedia(media: Media): Promise<void> { return getServices().
 export function deleteMedia(id: number): Promise<void> { return getServices().deleteMedia(id); }
 
 export function addLog(log: ActivityLog): Promise<number> { return getServices().addLog(log); }
+export function updateLog(log: ActivityLog): Promise<void> { return getServices().updateLog(log); }
 export function deleteLog(id: number): Promise<void> { return getServices().deleteLog(id); }
 export function getLogs(): Promise<ActivitySummary[]> { return getServices().getLogs(); }
 export function getHeatmap(): Promise<DailyHeatmap[]> { return getServices().getHeatmap(); }

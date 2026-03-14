@@ -50,6 +50,12 @@ fn delete_log(state: State<DbState>, id: i64) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn update_log(state: State<DbState>, log: ActivityLog) -> Result<(), String> {
+    let conn = state.conn.lock().unwrap();
+    db::update_log(&conn, &log).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn get_logs(state: State<DbState>) -> Result<Vec<ActivitySummary>, String> {
     let conn = state.conn.lock().unwrap();
     db::get_logs(&conn).map_err(|e| e.to_string())
@@ -319,6 +325,7 @@ pub fn run() {
             delete_media,
             add_log,
             delete_log,
+            update_log,
             get_logs,
             get_heatmap,
             import_csv,
