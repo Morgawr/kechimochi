@@ -14,6 +14,7 @@ export async function addMedia(title: string, type: string, contentType?: string
     }
 
     const addBtn = $('#btn-add-media-grid');
+    await addBtn.waitForClickable({ timeout: 5000 });
     await addBtn.click();
 
     const titleInput = $('#add-media-title');
@@ -21,6 +22,7 @@ export async function addMedia(title: string, type: string, contentType?: string
     await titleInput.setValue(title);
 
     const typeSelect = $('#add-media-type');
+    await typeSelect.waitForDisplayed({ timeout: 5000 });
     await typeSelect.selectByVisibleText(type);
 
     if (contentType) {
@@ -30,39 +32,40 @@ export async function addMedia(title: string, type: string, contentType?: string
     }
 
     const confirmBtn = $('#add-media-confirm');
+    await confirmBtn.waitForClickable({ timeout: 5000 });
     await confirmBtn.click();
 
     // Addition can either auto-open detail or return to grid depending on timing.
     // Make this deterministic for tests: if detail is not visible, open the newly added item.
     await browser.waitUntil(async () => {
-        const detailHeader = await $('#media-detail-header');
-        const grid = await $('#media-grid-container');
+        const detailHeader = $('#media-detail-header');
+        const grid = $('#media-grid-container');
         return (await detailHeader.isDisplayed().catch(() => false)) || (await grid.isDisplayed().catch(() => false));
     }, {
         timeout: 8000,
         timeoutMsg: 'Neither media detail nor grid became ready after adding media'
     });
 
-    const detailHeader = await $('#media-detail-header');
+    const detailHeader = $('#media-detail-header');
     if (!(await detailHeader.isDisplayed().catch(() => false))) {
         await browser.waitUntil(async () => {
-            const detailNow = await $('#media-detail-header');
+            const detailNow = $('#media-detail-header');
             if (await detailNow.isDisplayed().catch(() => false)) {
                 return true;
             }
-            const added = await $(`.media-grid-item[data-title="${title}"]`);
+            const added = $(`.media-grid-item[data-title="${title}"]`);
             return await added.isExisting().catch(() => false);
         }, {
             timeout: 10000,
             timeoutMsg: `Added media "${title}" did not appear in detail view or grid in time`
         });
 
-        const detailAfterWait = await $('#media-detail-header');
+        const detailAfterWait = $('#media-detail-header');
         if (!(await detailAfterWait.isDisplayed().catch(() => false))) {
             await clickMediaItem(title);
         }
 
-        const desc = await $('#media-description');
+        const desc = $('#media-description');
         await desc.waitForDisplayed({ timeout: 8000 });
     }
 }
@@ -82,9 +85,23 @@ export async function setSearchQuery(query: string): Promise<void> {
     if (query !== '') {
         await input.addValue(query);
     }
+}
 
-    // Grid filtering is real-time, but give it a moment to finish rendering
-    await browser.pause(500);
+/**
+ * Wait for the library grid to have a specific number of items.
+ */
+export async function waitForGridCount(count: number | ((actual: number) => boolean), options: { timeout?: number, timeoutMsg?: string } = {}): Promise<void> {
+    await browser.waitUntil(async () => {
+        const items = $$('.media-grid-item');
+        const actualCount = await items.length;
+        if (typeof count === 'function') {
+            return count(actualCount);
+        }
+        return actualCount === count;
+    }, {
+        timeout: options.timeout || 10000,
+        timeoutMsg: options.timeoutMsg || `Grid did not reach expected item count`
+    });
 }
 
 /**
@@ -151,7 +168,11 @@ export async function isMediaVisible(title: string): Promise<boolean> {
     await grid.waitForDisplayed({ timeout: 10000 }).catch(() => { });
 
     const item = await findMediaItemInternal(title);
-    return item ? await item.isDisplayed() : false;
+    if (item) {
+        await item.waitForDisplayed({ timeout: 5000 }).catch(() => { });
+        return await item.isDisplayed();
+    }
+    return false;
 }
 
 

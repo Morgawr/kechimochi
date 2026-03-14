@@ -4,6 +4,11 @@ import {
   verifyActiveView,
   verifyViewNotBroken,
 } from '../helpers/navigation.js';
+import { 
+  setSearchQuery, 
+  waitForGridCount, 
+  clickMediaItem 
+} from '../helpers/library.js';
 import { takeAndCompareScreenshot } from '../helpers/common.js';
 
 describe('Media Grid CUJ', () => {
@@ -17,62 +22,51 @@ describe('Media Grid CUJ', () => {
   });
 
   it('should display media items from fixture data', async () => {
-    const mediaItems = await $$('.media-grid-item');
-    expect(mediaItems.length).toBeGreaterThan(0);
+    await waitForGridCount(count => count > 0, { timeoutMsg: 'Media items did not render in time' });
   });
 
   it('should display status LEDs on media items', async () => {
-    const statusLeds = await $$('.media-grid-item .status-led');
-    // At least some items in the seed data should be tracked (Ongoing, Complete, etc.)
-    expect(statusLeds.length).toBeGreaterThan(0);
-    
-    // Check that at least one is visible and has correct attributes
+    await browser.waitUntil(async () => {
+      const leds = $$('.media-grid-item .status-led');
+      const count = await leds.length;
+      return count > 0;
+    }, { timeout: 10000, timeoutMsg: 'Status LEDs did not render in time' });
+
+    const statusLeds = $$('.media-grid-item .status-led');
     const firstLed = statusLeds[0];
     expect(await firstLed.isDisplayed()).toBe(true);
-    
-    // Verify it has the expected class prefix
+
     const className = await firstLed.getAttribute('class');
     expect(className).toContain('status-led');
   });
 
   it('should have a working search bar', async () => {
-    const searchInput = await $('#grid-search-filter');
-    if (await searchInput.isExisting()) {
-      await searchInput.setValue('呪術廻戦');
-      await browser.pause(500);
+    // Get initial state
+    const items = $$('.media-grid-item');
+    const initialCount = await items.length;
 
-      // After filtering, fewer items should be visible
-      const items = await $$('.media-grid-item');
-      let visibleCount = 0;
-      // Use a standard loop to avoid iterability issues with WDIO element arrays
-      const itemsCount = await items.length;
-      for (let i = 0; i < itemsCount; i++) {
-        if (await items[i].isDisplayed()) {
-          visibleCount++;
-        }
-      }
-      
-      expect(visibleCount).toBeGreaterThan(0);
-      expect(visibleCount).toBeLessThanOrEqual(10);
+    // Search for a specific title from seed.ts
+    await setSearchQuery('呪術');
+    await waitForGridCount(count => count > 0 && count < initialCount, { 
+      timeoutMsg: 'Search filtering did not reduce item count' 
+    });
 
-      // Clear the search
-      await searchInput.clearValue();
-      await browser.pause(500);
-    }
+    // Clear search and ensure all items come back
+    await setSearchQuery('');
+    await waitForGridCount(initialCount, { 
+      timeoutMsg: 'Search clearing did not restore items' 
+    });
   });
 
   it('should open detail view when clicking a media item', async () => {
-    const firstItem = await $('.media-grid-item');
-    if (await firstItem.isExisting()) {
-      await firstItem.click();
-      await browser.pause(500);
+    await clickMediaItem('ある魔女が死ぬまで');
 
-      // Detail view should show -- check for detail-specific elements
-      const detailView = await $('#media-root');
-      if (await detailView.isExisting()) {
-        expect(await detailView.isDisplayed()).toBe(true);
-      }
-    }
+    // Detail view should show -- check for detail-specific elements
+    const detailView = $('#media-root');
+    await detailView.waitForDisplayed({ timeout: 10000 });
+    expect(await detailView.isDisplayed()).toBe(true);
+    
+    expect(await $('#media-detail-header').isDisplayed()).toBe(true);
   });
 
   it('should not be in a broken state', async () => {
@@ -80,9 +74,8 @@ describe('Media Grid CUJ', () => {
   });
 
   it('should match the baseline screenshot', async () => {
-    // Navigate back to grid first
     await navigateTo('media');
-    await browser.pause(500);
+    await browser.pause(500); // Wait for transition
     await takeAndCompareScreenshot('media-grid');
   });
 });

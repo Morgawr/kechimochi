@@ -22,6 +22,7 @@ describe('CUJ: Bulk Management (Data Import)', () => {
 
         await setDialogMockPath(MEDIA_CSV);
         const importMediaBtn = $('#profile-btn-import-media');
+        await importMediaBtn.waitForClickable({ timeout: 5000 });
         await importMediaBtn.click();
 
         // Our bulk_media.csv contains "呪術廻戦" which exists, so conflict modal will show.
@@ -37,6 +38,7 @@ describe('CUJ: Bulk Management (Data Import)', () => {
         
         await setDialogMockPath(ACTIVITY_CSV);
         const importActivitiesBtn = $('#profile-btn-import-csv');
+        await importActivitiesBtn.waitForClickable({ timeout: 5000 });
         await importActivitiesBtn.click();
 
         await dismissAlert();

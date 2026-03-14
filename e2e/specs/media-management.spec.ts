@@ -1,5 +1,5 @@
 import { waitForAppReady } from '../helpers/setup.js';
-import { verifyActiveView } from '../helpers/navigation.js';
+import { navigateTo, verifyActiveView } from '../helpers/navigation.js';
 import { addMedia } from '../helpers/library.js';
 import { logActivity } from '../helpers/dashboard.js';
 import { addExtraField, editExtraField, getExtraField, logActivityFromDetail } from '../helpers/media-detail.js';
@@ -107,7 +107,12 @@ describe('Media Management CUJs', () => {
     it('should navigate to media detail from dashboard activity link', async () => {
       // First ensure there is at least one activity. We'll add one quickly.
       await logActivity('Cyberpunk 2077', '30');
-      await browser.pause(1000);
+      
+      // Wait for the modal form to disappear before navigating
+      await $('#add-activity-form').waitForExist({ reverse: true, timeout: 5000 });
+
+      // Navigate to dashboard to see the activity links
+      await navigateTo('dashboard');
 
       // Now find the link on dashboard
       const mediaLink = $('.dashboard-media-link');

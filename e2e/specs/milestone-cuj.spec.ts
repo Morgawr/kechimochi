@@ -1,6 +1,6 @@
 import { waitForAppReady } from '../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../helpers/navigation.js';
-import { addMedia } from '../helpers/library.js';
+import { addMedia, clickMediaItem } from '../helpers/library.js';
 import { setDialogMockPath, dismissAlert, closeModal } from '../helpers/common.js';
 import { addMilestone, deleteMilestone, clearAllMilestones, getMilestoneListText } from '../helpers/media-detail.js';
 import { exportMilestones, importMilestones } from '../helpers/profile.js';
@@ -112,9 +112,7 @@ describe('Milestone CUJ Test', () => {
 
         // Clear state before import
         await navigateTo('media');
-        const gridItem = $(`.media-grid-item[data-title="${mediaTitle}"]`);
-        await gridItem.waitForDisplayed({ timeout: 15000 });
-        await gridItem.click();
+        await clickMediaItem(mediaTitle);
         await clearAllMilestones();
 
         // Import
@@ -124,10 +122,7 @@ describe('Milestone CUJ Test', () => {
 
         // Final verification
         await navigateTo('media');
-        await browser.pause(2000);
-        const finalGridItem = $(`.media-grid-item[data-title="${mediaTitle}"]`);
-        await finalGridItem.waitForDisplayed({ timeout: 15000 });
-        await finalGridItem.click();
+        await clickMediaItem(mediaTitle);
 
         await browser.waitUntil(async () => {
             const text = await getMilestoneListText();

@@ -96,7 +96,7 @@ export class ProfileView extends Component<ProfileState> {
         const { currentProfile, theme, report, appVersion } = this.state;
 
         const content = html`
-            <div class="animate-fade-in" style="display: flex; flex-direction: column; gap: 2rem; max-width: 600px; margin: 0 auto; padding-top: 1rem; padding-bottom: 2rem;">
+            <div id="profile-root" class="animate-fade-in" style="display: flex; flex-direction: column; gap: 2rem; max-width: 600px; margin: 0 auto; padding-top: 1rem; padding-bottom: 2rem;">
                 
                 <div style="text-align: center; margin-bottom: 2rem;">
                     <h2 id="profile-name" style="margin: 0; font-size: 2rem; color: var(--text-primary);">${currentProfile}</h2>

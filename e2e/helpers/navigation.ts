@@ -9,29 +9,37 @@ export type ViewName = 'dashboard' | 'media' | 'profile';
  * Navigate to a specific view by clicking the nav link.
  */
 export async function navigateTo(view: ViewName): Promise<void> {
-  const link = await $(`[data-view="${view}"]`);
+  const link = $(`[data-view="${view}"]`);
+  await link.waitForClickable({ timeout: 5000 });
   await link.click();
   
-  // Wait for the nav link to become active
+  // Wait for active class to appear
   await browser.waitUntil(async () => {
-    const classes = await link.getProperty('className');
-    return classes?.includes('active');
-  }, { 
-    timeout: 5000, 
-    timeoutMsg: `Nav link for ${view} did not become active` 
-  });
+    const classes = await link.getAttribute('class') || '';
+    return classes.includes('active');
+  }, { timeout: 10000, timeoutMsg: `Nav link for ${view} did not become active` });
+
+  // Wait for the view-specific root to be present and displayed
+  let rootSelector = '#profile-root';
+  if (view === 'dashboard') {
+    rootSelector = '.dashboard-root';
+  } else if (view === 'media') {
+    rootSelector = '#media-root';
+  }
   
-  // Wait for view transition
-  await browser.pause(300);
+  await $(rootSelector).waitForDisplayed({ 
+    timeout: 10000, 
+    timeoutMsg: `View ${view} (${rootSelector}) did not render in time` 
+  });
 }
 
 /**
  * Verify that the current view is the expected one by checking the active nav link.
  */
 export async function verifyActiveView(view: ViewName): Promise<boolean> {
-  const link = await $(`[data-view="${view}"]`);
-  const classes = await link.getProperty('className');
-  return classes?.includes('active') ?? false;
+  const link = $(`[data-view="${view}"]`);
+  const classes = await link.getAttribute('class') || '';
+  return classes.includes('active');
 }
 
 /**

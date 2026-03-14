@@ -2,25 +2,22 @@
  * Dashboard-specific helpers.
  */
 /// <reference types="@wdio/globals/types" />
-import { navigateTo, verifyActiveView } from './navigation.js';
 import { confirmAction } from './common.js';
 
 /**
  * High-level helper to log an activity from the dashboard
  */
 export async function logActivity(title: string, duration: string, characters: string = "0", date?: string): Promise<void> {
-    if (!(await verifyActiveView('dashboard'))) {
-        await navigateTo('dashboard');
-    }
-
     const addActivityBtn = $('#btn-add-activity');
+    await addActivityBtn.waitForClickable({ timeout: 5000 });
     await addActivityBtn.click();
 
     const mediaInput = $('#activity-media');
-    await mediaInput.waitForDisplayed({ timeout: 5000 });
+    await mediaInput.waitForDisplayed({ timeout: 10000 });
     await mediaInput.setValue(title);
 
     const durationInput = $('#activity-duration');
+    await durationInput.waitForDisplayed({ timeout: 5000 });
     await durationInput.setValue(duration);
 
     const charInput = $('#activity-characters');
@@ -36,6 +33,7 @@ export async function logActivity(title: string, duration: string, characters: s
     }
 
     const submitBtn = $('#add-activity-form button[type="submit"]');
+    await submitBtn.waitForClickable({ timeout: 5000 });
     await submitBtn.click();
 }
 

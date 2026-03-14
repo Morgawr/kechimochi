@@ -86,7 +86,7 @@ export async function dismissAlert(expectedText?: string, timeout = 5000): Promi
             await okBtn.click();
             
             // Wait for this SPECIFIC overlay to be removed from DOM
-            await $(`.modal-overlay[data-modal-id="${modalId}"]`).waitForExist({ reverse: true, timeout: 5000 });
+            await $(`.modal-overlay[data-modal-id="${modalId}"]`).waitForExist({ reverse: true, timeout: 10000 });
         }
     } catch (e) {
         if (timeout > 0) throw e;
@@ -121,7 +121,7 @@ export async function submitPrompt(value: string): Promise<void> {
     await confirmBtn.click();
 
     // Wait for this SPECIFIC overlay to be removed from DOM
-    await $(`.modal-overlay[data-modal-id="${modalId}"]`).waitForExist({ reverse: true, timeout: 5000 });
+    await $(`.modal-overlay[data-modal-id="${modalId}"]`).waitForExist({ reverse: true, timeout: 10000 });
 }
 
 /**
