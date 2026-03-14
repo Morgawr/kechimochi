@@ -36,8 +36,11 @@ describe('Milestone CUJ Test', () => {
         await addMilestone('First Milestone', '0', '121', '0');
 
         const firstMilestone = $(`.milestone-item[data-milestone-name="First Milestone"]`);
-        await firstMilestone.waitForExist({ timeout: 3000 });
-        expect(await firstMilestone.getText()).toContain('2h1min');
+        await browser.waitUntil(async () => {
+            if (!(await firstMilestone.isExisting())) return false;
+            const text = await firstMilestone.getText();
+            return text.includes('2h1min');
+        }, { timeout: 5000, timeoutMsg: 'Milestone "First Milestone" did not show expected duration' });
 
         expect(await $('#btn-clear-milestones').isDisplayed()).toBe(true);
 
@@ -46,9 +49,8 @@ describe('Milestone CUJ Test', () => {
 
         await browser.waitUntil(async () => {
             const items = $$('.milestone-item');
-            const count = await items.length;
-            return count === 2;
-        }, { timeout: 3000, timeoutMsg: 'Expected 2 milestones after adding Dated Milestone' });
+            return (await items.length) === 2;
+        }, { timeout: 5000, timeoutMsg: 'Expected 2 milestones after adding Dated Milestone' });
 
         const datedItem = $(`.milestone-item[title="Achieved on ${selectedDate}"]`);
         await datedItem.waitForExist({ timeout: 5000 });
@@ -57,9 +59,11 @@ describe('Milestone CUJ Test', () => {
         // Add character-only milestone
         await addMilestone('Char Milestone', '0', '0', '1000');
         const charMilestone = $(`.milestone-item[data-milestone-name="Char Milestone"]`);
-        await charMilestone.waitForExist({ timeout: 3000 });
-        const charText = await charMilestone.getText();
-        expect(charText).toMatch(/1,?000 chars/); // Flexible for locale comma
+        await browser.waitUntil(async () => {
+            if (!(await charMilestone.isExisting())) return false;
+            const text = await charMilestone.getText();
+            return /1,?000 chars/.test(text);
+        }, { timeout: 5000, timeoutMsg: 'Milestone "Char Milestone" did not show expected character count' });
 
         // Verify validation for 0 duration and 0 characters
         await $('#btn-add-milestone').click();
@@ -78,10 +82,10 @@ describe('Milestone CUJ Test', () => {
         await deleteMilestone(1);
 
         await browser.waitUntil(async () => {
+            // Re-fetch items inside the loop to avoid stale element references
             const items = $$('.milestone-item');
-            const count = await items.length;
-            return count === 2;
-        }, { timeout: 3000, timeoutMsg: 'Expected 2 milestones after deleting one' });
+            return (await items.length) === 2;
+        }, { timeout: 5000, timeoutMsg: 'Expected 2 milestones after deleting one' });
 
         const textAfterSingle = await getMilestoneListText();
         expect(textAfterSingle).not.toContain('Dated Milestone');

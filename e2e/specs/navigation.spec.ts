@@ -46,14 +46,14 @@ describe('Navigation CUJ', () => {
 
       const container = await $('#view-container');
       const children = await container.$$('*');
-      expect(children.length).toBeGreaterThan(5);
+      expect(await children.length).toBeGreaterThan(5);
 
       if (to === 'dashboard') {
         // Detailed check for dashboard components that were prone to disappearing
         const statsBox = await $('#stats-box-container');
         expect(await statsBox.isExisting()).toBe(true);
         const statsChildren = await statsBox.$$('*');
-        expect(statsChildren.length).toBeGreaterThan(0);
+        expect(await statsChildren.length).toBeGreaterThan(0);
 
         const heatmap = await $('#heatmap-container');
         expect(await heatmap.isExisting()).toBe(true);

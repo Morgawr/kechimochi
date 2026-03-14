@@ -71,7 +71,7 @@ describe('Factory Reset CUJ', () => {
     await navigateTo('media');
     
     const mediaItems = await $$('.media-grid-item');
-    expect(mediaItems.length).toBe(0);
+    expect(await mediaItems.length).toBe(0);
   });
 
   it('should verify profile name is BESTUSER', async () => {

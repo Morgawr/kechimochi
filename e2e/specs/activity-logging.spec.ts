@@ -52,7 +52,7 @@ describe('CUJ: Log Daily Activity', () => {
 
     // Verify 500chars entry (might same title, so we can check if there are 2)
     const entries = await $$(`.dashboard-activity-item[data-activity-title="Final Fantasy 7"]`);
-    expect(entries.length).toBe(2);
+    expect(await entries.length).toBe(2);
     
     // Check the specific 500 characters entry
     const listText = await $('#recent-logs-list').getText();

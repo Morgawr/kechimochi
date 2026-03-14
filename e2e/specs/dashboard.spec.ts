@@ -20,7 +20,7 @@ describe('Dashboard CUJ', () => {
 
   it('should display stats cards with fixture data', async () => {
     const statsCards = await $$('.card');
-    expect(statsCards.length).toBeGreaterThan(0);
+    expect(await statsCards.length).toBeGreaterThan(0);
   });
 
   it('should have a functional view with no broken state', async () => {
