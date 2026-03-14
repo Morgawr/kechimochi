@@ -123,7 +123,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                                     <h4 style="margin: 0; color: var(--text-secondary); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em;">Milestones</h4>
                                     <button class="btn btn-ghost" id="btn-add-milestone" style="padding: 0.15rem 0.4rem; font-size: 0.65rem; border-radius: 4px;">+ Add</button>
                                 </div>
-                                <div id="milestone-list-container" style="display: flex; flex-direction: column; gap: 0.3rem; flex: 1; min-height: 0; max-height: 400px; overflow-y: auto;">
+                                <div id="milestone-list-container" style="display: flex; flex-direction: column; gap: 0.3rem; flex: 1; min-height: 0; overflow-y: auto;">
                                     ${this.renderMilestones()}
                                 </div>
                                 ${this.state.milestones.length > 0 ? html`
@@ -222,7 +222,17 @@ export class MediaDetail extends Component<MediaDetailState> {
         if (!card || !leftSlot || !mainSlot) return;
 
         const useMainColumn = globalThis.matchMedia('(max-width: 1024px)').matches;
-        (useMainColumn ? mainSlot : leftSlot).appendChild(card);
+        const activeSlot = useMainColumn ? mainSlot : leftSlot;
+        const inactiveSlot = useMainColumn ? leftSlot : mainSlot;
+
+        activeSlot.appendChild(card);
+        activeSlot.style.display = 'flex';
+        activeSlot.style.flexDirection = 'column';
+        activeSlot.style.flex = '1';
+        activeSlot.style.minHeight = '0';
+
+        inactiveSlot.style.display = 'none';
+        inactiveSlot.style.flex = '';
     }
 
     private syncViewportLayout() {
@@ -232,10 +242,7 @@ export class MediaDetail extends Component<MediaDetailState> {
 
     private adjustDesktopCoverSize() {
         const coverEl = this.container.querySelector<HTMLElement>('#media-cover-img');
-        const coverColumn = this.container.querySelector<HTMLElement>('#media-cover-column');
-        const deleteBlock = this.container.querySelector<HTMLElement>('#media-delete-block');
-        const milestonesCard = this.container.querySelector<HTMLElement>('#media-milestones-card');
-        if (!coverEl || !coverColumn || !deleteBlock || !milestonesCard) return;
+        if (!coverEl) return;
 
         const isDesktop = globalThis.matchMedia('(min-width: 1025px)').matches;
         if (!isDesktop) {
@@ -244,29 +251,11 @@ export class MediaDetail extends Component<MediaDetailState> {
             coverEl.style.maxWidth = '';
             coverEl.style.margin = '';
             coverEl.style.aspectRatio = '';
-            return;
-        }
-
-        const deleteStyles = getComputedStyle(deleteBlock);
-        const milestoneStyles = getComputedStyle(milestonesCard);
-        const deleteOuter = deleteBlock.offsetHeight + Number.parseFloat(deleteStyles.marginTop || '0');
-        const milestoneOuter = milestonesCard.offsetHeight + Number.parseFloat(milestoneStyles.marginTop || '0');
-        const availableForCover = coverColumn.clientHeight - deleteOuter - milestoneOuter - 8;
-        if (availableForCover <= 0) return;
-
-        const currentCoverHeight = coverEl.getBoundingClientRect().height;
-        if (currentCoverHeight > availableForCover) {
-            coverEl.style.height = `${Math.floor(availableForCover)}px`;
-            coverEl.style.width = 'auto';
-            coverEl.style.maxWidth = '100%';
-            coverEl.style.margin = '0 auto';
-            coverEl.style.aspectRatio = '2 / 3';
         } else {
             coverEl.style.height = '';
-            coverEl.style.width = '';
-            coverEl.style.maxWidth = '';
-            coverEl.style.margin = '';
-            coverEl.style.aspectRatio = '';
+            coverEl.style.width = '100%';
+            coverEl.style.aspectRatio = '2 / 3';
+            coverEl.style.objectFit = 'cover';
         }
     }
 
