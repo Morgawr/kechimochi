@@ -7,7 +7,7 @@ const apiTarget = process.env.VITE_API_BASE_URL || "http://127.0.0.1:3000";
 
 let gitHash: string;
 try {
-  gitHash = execFileSync("git", ["rev-parse", "--short", "HEAD"], { encoding: "utf8" }).trim();
+  gitHash = execFileSync(process.platform === "win32" ? "git" : "/usr/bin/git", ["rev-parse", "--short", "HEAD"], { encoding: "utf8" }).trim();
 } catch {
     gitHash = process.env.VITE_GIT_HASH ?? "unknown";
 }
