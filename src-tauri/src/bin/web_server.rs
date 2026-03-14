@@ -16,7 +16,7 @@ use axum::{
     extract::{Multipart, Path, Query, State},
     http::{header, StatusCode},
     response::{IntoResponse, Response},
-    routing::{delete, get, post, put},
+    routing::{any, delete, get, post, put},
     Json, Router,
 };
 use serde::Deserialize;
@@ -54,6 +54,7 @@ type HandlerResult<T> = std::result::Result<T, AppError>;
 struct AppState {
     conn: Mutex<rusqlite::Connection>,
     data_dir: PathBuf,
+    static_dir: PathBuf,
 }
 
 type Shared = Arc<AppState>;
@@ -62,7 +63,7 @@ type Shared = Arc<AppState>;
 
 #[tokio::main]
 async fn main() {
-    let data_dir = db::get_data_dir_standalone();
+    let data_dir = db::get_data_dir(&db::STANDALONE_DATA_DIR_PROVIDER);
     println!("[kechimochi] data dir: {}", data_dir.display());
 
     let profiles = db::list_profiles(data_dir.clone()).unwrap_or_default();
@@ -72,9 +73,21 @@ async fn main() {
         db::init_db(data_dir.clone(), &profiles[0]).expect("Failed to open database")
     };
 
+    let static_dir = resolve_static_dir();
+    let static_index = static_dir.join("index.html");
+    if !static_index.exists() {
+        panic!(
+            "[kechimochi] missing frontend build output at {}. Run `npm run web:build` from project root, or set KECHIMOCHI_WEB_DIST_DIR.",
+            static_index.display()
+        );
+    }
+
+    println!("[kechimochi] static dir: {}", static_dir.display());
+
     let state: Shared = Arc::new(AppState {
         conn: Mutex::new(conn),
         data_dir,
+        static_dir: static_dir.clone(),
     });
 
     let cors = CorsLayer::new()
@@ -121,6 +134,11 @@ async fn main() {
         // External proxy
         .route("/api/fetch/json",            post(fetch_json_proxy))
         .route("/api/fetch/bytes",           post(fetch_bytes_proxy))
+        // Any unmatched /api route should remain an API 404, not SPA fallback.
+        .route("/api",                       any(api_not_found))
+        .route("/api/*path",                 any(api_not_found))
+        .route("/",                          get(serve_spa_index))
+        .route("/*path",                     get(serve_static_or_spa))
         .with_state(state)
         .layer(cors);
 
@@ -130,6 +148,90 @@ async fn main() {
     println!("[kechimochi] listening on http://{}", addr);
     let listener = tokio::net::TcpListener::bind(&addr).await.expect("Failed to bind");
     axum::serve(listener, app).await.expect("Server error");
+}
+
+fn resolve_static_dir() -> PathBuf {
+    if let Ok(path) = std::env::var("KECHIMOCHI_WEB_DIST_DIR") {
+        return PathBuf::from(path);
+    }
+
+    if let Ok(cwd) = std::env::current_dir() {
+        let dist = cwd.join("dist");
+        if dist.exists() {
+            return dist;
+        }
+    }
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            let dist = parent.join("dist");
+            if dist.exists() {
+                return dist;
+            }
+        }
+    }
+
+    PathBuf::from("dist")
+}
+
+async fn api_not_found() -> (StatusCode, &'static str) {
+    (StatusCode::NOT_FOUND, "API route not found")
+}
+
+async fn serve_spa_index(State(s): State<Shared>) -> HandlerResult<Response> {
+    let index = s.static_dir.join("index.html");
+    let bytes = std::fs::read(index).ae()?;
+    Response::builder()
+        .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
+        .body(Body::from(bytes))
+        .ae()
+}
+
+async fn serve_static_or_spa(
+    State(s): State<Shared>,
+    Path(path): Path<String>,
+) -> HandlerResult<Response> {
+    // Refuse traversal or absolute paths and fall back to the SPA shell.
+    let req_path = std::path::Path::new(&path);
+    let has_bad_component = req_path.components().any(|c| {
+        matches!(
+            c,
+            std::path::Component::ParentDir
+                | std::path::Component::RootDir
+                | std::path::Component::Prefix(_)
+        )
+    });
+
+    if !has_bad_component {
+        let candidate = s.static_dir.join(req_path);
+        if candidate.is_file() {
+            let bytes = std::fs::read(&candidate).ae()?;
+            let content_type = match candidate
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or_default()
+            {
+                "css" => "text/css; charset=utf-8",
+                "js" => "application/javascript; charset=utf-8",
+                "json" => "application/json; charset=utf-8",
+                "svg" => "image/svg+xml",
+                "png" => "image/png",
+                "gif" => "image/gif",
+                "webp" => "image/webp",
+                "jpg" | "jpeg" => "image/jpeg",
+                "ico" => "image/x-icon",
+                "html" => "text/html; charset=utf-8",
+                _ => "application/octet-stream",
+            };
+
+            return Response::builder()
+                .header(header::CONTENT_TYPE, content_type)
+                .body(Body::from(bytes))
+                .ae();
+        }
+    }
+
+    serve_spa_index(State(s)).await
 }
 
 // ── Media handlers ────────────────────────────────────────────────────────────
@@ -620,6 +722,7 @@ mod tests {
         Arc::new(AppState {
             conn: Mutex::new(conn),
             data_dir,
+            static_dir: PathBuf::from("dist"),
         })
     }
 

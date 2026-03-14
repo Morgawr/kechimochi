@@ -5,43 +5,66 @@ use tauri::Manager;
 
 use crate::models::{ActivityLog, ActivitySummary, Media, DailyHeatmap, Milestone};
 
-/// Returns the data directory for the application.
-/// If KECHIMOCHI_DATA_DIR is set, uses that path (for test isolation).
-/// Otherwise falls back to the platform app data directory.
-pub fn get_data_dir(app_handle: &tauri::AppHandle) -> PathBuf {
-    if let Ok(dir) = std::env::var("KECHIMOCHI_DATA_DIR") {
-        PathBuf::from(dir)
-    } else {
-        app_handle
-            .path()
-            .app_data_dir()
-            .expect("Failed to get app data dir")
+pub trait DataDirProvider {
+    fn app_data_dir(&self) -> Option<PathBuf>;
+}
+
+impl DataDirProvider for tauri::AppHandle {
+    fn app_data_dir(&self) -> Option<PathBuf> {
+        self.path().app_data_dir().ok()
     }
 }
 
-/// Standalone variant of get_data_dir for use in the web server binary,
-/// which has no Tauri AppHandle.
-/// Resolution order:
-///   1. KECHIMOCHI_DATA_DIR env var (same as the Tauri app, used for tests)
-///   2. Platform-specific default that matches Tauri's app_data_dir path
-pub fn get_data_dir_standalone() -> PathBuf {
-    if let Ok(dir) = std::env::var("KECHIMOCHI_DATA_DIR") {
-        return PathBuf::from(dir);
+pub struct StandaloneDataDirProvider;
+
+pub const STANDALONE_DATA_DIR_PROVIDER: StandaloneDataDirProvider = StandaloneDataDirProvider;
+
+impl DataDirProvider for StandaloneDataDirProvider {
+    fn app_data_dir(&self) -> Option<PathBuf> {
+        None
     }
+}
+
+fn default_data_dir_from_identifier() -> PathBuf {
+    let app_id = std::env::var("KECHIMOCHI_APP_IDENTIFIER")
+        .unwrap_or_else(|_| "com.morg.kechimochi".to_string());
+
     #[cfg(target_os = "windows")]
     {
         let appdata = std::env::var("APPDATA").expect("APPDATA env var not set");
-        PathBuf::from(appdata).join("kechimochi")
+        PathBuf::from(appdata).join(app_id)
     }
+
     #[cfg(target_os = "macos")]
     {
         let home = std::env::var("HOME").expect("HOME env var not set");
-        PathBuf::from(home).join("Library/Application Support/kechimochi")
+        PathBuf::from(home)
+            .join("Library")
+            .join("Application Support")
+            .join(app_id)
     }
+
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         let home = std::env::var("HOME").expect("HOME env var not set");
-        PathBuf::from(home).join(".local/share/kechimochi")
+        PathBuf::from(home)
+            .join(".local")
+            .join("share")
+            .join(app_id)
+    }
+}
+
+/// Returns the data directory for the application.
+/// If KECHIMOCHI_DATA_DIR is set, uses that path (for test isolation).
+/// Otherwise uses the provider's app data dir when available, and finally
+/// falls back to an identifier-based platform default.
+pub fn get_data_dir<P: DataDirProvider>(provider: &P) -> PathBuf {
+    if let Ok(dir) = std::env::var("KECHIMOCHI_DATA_DIR") {
+        PathBuf::from(dir)
+    } else if let Some(dir) = provider.app_data_dir() {
+        dir
+    } else {
+        default_data_dir_from_identifier()
     }
 }
 
@@ -615,7 +638,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_data_dir_standalone_prefers_env_var() {
+    fn test_get_data_dir_prefers_env_var() {
         let _guard = ENV_LOCK.lock().unwrap();
 
         let original = std::env::var("KECHIMOCHI_DATA_DIR").ok();
@@ -625,7 +648,7 @@ mod tests {
             std::env::set_var("KECHIMOCHI_DATA_DIR", &custom);
         }
 
-        let resolved = get_data_dir_standalone();
+        let resolved = get_data_dir(&STANDALONE_DATA_DIR_PROVIDER);
         assert_eq!(resolved, custom);
 
         match original {
@@ -640,20 +663,22 @@ mod tests {
 
     #[test]
     #[cfg(target_os = "windows")]
-    fn test_get_data_dir_standalone_windows_default_from_appdata() {
+    fn test_get_data_dir_windows_default_from_appdata() {
         let _guard = ENV_LOCK.lock().unwrap();
 
         let original_data_dir = std::env::var("KECHIMOCHI_DATA_DIR").ok();
+        let original_app_identifier = std::env::var("KECHIMOCHI_APP_IDENTIFIER").ok();
         let original_appdata = std::env::var("APPDATA").ok();
         let fake_appdata = std::env::temp_dir().join(format!("kechimochi_appdata_{}", std::process::id()));
 
         unsafe {
             std::env::remove_var("KECHIMOCHI_DATA_DIR");
+            std::env::remove_var("KECHIMOCHI_APP_IDENTIFIER");
             std::env::set_var("APPDATA", &fake_appdata);
         }
 
-        let resolved = get_data_dir_standalone();
-        assert_eq!(resolved, fake_appdata.join("kechimochi"));
+        let resolved = get_data_dir(&STANDALONE_DATA_DIR_PROVIDER);
+        assert_eq!(resolved, fake_appdata.join("com.morg.kechimochi"));
 
         match original_data_dir {
             Some(value) => unsafe {
@@ -661,6 +686,15 @@ mod tests {
             },
             None => unsafe {
                 std::env::remove_var("KECHIMOCHI_DATA_DIR");
+            },
+        }
+
+        match original_app_identifier {
+            Some(value) => unsafe {
+                std::env::set_var("KECHIMOCHI_APP_IDENTIFIER", value);
+            },
+            None => unsafe {
+                std::env::remove_var("KECHIMOCHI_APP_IDENTIFIER");
             },
         }
 
