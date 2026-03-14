@@ -39,7 +39,6 @@ describe('CUJ: Bulk Management (Data Import)', () => {
         const importActivitiesBtn = $('#profile-btn-import-csv');
         await importActivitiesBtn.click();
 
-        $('#alert-ok').waitForDisplayed({ timeout: 5000 });
         await dismissAlert();
 
         await navigateTo('dashboard');

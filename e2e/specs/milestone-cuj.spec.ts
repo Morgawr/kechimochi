@@ -1,7 +1,7 @@
 import { waitForAppReady } from '../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../helpers/navigation.js';
 import { addMedia } from '../helpers/library.js';
-import { setDialogMockPath } from '../helpers/common.js';
+import { setDialogMockPath, dismissAlert, closeModal } from '../helpers/common.js';
 import { addMilestone, deleteMilestone, clearAllMilestones, getMilestoneListText } from '../helpers/media-detail.js';
 import { exportMilestones, importMilestones } from '../helpers/profile.js';
 import fs from 'node:fs';
@@ -69,17 +69,8 @@ describe('Milestone CUJ Test', () => {
         await $('#milestone-characters').setValue('0');
         await $('#milestone-confirm').click();
 
-        const alertOk = $('#alert-ok');
-        await alertOk.waitForDisplayed({ timeout: 5000 });
-        const alertBody = $('#alert-body');
-        expect(await alertBody.getText()).toContain('Please enter either duration or characters.');
-        await alertOk.click();
-        await alertOk.waitForExist({ reverse: true, timeout: 5000 });
-
-        // Cancel modal
-        const cancelBtn = $('#milestone-cancel');
-        await cancelBtn.click();
-        await cancelBtn.waitForExist({ reverse: true, timeout: 5000 });
+        await dismissAlert('Please enter either duration or characters.');
+        await closeModal('#milestone-cancel');
     });
 
     it('should support single and bulk deletion', async () => {
@@ -87,7 +78,7 @@ describe('Milestone CUJ Test', () => {
         await deleteMilestone(1);
 
         await browser.waitUntil(async () => {
-            const items = await $$('.milestone-item');
+            const items = $$('.milestone-item');
             return (await items.length) === 2;
         }, { timeout: 10000 });
 

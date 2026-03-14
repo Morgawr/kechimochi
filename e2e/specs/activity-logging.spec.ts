@@ -1,7 +1,7 @@
 import { waitForAppReady } from '../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../helpers/navigation.js';
 import { logActivity } from '../helpers/dashboard.js';
-import { submitPrompt } from '../helpers/common.js';
+import { submitPrompt, dismissAlert, closeModal } from '../helpers/common.js';
 
 describe('CUJ: Log Daily Activity', () => {
   before(async () => {
@@ -35,20 +35,8 @@ describe('CUJ: Log Daily Activity', () => {
   it('should show an alert when trying to log 0 duration and 0 characters', async () => {
     await logActivity('Final Fantasy 7', '0', '0');
     
-    // Check for customAlert
-    const alertOk = $('#alert-ok');
-    await alertOk.waitForDisplayed({ timeout: 5000 });
-    
-    const alertBody = $('#alert-body');
-    expect(await alertBody.getText()).toContain('Please enter either duration or characters.');
-    
-    await alertOk.click();
-    await alertOk.waitForExist({ reverse: true, timeout: 5000 });
-
-    // Cancel the activity modal
-    const cancelBtn = $('#activity-cancel');
-    await cancelBtn.click();
-    await cancelBtn.waitForExist({ reverse: true, timeout: 5000 });
+    await dismissAlert('Please enter either duration or characters.');
+    await closeModal('#activity-cancel');
   });
 
   it('should verify the new entries in "Recent Activity" on dashboard', async () => {
