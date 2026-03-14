@@ -245,17 +245,17 @@ export class MediaDetail extends Component<MediaDetailState> {
         if (!coverEl) return;
 
         const isDesktop = globalThis.matchMedia('(min-width: 1025px)').matches;
-        if (!isDesktop) {
+        if (isDesktop) {
+            coverEl.style.height = '';
+            coverEl.style.width = '100%';
+            coverEl.style.aspectRatio = '2 / 3';
+            coverEl.style.objectFit = 'cover';
+        } else {
             coverEl.style.height = '';
             coverEl.style.width = '';
             coverEl.style.maxWidth = '';
             coverEl.style.margin = '';
             coverEl.style.aspectRatio = '';
-        } else {
-            coverEl.style.height = '';
-            coverEl.style.width = '100%';
-            coverEl.style.aspectRatio = '2 / 3';
-            coverEl.style.objectFit = 'cover';
         }
     }
 
