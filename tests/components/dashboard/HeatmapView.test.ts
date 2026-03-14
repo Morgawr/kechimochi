@@ -29,7 +29,7 @@ describe('HeatmapView', () => {
 
     it('should render heatmap cells with correct titles', () => {
         const heatmapData = [
-            { date: '2024-01-01', total_minutes: 60 }
+            { date: '2024-01-01', total_minutes: 60, total_characters: 5000 }
         ];
         const component = new HeatmapView(container, { heatmapData, year: 2024 }, onYearChange);
         component.render();
@@ -37,6 +37,7 @@ describe('HeatmapView', () => {
         const cell = container.querySelector('.heatmap-cell[title*="2024-01-01"]');
         expect(cell).not.toBeNull();
         expect((cell as HTMLElement).title).toContain('60 mins');
+        expect((cell as HTMLElement).title).toContain('5,000 chars');
     });
 
     it('should handle no data recorded', () => {

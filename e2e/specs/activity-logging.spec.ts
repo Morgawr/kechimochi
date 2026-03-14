@@ -17,15 +17,41 @@ describe('CUJ: Log Daily Activity', () => {
     expect(text).not.toContain('Final Fantasy 7');
   });
 
-  it('should log a new activity for "Final Fantasy 7"', async () => {
-    await logActivity('Final Fantasy 7', '60', '2024-03-31');
+  it('should log a new activity for "Final Fantasy 7" with minutes and characters', async () => {
+    await logActivity('Final Fantasy 7', '60', '1000', '2024-03-31');
     await submitPrompt('Playing');
 
     await $('#add-activity-form').waitForExist({ reverse: true, timeout: 5000 });
     await browser.pause(500);
   });
 
-  it('should verify the new entry in "Recent Activity" on dashboard', async () => {
+  it('should log an activity with only characters for "Final Fantasy 7"', async () => {
+    await logActivity('Final Fantasy 7', '0', '500', '2024-03-30');
+    
+    await $('#add-activity-form').waitForExist({ reverse: true, timeout: 5000 });
+    await browser.pause(500);
+  });
+
+  it('should show an alert when trying to log 0 duration and 0 characters', async () => {
+    await logActivity('Final Fantasy 7', '0', '0');
+    
+    // Check for customAlert
+    const alertOk = $('#alert-ok');
+    await alertOk.waitForDisplayed({ timeout: 5000 });
+    
+    const alertBody = $('#alert-body');
+    expect(await alertBody.getText()).toContain('Please enter either duration or characters.');
+    
+    await alertOk.click();
+    await alertOk.waitForExist({ reverse: true, timeout: 5000 });
+
+    // Cancel the activity modal
+    const cancelBtn = $('#activity-cancel');
+    await cancelBtn.click();
+    await cancelBtn.waitForExist({ reverse: true, timeout: 5000 });
+  });
+
+  it('should verify the new entries in "Recent Activity" on dashboard', async () => {
     await navigateTo('dashboard');
     expect(await verifyActiveView('dashboard')).toBe(true);
 
@@ -33,6 +59,8 @@ describe('CUJ: Log Daily Activity', () => {
     const text = await recentActivity.getText();
     expect(text).toContain('Final Fantasy 7');
     expect(text).toContain('60 minutes');
+    expect(text).toContain('1,000 characters');
+    expect(text).toContain('500 characters'); // For the 0-minute entry
   });
 
   it('should verify that "Final Fantasy 7" now exists in the media tab', async () => {

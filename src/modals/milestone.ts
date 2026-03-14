@@ -1,6 +1,6 @@
 import { Milestone } from '../api';
 import { buildCalendar } from './calendar';
-import { createOverlay } from './base';
+import { createOverlay, customAlert } from './base';
 
 export async function showAddMilestoneModal(mediaTitle: string): Promise<Milestone | null> {
     return new Promise((resolve) => {
@@ -45,6 +45,11 @@ export async function showAddMilestoneModal(mediaTitle: string): Promise<Milesto
                         </div>
                     </div>
 
+                    <div style="display: flex; flex-direction: column; gap: 0.3rem;">
+                        <label style="font-size: 0.85rem; color: var(--text-secondary);">Characters</label>
+                        <input type="number" id="milestone-characters" class="milestone-input" value="0" min="0" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm);" />
+                    </div>
+
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">
                         <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; cursor: pointer;">
                             <input type="checkbox" id="milestone-record-date" />
@@ -81,26 +86,36 @@ export async function showAddMilestoneModal(mediaTitle: string): Promise<Milesto
         const minutesInput = overlay.querySelector<HTMLInputElement>('#milestone-minutes')!;
         const recordDateCheckbox = overlay.querySelector<HTMLInputElement>('#milestone-record-date')!;
         const calendarContainer = overlay.querySelector<HTMLElement>('#milestone-calendar-container')!;
+        const charactersInput = overlay.querySelector<HTMLInputElement>('#milestone-characters')!;
 
         const handleConfirm = () => {
             const name = nameInput.value.trim();
-            if (!name) return;
+            if (!name) {
+                customAlert("Required Field", "Please enter a Milestone Name.");
+                return;
+            }
             
             const hours = Number.parseInt(hoursInput.value) || 0;
             const mins = Number.parseInt(minutesInput.value) || 0;
+            const characters = Number.parseInt(charactersInput.value) || 0;
             const totalDuration = (hours * 60) + mins;
+
+            if (totalDuration === 0 && characters === 0) {
+                customAlert("Input Required", "Please enter either duration or characters.");
+                return;
+            }
 
             cleanup(); 
             resolve({ 
                 media_title: mediaTitle,
                 name: name,
                 duration: totalDuration,
-                characters: 0,
+                characters: characters,
                 date: selectedDate
             });
         };
 
-        [nameInput, hoursInput, minutesInput].forEach(el => {
+        [nameInput, hoursInput, minutesInput, charactersInput].forEach(el => {
             el.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') {
                     handleConfirm();

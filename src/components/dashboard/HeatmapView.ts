@@ -49,9 +49,9 @@ export class HeatmapView extends Component<HeatmapViewState> {
         const { heatmapData, year } = this.state;
         let htmlContent = '<div class="heatmap">';
         
-        const dateMap = new Map<string, number>();
+        const dateMap = new Map<string, { mins: number, chars: number }>();
         for (const cur of heatmapData) {
-            dateMap.set(cur.date, cur.total_minutes);
+            dateMap.set(cur.date, { mins: cur.total_minutes, chars: cur.total_characters });
         }
 
         const startDate = new Date(year, 0, 1);
@@ -85,7 +85,8 @@ export class HeatmapView extends Component<HeatmapViewState> {
 
         for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
             const dateStr = getLocalISODate(d);
-            const minutes = dateMap.get(dateStr) || 0;
+            const data = dateMap.get(dateStr) || { mins: 0, chars: 0 };
+            const minutes = data.mins;
             let cellStyle = "";
             if (minutes > 0) {
                 const ratio = Math.min(1, (minutes - 1) / 359);
@@ -93,7 +94,8 @@ export class HeatmapView extends Component<HeatmapViewState> {
                 const lightness = lightBase + (ratio * lightRange);
                 cellStyle = `style="background-color: hsl(${heatmapHue}, ${saturation}%, ${lightness}%);"`;
             }
-            cells.push(`<div class="heatmap-cell" ${cellStyle} title="${dateStr}: ${minutes} mins"></div>`);
+            const charTooltip = data.chars > 0 ? `, ${data.chars.toLocaleString()} chars` : '';
+            cells.push(`<div class="heatmap-cell" ${cellStyle} title="${dateStr}: ${minutes} mins${charTooltip}"></div>`);
         }
 
         for (let i = 0; i < cells.length; i += 7) {

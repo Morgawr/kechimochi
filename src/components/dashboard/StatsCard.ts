@@ -25,7 +25,7 @@ export class StatsCard extends Component<StatsCardState> {
         const loggedDaysCount = uniqueDates.length || 1;
 
         const { maxStreak, currentStreak } = this.calculateStreaks(uniqueDates);
-        const { mediaBreakdown, totalAvgFormat } = this.calculateBreakdown(logs, loggedDaysCount);
+        const { mediaBreakdown, totalAvgFormat, totalChars, avgCharsFormat } = this.calculateBreakdown(logs, loggedDaysCount);
         const breakdownHtml = this.renderBreakdown(mediaBreakdown, loggedDaysCount);
 
         const content = html`
@@ -52,9 +52,22 @@ export class StatsCard extends Component<StatsCardState> {
                             <div id="stat-current-streak" style="font-size: 1.1rem; font-weight: bold; color: var(--text-primary);">${currentStreak}</div>
                             <div style="font-size: 0.65rem; color: var(--text-secondary);">day streak</div>
                         </div>
+                        ${totalChars > 0 ? html`
+                        <div style="background: var(--bg-dark); padding: 0.4rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color); grid-column: span 2;">
+                            <div id="stat-total-chars" style="font-size: 1.1rem; font-weight: bold; color: var(--text-primary);">${totalChars.toLocaleString()}</div>
+                            <div style="font-size: 0.65rem; color: var(--text-secondary);">total characters</div>
+                        </div>
+                        ` : ''}
                     </div>
-                    <div id="stat-total-avg" style="background: var(--accent-purple); padding: 0.5rem; border-radius: var(--radius-sm); text-align: center; color: var(--accent-text); font-weight: 600; font-size: 0.85rem;">
-                        Total Avg: ${totalAvgFormat} / day
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem; width: 100%;">
+                        <div id="stat-total-avg" style="background: var(--accent-purple); padding: 0.5rem; border-radius: var(--radius-sm); text-align: center; color: var(--accent-text); font-weight: 600; font-size: 0.85rem;">
+                            Avg Time: ${totalAvgFormat} / day
+                        </div>
+                        ${totalChars > 0 ? html`
+                        <div id="stat-avg-chars" style="background: var(--accent-purple); padding: 0.5rem; border-radius: var(--radius-sm); text-align: center; color: var(--accent-text); font-weight: 600; font-size: 0.85rem;">
+                            Avg Chars: ${avgCharsFormat} / day
+                        </div>
+                        ` : ''}
                     </div>
                     <div style="width: 100%; height: 1px; background: var(--border-color); margin: 0.2rem 0;"></div>
                     <div style="width: 100%; display: flex; flex-direction: column; gap: 0.4rem;">
@@ -104,26 +117,41 @@ export class StatsCard extends Component<StatsCardState> {
     }
 
     private calculateBreakdown(logs: ActivitySummary[], loggedDaysCount: number) {
-        const mediaBreakdown = new Map<string, number>();
+        const mediaBreakdown = new Map<string, { mins: number, chars: number }>();
         for (const log of logs) {
-            mediaBreakdown.set(log.media_type, (mediaBreakdown.get(log.media_type) || 0) + log.duration_minutes);
+            const current = mediaBreakdown.get(log.media_type) || { mins: 0, chars: 0 };
+            mediaBreakdown.set(log.media_type, {
+                mins: current.mins + log.duration_minutes,
+                chars: current.chars + (log.characters || 0)
+            });
         }
         
         let totalMins = 0;
-        mediaBreakdown.forEach(v => { totalMins += v; });
+        let totalChars = 0;
+        mediaBreakdown.forEach(v => { 
+            totalMins += v.mins;
+            totalChars += v.chars;
+        });
         const totalAvgMins = totalMins / loggedDaysCount;
+        const avgChars = totalChars / loggedDaysCount;
         
         return { 
             mediaBreakdown, 
-            totalAvgFormat: formatStatsDuration(totalAvgMins) 
+            totalAvgFormat: formatStatsDuration(totalAvgMins),
+            totalChars,
+            avgCharsFormat: `${Math.round(avgChars).toLocaleString()} chars`
         };
     }
 
-    private renderBreakdown(mediaBreakdown: Map<string, number>, loggedDaysCount: number): string {
-        const sortedBreakdown = Array.from(mediaBreakdown.entries()).sort((a, b) => b[1] - a[1]);
-        return sortedBreakdown.map(([mtype, mins]) => {
-            const totalFormat = formatStatsDuration(mins, true);
-            const avgFormat = formatStatsDuration(mins / loggedDaysCount);
+    private renderBreakdown(mediaBreakdown: Map<string, { mins: number, chars: number }>, loggedDaysCount: number): string {
+        const sortedBreakdown = Array.from(mediaBreakdown.entries()).sort((a, b) => b[1].mins - a[1].mins);
+        return sortedBreakdown.map(([mtype, data]) => {
+            const totalFormat = formatStatsDuration(data.mins, true);
+            const avgFormat = formatStatsDuration(data.mins / loggedDaysCount);
+            const charStr = data.chars > 0 ? `<div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--text-secondary); opacity: 0.8;">
+                        <span>Total Characters:</span>
+                        <span>${data.chars.toLocaleString()}</span>
+                    </div>` : '';
 
             return `
                 <div style="display: flex; flex-direction: column; gap: 0.2rem; background: rgba(255,255,255,0.03); padding: 0.4rem; border-radius: var(--radius-sm);">
@@ -131,6 +159,7 @@ export class StatsCard extends Component<StatsCardState> {
                         <span style="color: var(--text-secondary);">${mtype}</span>
                         <span style="font-weight: bold; color: var(--text-primary);">${totalFormat}</span>
                     </div>
+                    ${charStr}
                     <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--text-secondary); opacity: 0.8;">
                         <span>Daily Avg:</span>
                         <span>${avgFormat}</span>

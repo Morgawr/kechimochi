@@ -20,6 +20,7 @@ interface DashboardState {
         timeRangeOffset: number;
         groupByMode: 'media_type' | 'log_name';
         chartType: 'bar' | 'line';
+        metric: 'minutes' | 'characters';
     };
     isInitialized: boolean;
     currentPage: number;
@@ -50,7 +51,8 @@ export class Dashboard extends Component<DashboardState> {
                 timeRangeDays: 7,
                 timeRangeOffset: 0,
                 groupByMode: 'media_type',
-                chartType: 'bar'
+                chartType: 'bar',
+                metric: 'minutes'
             },
             isInitialized: false,
             currentPage: 1
@@ -327,19 +329,26 @@ export class Dashboard extends Component<DashboardState> {
         const pagedLogs = logs.slice(startIndex, startIndex + itemsPerPage);
 
         list.innerHTML = pagedLogs.map(log => {
-            const durationStr = formatLoggedDuration(log.duration_minutes);
             const escapedProfile = escapeHTML(currentProfile);
-            const escapedDuration = escapeHTML(durationStr);
             const escapedMediaType = escapeHTML(log.media_type);
             const escapedTitle = escapeHTML(log.title);
             const escapedDate = escapeHTML(log.date);
+
+            let activityDesc = '';
+            if (log.duration_minutes > 0 && log.characters > 0) {
+                activityDesc = `<span>${escapeHTML(formatLoggedDuration(log.duration_minutes))}</span> <span style="color: var(--text-secondary);">and</span> <span>${log.characters.toLocaleString()} characters</span>`;
+            } else if (log.duration_minutes > 0) {
+                activityDesc = `<span>${escapeHTML(formatLoggedDuration(log.duration_minutes))}</span>`;
+            } else if (log.characters > 0) {
+                activityDesc = `<span>${log.characters.toLocaleString()} characters</span>`;
+            }
 
             return `
                 <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem; background: var(--bg-dark); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
                     <div style="display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap;">
                         <span style="color: var(--accent-green); font-weight: 500;">${escapedProfile}</span> 
                         <span style="color: var(--text-secondary);">logged</span> 
-                        <span>${escapedDuration}</span> 
+                        ${activityDesc} 
                         <span style="color: var(--text-secondary);">of ${escapedMediaType}</span> 
                         <a class="dashboard-media-link" data-media-id="${log.media_id}" style="color: var(--text-primary); font-weight: 600; cursor: pointer; text-decoration: underline; text-decoration-color: var(--accent-blue);">${escapedTitle}</a>
                         <button class="copy-btn copy-activity-title" data-title="${escapeHTML(String(log.title || ''))}" title="Copy Title" style="background: transparent; border: none; padding: 0; cursor: pointer; display: flex; align-items: center; justify-content: center;">

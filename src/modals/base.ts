@@ -21,8 +21,6 @@ export function createOverlay(): { overlay: HTMLDivElement, cleanup: () => void 
 
     const cleanup = () => {
         overlay.classList.remove('active');
-        // Clear IDs immediately so E2E selectors don't find dying modals
-        overlay.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
         delete overlay.dataset.modalId;
         setTimeout(() => overlay.remove(), 300);
     };

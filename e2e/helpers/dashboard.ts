@@ -8,7 +8,7 @@ import { confirmAction } from './common.js';
 /**
  * High-level helper to log an activity from the dashboard
  */
-export async function logActivity(title: string, duration: string, date?: string): Promise<void> {
+export async function logActivity(title: string, duration: string, characters: string = "0", date?: string): Promise<void> {
     if (!(await verifyActiveView('dashboard'))) {
         await navigateTo('dashboard');
     }
@@ -22,6 +22,11 @@ export async function logActivity(title: string, duration: string, date?: string
 
     const durationInput = $('#activity-duration');
     await durationInput.setValue(duration);
+
+    const charInput = $('#activity-characters');
+    if (await charInput.isExisting()) {
+        await charInput.setValue(characters);
+    }
 
     if (date) {
         const dateEl = $(`.cal-day[data-date="${date}"]`);
@@ -77,7 +82,7 @@ export async function getHeatmapCellColor(date: string): Promise<string> {
 /**
  * Logs activity using the global (+) button in the navbar.
  */
-export async function logActivityGlobal(mediaTitle: string, minutes: number): Promise<void> {
+export async function logActivityGlobal(mediaTitle: string, minutes: number, characters: number = 0): Promise<void> {
     const logBtn = $('#btn-add-activity');
     await logBtn.waitForDisplayed({ timeout: 5000 });
     await logBtn.click();
@@ -90,6 +95,11 @@ export async function logActivityGlobal(mediaTitle: string, minutes: number): Pr
     // Set minutes
     const minInput = $('#activity-duration');
     await minInput.setValue(minutes);
+
+    const charInput = $('#activity-characters');
+    if (await charInput.isExisting()) {
+        await charInput.setValue(characters);
+    }
     
     const form = $('#add-activity-form');
     const confirmBtn = form.$('button[type="submit"]');

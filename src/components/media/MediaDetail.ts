@@ -274,7 +274,9 @@ export class MediaDetail extends Component<MediaDetailState> {
                 <div class="milestone-item" ${dateHover} style="display: flex; align-items: center; justify-content: space-between; padding: 0.3rem 0.5rem; background: rgba(255,255,255,0.03); border-radius: 3px; border: 1px solid rgba(255,255,255,0.05); position: relative;">
                     <div style="flex: 1; display: flex; flex-direction: column; gap: 0.05rem;">
                         <span style="font-weight: 600; font-size: 0.8rem; line-height: 1.1;">${escapeHTML(m.name)}</span>
-                        <span style="font-size: 0.7rem; color: var(--text-secondary); opacity: 0.7;">${formatHhMm(m.duration)}</span>
+                        <span style="font-size: 0.7rem; color: var(--text-secondary); opacity: 0.7;">
+                            ${m.duration > 0 ? formatHhMm(m.duration) : ''}${(m.duration > 0 && m.characters > 0) ? ' • ' : ''}${m.characters > 0 ? `${m.characters.toLocaleString()} chars` : ''}
+                        </span>
                     </div>
                     <button class="delete-milestone-btn" data-id="${m.id}" style="background: transparent; border: none; color: var(--accent-red); cursor: pointer; padding: 0.15rem; display: flex; align-items: center; justify-content: center; opacity: 0.4; transition: opacity 0.2s;">
                         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg>
@@ -384,6 +386,7 @@ export class MediaDetail extends Component<MediaDetailState> {
         const lastLogDate = logs[0].date;
         const firstLogDate = logs[logs.length - 1].date;
         const totalMin = logs.reduce((acc, log) => acc + log.duration_minutes, 0);
+        const totalChars = logs.reduce((acc, log) => acc + log.characters, 0);
         const totalStr = formatHhMm(totalMin);
 
         let verb = "Logged";
@@ -399,7 +402,8 @@ export class MediaDetail extends Component<MediaDetailState> {
         statsDiv.innerHTML = `
             <span style="color: var(--text-secondary);">First ${verb}: <strong style="color: var(--text-primary);">${firstLogDate}</strong></span>
             <span style="color: var(--text-secondary);">Last ${verb}: <strong style="color: var(--text-primary);">${lastLogDate}</strong></span>
-            <span style="color: var(--text-secondary);">${totalLabel}: <strong style="color: var(--text-primary);">${totalStr}</strong></span>
+            ${totalMin > 0 ? `<span style="color: var(--text-secondary);">${totalLabel}: <strong style="color: var(--text-primary);">${totalStr}</strong></span>` : ''}
+            ${totalChars > 0 ? `<span style="color: var(--text-secondary);">Total Chars: <strong style="color: var(--text-primary);">${totalChars.toLocaleString()}</strong></span>` : ''}
             ${readingSpeedHtml}
         `;
     }

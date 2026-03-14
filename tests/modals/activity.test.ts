@@ -16,6 +16,7 @@ vi.mock('../../src/modals/calendar', () => ({
 
 vi.mock('../../src/modals/base', () => ({
     customPrompt: vi.fn(),
+    customAlert: vi.fn(),
     createOverlay: vi.fn(() => {
         const overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
@@ -131,6 +132,33 @@ describe('modals/activity.ts', () => {
              
              const result = await promise;
              expect(result).toBe(false);
+        });
+
+        it('should show alert if both duration and characters are 0', async () => {
+            vi.mocked(api.getAllMedia).mockResolvedValue([{ id: 1, title: 'Item 1', status: 'Active', tracking_status: 'Ongoing' }] as unknown as Media[]);
+            const { customAlert } = await import('../../src/modals/base');
+            
+            showLogActivityModal();
+            await vi.waitFor(() => document.querySelector('#add-activity-form'));
+            
+            const titleInput = document.querySelector('#activity-media') as HTMLInputElement;
+            titleInput.value = 'Item 1';
+            // Duration and characters are 0 by default
+            
+            document.querySelector('#add-activity-form')!.dispatchEvent(new Event('submit'));
+            
+            await vi.waitFor(() => {
+                expect(customAlert).toHaveBeenCalledWith("Input Required", expect.any(String));
+            });
+        });
+
+        it('should have custom validation message for media title', async () => {
+             vi.mocked(api.getAllMedia).mockResolvedValue([]);
+             showLogActivityModal();
+             await vi.waitFor(() => document.querySelector('#activity-media'));
+             
+             const titleInput = document.querySelector('#activity-media') as HTMLInputElement;
+             expect(titleInput.getAttribute('oninvalid')).toContain('Media Title is required');
         });
     });
 

@@ -23,11 +23,13 @@ export class MediaLog extends Component<MediaLogState> {
         const list = html`<div style="display: flex; flex-direction: column; gap: 0.5rem; flex: 1; overflow-y: auto;"></div>`;
 
         this.state.logs.forEach(log => {
-            const durationStr = formatLoggedDuration(log.duration_minutes, true);
-
+            const durationStr = log.duration_minutes > 0 ? formatLoggedDuration(log.duration_minutes, true) : '';
+            const charStr = log.characters > 0 ? `${log.characters.toLocaleString()} chars` : '';
+            const separator = (durationStr && charStr) ? ' | ' : '';
+ 
             const entry = html`
                 <div style="display: flex; justify-content: space-between; padding: 0.5rem; border-bottom: 1px solid var(--border-color); font-size: 0.9rem;">
-                    <span><span style="color: var(--text-secondary);">Activity:</span> ${durationStr}</span>
+                    <span><span style="color: var(--text-secondary);">Activity:</span> ${durationStr}${separator}${charStr}</span>
                     <span style="color: var(--text-secondary);">${log.date}</span>
                 </div>
             `;

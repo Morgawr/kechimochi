@@ -245,7 +245,7 @@ export async function getProjectionValue(id: string): Promise<string> {
 /**
  * Adds a new milestone.
  */
-export async function addMilestone(name: string, hours: string, minutes: string, pickDate: boolean = false): Promise<string | null> {
+export async function addMilestone(name: string, hours: string, minutes: string, characters: string = "0", pickDate: boolean = false): Promise<string | null> {
     const addBtn = $('#btn-add-milestone');
     await addBtn.waitForClickable({ timeout: 5000 });
     await addBtn.click();
@@ -256,6 +256,11 @@ export async function addMilestone(name: string, hours: string, minutes: string,
 
     await $('#milestone-hours').setValue(hours);
     await $('#milestone-minutes').setValue(minutes);
+    
+    const charInput = $('#milestone-characters');
+    if (await charInput.isExisting()) {
+        await charInput.setValue(characters);
+    }
 
     let selectedDate: string | null = null;
     if (pickDate) {
@@ -304,7 +309,7 @@ export async function getMilestoneListText(): Promise<string> {
 /**
  * Logs an activity directly from the Media Detail view using the "+ New Entry" button.
  */
-export async function logActivityFromDetail(expectedTitle: string, duration: string): Promise<void> {
+export async function logActivityFromDetail(expectedTitle: string, duration: string, characters: string = "0"): Promise<void> {
     const newEntryBtn = $('#btn-new-media-entry');
     await newEntryBtn.waitForDisplayed({ timeout: 5000 });
     await newEntryBtn.click();
@@ -322,6 +327,10 @@ export async function logActivityFromDetail(expectedTitle: string, duration: str
     });
     await durationInput.setValue(duration);
 
+    const charInput = $('#activity-characters');
+    if (await charInput.isExisting()) {
+        await charInput.setValue(characters);
+    }
 
     // Pick today in the calendar
     const todayCell = $('.cal-day.today');

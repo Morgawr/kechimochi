@@ -92,7 +92,7 @@ describe('ProfileView', () => {
         vi.mocked(api.getAllMedia).mockResolvedValue([{
             id: 1, title: 'M1', tracking_status: 'Complete', content_type: 'Novel', extra_data: '{"Character count":"10,000"}'
         }] as unknown as Media[]);
-        vi.mocked(api.getLogsForMedia).mockResolvedValue([{ date: new Date().toISOString().split('T')[0], duration_minutes: 60 }] as unknown as api.ActivitySummary[]);
+        vi.mocked(api.getLogsForMedia).mockResolvedValue([{ id: 1, media_id: 1, title: 'M1', media_type: 'Reading', language: 'Japanese', date: new Date().toISOString().split('T')[0], duration_minutes: 60, characters: 0 }] as unknown as api.ActivitySummary[]);
 
         const view = new ProfileView(container);
         view.render();
@@ -126,7 +126,7 @@ describe('ProfileView', () => {
             { id: 1, title: 'M1', tracking_status: 'Complete', content_type: 'Manga', extra_data: '{"Character count":"100"}' },
             { id: 2, title: 'VN', tracking_status: 'Complete', content_type: 'Visual Novel', extra_data: '{"Character count":"5000"}' }
         ] as unknown as Media[]);
-        vi.mocked(api.getLogsForMedia).mockResolvedValue([{ date: new Date().toISOString(), duration_minutes: 60 }] as unknown as api.ActivitySummary[]);
+        vi.mocked(api.getLogsForMedia).mockResolvedValue([{ id: 1, media_id: 1, title: 'M1', media_type: 'Reading', language: 'Japanese', date: new Date().toISOString(), duration_minutes: 60, characters: 0 }] as unknown as api.ActivitySummary[]);
 
         const view = new ProfileView(container);
         view.render();

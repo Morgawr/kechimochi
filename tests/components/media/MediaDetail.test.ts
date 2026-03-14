@@ -82,6 +82,37 @@ describe('MediaDetail', () => {
         expect(container.textContent).toContain('Writer');
     });
 
+    it('should render character counts in stats and milestones', async () => {
+        const milestones = [{ id: 1, name: 'M1', duration: 100, characters: 5000 }];
+        vi.mocked(api.getMilestones).mockResolvedValue(milestones as unknown as Milestone[]);
+        const mockLogs = [
+            { id: 1, duration_minutes: 60, characters: 1000, date: '2024-03-01', media_id: 1, title: 'T1', media_type: 'Reading', language: 'Japanese' },
+            { id: 2, duration_minutes: 30, characters: 500, date: '2024-03-02', media_id: 1, title: 'T1', media_type: 'Reading', language: 'Japanese' }
+        ] as unknown as api.ActivitySummary[];
+        vi.mocked(api.getLogsForMedia).mockResolvedValue(mockLogs);
+
+        const component = new MediaDetail(container, { ...mockMedia } as unknown as Media, mockLogs, [mockMedia as unknown as Media], 0, mockCallbacks);
+        component.triggerMount();
+        
+        await vi.waitUntil(() => container.querySelector('.milestone-item') !== null);
+        
+        expect(container.textContent).toContain('5,000 chars');
+        expect(container.textContent).toContain('Total Chars: 1,500');
+    });
+
+    it('should hide duration in milestones if it is 0', async () => {
+        const milestones = [{ id: 1, name: 'M1', duration: 0, characters: 5000 }];
+        vi.mocked(api.getMilestones).mockResolvedValue(milestones as unknown as Milestone[]);
+
+        const component = new MediaDetail(container, { ...mockMedia } as unknown as Media, [], [mockMedia as unknown as Media], 0, mockCallbacks);
+        component.triggerMount();
+        
+        await vi.waitUntil(() => container.querySelector('.milestone-item') !== null);
+        
+        expect(container.textContent).toContain('5,000 chars');
+        expect(container.textContent).not.toContain('0m');
+    });
+
     it('should handle extra field deletion', async () => {
         vi.mocked(api.getMilestones).mockResolvedValue([]);
         const component = new MediaDetail(container, { ...mockMedia } as unknown as Media, [], [mockMedia as unknown as Media], 0, mockCallbacks);

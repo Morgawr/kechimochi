@@ -60,7 +60,7 @@ describe('Dashboard', () => {
     });
 
     it('should handle pagination', async () => {
-        const mockLog = { id: 1, title: 'T', media_id: 1, duration_minutes: 10, date: '2024-01-01', media_type: 'Type', language: 'J' };
+        const mockLog = { id: 1, title: 'T', media_id: 1, duration_minutes: 10, characters: 0, date: '2024-01-01', media_type: 'Type', language: 'Japanese' };
         const logs: ActivitySummary[] = Array.from({ length: 20 }, () => ({ ...mockLog }));
         vi.mocked(api.getLogs).mockResolvedValue(logs);
         vi.mocked(api.getHeatmap).mockResolvedValue([]);
@@ -82,7 +82,7 @@ describe('Dashboard', () => {
     });
 
     it('should prompt before deleting a log', async () => {
-        const logs: ActivitySummary[] = [{ id: 456, title: 'To Delete', media_id: 1, duration_minutes: 10, date: '2024-01-01', media_type: 'Type', language: 'J' }];
+        const logs: ActivitySummary[] = [{ id: 456, title: 'To Delete', media_id: 1, duration_minutes: 10, characters: 0, date: '2024-01-01', media_type: 'Type', language: 'Japanese' }];
         vi.mocked(api.getLogs).mockResolvedValue(logs);
         vi.mocked(api.getHeatmap).mockResolvedValue([]);
         vi.mocked(api.getAllMedia).mockResolvedValue([]);

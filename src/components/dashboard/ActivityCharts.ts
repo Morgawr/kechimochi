@@ -10,6 +10,7 @@ interface ActivityChartsState {
     timeRangeOffset: number;
     groupByMode: 'media_type' | 'log_name';
     chartType: 'bar' | 'line';
+    metric: 'minutes' | 'characters';
 }
 
 export class ActivityCharts extends Component<ActivityChartsState> {
@@ -71,6 +72,18 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                                 </label>
                                 <span class="toggle-label ${this.state.groupByMode === 'log_name' ? 'active' : ''}">Name</span>
                             </div>
+
+                            <div class="chart-toolbar-divider"></div>
+
+                            <!-- Metric Toggle -->
+                            <div style="display: flex; align-items: center; gap: 0.4rem;">
+                                <span class="toggle-label ${this.state.metric === 'minutes' ? 'active' : ''}" style="text-align: right;">Time</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="toggle-metric" ${this.state.metric === 'characters' ? 'checked' : ''}>
+                                    <span class="slider"></span>
+                                </label>
+                                <span class="toggle-label ${this.state.metric === 'characters' ? 'active' : ''}">Chars</span>
+                            </div>
                         </div>
                     </div>
                     <div class="chart-container-wrapper" style="flex: 1; min-height: 0;">
@@ -106,6 +119,10 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         const toggleGroupBy = layout.querySelector<HTMLInputElement>('#toggle-group-by');
         toggleGroupBy?.addEventListener('change', () => {
             this.onChartParamChange({ groupByMode: toggleGroupBy.checked ? 'log_name' : 'media_type' });
+        });
+        const toggleMetric = layout.querySelector<HTMLInputElement>('#toggle-metric');
+        toggleMetric?.addEventListener('change', () => {
+            this.onChartParamChange({ metric: toggleMetric.checked ? 'characters' : 'minutes' });
         });
     }
 
@@ -229,7 +246,8 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         for (const log of logs) {
             if (log.date >= validStart && log.date <= validEnd) {
                 const key = groupByMode === 'media_type' ? log.media_type : log.title;
-                pieTypeMap.set(key, (pieTypeMap.get(key) || 0) + log.duration_minutes);
+                const value = this.state.metric === 'minutes' ? log.duration_minutes : (log.characters || 0);
+                pieTypeMap.set(key, (pieTypeMap.get(key) || 0) + value);
             }
         }
 
@@ -252,7 +270,10 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                         callbacks: {
                             label: (context) => {
                                 const val = context.parsed;
-                                return `${context.dataset.label || context.label}: ${formatStatsDuration(val, true)}`;
+                                if (this.state.metric === 'minutes') {
+                                    return `${context.dataset.label || context.label}: ${formatStatsDuration(val, true)}`;
+                                }
+                                return `${context.dataset.label || context.label}: ${val.toLocaleString()} chars`;
                             }
                         }
                     }
@@ -284,7 +305,10 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                         ticks: { 
                             color: '#a0a0b0',
                             callback: (value) => { 
-                                return formatStatsDuration(value as number, true);
+                                if (this.state.metric === 'minutes') {
+                                    return formatStatsDuration(value as number, true);
+                                }
+                                return value.toLocaleString();
                             }
                         } 
                     }
@@ -295,7 +319,10 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                         callbacks: {
                             label: (context) => {
                                 const val = context.parsed.y ?? 0;
-                                return `${context.dataset.label}: ${formatStatsDuration(val, true)}`;
+                                if (this.state.metric === 'minutes') {
+                                    return `${context.dataset.label}: ${formatStatsDuration(val, true)}`;
+                                }
+                                return `${context.dataset.label}: ${val.toLocaleString()} chars`;
                             }
                         }
                     }
@@ -342,7 +369,8 @@ export class ActivityCharts extends Component<ActivityChartsState> {
             if (index !== -1) {
                 const key = mode === 'media_type' ? log.media_type : log.title;
                 if (map.has(key)) {
-                    map.get(key)![index] += log.duration_minutes;
+                    const value = this.state.metric === 'minutes' ? log.duration_minutes : (log.characters || 0);
+                    map.get(key)![index] += value;
                 }
             }
         }

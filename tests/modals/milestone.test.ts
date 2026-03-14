@@ -45,6 +45,7 @@ describe('modals/milestone.ts', () => {
         
         const nameInput = document.querySelector('#milestone-name') as HTMLInputElement;
         nameInput.value = 'Milestone with Date';
+        (document.querySelector('#milestone-minutes') as HTMLInputElement).value = '10';
         
         (document.querySelector('#milestone-confirm') as HTMLElement).click();
         

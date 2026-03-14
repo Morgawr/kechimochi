@@ -1,6 +1,6 @@
 import { getAllMedia, addLog, addMedia, updateMedia } from '../api';
 import { buildCalendar } from './calendar';
-import { customPrompt, createOverlay } from './base';
+import { customPrompt, customAlert, createOverlay } from './base';
 
 export async function showExportCsvModal(): Promise<{mode: 'all' | 'range', start?: string, end?: string} | null> {
     return new Promise((resolve) => {
@@ -56,17 +56,23 @@ export async function showLogActivityModal(prefillMediaTitle?: string): Promise<
         const activeMedia = mediaList.filter(m => m.status !== 'Archived' && m.tracking_status === 'Ongoing');
 
         overlay.innerHTML = `
-            <div class="modal-content">
+            <div class="modal-content" style="width: 450px;">
                 <h3>Log Activity</h3>
                 <form id="add-activity-form" style="margin-top: 1rem; display: flex; flex-direction: column; gap: 1rem;">
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">
                         <label style="font-size: 0.85rem; color: var(--text-secondary);">Media Title</label>
-                        <input type="text" id="activity-media" list="media-datalist" autocomplete="off" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm);" value="${prefillMediaTitle || ''}" required />
+                        <input type="text" id="activity-media" list="media-datalist" autocomplete="off" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm);" value="${prefillMediaTitle || ''}" required oninvalid="this.setCustomValidity('Media Title is required')" oninput="this.setCustomValidity('')" />
                         <datalist id="media-datalist">${activeMedia.map(m => `<option value="${m.title}">`).join('')}</datalist>
                     </div>
-                    <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-                        <label style="font-size: 0.85rem; color: var(--text-secondary);">Duration (minutes)</label>
-                        <input type="number" id="activity-duration" min="1" step="1" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm);" required />
+                    <div style="display: flex; gap: 1rem; width: 100%;">
+                        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.5rem;">
+                            <label style="font-size: 0.85rem; color: var(--text-secondary);">Duration (mins)</label>
+                            <input type="number" id="activity-duration" value="0" min="0" step="1" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); width: 100%;" />
+                        </div>
+                        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.5rem;">
+                            <label style="font-size: 0.85rem; color: var(--text-secondary);">Characters</label>
+                            <input type="number" id="activity-characters" value="0" min="0" step="1" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); width: 100%;" />
+                        </div>
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 0.5rem; align-items: center;">
                         <label style="font-size: 0.85rem; color: var(--text-secondary);">Date</label>
@@ -111,11 +117,16 @@ export async function showLogActivityModal(prefillMediaTitle?: string): Promise<
         overlay.querySelector('#add-activity-form')!.addEventListener('submit', async (e) => {
             e.preventDefault();
             const mediaTitle = overlay.querySelector<HTMLInputElement>('#activity-media')!.value.trim();
-            // The instruction mentioned `const field = (el as HTMLInputElement).dataset.field;`
-            // but `el` is not defined in this scope. Assuming it was a partial instruction
-            // or a placeholder for a different context.
-            const duration = Number.parseInt(overlay.querySelector<HTMLInputElement>('#activity-duration')!.value, 10);
-            if (!mediaTitle || !duration) return;
+            const duration = Number.parseInt(overlay.querySelector<HTMLInputElement>('#activity-duration')!.value, 10) || 0;
+            const characters = Number.parseInt(overlay.querySelector<HTMLInputElement>('#activity-characters')!.value, 10) || 0;
+            if (!mediaTitle) {
+                await customAlert("Required Field", "Please enter a Media Title.");
+                return;
+            }
+            if (duration <= 0 && characters <= 0) {
+                await customAlert("Input Required", "Please enter either duration or characters.");
+                return;
+            }
 
             const existingMedia = mediaList.find(m => m.title.toLowerCase() === mediaTitle.toLowerCase());
             let mediaId: number;
@@ -132,7 +143,7 @@ export async function showLogActivityModal(prefillMediaTitle?: string): Promise<
                 mediaId = await addMedia({ title: mediaTitle, media_type: typeResp, status: "Active", language: "Japanese", description: "", cover_image: "", extra_data: "{}", content_type: "Unknown", tracking_status: "Untracked" });
             }
 
-            await addLog({ media_id: mediaId, duration_minutes: duration, characters: 0, date: selectedDate });
+            await addLog({ media_id: mediaId, duration_minutes: duration, characters, date: selectedDate });
             newCleanup();
             resolve(true);
         });

@@ -33,7 +33,7 @@ describe('Milestone CUJ Test', () => {
         expect(await $('#btn-clear-milestones').isExisting()).toBe(false);
 
         // Add standard milestone (121m -> 2h1min)
-        await addMilestone('First Milestone', '0', '121');
+        await addMilestone('First Milestone', '0', '121', '0');
 
         await browser.waitUntil(async () => {
             const text = await getMilestoneListText();
@@ -43,7 +43,7 @@ describe('Milestone CUJ Test', () => {
         expect(await $('#btn-clear-milestones').isDisplayed()).toBe(true);
 
         // Add dated milestone
-        const selectedDate = await addMilestone('Dated Milestone', '1', '20', true);
+        const selectedDate = await addMilestone('Dated Milestone', '1', '20', '0', true);
 
         await browser.waitUntil(async () => {
             const items = await $$('.milestone-item');
@@ -53,6 +53,33 @@ describe('Milestone CUJ Test', () => {
         const datedItem = $(`.milestone-item[title="Achieved on ${selectedDate}"]`);
         await datedItem.waitForExist({ timeout: 5000 });
         expect(await datedItem.isExisting()).toBe(true);
+
+        // Add character-only milestone
+        await addMilestone('Char Milestone', '0', '0', '1000');
+        await browser.waitUntil(async () => {
+            const text = await getMilestoneListText();
+            return text.includes('Char Milestone') && text.includes('1,000 chars');
+        }, { timeout: 10000 });
+
+        // Verify validation for 0 duration and 0 characters
+        await $('#btn-add-milestone').click();
+        await $('#milestone-name').setValue('Invalid Milestone');
+        await $('#milestone-hours').setValue('0');
+        await $('#milestone-minutes').setValue('0');
+        await $('#milestone-characters').setValue('0');
+        await $('#milestone-confirm').click();
+
+        const alertOk = $('#alert-ok');
+        await alertOk.waitForDisplayed({ timeout: 5000 });
+        const alertBody = $('#alert-body');
+        expect(await alertBody.getText()).toContain('Please enter either duration or characters.');
+        await alertOk.click();
+        await alertOk.waitForExist({ reverse: true, timeout: 5000 });
+
+        // Cancel modal
+        const cancelBtn = $('#milestone-cancel');
+        await cancelBtn.click();
+        await cancelBtn.waitForExist({ reverse: true, timeout: 5000 });
     });
 
     it('should support single and bulk deletion', async () => {
@@ -61,12 +88,13 @@ describe('Milestone CUJ Test', () => {
 
         await browser.waitUntil(async () => {
             const items = await $$('.milestone-item');
-            return (await items.length) === 1;
+            return (await items.length) === 2;
         }, { timeout: 10000 });
 
         const textAfterSingle = await getMilestoneListText();
         expect(textAfterSingle).not.toContain('Dated Milestone');
         expect(textAfterSingle).toContain('First Milestone');
+        expect(textAfterSingle).toContain('Char Milestone');
 
         // Bulk clear
         await clearAllMilestones();
@@ -81,7 +109,7 @@ describe('Milestone CUJ Test', () => {
 
     it('should support CSV export and recovery', async () => {
         // Preparation: Add a milestone to export
-        await addMilestone('Recovery Milestone', '2', '30');
+        await addMilestone('Recovery Milestone', '2', '30', '0');
 
         await navigateTo('profile');
         expect(await verifyActiveView('profile')).toBe(true);

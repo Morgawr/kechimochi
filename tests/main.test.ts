@@ -33,7 +33,7 @@ vi.mock('../src/api', () => ({
         if (key === SETTING_KEYS.THEME) return Promise.resolve('dark');
         return Promise.resolve(null);
     }),
-    getLogs: vi.fn(() => Promise.resolve([{ id: 0, date: '2024-01-01', duration_minutes: 0, title: 'T', media_id: 1, media_type: 'M', language: 'J' } as ActivitySummary])),
+    getLogs: vi.fn(() => Promise.resolve([{ id: 0, date: '2024-01-01', duration_minutes: 0, title: 'T', media_id: 1, media_type: 'M', language: 'Japanese' } as ActivitySummary])),
     getAllMedia: vi.fn(() => Promise.resolve([])),
     getHeatmap: vi.fn(() => Promise.resolve([{ date: '2024-01-01', total_minutes: 10 }])),
     getMilestones: vi.fn(() => Promise.resolve([])),
