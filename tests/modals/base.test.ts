@@ -1,10 +1,14 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as base from '../../src/modals/base';
 
 describe('modals/base.ts', () => {
     beforeEach(() => {
         document.body.innerHTML = '';
         vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+        vi.runAllTimers();
     });
 
     describe('customPrompt', () => {
@@ -28,29 +32,33 @@ describe('modals/base.ts', () => {
             expect(await promise).toBeNull();
         });
 
-        it('should handle Enter and Escape keys', async () => {
-            const promise1 = base.customPrompt('Title');
-            const input1 = document.querySelector('#prompt-input') as HTMLInputElement;
-            input1.value = 'Key Value';
-            input1.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
-            expect(await promise1).toBe('Key Value');
+        it('should resolve with input value on Enter key', async () => {
+            const promise = base.customPrompt('Title');
+            const input = document.querySelector('#prompt-input') as HTMLInputElement;
+            input.value = 'Key Value';
+            input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+            expect(await promise).toBe('Key Value');
+        });
 
-            const promise2 = base.customPrompt('Title');
-            const input2 = document.querySelector('#prompt-input') as HTMLInputElement;
-            input2.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-            expect(await promise2).toBeNull();
+        it('should resolve with null on Escape key', async () => {
+            const promise = base.customPrompt('Title');
+            const input = document.querySelector('#prompt-input') as HTMLInputElement;
+            input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+            expect(await promise).toBeNull();
         });
     });
 
     describe('customConfirm', () => {
-        it('should resolve true on OK and false on Cancel', async () => {
-            const promiseTrue = base.customConfirm('Title', 'Text');
+        it('should resolve true on OK', async () => {
+            const promise = base.customConfirm('Title', 'Text');
             document.getElementById('confirm-ok')!.click();
-            expect(await promiseTrue).toBe(true);
+            expect(await promise).toBe(true);
+        });
 
-            const promiseFalse = base.customConfirm('Title', 'Text');
+        it('should resolve false on Cancel', async () => {
+            const promise = base.customConfirm('Title', 'Text');
             document.getElementById('confirm-cancel')!.click();
-            expect(await promiseFalse).toBe(false);
+            expect(await promise).toBe(false);
         });
     });
 
