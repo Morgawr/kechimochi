@@ -6,12 +6,16 @@
 /// <reference types="@wdio/ocr-service" />
 import path from 'node:path';
 
+async function isOverlayActive(overlay: WebdriverIO.Element): Promise<boolean> {
+    const className = await overlay.getAttribute('class').catch(() => '');
+    return className.split(/\s+/).includes('active');
+}
+
 async function getTopmostVisibleOverlay(selector?: string) {
     await browser.waitUntil(async () => {
         const overlays = (await $$('.modal-overlay')).slice().reverse();
         for (const overlay of overlays) {
-            const visible = await overlay.isDisplayed().catch(() => false);
-            if (!visible) continue;
+            if (!(await isOverlayActive(overlay))) continue;
 
             if (selector) {
                 const child = overlay.$(selector);
@@ -20,17 +24,14 @@ async function getTopmostVisibleOverlay(selector?: string) {
                 }
             }
 
-            if (visible) {
-                return true;
-            }
+            return true;
         }
         return false;
     }, { timeout: 8000, timeoutMsg: `No visible modal overlay found for selector "${selector || '<any>'}"` });
 
     const overlays = (await $$('.modal-overlay')).slice().reverse();
     for (const overlay of overlays) {
-        const visible = await overlay.isDisplayed().catch(() => false);
-        if (!visible) continue;
+        if (!(await isOverlayActive(overlay))) continue;
 
         if (selector) {
             const child = overlay.$(selector);
@@ -39,12 +40,19 @@ async function getTopmostVisibleOverlay(selector?: string) {
             }
         }
 
-        if (visible) {
-            return overlay;
-        }
+        return overlay;
     }
 
     throw new Error(`No visible modal overlay found for selector "${selector || '<any>'}"`);
+}
+
+async function waitForOverlayToDisappear(overlay: WebdriverIO.Element, timeout = 5000) {
+    await browser.waitUntil(async () => {
+        return !(await isOverlayActive(overlay));
+    }, {
+        timeout,
+        timeoutMsg: 'Modal overlay did not disappear in time'
+    });
 }
 
 /**
@@ -120,15 +128,11 @@ export async function dismissAlert(expectedText?: string, timeout = 5000): Promi
 
             // Target the currently visible alert overlay in case another modal is fading out.
             const overlay = await getTopmostVisibleOverlay('#alert-ok');
-            const dataset = await overlay.getProperty('dataset') as Record<string, string>;
-            const modalId = dataset.modalId;
-            
             const scopedOkBtn = overlay.$('#alert-ok');
             await scopedOkBtn.waitForClickable({ timeout: 2000 });
             await scopedOkBtn.click();
-            
-            // Wait for this SPECIFIC overlay to be removed from DOM
-            await $(`.modal-overlay[data-modal-id="${modalId}"]`).waitForExist({ reverse: true, timeout: 5000 });
+
+            await waitForOverlayToDisappear(overlay, 5000);
         }
     } catch (e) {
         if (timeout > 0) throw e;
@@ -142,9 +146,6 @@ export async function submitPrompt(value: string): Promise<void> {
     const overlay = await getTopmostVisibleOverlay('#prompt-input');
     const input = overlay.$('#prompt-input');
     await input.waitForDisplayed({ timeout: 5000 });
-
-    const dataset = await overlay.getProperty('dataset') as Record<string, string>;
-    const modalId = dataset.modalId;
 
     await input.waitForClickable({ timeout: 2000 });
     
@@ -161,8 +162,7 @@ export async function submitPrompt(value: string): Promise<void> {
     await confirmBtn.waitForClickable({ timeout: 2000 });
     await confirmBtn.click();
 
-    // Wait for this SPECIFIC overlay to be removed from DOM
-    await $(`.modal-overlay[data-modal-id="${modalId}"]`).waitForExist({ reverse: true, timeout: 5000 });
+    await waitForOverlayToDisappear(overlay, 5000);
 }
 
 /**
@@ -174,14 +174,10 @@ export async function confirmAction(ok: boolean = true): Promise<void> {
     const btn = overlay.$(btnSelector);
     await btn.waitForDisplayed({ timeout: 5000 });
 
-    const dataset = await overlay.getProperty('dataset') as Record<string, string>;
-    const modalId = dataset.modalId;
-
     await btn.waitForClickable({ timeout: 2000 });
     await btn.click();
 
-    // Wait for this SPECIFIC overlay to be removed from DOM
-    await $(`.modal-overlay[data-modal-id="${modalId}"]`).waitForExist({ reverse: true, timeout: 5000 });
+    await waitForOverlayToDisappear(overlay, 5000);
 }
 
 /**
@@ -192,11 +188,8 @@ export async function closeModal(cancelBtnSelector: string): Promise<void> {
     const cancelBtn = overlay.$(cancelBtnSelector);
     await cancelBtn.waitForClickable({ timeout: 5000 });
 
-    const dataset = await overlay.getProperty('dataset') as Record<string, string>;
-    const modalId = dataset.modalId;
-
     await cancelBtn.click();
-    await $(`.modal-overlay[data-modal-id="${modalId}"]`).waitForExist({ reverse: true, timeout: 5000 });
+    await waitForOverlayToDisappear(overlay, 5000);
 }
 /**
  * Sets the mock path for file save/open dialogs in Tauri.

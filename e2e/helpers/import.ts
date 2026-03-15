@@ -55,15 +55,17 @@ export async function confirmMerge(): Promise<void> {
     const btn = $('#import-confirm');
     await btn.waitForDisplayed({ timeout: 5000 });
 
-    // Get the specific modal ID to wait for its removal
     const overlay = btn.$('./ancestor::div[contains(@class, "modal-overlay")]');
-    const dataset = await overlay.getProperty('dataset') as Record<string, string>;
-    const modalId = dataset.modalId;
 
     await btn.click();
 
-    // Wait for this SPECIFIC overlay to be removed from DOM
-    await $(`.modal-overlay[data-modal-id="${modalId}"]`).waitForExist({ reverse: true, timeout: 10000 });
+    await browser.waitUntil(async () => {
+        const className = await overlay.getAttribute('class').catch(() => '');
+        return !className.split(/\s+/).includes('active');
+    }, {
+        timeout: 10000,
+        timeoutMsg: 'Import merge modal did not disappear in time'
+    });
 }
 
 /**
