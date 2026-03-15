@@ -15,9 +15,12 @@ interface MediaDetailState {
     logs: ActivitySummary[];
     milestones: Milestone[];
     imgSrc: string | null;
+    isDescriptionExpanded: boolean;
 }
 
 export class MediaDetail extends Component<MediaDetailState> {
+    private static readonly DESCRIPTION_COLLAPSE_CHAR_LIMIT = 420;
+    private static readonly DESCRIPTION_COLLAPSE_NEWLINE_LIMIT = 4;
     private readonly onBack: () => void;
     private readonly onNext: () => void;
     private readonly onPrev: () => void;
@@ -30,7 +33,7 @@ export class MediaDetail extends Component<MediaDetailState> {
     private isDestroyed = false;
 
     constructor(container: HTMLElement, media: Media, logs: ActivitySummary[], mediaList: Media[], currentIndex: number, callbacks: { onBack: () => void, onNext: () => void, onPrev: () => void, onNavigate: (index: number) => void, onDelete: () => void }) {
-        super(container, { media, logs, milestones: [], imgSrc: null });
+        super(container, { media, logs, milestones: [], imgSrc: null, isDescriptionExpanded: false });
         this.mediaList = mediaList;
         this.currentIndex = currentIndex;
         this.onBack = callbacks.onBack;
@@ -106,9 +109,57 @@ export class MediaDetail extends Component<MediaDetailState> {
         }
     }
 
+    private shouldCollapseDescription(description: string | undefined): boolean {
+        if (!description) return false;
+        const newlineCount = (description.match(/\n/g) || []).length;
+        return description.length > MediaDetail.DESCRIPTION_COLLAPSE_CHAR_LIMIT
+            || newlineCount >= MediaDetail.DESCRIPTION_COLLAPSE_NEWLINE_LIMIT;
+    }
+
+    private getDescriptionViewModel(description: string | undefined, isExpanded: boolean) {
+        const hasLongDescription = this.shouldCollapseDescription(description);
+        const isCollapsed = hasLongDescription && !isExpanded;
+
+        return {
+            content: description || 'No description provided. Double click here to add one.',
+            hasLongDescription,
+            shellClassName: isCollapsed ? 'media-description-shell is-collapsed' : 'media-description-shell',
+            descriptionClassName: isCollapsed ? 'media-description-content is-collapsed' : 'media-description-content',
+            toggleClassName: isExpanded ? 'media-description-toggle is-expanded' : 'media-description-toggle',
+            toggleLabel: isExpanded ? 'see less' : 'see more',
+            ariaExpanded: isExpanded ? 'true' : 'false'
+        };
+    }
+
+    private renderDescriptionCard(media: Media, isExpanded: boolean): HTMLElement {
+        const descriptionView = this.getDescriptionViewModel(media.description, isExpanded);
+
+        return html`
+            <div class="card" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                <h4 style="margin: 0; color: var(--text-secondary);">Description</h4>
+                <div class="${descriptionView.shellClassName}">
+                    <div
+                        id="media-description"
+                        class="${descriptionView.descriptionClassName}"
+                        title="Double click to edit description"
+                        style="cursor: pointer; white-space: pre-wrap;"
+                    >${descriptionView.content}</div>
+                    ${descriptionView.hasLongDescription ? html`
+                        <button
+                            type="button"
+                            class="${descriptionView.toggleClassName}"
+                            id="media-description-toggle"
+                            aria-expanded="${descriptionView.ariaExpanded}"
+                        >${descriptionView.toggleLabel}</button>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+    }
+
     render() {
         this.clear();
-        const { media, imgSrc, logs } = this.state;
+        const { media, imgSrc, logs, isDescriptionExpanded } = this.state;
 
         const detailView = html`
             <div class="animate-fade-in" style="display: flex; flex-direction: column; height: 100%; gap: 1rem;" id="media-root">
@@ -194,10 +245,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                             </div>
                         </div>
 
-                        <div class="card" style="display: flex; flex-direction: column; gap: 0.5rem;">
-                            <h4 style="margin: 0; color: var(--text-secondary);">Description</h4>
-                            <div id="media-description" title="Double click to edit description" style="cursor: pointer; white-space: pre-wrap;">${media.description || 'No description provided. Double click here to add one.'}</div>
-                        </div>
+                        ${this.renderDescriptionCard(media, isDescriptionExpanded)}
 
                         <!-- Stats & Extra Fields -->
                         <div id="media-stats-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;">
@@ -538,6 +586,12 @@ export class MediaDetail extends Component<MediaDetailState> {
 
         const descEl = root.querySelector('#media-description') as HTMLElement;
         if (descEl) setupEditable(descEl, 'description', { isTextArea: true });
+
+        root.querySelector('#media-description-toggle')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this.setState({ isDescriptionExpanded: !this.state.isDescriptionExpanded });
+        });
 
         // Extra fields values
         root.querySelectorAll('.editable-extra').forEach(el => {

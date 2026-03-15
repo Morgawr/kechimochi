@@ -6,6 +6,27 @@
 /// <reference types="@wdio/ocr-service" />
 import path from 'node:path';
 
+async function getTopmostVisibleOverlay() {
+    await browser.waitUntil(async () => {
+        const overlays = (await $$('.modal-overlay')).slice().reverse();
+        for (const overlay of overlays) {
+            if (await overlay.isDisplayed().catch(() => false)) {
+                return true;
+            }
+        }
+        return false;
+    }, { timeout: 5000, timeoutMsg: 'No visible modal overlay found' });
+
+    const overlays = (await $$('.modal-overlay')).slice().reverse();
+    for (const overlay of overlays) {
+        if (await overlay.isDisplayed().catch(() => false)) {
+            return overlay;
+        }
+    }
+
+    throw new Error('No visible modal overlay found');
+}
+
 /**
  * Use OCR to verify text is visible on screen.
  * Falls back to DOM text search if OCR is not available.
@@ -77,13 +98,14 @@ export async function dismissAlert(expectedText?: string, timeout = 5000): Promi
                 expect(await alertBody.getText()).toContain(expectedText);
             }
 
-            // Get the specific modal ID to wait for its removal
-            const overlay = okBtn.$('./ancestor::div[contains(@class, "modal-overlay")]');
+            // Target the currently visible alert overlay in case another modal is fading out.
+            const overlay = await getTopmostVisibleOverlay();
             const dataset = await overlay.getProperty('dataset') as Record<string, string>;
             const modalId = dataset.modalId;
             
-            await okBtn.waitForClickable({ timeout: 2000 });
-            await okBtn.click();
+            const scopedOkBtn = overlay.$('#alert-ok');
+            await scopedOkBtn.waitForClickable({ timeout: 2000 });
+            await scopedOkBtn.click();
             
             // Wait for this SPECIFIC overlay to be removed from DOM
             await $(`.modal-overlay[data-modal-id="${modalId}"]`).waitForExist({ reverse: true, timeout: 5000 });
@@ -97,11 +119,10 @@ export async function dismissAlert(expectedText?: string, timeout = 5000): Promi
  * Handle a custom prompt modal by entering a value and confirming
  */
 export async function submitPrompt(value: string): Promise<void> {
-    const input = $('#prompt-input');
+    const overlay = await getTopmostVisibleOverlay();
+    const input = overlay.$('#prompt-input');
     await input.waitForDisplayed({ timeout: 5000 });
-    
-    // Get the specific modal ID to wait for its removal
-    const overlay = input.$('./ancestor::div[contains(@class, "modal-overlay")]');
+
     const dataset = await overlay.getProperty('dataset') as Record<string, string>;
     const modalId = dataset.modalId;
 
@@ -116,7 +137,7 @@ export async function submitPrompt(value: string): Promise<void> {
         return (await input.getValue()) === value;
     }, { timeout: 3000, timeoutMsg: 'Failed to set value in prompt input' });
 
-    const confirmBtn = $('#prompt-confirm');
+    const confirmBtn = overlay.$('#prompt-confirm');
     await confirmBtn.waitForClickable({ timeout: 2000 });
     await confirmBtn.click();
 
@@ -129,11 +150,10 @@ export async function submitPrompt(value: string): Promise<void> {
  */
 export async function confirmAction(ok: boolean = true): Promise<void> {
     const btnSelector = ok ? '#confirm-ok' : '#confirm-cancel';
-    const btn = $(btnSelector);
+    const overlay = await getTopmostVisibleOverlay();
+    const btn = overlay.$(btnSelector);
     await btn.waitForDisplayed({ timeout: 5000 });
-    
-    // Get the specific modal ID to wait for its removal
-    const overlay = btn.$('./ancestor::div[contains(@class, "modal-overlay")]');
+
     const dataset = await overlay.getProperty('dataset') as Record<string, string>;
     const modalId = dataset.modalId;
 

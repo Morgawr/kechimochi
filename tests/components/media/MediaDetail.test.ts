@@ -180,6 +180,42 @@ describe('MediaDetail', () => {
         expect(api.updateMedia).toHaveBeenCalledWith(expect.objectContaining({ title: 'New Title' }));
     });
 
+    it('should collapse long descriptions and toggle expansion', async () => {
+        vi.mocked(api.getMilestones).mockResolvedValue([]);
+        const longDescription = `${'Long description. '.repeat(40)}\nExtra line\nAnother line\nYet another line\nOne more line`;
+        const component = new MediaDetail(container, { ...mockMedia, description: longDescription } as unknown as Media, [], [mockMedia as unknown as Media], 0, mockCallbacks);
+        component.triggerMount();
+        component.render();
+
+        const description = container.querySelector('#media-description') as HTMLElement;
+        const toggle = container.querySelector('#media-description-toggle') as HTMLButtonElement;
+
+        expect(description.classList.contains('is-collapsed')).toBe(true);
+        expect(toggle).not.toBeNull();
+        expect(toggle.getAttribute('aria-expanded')).toBe('false');
+        expect(toggle.textContent).toContain('see more');
+
+        toggle.click();
+
+        await vi.waitFor(() => {
+            const updatedDescription = container.querySelector('#media-description') as HTMLElement;
+            const updatedToggle = container.querySelector('#media-description-toggle') as HTMLButtonElement;
+            expect(updatedDescription.classList.contains('is-collapsed')).toBe(false);
+            expect(updatedToggle.getAttribute('aria-expanded')).toBe('true');
+            expect(updatedToggle.textContent).toContain('see less');
+        });
+    });
+
+    it('should not show a toggle for short descriptions', async () => {
+        vi.mocked(api.getMilestones).mockResolvedValue([]);
+        const component = new MediaDetail(container, { ...mockMedia, description: 'Short description' } as unknown as Media, [], [mockMedia as unknown as Media], 0, mockCallbacks);
+        component.triggerMount();
+        component.render();
+
+        expect(container.querySelector('#media-description-toggle')).toBeNull();
+        expect(container.querySelector('#media-description')?.classList.contains('is-collapsed')).toBe(false);
+    });
+
     it('should handle metadata import', async () => {
         vi.mocked(importers.getAvailableSourcesForContentType).mockReturnValue(['MockSource']);
         vi.mocked(api.getMilestones).mockResolvedValue([]);
