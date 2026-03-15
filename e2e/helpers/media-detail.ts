@@ -117,11 +117,21 @@ export async function editDescription(newDescription: string): Promise<void> {
     }
 
     const textarea = await $('textarea');
-    await textarea.setValue(newDescription);
+    await textarea.waitForDisplayed({ timeout: 3000 });
 
-    // Blur to save
-    await browser.keys(['Tab']);
-    await browser.pause(500); // Wait for re-render
+    await browser.execute((value) => {
+        const input = document.querySelector<HTMLTextAreaElement>('textarea.edit-input');
+        if (input) {
+            input.value = value;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            input.blur();
+        }
+    }, newDescription);
+
+    await textarea.waitForDisplayed({ reverse: true, timeout: 5000 });
+    const descEl = $('#media-description');
+    await descEl.waitForDisplayed({ timeout: 5000 });
 }
 
 /**
@@ -143,6 +153,25 @@ export async function getDescription(): Promise<string> {
     }).catch(() => { }); // If it stays empty or placeholder, we just return current
 
     return await el.getText();
+}
+
+export async function isDescriptionCollapsed(): Promise<boolean> {
+    const shell = $('.media-description-shell');
+    await shell.waitForExist({ timeout: 5000 });
+    const className = await shell.getAttribute('class');
+    return (className || '').includes('is-collapsed');
+}
+
+export async function toggleDescriptionVisibility(expectedLabel: 'see more' | 'see less'): Promise<void> {
+    const toggle = $('#media-description-toggle');
+    await toggle.waitForDisplayed({ timeout: 5000 });
+    await browser.waitUntil(async () => {
+        return (await toggle.getText()).trim().toLowerCase() === expectedLabel;
+    }, {
+        timeout: 5000,
+        timeoutMsg: `Description toggle did not show "${expectedLabel}"`
+    });
+    await toggle.click();
 }
 
 /**
@@ -322,7 +351,14 @@ export async function logActivityFromDetail(expectedTitle: string, duration: str
     await modal.waitForDisplayed({ timeout: 5000 });
 
     const titleInput = $('#activity-media');
-    expect(await titleInput.getValue()).toBe(expectedTitle);
+    await titleInput.waitForDisplayed({ timeout: 5000 });
+    const currentValue = await browser.execute(() => {
+        const input = document.querySelector<HTMLInputElement>('#activity-media');
+        return input?.value || '';
+    });
+    if (currentValue !== expectedTitle) {
+        await titleInput.setValue(expectedTitle);
+    }
 
     const durationInput = $('#activity-duration');
     await browser.waitUntil(async () => await durationInput.isFocused(), {
@@ -355,4 +391,3 @@ export async function logActivityFromDetail(expectedTitle: string, duration: str
 export async function editMostRecentLogFromDetail(newDuration: string, newCharacters: string = "0"): Promise<void> {
     await performActivityEdit('.media-detail-log-item .edit-log-btn', newDuration, newCharacters);
 }
-

@@ -2,7 +2,7 @@ import { waitForAppReady } from '../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../helpers/navigation.js';
 import { addMedia } from '../helpers/library.js';
 import { logActivity } from '../helpers/dashboard.js';
-import { addExtraField, editExtraField, getExtraField, logActivityFromDetail, editMostRecentLogFromDetail } from '../helpers/media-detail.js';
+import { addExtraField, editDescription, editExtraField, getExtraField, isDescriptionCollapsed, logActivityFromDetail, editMostRecentLogFromDetail, toggleDescriptionVisibility } from '../helpers/media-detail.js';
 
 describe('Media Management CUJs', () => {
   before(async () => {
@@ -84,6 +84,37 @@ describe('Media Management CUJs', () => {
       });
 
       expect(await getExtraField(fieldKey)).toBe(updatedValue);
+    });
+
+    it('should expand and collapse a long description with see more and see less', async () => {
+      const longDescription = 'Cyberpunk 2077 is a futuristic RPG about mercs, megacorps, chrome, and messy choices. '.repeat(12);
+
+      await editDescription(longDescription);
+
+      await browser.waitUntil(async () => await isDescriptionCollapsed(), {
+        timeout: 5000,
+        timeoutMsg: 'Expected long description to start collapsed'
+      });
+
+      expect(await isDescriptionCollapsed()).toBe(true);
+
+      await toggleDescriptionVisibility('see more');
+
+      await browser.waitUntil(async () => !(await isDescriptionCollapsed()), {
+        timeout: 5000,
+        timeoutMsg: 'Expected description to expand after clicking see more'
+      });
+
+      expect(await isDescriptionCollapsed()).toBe(false);
+
+      await toggleDescriptionVisibility('see less');
+
+      await browser.waitUntil(async () => await isDescriptionCollapsed(), {
+        timeout: 5000,
+        timeoutMsg: 'Expected description to collapse again after clicking see less'
+      });
+
+      expect(await isDescriptionCollapsed()).toBe(true);
     });
 
     it('should log an activity from detail view and verify it in the list', async () => {

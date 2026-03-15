@@ -950,10 +950,77 @@ input:checked + .slider:before {
 /* Desktop media detail: keep full-height layout and shrink the cover image so
    milestones remain visible without introducing a column scrollbar. */
 @media (min-width: 1025px) {
+  #media-content-area {
+    align-items: flex-start;
+    overflow-y: auto !important;
+    overflow-x: hidden;
+    padding-right: 0.35rem;
+  }
+
   #media-cover-column {
+    position: sticky;
+    top: 0;
+    align-self: flex-start;
     overflow: hidden;
     padding-right: 0;
   }
+
+  #media-detail-column {
+    padding-bottom: 1rem;
+  }
+}
+
+.media-description-shell {
+  position: relative;
+}
+
+.media-description-content {
+  position: relative;
+  line-height: 1.55;
+}
+
+.media-description-shell.is-collapsed .media-description-content.is-collapsed {
+  max-height: 12.5rem;
+  overflow: hidden;
+}
+
+.media-description-toggle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  min-height: 5.5rem;
+  padding: 3.2rem 1rem 0.7rem;
+  border: none;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--bg-card) 8%, transparent) 0%,
+    color-mix(in srgb, var(--bg-card) 42%, transparent) 34%,
+    color-mix(in srgb, var(--bg-card) 82%, black 18%) 72%,
+    var(--bg-card) 100%
+  );
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: center;
+  text-transform: lowercase;
+  transition: color var(--transition-fast);
+}
+
+.media-description-toggle:hover {
+  color: var(--text-primary);
+}
+
+.media-description-toggle.is-expanded {
+  position: static;
+  min-height: 0;
+  margin-top: 0.35rem;
+  padding: 0;
+  background: none;
+  text-align: left;
 }
 
 @media (max-width: 1024px) {
