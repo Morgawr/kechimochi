@@ -166,6 +166,44 @@ fn create_settings_table(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn apply_pragmas(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "PRAGMA foreign_keys = ON;
+         PRAGMA busy_timeout = 5000;
+         PRAGMA temp_store = MEMORY;
+         PRAGMA cache_size = -20000;
+         PRAGMA main.journal_mode = WAL;
+         PRAGMA main.synchronous = NORMAL;
+         PRAGMA shared.journal_mode = WAL;
+         PRAGMA shared.synchronous = NORMAL;",
+    )?;
+    Ok(())
+}
+
+fn create_indexes(conn: &Connection) -> Result<()> {
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS main.idx_activity_logs_date_id
+         ON activity_logs(date DESC, id DESC)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS main.idx_activity_logs_media_id_date_id
+         ON activity_logs(media_id, date DESC, id DESC)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS main.idx_milestones_media_title_id
+         ON milestones(media_title, id ASC)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS shared.idx_shared_media_status_tracking_id
+         ON media(status, tracking_status, id DESC)",
+        [],
+    )?;
+    Ok(())
+}
+
 pub fn create_tables(conn: &Connection) -> Result<()> {
     create_shared_media_table(conn)?;
     create_activity_logs_table(conn)?;
@@ -189,6 +227,8 @@ pub fn init_db(app_dir: std::path::PathBuf, profile_name: &str) -> Result<Connec
         rusqlite::params![shared_db_path.to_string_lossy()],
     )?;
 
+    apply_pragmas(&conn)?;
+
     // Run migrations
     migrate_to_shared(&conn)?;
 
@@ -196,6 +236,7 @@ pub fn init_db(app_dir: std::path::PathBuf, profile_name: &str) -> Result<Connec
     create_tables(&conn)?;
     migrate_milestones(&conn)?;
     migrate_to_character_tracking(&conn)?;
+    create_indexes(&conn)?;
 
     Ok(conn)
 }
