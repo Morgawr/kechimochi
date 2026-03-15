@@ -6,25 +6,45 @@
 /// <reference types="@wdio/ocr-service" />
 import path from 'node:path';
 
-async function getTopmostVisibleOverlay() {
+async function getTopmostVisibleOverlay(selector?: string) {
     await browser.waitUntil(async () => {
         const overlays = (await $$('.modal-overlay')).slice().reverse();
         for (const overlay of overlays) {
-            if (await overlay.isDisplayed().catch(() => false)) {
+            const visible = await overlay.isDisplayed().catch(() => false);
+            if (!visible) continue;
+
+            if (selector) {
+                const child = overlay.$(selector);
+                if (!(await child.isDisplayed().catch(() => false))) {
+                    continue;
+                }
+            }
+
+            if (visible) {
                 return true;
             }
         }
         return false;
-    }, { timeout: 5000, timeoutMsg: 'No visible modal overlay found' });
+    }, { timeout: 8000, timeoutMsg: `No visible modal overlay found for selector "${selector || '<any>'}"` });
 
     const overlays = (await $$('.modal-overlay')).slice().reverse();
     for (const overlay of overlays) {
-        if (await overlay.isDisplayed().catch(() => false)) {
+        const visible = await overlay.isDisplayed().catch(() => false);
+        if (!visible) continue;
+
+        if (selector) {
+            const child = overlay.$(selector);
+            if (!(await child.isDisplayed().catch(() => false))) {
+                continue;
+            }
+        }
+
+        if (visible) {
             return overlay;
         }
     }
 
-    throw new Error('No visible modal overlay found');
+    throw new Error(`No visible modal overlay found for selector "${selector || '<any>'}"`);
 }
 
 /**
@@ -99,7 +119,7 @@ export async function dismissAlert(expectedText?: string, timeout = 5000): Promi
             }
 
             // Target the currently visible alert overlay in case another modal is fading out.
-            const overlay = await getTopmostVisibleOverlay();
+            const overlay = await getTopmostVisibleOverlay('#alert-ok');
             const dataset = await overlay.getProperty('dataset') as Record<string, string>;
             const modalId = dataset.modalId;
             
@@ -119,7 +139,7 @@ export async function dismissAlert(expectedText?: string, timeout = 5000): Promi
  * Handle a custom prompt modal by entering a value and confirming
  */
 export async function submitPrompt(value: string): Promise<void> {
-    const overlay = await getTopmostVisibleOverlay();
+    const overlay = await getTopmostVisibleOverlay('#prompt-input');
     const input = overlay.$('#prompt-input');
     await input.waitForDisplayed({ timeout: 5000 });
 
@@ -150,7 +170,7 @@ export async function submitPrompt(value: string): Promise<void> {
  */
 export async function confirmAction(ok: boolean = true): Promise<void> {
     const btnSelector = ok ? '#confirm-ok' : '#confirm-cancel';
-    const overlay = await getTopmostVisibleOverlay();
+    const overlay = await getTopmostVisibleOverlay(btnSelector);
     const btn = overlay.$(btnSelector);
     await btn.waitForDisplayed({ timeout: 5000 });
 
@@ -168,10 +188,10 @@ export async function confirmAction(ok: boolean = true): Promise<void> {
  * Generic helper to close a modal by clicking its cancel button.
  */
 export async function closeModal(cancelBtnSelector: string): Promise<void> {
-    const cancelBtn = $(cancelBtnSelector);
+    const overlay = await getTopmostVisibleOverlay(cancelBtnSelector);
+    const cancelBtn = overlay.$(cancelBtnSelector);
     await cancelBtn.waitForClickable({ timeout: 5000 });
-    
-    const overlay = cancelBtn.$('./ancestor::div[contains(@class, "modal-overlay")]');
+
     const dataset = await overlay.getProperty('dataset') as Record<string, string>;
     const modalId = dataset.modalId;
 
