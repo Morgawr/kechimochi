@@ -9,6 +9,7 @@ import {
     customPrompt, customConfirm, customAlert,
     initialProfilePrompt, showLogActivityModal
 } from './modals';
+import { syncAppShell } from './app_shell';
 import { initServices, getServices } from './services';
 import { Logger } from './core/logger';
 import { STORAGE_KEYS, SETTING_KEYS, VIEW_NAMES, EVENTS, DEFAULTS } from './constants';
@@ -274,6 +275,7 @@ class App {
 document.addEventListener('DOMContentLoaded', () => {
     (async () => {
         await initServices();
+        syncAppShell(getServices().isDesktop());
         await App.start();
     })().catch(e => {
         Logger.error('Failed to start application:', e);
