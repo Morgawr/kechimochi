@@ -1,5 +1,5 @@
 import { Component } from '../../core/component';
-import { html } from '../../core/html';
+import { html, rawHtml } from '../../core/html';
 import { ActivitySummary, Media } from '../../api';
 import { formatStatsDuration } from '../../utils/time';
 
@@ -71,7 +71,7 @@ export class StatsCard extends Component<StatsCardState> {
                     </div>
                     <div style="width: 100%; height: 1px; background: var(--border-color); margin: 0.2rem 0;"></div>
                     <div style="width: 100%; display: flex; flex-direction: column; gap: 0.4rem;">
-                        ${breakdownHtml}
+                        ${rawHtml(breakdownHtml)}
                     </div>
                 </div>
             </div>

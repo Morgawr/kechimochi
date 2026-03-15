@@ -2,6 +2,14 @@
  * A simple tagged template literal for creating HTML elements.
  * Usage: html`<div class="foo">${content}</div>`
  */
+export class RawHtml {
+    constructor(public readonly value: string) {}
+}
+
+export function rawHtml(value: string): RawHtml {
+    return new RawHtml(value);
+}
+
 export function html(strings: TemplateStringsArray, ...values: unknown[]): HTMLElement {
     const template = document.createElement('template');
     const placeholders: Map<string, HTMLElement | HTMLElement[]> = new Map();
@@ -16,17 +24,9 @@ export function html(strings: TemplateStringsArray, ...values: unknown[]): HTMLE
             placeholders.set(id, val);
             htmlString += str + `<div id="${id}"></div>`;
         } else if (Array.isArray(val)) {
-            htmlString += str + val.join('');
+            htmlString += str + val.map(stringifyAndEscape).join('');
         } else {
-            let stringVal = '';
-            if (val != null) {
-                if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
-                    stringVal = String(val);
-                } else {
-                    stringVal = JSON.stringify(val);
-                }
-            }
-            htmlString += str + stringVal;
+            htmlString += str + stringifyAndEscape(val);
         }
     });
     
@@ -52,6 +52,15 @@ export function html(strings: TemplateStringsArray, ...values: unknown[]): HTMLE
     });
     
     return element;
+}
+
+function stringifyAndEscape(val: unknown): string {
+    if (val == null) return '';
+    if (val instanceof RawHtml) return val.value;
+    if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
+        return escapeHTML(String(val));
+    }
+    return escapeHTML(JSON.stringify(val));
 }
 
 /**

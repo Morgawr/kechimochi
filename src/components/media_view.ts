@@ -102,8 +102,7 @@ export class MediaView extends Component<MediaViewState> {
 
     public async jumpToMedia(mediaId: number) {
         this.targetMediaId = mediaId;
-        await this.loadData();
-        this.setState({ viewMode: 'detail' });
+        await this.loadData(mediaId);
     }
 
     async loadData(jumpToId?: number) {
@@ -131,7 +130,7 @@ export class MediaView extends Component<MediaViewState> {
                 this.targetMediaId = null;
             }
 
-            const viewMode = (jumpToId === undefined) ? this.state.viewMode : 'detail';
+            const viewMode = targetId !== null && targetId !== undefined ? 'detail' : this.state.viewMode;
             if (viewMode === 'detail' && mediaList[finalNextIndex]) {
                 currentLogs = await getLogsForMedia(mediaList[finalNextIndex].id!);
             }

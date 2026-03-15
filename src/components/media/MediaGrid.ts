@@ -1,5 +1,5 @@
 import { Component } from '../../core/component';
-import { html, escapeHTML } from '../../core/html';
+import { html, escapeHTML, rawHtml } from '../../core/html';
 import { Media, addMedia } from '../../api';
 import { MediaItem } from './MediaItem';
 import { showAddMediaModal } from '../../modals';
@@ -84,11 +84,11 @@ export class MediaGrid extends Component<MediaGridState> {
                 <input type="text" id="grid-search-filter" placeholder="Search title..." style="flex: 1; min-width: 0; padding: 0.4rem 0.8rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color); background: var(--bg-dark); color: var(--text-primary); outline: none;" value="${this.state.searchQuery}" autocomplete="off" />
                 <select id="grid-status-select" style="padding: 0.4rem 0.8rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color); background: var(--bg-dark); color: var(--text-primary); outline: none; cursor: pointer;">
                     <option value="${FILTERS.ALL}" ${this.state.statusFilter === FILTERS.ALL ? 'selected' : ''}>All Statuses</option>
-                    ${TRACKING_STATUSES.map(s => `<option value="${s}" ${this.state.statusFilter === s ? 'selected' : ''}>${s}</option>`).join('')}
+                    ${rawHtml(TRACKING_STATUSES.map(s => `<option value="${s}" ${this.state.statusFilter === s ? 'selected' : ''}>${s}</option>`).join(''))}
                 </select>
                 <select id="grid-type-select" style="padding: 0.4rem 0.8rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color); background: var(--bg-dark); color: var(--text-primary); outline: none; cursor: pointer;">
                     <option value="${FILTERS.ALL}" ${this.state.typeFilter === FILTERS.ALL ? 'selected' : ''}>All Types</option>
-                    ${uniqueTypes.map(t => `<option value="${escapeHTML(t)}" ${this.state.typeFilter === t ? 'selected' : ''}>${escapeHTML(t)}</option>`).join('')}
+                    ${rawHtml(uniqueTypes.map(t => `<option value="${escapeHTML(t)}" ${this.state.typeFilter === t ? 'selected' : ''}>${escapeHTML(t)}</option>`).join(''))}
                 </select>
                 <div style="display: flex; align-items: center; gap: 0.6rem; user-select: none;">
                     <span style="font-size: 0.85rem; color: var(--text-secondary);">Hide Archived</span>

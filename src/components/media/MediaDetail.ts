@@ -1,6 +1,6 @@
 import { Logger } from '../../core/logger';
 import { Component } from '../../core/component';
-import { html, escapeHTML } from '../../core/html';
+import { html, escapeHTML, rawHtml } from '../../core/html';
 import { Media, ActivitySummary, Milestone, updateMedia, deleteMedia, getSetting, getMilestones, addMilestone, deleteMilestone, clearMilestones, getLogsForMedia, readFileBytes, downloadAndSaveImage } from '../../api';
 import { customAlert, customConfirm, customPrompt, showJitenSearchModal, showImportMergeModal, showAddMilestoneModal, showLogActivityModal } from '../../modals';
 import { isValidImporterUrl, fetchMetadataForUrl } from '../../importers';
@@ -26,6 +26,8 @@ export class MediaDetail extends Component<MediaDetailState> {
     private readonly mediaList: Media[];
     private readonly currentIndex: number;
     private readonly onViewportResize: () => void;
+    private currentObjectUrl: string | null = null;
+    private isDestroyed = false;
 
     constructor(container: HTMLElement, media: Media, logs: ActivitySummary[], mediaList: Media[], currentIndex: number, callbacks: { onBack: () => void, onNext: () => void, onPrev: () => void, onNavigate: (index: number) => void, onDelete: () => void }) {
         super(container, { media, logs, milestones: [], imgSrc: null });
@@ -41,14 +43,23 @@ export class MediaDetail extends Component<MediaDetailState> {
     }
 
     protected override onMount() {
-        this.loadImage();
-        this.loadMilestones();
+        this.loadImage().catch(e => Logger.error("Failed to load image", e));
+        this.loadMilestones().catch(e => Logger.error("Failed to load milestones", e));
+    }
+
+    public override destroy() {
+        this.isDestroyed = true;
+        globalThis.removeEventListener('resize', this.onViewportResize);
+        this.revokeCurrentObjectUrl();
+        super.destroy();
     }
 
     private async loadMilestones() {
         try {
             const milestones = await getMilestones(this.state.media.title);
-            this.setState({ milestones });
+            if (!this.isDestroyed) {
+                this.setState({ milestones });
+            }
         } catch (e) {
             Logger.error("Failed to load milestones", e);
         }
@@ -56,15 +67,31 @@ export class MediaDetail extends Component<MediaDetailState> {
 
     private async loadImage() {
         const { cover_image } = this.state.media;
+        if (!cover_image || cover_image.trim() === '') {
+            this.revokeCurrentObjectUrl();
+            if (this.state.imgSrc !== null && !this.isDestroyed) {
+                this.setState({ imgSrc: null });
+            }
+            return;
+        }
+
         let src: string | null;
         if (getServices().isDesktop()) {
             const bytes = await readFileBytes(cover_image);
             const blob = new Blob([new Uint8Array(bytes)]);
             src = URL.createObjectURL(blob);
+            this.revokeCurrentObjectUrl();
+            this.currentObjectUrl = src;
         } else {
             src = await getServices().loadCoverImage(cover_image);
         }
-        if (src) this.setState({ imgSrc: src });
+        if (src && !this.isDestroyed) this.setState({ imgSrc: src });
+    }
+
+    private revokeCurrentObjectUrl() {
+        if (!this.currentObjectUrl) return;
+        URL.revokeObjectURL(this.currentObjectUrl);
+        this.currentObjectUrl = null;
     }
 
     private getTrackingStatusClass(status: string): string {
@@ -94,7 +121,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                     <div id="media-detail-nav" style="display: flex; justify-content: center; align-items: center; gap: 1rem;">
                         <button class="btn btn-ghost" id="media-prev" style="font-size: 1.2rem; padding: 0.2rem 1rem;">&lt;&lt;</button>
                         <select id="media-select" style="max-width: 800px; text-align: center; border: none; background: transparent; font-size: 1.1rem; color: var(--text-primary); outline: none; appearance: none; cursor: pointer; text-align-last: center; text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">
-                            ${this.mediaList.map((m, i) => `<option value="${i}" ${i === this.currentIndex ? 'selected' : ''}>${m.title}</option>`).join('')}
+                            ${rawHtml(this.mediaList.map((m, i) => `<option value="${i}" ${i === this.currentIndex ? 'selected' : ''}>${escapeHTML(m.title)}</option>`).join(''))}
                         </select>
                         <button class="btn btn-ghost" id="media-next" style="font-size: 1.2rem; padding: 0.2rem 1rem;">&gt;&gt;</button>
                     </div>
@@ -124,7 +151,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                                     <button class="btn btn-ghost" id="btn-add-milestone" style="padding: 0.15rem 0.4rem; font-size: 0.65rem; border-radius: 4px;">+ Add</button>
                                 </div>
                                 <div id="milestone-list-container" style="display: flex; flex-direction: column; gap: 0.3rem; flex: 1; min-height: 0; overflow-y: auto;">
-                                    ${this.renderMilestones()}
+                                    ${rawHtml(this.renderMilestones())}
                                 </div>
                                 ${this.state.milestones.length > 0 ? html`
                                     <div style="display: flex; justify-content: flex-end; margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.05);">
@@ -139,20 +166,20 @@ export class MediaDetail extends Component<MediaDetailState> {
                     <div id="media-detail-column" style="flex: 1; display: flex; flex-direction: column; gap: 1rem; min-height: 0;">
                         <div>
                             <div style="display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap;">
-                                <h1 id="media-title" title="Double click to edit title" style="margin: 0; font-size: 2rem; cursor: pointer;">${escapeHTML(media.title)}</h1>
+                                <h1 id="media-title" title="Double click to edit title" style="margin: 0; font-size: 2rem; cursor: pointer;">${media.title}</h1>
                                 <button class="copy-btn" id="btn-copy-title" title="Copy Title" style="margin-bottom: 3px;">
                                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                                 </button>
                             </div>
                             <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem; align-items: center; flex-wrap: wrap;">
                                 <select class="badge badge-select ${this.getTrackingStatusClass(media.tracking_status)}" id="media-tracking-status" title="Click to edit tracking status">
-                                    ${TRACKING_STATUSES.map(opt => `<option value="${opt}" ${opt === media.tracking_status ? 'selected' : ''}>${opt}</option>`).join('')}
+                                    ${rawHtml(TRACKING_STATUSES.map(opt => `<option value="${opt}" ${opt === media.tracking_status ? 'selected' : ''}>${opt}</option>`).join(''))}
                                 </select>
                                 <select class="badge badge-select" id="media-type" title="Click to edit activity type">
-                                    ${ACTIVITY_TYPES.map(opt => `<option value="${opt}" ${opt === media.media_type ? 'selected' : ''}>${opt}</option>`).join('')}
+                                    ${rawHtml(ACTIVITY_TYPES.map(opt => `<option value="${opt}" ${opt === media.media_type ? 'selected' : ''}>${opt}</option>`).join(''))}
                                 </select>
                                 <select class="badge badge-select badge-content" id="media-content-type" title="Click to edit content type">
-                                    ${this.getContentTypeOptions(media)}
+                                    ${rawHtml(this.getContentTypeOptions(media))}
                                 </select>
                                 <span class="badge" style="background: var(--bg-card-hover); color: var(--text-secondary);">${media.language}</span>
                                 <span class="badge" style="background: var(--bg-card-hover); color: var(--text-secondary); border: 1px solid var(--border-color); display: flex; align-items: center; gap: 0.5rem; padding: 0.2rem 0.6rem;">
@@ -175,7 +202,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                         <!-- Stats & Extra Fields -->
                         <div id="media-stats-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;">
                             <div class="card" id="media-first-last-stats" style="grid-column: span 3; display: none; justify-content: flex-start; gap: 2rem; padding: 0.5rem 1rem; font-size: 0.85rem;"></div>
-                            ${this.getExtraDataHtml(media)}
+                            ${rawHtml(this.getExtraDataHtml(media))}
                         </div>
 
                         <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
