@@ -120,7 +120,7 @@ export async function editDescription(newDescription: string): Promise<void> {
     await textarea.waitForDisplayed({ timeout: 3000 });
 
     await browser.execute((value) => {
-        const input = document.querySelector('textarea.edit-input') as HTMLTextAreaElement | null;
+        const input = document.querySelector<HTMLTextAreaElement>('textarea.edit-input');
         if (input) {
             input.value = value;
             input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -353,7 +353,7 @@ export async function logActivityFromDetail(expectedTitle: string, duration: str
     const titleInput = $('#activity-media');
     await titleInput.waitForDisplayed({ timeout: 5000 });
     const currentValue = await browser.execute(() => {
-        const input = document.querySelector('#activity-media') as HTMLInputElement | null;
+        const input = document.querySelector<HTMLInputElement>('#activity-media');
         return input?.value || '';
     });
     if (currentValue !== expectedTitle) {
