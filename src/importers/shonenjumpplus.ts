@@ -29,7 +29,7 @@ export class ShonenjumpplusImporter extends BaseImporter {
             }
         }
 
-        return { title: "", description, coverImageUrl, extraData };
+        return { title: "", description: this.sanitizeDescription(description), coverImageUrl, extraData };
     }
 
     private extractCoverImage(doc: Document): string {

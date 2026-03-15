@@ -29,6 +29,10 @@ class MockImporter extends BaseImporter {
     public testCreateExtraData(url: string, initialData?: Record<string, string>) {
         return this.createExtraData(url, initialData);
     }
+
+    public testSanitizeDescription(description: string) {
+        return this.sanitizeDescription(description);
+    }
 }
 
 describe('BaseImporter', () => {
@@ -83,5 +87,12 @@ describe('BaseImporter', () => {
         expect(invoke).toHaveBeenCalledWith('fetch_external_json', expect.objectContaining({
             headers: undefined
         }));
+    });
+
+    it('sanitizeDescription should strip HTML tags and collapse extra line breaks', () => {
+        const importer = new MockImporter();
+
+        expect(importer.testSanitizeDescription('<i>description text</i><br><br><p>More&nbsp;text</p>'))
+            .toBe('description text\n\nMore text');
     });
 });

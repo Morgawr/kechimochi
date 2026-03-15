@@ -53,7 +53,7 @@ export class VndbImporter extends BaseImporter {
 
         return {
             title: "",
-            description: this.removeBbcode(vn.description).replaceAll('[br]', '\n').replaceAll('[url=', '').replaceAll(']', ''),
+            description: this.sanitizeDescription(this.removeBbcode(vn.description).replaceAll('[br]', '\n').replaceAll('[url=', '').replaceAll(']', '')),
             coverImageUrl: vn.image?.url || "",
             extraData
         };

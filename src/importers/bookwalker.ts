@@ -26,7 +26,7 @@ export class BookwalkerImporter extends BaseImporter {
         const coverImageUrl = this.extractCoverImage(doc);
         this.extractProperties(doc, extraData);
 
-        return { title: "", description, coverImageUrl, extraData };
+        return { title: "", description: this.sanitizeDescription(description), coverImageUrl, extraData };
     }
 
     private async routeToVolume(doc: Document, currentUrl: string, targetVolume: number): Promise<{ url: string, doc: Document } | null> {

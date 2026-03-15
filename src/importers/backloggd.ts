@@ -90,7 +90,7 @@ export class BackloggdImporter extends BaseImporter {
 
         return {
             title: "", // We do not import title
-            description,
+            description: this.sanitizeDescription(description),
             coverImageUrl,
             extraData
         };

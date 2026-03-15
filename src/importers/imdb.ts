@@ -31,7 +31,7 @@ export class ImdbImporter extends BaseImporter {
 
         return {
             title: "",
-            description: metadata.description || "",
+            description: this.sanitizeDescription(metadata.description || ""),
             coverImageUrl: metadata.coverImageUrl || "",
             extraData
         };

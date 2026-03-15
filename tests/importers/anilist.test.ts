@@ -23,7 +23,7 @@ describe('AnilistImporter', () => {
                 data: {
                     Media: {
                         title: { english: 'Test Anime', romaji: 'Test Romaji' },
-                        description: 'Best anime ever.',
+                        description: '<i>Best anime ever.</i><br><br>Absolutely worth it.',
                         coverImage: { extraLarge: 'https://img.anilist.co/extralarge/123.jpg' },
                         episodes: 12,
                         season: 'SUMMER',
@@ -41,7 +41,7 @@ describe('AnilistImporter', () => {
             const result = await importer.fetch('https://anilist.co/anime/123/');
 
             expect(result.title).toBe('Test Anime');
-            expect(result.description).toBe('Best anime ever.');
+            expect(result.description).toBe('Best anime ever.\n\nAbsolutely worth it.');
             expect(result.coverImageUrl).toBe('https://img.anilist.co/extralarge/123.jpg');
             expect(result.extraData['Episodes']).toBe('12');
             expect(result.extraData['Airing Season']).toBe('Summer 2024');

@@ -19,7 +19,7 @@ export class BookmeterImporter extends BaseImporter {
         this.extractPublisher(doc, extraData);
         this.extractAuthor(doc, extraData);
 
-        return { title: "", description, coverImageUrl, extraData };
+        return { title: "", description: this.sanitizeDescription(description), coverImageUrl, extraData };
     }
 
     private extractDescription(doc: Document): string {

@@ -44,7 +44,7 @@ export class JitenImporter extends BaseImporter {
 
         return {
             title: data.originalTitle || data.romajiTitle || data.englishTitle || "",
-            description: data.description || "",
+            description: this.sanitizeDescription(data.description || ""),
             coverImageUrl: data.parentDeckId ? "" : `https://cdn.jiten.moe/${data.deckId}/cover.jpg`,
             extraData,
             contentType: getJitenMediaContentType(data.mediaType)

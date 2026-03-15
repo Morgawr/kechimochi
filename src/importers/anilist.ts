@@ -37,7 +37,7 @@ export class AnilistImporter extends BaseImporter {
 
         return {
             title: title,
-            description: media.description || "",
+            description: this.sanitizeDescription(media.description || ""),
             coverImageUrl: media.coverImage?.extraLarge || media.coverImage?.large || "",
             extraData
         };

@@ -19,7 +19,7 @@ export class CmoaImporter extends BaseImporter {
         this.extractRating(doc, extraData);
         this.extractAuthors(doc, extraData);
 
-        return { title: "", description, coverImageUrl, extraData };
+        return { title: "", description: this.sanitizeDescription(description), coverImageUrl, extraData };
     }
 
     private extractDescription(doc: Document): string {
