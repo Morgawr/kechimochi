@@ -110,6 +110,12 @@ services:
       - /path/to/kechimochi-data:/data
 ```
 
+> **Volume permissions:** The container runs as uid/gid `10001` by default. If your host path is owned by a different user (e.g. TrueNAS/Unraid systems where the `apps` user is uid `568`), add a `user:` override so the container can write to the volume:
+> ```yaml
+>     user: "568:568"
+> ```
+> Replace `568:568` with the uid:gid that owns your host data directory.
+
 Start it with:
 
 ```bash
