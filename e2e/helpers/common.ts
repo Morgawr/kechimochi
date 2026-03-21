@@ -8,12 +8,12 @@ import path from 'node:path';
 
 async function isOverlayActive(overlay: WebdriverIO.Element): Promise<boolean> {
     const className = await overlay.getAttribute('class').catch(() => '');
-    return className.split(/\s+/).includes('active');
+    return (className ?? '').split(/\s+/).includes('active');
 }
 
 async function getTopmostVisibleOverlay(selector?: string) {
     await browser.waitUntil(async () => {
-        const overlays = (await $$('.modal-overlay')).slice().reverse();
+        const overlays = Array.from(await $$('.modal-overlay')).reverse();
         for (const overlay of overlays) {
             if (!(await isOverlayActive(overlay))) continue;
 
@@ -29,7 +29,7 @@ async function getTopmostVisibleOverlay(selector?: string) {
         return false;
     }, { timeout: 8000, timeoutMsg: `No visible modal overlay found for selector "${selector || '<any>'}"` });
 
-    const overlays = (await $$('.modal-overlay')).slice().reverse();
+    const overlays = Array.from(await $$('.modal-overlay')).reverse();
     for (const overlay of overlays) {
         if (!(await isOverlayActive(overlay))) continue;
 

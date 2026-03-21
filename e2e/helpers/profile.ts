@@ -77,7 +77,7 @@ const PROFILE_NAME_INPUT_SELECTOR = '#profile-root input[type="text"]';
 export async function openProfileNameEditor(): Promise<WebdriverIO.Element> {
     const existingInput = $(PROFILE_NAME_INPUT_SELECTOR);
     if (await existingInput.isExisting() && await existingInput.isDisplayed()) {
-        return existingInput;
+        return await existingInput;
     }
 
     const heading = $(PROFILE_NAME_SELECTOR);
@@ -112,7 +112,7 @@ export async function openProfileNameEditor(): Promise<WebdriverIO.Element> {
                 detail: 2,
                 button: 0,
                 buttons: 1,
-                view: globalThis
+                view: window
             }));
         }, PROFILE_NAME_SELECTOR);
 
@@ -126,7 +126,7 @@ export async function openProfileNameEditor(): Promise<WebdriverIO.Element> {
 
     const input = $(PROFILE_NAME_INPUT_SELECTOR);
     await input.waitForDisplayed({ timeout: 2000 });
-    return input;
+    return await input;
 }
 
 /**

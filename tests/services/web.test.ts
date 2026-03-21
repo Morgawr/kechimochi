@@ -71,8 +71,8 @@ describe('WebServices', () => {
         });
         const anchorClick = vi.fn();
         vi.spyOn(document, 'createElement').mockImplementation((tagName: string) => {
-            const el = document.createElementNS('http://www.w3.org/1999/xhtml', tagName) as HTMLElement;
-            if (tagName === 'a') (el as HTMLAnchorElement).click = anchorClick;
+            const el = document.createElementNS('http://www.w3.org/1999/xhtml', tagName);
+            if (el instanceof HTMLAnchorElement) el.click = anchorClick;
             return el;
         });
 
@@ -94,8 +94,8 @@ describe('WebServices', () => {
         });
         const anchorClick = vi.fn();
         vi.spyOn(document, 'createElement').mockImplementation((tagName: string) => {
-            const el = document.createElementNS('http://www.w3.org/1999/xhtml', tagName) as HTMLElement;
-            if (tagName === 'a') (el as HTMLAnchorElement).click = anchorClick;
+            const el = document.createElementNS('http://www.w3.org/1999/xhtml', tagName);
+            if (el instanceof HTMLAnchorElement) el.click = anchorClick;
             return el;
         });
 
@@ -131,7 +131,7 @@ describe('WebServices', () => {
 
     it('loads cover images from API filenames and handles blank refs', async () => {
         expect(await services.loadCoverImage('')).toBeNull();
-        expect(await services.loadCoverImage('C:\\covers\\sample image.png')).toBe('/api/covers/file/sample%20image.png');
+        expect(await services.loadCoverImage(String.raw`C:\covers\sample image.png`)).toBe('/api/covers/file/sample%20image.png');
     });
 
     it('unwraps proxied fetch helpers', async () => {
