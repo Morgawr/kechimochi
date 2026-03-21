@@ -36,9 +36,20 @@ vi.mock('../../../src/modals', () => ({
 }));
 
 import * as modals from '../../../src/modals';
+const mockServices = {
+    isDesktop: vi.fn(() => true),
+    loadCoverImage: vi.fn(),
+    pickAndUploadCover: vi.fn(),
+};
+vi.mock('../../../src/services', () => ({
+    getServices: vi.fn(() => mockServices),
+}));
 
 // Mock URL.createObjectURL
-vi.stubGlobal('URL', { createObjectURL: vi.fn(() => 'blob:abc') });
+vi.stubGlobal('URL', {
+    createObjectURL: vi.fn(() => 'blob:abc'),
+    revokeObjectURL: vi.fn(),
+});
 
 describe('MediaDetail', () => {
     let container: HTMLElement;
@@ -65,6 +76,9 @@ describe('MediaDetail', () => {
     beforeEach(() => {
         container = document.createElement('div');
         vi.clearAllMocks();
+        mockServices.isDesktop.mockReturnValue(true);
+        mockServices.loadCoverImage.mockResolvedValue('https://covers.example/test.jpg');
+        mockServices.pickAndUploadCover.mockResolvedValue('/path/to/new.jpg');
     });
 
     it('should render media details correctly', async () => {
@@ -80,6 +94,20 @@ describe('MediaDetail', () => {
 
         expect(container.textContent).toContain('Author');
         expect(container.textContent).toContain('Writer');
+    });
+
+    it('should load web cover images via services when not on desktop', async () => {
+        mockServices.isDesktop.mockReturnValue(false);
+        vi.mocked(api.getMilestones).mockResolvedValue([]);
+
+        const component = new MediaDetail(container, { ...mockMedia } as unknown as Media, [], [mockMedia as unknown as Media], 0, mockCallbacks);
+        component.triggerMount();
+
+        // @ts-expect-error - accessing private state for testing
+        await vi.waitUntil(() => component.state.imgSrc === 'https://covers.example/test.jpg');
+
+        expect(mockServices.loadCoverImage).toHaveBeenCalledWith('/path/to/img.jpg');
+        expect(api.readFileBytes).not.toHaveBeenCalled();
     });
 
     it('should render character counts in stats and milestones', async () => {
@@ -143,6 +171,20 @@ describe('MediaDetail', () => {
             expect(modals.customConfirm).toHaveBeenCalled();
             expect(api.deleteMedia).toHaveBeenCalledWith(1);
         });
+    });
+
+    it('should revoke object URLs on destroy', async () => {
+        vi.mocked(api.getMilestones).mockResolvedValue([]);
+        vi.mocked(api.readFileBytes).mockResolvedValue([1, 2, 3]);
+
+        const component = new MediaDetail(container, { ...mockMedia } as unknown as Media, [], [mockMedia as unknown as Media], 0, mockCallbacks);
+        component.triggerMount();
+        // @ts-expect-error - accessing private state for testing
+        await vi.waitUntil(() => component.state.imgSrc === 'blob:abc');
+
+        component.destroy();
+
+        expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:abc');
     });
 
     it('should handle adding a milestone', async () => {
@@ -242,6 +284,60 @@ describe('MediaDetail', () => {
 
         await vi.waitFor(() => expect(modals.showImportMergeModal).toHaveBeenCalled());
         expect(api.updateMedia).toHaveBeenCalled();
+    });
+
+    it('should clear metadata only when confirmed', async () => {
+        vi.mocked(api.getMilestones).mockResolvedValue([]);
+        vi.mocked(modals.customConfirm).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+
+        const component = new MediaDetail(container, { ...mockMedia } as unknown as Media, [], [mockMedia as unknown as Media], 0, mockCallbacks);
+        component.triggerMount();
+        component.render();
+
+        const clearBtn = container.querySelector('#btn-clear-meta') as HTMLButtonElement;
+        clearBtn.click();
+        await vi.waitFor(() => expect(modals.customConfirm).toHaveBeenCalledTimes(1));
+        expect(api.updateMedia).not.toHaveBeenCalled();
+
+        clearBtn.click();
+        await vi.waitFor(() => expect(api.updateMedia).toHaveBeenCalledWith(expect.objectContaining({ extra_data: '{}' })));
+    });
+
+    it('should do nothing when adding an extra field is cancelled', async () => {
+        vi.mocked(api.getMilestones).mockResolvedValue([]);
+        vi.mocked(modals.customPrompt).mockResolvedValue(null);
+
+        const component = new MediaDetail(container, { ...mockMedia } as unknown as Media, [], [mockMedia as unknown as Media], 0, mockCallbacks);
+        component.triggerMount();
+        component.render();
+
+        (container.querySelector('#btn-add-extra') as HTMLButtonElement).click();
+
+        await vi.waitFor(() => expect(modals.customPrompt).toHaveBeenCalled());
+        expect(api.updateMedia).not.toHaveBeenCalled();
+    });
+
+    it('should refresh logs after creating a new media entry', async () => {
+        vi.mocked(api.getMilestones).mockResolvedValue([]);
+        vi.mocked(modals.showLogActivityModal).mockResolvedValue(true);
+        vi.mocked(api.getLogsForMedia).mockResolvedValue([{
+            id: 99,
+            title: 'Updated',
+            media_id: 1,
+            media_type: 'Reading',
+            language: 'Japanese',
+            date: '2024-03-02',
+            duration_minutes: 45,
+            characters: 0,
+        }] as unknown as api.ActivitySummary[]);
+
+        const component = new MediaDetail(container, { ...mockMedia } as unknown as Media, [], [mockMedia as unknown as Media], 0, mockCallbacks);
+        component.triggerMount();
+        component.render();
+
+        (container.querySelector('#btn-new-media-entry') as HTMLButtonElement).click();
+
+        await vi.waitFor(() => expect(api.getLogsForMedia).toHaveBeenCalledWith(1));
     });
 
     it('should automatically update content type if Unknown during metadata import', async () => {

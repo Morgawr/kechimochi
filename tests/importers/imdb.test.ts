@@ -90,5 +90,28 @@ describe('ImdbImporter', () => {
 
             await expect(importer.fetch('https://imdb.com/title/tt123/')).rejects.toThrow('IMDb blocked the request');
         });
+
+        it('should parse second-only durations and throw a generic extraction error for empty pages', async () => {
+            vi.mocked(invoke)
+                .mockResolvedValueOnce(`
+                    <html>
+                    <head>
+                        <script type="application/ld+json">
+                        {
+                            "@type": "Movie",
+                            "duration": "PT45S"
+                        }
+                        </script>
+                    </head>
+                    <body></body>
+                    </html>
+                `)
+                .mockResolvedValueOnce('<html><head><title>IMDb</title></head><body></body></html>');
+
+            const result = await importer.fetch('https://imdb.com/title/tt456/');
+            expect(result.extraData['Total Runtime']).toBe('45s');
+
+            await expect(importer.fetch('https://imdb.com/title/tt789/')).rejects.toThrow('Could not extract any data from the IMDb page.');
+        });
     });
 });

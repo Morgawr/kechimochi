@@ -382,14 +382,6 @@ export class ProfileView extends Component<ProfileState> {
         root.querySelector('#profile-btn-export-full-backup')?.addEventListener('click', async () => {
             const progress = showBlockingStatus("Exporting Full Backup", "Export in progress...");
             try {
-                // Give the WebView a frame to paint the blocking modal and start the spinner
-                // before the native backup export begins.
-                await new Promise<void>((resolve) => {
-                    requestAnimationFrame(() => {
-                        requestAnimationFrame(() => resolve());
-                    });
-                });
-
                 const localStorageData = JSON.stringify(Object.fromEntries(Object.entries(localStorage)));
                 const version = await getAppVersion();
                 const exported = await exportFullBackup(localStorageData, version);

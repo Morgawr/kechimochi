@@ -7,6 +7,15 @@ vi.mock('../../../src/api', () => ({
     readFileBytes: vi.fn(),
 }));
 
+const mockServices = {
+    isDesktop: vi.fn(() => true),
+    loadCoverImage: vi.fn(),
+};
+
+vi.mock('../../../src/services', () => ({
+    getServices: vi.fn(() => mockServices),
+}));
+
 // Mock IntersectionObserver
 const observe = vi.fn();
 const disconnect = vi.fn();
@@ -21,6 +30,10 @@ describe('MediaItem', () => {
     beforeEach(() => {
         container = document.createElement('div');
         vi.clearAllMocks();
+        mockServices.isDesktop.mockReturnValue(true);
+        mockServices.loadCoverImage.mockResolvedValue('https://covers.example/test.jpg');
+        // @ts-expect-error - accessing private static cache for test isolation
+        MediaItem.imageCache.clear();
     });
 
     it('should render title and placeholder initially', () => {
@@ -65,6 +78,41 @@ describe('MediaItem', () => {
         expect(disconnect).toHaveBeenCalled();
     });
 
+    it('should load images through web services outside desktop runtime', async () => {
+        mockServices.isDesktop.mockReturnValue(false);
+
+        const media = { title: 'Web Item', cover_image: '/path/to/web.jpg', status: 'Active' };
+        const component = new MediaItem(container, media as unknown as Media, vi.fn());
+
+        const observerCallback = (vi.mocked(IntersectionObserver)).mock.calls[0][0];
+        observerCallback([{ isIntersecting: true }] as unknown as IntersectionObserverEntry[], {} as IntersectionObserver);
+
+        // @ts-expect-error - accessing private state
+        await vi.waitUntil(() => component.state.imgSrc === 'https://covers.example/test.jpg');
+        expect(mockServices.loadCoverImage).toHaveBeenCalledWith('/path/to/web.jpg');
+        expect(api.readFileBytes).not.toHaveBeenCalled();
+    });
+
+    it('should reuse cached cover images without reading bytes again', async () => {
+        vi.mocked(api.readFileBytes).mockResolvedValue([1, 2, 3]);
+        globalThis.URL.createObjectURL = vi.fn(() => 'blob:cached');
+
+        const media = { title: 'Cached', cover_image: '/path/to/cached.jpg', status: 'Active' };
+        const first = new MediaItem(document.createElement('div'), media as unknown as Media, vi.fn());
+        let observerCallback = (vi.mocked(IntersectionObserver)).mock.calls.at(-1)?.[0];
+        observerCallback?.([{ isIntersecting: true }] as unknown as IntersectionObserverEntry[], {} as IntersectionObserver);
+        // @ts-expect-error - accessing private state
+        await vi.waitUntil(() => first.state.imgSrc === 'blob:cached');
+
+        const second = new MediaItem(container, media as unknown as Media, vi.fn());
+        observerCallback = (vi.mocked(IntersectionObserver)).mock.calls.at(-1)?.[0];
+        observerCallback?.([{ isIntersecting: true }] as unknown as IntersectionObserverEntry[], {} as IntersectionObserver);
+        // @ts-expect-error - accessing private state
+        await vi.waitUntil(() => second.state.imgSrc === 'blob:cached');
+
+        expect(api.readFileBytes).toHaveBeenCalledTimes(1);
+    });
+
 
     it('should handle image load failure', async () => {
         const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -102,5 +150,14 @@ describe('MediaItem', () => {
 
         const led = container.querySelector('.status-led');
         expect(led).toBeNull();
+    });
+
+    it('should render archived items dimmed and omit the badge for unknown content types', () => {
+        const media = { title: 'Archived Item', status: 'Archived', content_type: 'Unknown', tracking_status: 'Complete' };
+        const component = new MediaItem(container, media as unknown as Media, vi.fn());
+        component.render();
+
+        expect(container.style.opacity).toBe('0.6');
+        expect(container.querySelector('.grid-item-type-badge')).toBeNull();
     });
 });

@@ -68,5 +68,26 @@ describe('BackloggdImporter', () => {
             expect(result.coverImageUrl).toBe('');
             expect(result.extraData['Developer']).toBeUndefined();
         });
+
+        it('should fall back to img src and reuse a single company as publisher', async () => {
+            const mockHtml = `
+                <html>
+                <body>
+                    <img class="card-img" src="https://img.backloggd.com/cover.jpg">
+                    <div class="game-subtitle">
+                        <a href="/company/atlus">Atlus</a>
+                    </div>
+                </body>
+                </html>
+            `;
+
+            vi.mocked(invoke).mockResolvedValue(mockHtml);
+
+            const result = await importer.fetch('https://backloggd.com/games/p5/');
+
+            expect(result.coverImageUrl).toBe('https://img.backloggd.com/cover.jpg');
+            expect(result.extraData['Developer']).toBe('Atlus');
+            expect(result.extraData['Publisher']).toBe('Atlus');
+        });
     });
 });

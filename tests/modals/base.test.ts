@@ -60,6 +60,16 @@ describe('modals/base.ts', () => {
             document.getElementById('confirm-cancel')!.click();
             expect(await promise).toBe(false);
         });
+
+        it('should sanitize an invalid confirm button class', async () => {
+            const promise = base.customConfirm('Title', 'Text', 'bad"class');
+            const confirmBtn = document.getElementById('confirm-ok') as HTMLButtonElement;
+
+            expect(confirmBtn.className).toContain('btn-danger');
+
+            confirmBtn.click();
+            expect(await promise).toBe(true);
+        });
     });
 
     describe('customAlert', () => {
@@ -69,6 +79,39 @@ describe('modals/base.ts', () => {
             expect(alertOk).not.toBeNull();
             alertOk!.click();
             await expect(promise).resolves.toBeUndefined();
+        });
+    });
+
+    describe('createOverlay', () => {
+        it('should append an active overlay and remove it after cleanup', () => {
+            const { overlay, cleanup } = base.createOverlay();
+
+            expect(document.body.contains(overlay)).toBe(true);
+            expect(overlay.classList.contains('active')).toBe(true);
+            expect(overlay.dataset.modalId).toBeTruthy();
+
+            cleanup();
+            expect(overlay.classList.contains('active')).toBe(false);
+
+            vi.runAllTimers();
+            expect(document.body.contains(overlay)).toBe(false);
+        });
+    });
+
+    describe('showBlockingStatus', () => {
+        it('should render escaped content and close idempotently', () => {
+            const status = base.showBlockingStatus('<Export>', 'In "progress"');
+            const overlay = document.querySelector('.modal-overlay') as HTMLDivElement;
+
+            expect(overlay.innerHTML).toContain('&lt;Export&gt;');
+            expect(overlay.textContent).toContain('In "progress"');
+            expect(overlay.querySelector('[aria-busy="true"]')).not.toBeNull();
+
+            status.close();
+            status.close();
+
+            vi.runAllTimers();
+            expect(document.querySelector('.modal-overlay')).toBeNull();
         });
     });
 });

@@ -90,4 +90,73 @@ describe('MediaGrid', () => {
         expect(api.addMedia).toHaveBeenCalledWith(expect.objectContaining({ title: 'New' }));
         expect(onDataChange).toHaveBeenCalledWith(123);
     });
+
+    it('should not add media when the modal is cancelled', async () => {
+        vi.mocked(showAddMediaModal).mockResolvedValue(null);
+        const onDataChange = vi.fn();
+
+        const component = new MediaGrid(
+            container,
+            { mediaList: [], searchQuery: '', typeFilter: 'All', statusFilter: 'All', hideArchived: false },
+            vi.fn(),
+            onDataChange
+        );
+
+        component.render();
+        (container.querySelector('#btn-add-media-grid') as HTMLButtonElement).click();
+
+        await vi.waitFor(() => expect(showAddMediaModal).toHaveBeenCalled());
+        expect(api.addMedia).not.toHaveBeenCalled();
+        expect(onDataChange).not.toHaveBeenCalled();
+    });
+
+    it('should notify filter changes and hide archived items', () => {
+        const onFilterChange = vi.fn();
+        const mediaList = [
+            { id: 1, title: 'Alpha', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' },
+            { id: 2, title: 'Beta', status: 'Archived', content_type: 'Anime', tracking_status: 'Paused' },
+        ];
+
+        const component = new MediaGrid(
+            container,
+            { mediaList: mediaList as unknown as Media[], searchQuery: '', typeFilter: 'All', statusFilter: 'All', hideArchived: false },
+            vi.fn(),
+            vi.fn(),
+            onFilterChange
+        );
+
+        component.render();
+        vi.runAllTimers();
+
+        const hideArchived = container.querySelector('#grid-hide-archived') as HTMLInputElement;
+        hideArchived.checked = true;
+        hideArchived.dispatchEvent(new Event('change'));
+        vi.runAllTimers();
+
+        expect(MediaItem).toHaveBeenCalledTimes(3);
+        expect(onFilterChange).toHaveBeenLastCalledWith({
+            searchQuery: '',
+            typeFilter: 'All',
+            statusFilter: 'All',
+            hideArchived: true,
+        });
+    });
+
+    it('should refresh data and show empty-state text when filters match nothing', async () => {
+        const onDataChange = vi.fn().mockResolvedValue(undefined);
+        const component = new MediaGrid(
+            container,
+            { mediaList: [{ id: 1, title: 'Only Item', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' } as unknown as Media], searchQuery: 'zzz', typeFilter: 'All', statusFilter: 'All', hideArchived: false },
+            vi.fn(),
+            onDataChange
+        );
+
+        component.render();
+        expect(container.textContent).toContain('No media matches your filters.');
+
+        const refreshBtn = container.querySelector('#btn-refresh-grid') as HTMLButtonElement;
+        refreshBtn.click();
+
+        await vi.waitFor(() => expect(onDataChange).toHaveBeenCalled());
+    });
 });

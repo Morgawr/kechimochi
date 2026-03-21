@@ -55,8 +55,8 @@ describe('jiten_api.ts', () => {
     });
 
     it('should try no-punctuation search', async () => {
-      vi.mocked(invoke)
-        .mockResolvedValue(JSON.stringify({ data: [] })); // All fail
+        vi.mocked(invoke)
+          .mockResolvedValue(JSON.stringify({ data: [] })); // All fail
       
       // We want to verify it calls invoke with a different URL
       await jiten.searchJiten('Title!', 'Novel');
@@ -66,6 +66,24 @@ describe('jiten_api.ts', () => {
       const noPunctCall = (vi.mocked(invoke).mock.calls as unknown as [string, { url: string }][])
         .find(call => call[1].url.includes('titleFilter=Title'));
       expect(noPunctCall).toBeDefined();
+    });
+
+    it('should fall back to shortened titles after punctuation and number stripping', async () => {
+      vi.mocked(invoke)
+        .mockResolvedValueOnce(JSON.stringify({ data: [] }))
+        .mockResolvedValueOnce(JSON.stringify({ data: [] }))
+        .mockResolvedValueOnce(JSON.stringify({ data: [] }))
+        .mockResolvedValueOnce(JSON.stringify({ data: [] }))
+        .mockResolvedValueOnce(JSON.stringify({ data: [] }))
+        .mockResolvedValueOnce(JSON.stringify({ data: [] }))
+        .mockResolvedValueOnce(JSON.stringify({ data: [{ deckId: 88 }] }));
+
+      const results = await jiten.searchJiten('My Title 2 Extra', 'Novel');
+
+      expect(results[0].deckId).toBe(88);
+      const shortenedCall = (vi.mocked(invoke).mock.calls as unknown as [string, { url: string }][])
+        .find(call => call[1].url.includes('titleFilter=My+Title'));
+      expect(shortenedCall).toBeDefined();
     });
   });
 
@@ -92,6 +110,12 @@ describe('jiten_api.ts', () => {
       expect(consoleSpy).toHaveBeenCalled();
       consoleSpy.mockRestore();
     });
+
+    it('should return an empty list when there are no subdecks', async () => {
+      vi.mocked(invoke).mockResolvedValue(JSON.stringify({ data: {} }));
+
+      await expect(jiten.getJitenDeckChildren(100)).resolves.toEqual([]);
+    });
   });
 
   describe('helpers', () => {
@@ -102,6 +126,11 @@ describe('jiten_api.ts', () => {
 
     it('getJitenDeckUrl should return correct URL', () => {
       expect(jiten.getJitenDeckUrl(123)).toBe('https://jiten.moe/decks/123');
+    });
+
+    it('getJitenMediaLabel should map known and unknown media types', () => {
+      expect(jiten.getJitenMediaLabel(7)).toBe('VN');
+      expect(jiten.getJitenMediaLabel(999)).toBe('Media');
     });
 
     it('getJitenMediaContentType should return correct canonical content type', () => {

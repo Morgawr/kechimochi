@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BookwalkerImporter } from '../../src/importers/bookwalker';
 import { invoke } from '@tauri-apps/api/core';
+import { Logger } from '../../src/core/logger';
 
 describe('BookwalkerImporter', () => {
     let importer: BookwalkerImporter;
@@ -81,6 +82,26 @@ describe('BookwalkerImporter', () => {
              expect(result.description).toBe('Target Desc');
              expect(vi.mocked(invoke)).toHaveBeenCalledTimes(3);
              expect(vi.mocked(invoke)).toHaveBeenLastCalledWith('fetch_external_json', expect.objectContaining({ url: 'https://bookwalker.jp/v4/' }));
+        });
+
+        it('should fall back to the original page when no series link is found', async () => {
+            const warnSpy = vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+            const pageHtml = `
+                <html>
+                <body>
+                    <div class="m-synopsis">Original Desc</div>
+                    <div class="m-main-cover__img" src="https://img.bw.jp/fallback.jpg"></div>
+                </body>
+                </html>
+            `;
+
+            vi.mocked(invoke).mockResolvedValue(pageHtml);
+
+            const result = await importer.fetch('https://bookwalker.jp/v1/', 4);
+
+            expect(result.description).toBe('Original Desc');
+            expect(warnSpy).toHaveBeenCalled();
+            warnSpy.mockRestore();
         });
     });
 });

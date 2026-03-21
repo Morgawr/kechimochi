@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ShonenjumpplusImporter } from '../../src/importers/shonenjumpplus';
 import { invoke } from '@tauri-apps/api/core';
+import { Logger } from '../../src/core/logger';
 
 describe('ShonenjumpplusImporter', () => {
     let importer: ShonenjumpplusImporter;
@@ -59,6 +60,31 @@ describe('ShonenjumpplusImporter', () => {
             const result = await importer.fetch('https://shonenjumpplus.com/episode/123');
             expect(result.description).toBe('');
             expect(result.extraData['Author']).toBeUndefined();
+        });
+
+        it('should fall back to dataset cover images and log RSS failures gracefully', async () => {
+            const loggerSpy = vi.spyOn(Logger, 'error').mockImplementation(() => {});
+            const pageHtml = `
+                <html>
+                <head>
+                    <link rel="alternate" type="application/rss+xml" href="https://example.com/rss">
+                </head>
+                <body>
+                    <img class="series-header-image" data-src="https://img.sjp.com/dataset.jpg">
+                </body>
+                </html>
+            `;
+
+            vi.mocked(invoke)
+                .mockResolvedValueOnce(pageHtml)
+                .mockRejectedValueOnce(new Error('rss failed'));
+
+            const result = await importer.fetch('https://shonenjumpplus.com/episode/123');
+
+            expect(result.coverImageUrl).toBe('https://img.sjp.com/dataset.jpg');
+            expect(result.description).toBe('');
+            expect(loggerSpy).toHaveBeenCalled();
+            loggerSpy.mockRestore();
         });
     });
 });

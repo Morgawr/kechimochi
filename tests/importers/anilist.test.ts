@@ -65,5 +65,24 @@ describe('AnilistImporter', () => {
             
             consoleSpy.mockRestore();
         });
+
+        it('should fall back to the romaji title and throw when media is missing', async () => {
+            vi.mocked(invoke)
+                .mockResolvedValueOnce(JSON.stringify({
+                    data: {
+                        Media: {
+                            title: { romaji: 'Romaji Only' },
+                            coverImage: {},
+                        }
+                    }
+                }))
+                .mockResolvedValueOnce(JSON.stringify({ data: {} }));
+
+            await expect(importer.fetch('https://anilist.co/anime/321/')).resolves.toEqual(expect.objectContaining({
+                title: 'Romaji Only',
+            }));
+
+            await expect(importer.fetch('https://anilist.co/anime/999/')).rejects.toThrow('Could not find media data in Anilist response.');
+        });
     });
 });
