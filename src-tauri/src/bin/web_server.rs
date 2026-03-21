@@ -66,11 +66,11 @@ async fn main() {
     let data_dir = db::get_data_dir(&db::STANDALONE_DATA_DIR_PROVIDER);
     println!("[kechimochi] data dir: {}", data_dir.display());
 
-    let profiles = db::list_profiles(data_dir.clone()).unwrap_or_default();
-    let conn = if profiles.is_empty() {
-        rusqlite::Connection::open_in_memory().expect("Failed to open in-memory DB")
+    let user_db_path = data_dir.join("kechimochi_user.db");
+    let conn = if user_db_path.exists() {
+        db::init_db(data_dir.clone(), None).expect("Failed to open database")
     } else {
-        db::init_db(data_dir.clone(), &profiles[0]).expect("Failed to open database")
+        rusqlite::Connection::open_in_memory().expect("Failed to open in-memory DB")
     };
 
     let static_dir = resolve_static_dir();
@@ -108,10 +108,8 @@ async fn main() {
         .route("/api/milestones",            post(add_milestone_handler))
         .route("/api/milestones/media/:title", get(get_milestones_for_media_handler).delete(clear_milestones_for_media_handler))
         .route("/api/milestones/:id",        delete(delete_milestone_handler))
-        // Profiles — specific routes before :name
-        .route("/api/profiles/switch",       post(switch_profile))
-        .route("/api/profiles",              get(list_profiles))
-        .route("/api/profiles/:name",        delete(delete_profile_handler))
+        // Profiles
+        .route("/api/profiles/initialize",   post(initialize_user_db_handler))
         // Settings
         .route("/api/settings/:key",         get(get_setting).put(set_setting))
         // Utility
@@ -337,30 +335,18 @@ async fn clear_milestones_for_media_handler(
 
 // ── Profile handlers ──────────────────────────────────────────────────────────
 
-async fn list_profiles(State(s): State<Shared>) -> HandlerResult<Json<Vec<String>>> {
-    db::list_profiles(s.data_dir.clone()).ae().map(Json)
-}
-
 #[derive(Deserialize)]
-struct SwitchProfileBody {
-    profile_name: String,
+struct InitializeDbBody {
+    fallback_username: Option<String>,
 }
 
-async fn switch_profile(
+async fn initialize_user_db_handler(
     State(s): State<Shared>,
-    Json(body): Json<SwitchProfileBody>,
+    Json(body): Json<InitializeDbBody>,
 ) -> HandlerResult<Json<()>> {
-    let new_conn = db::init_db(s.data_dir.clone(), &body.profile_name).ae()?;
+    let new_conn = db::init_db(s.data_dir.clone(), body.fallback_username.as_deref()).ae()?;
     *s.conn.lock().await = new_conn;
     Ok(Json(()))
-}
-
-async fn delete_profile_handler(
-    State(s): State<Shared>,
-    Path(name): Path<String>,
-) -> HandlerResult<Json<()>> {
-    *s.conn.lock().await = rusqlite::Connection::open_in_memory().ae()?;
-    db::wipe_profile(s.data_dir.clone(), &name).ae().map(|_| Json(()))
 }
 
 // ── Settings handlers ─────────────────────────────────────────────────────────
@@ -855,23 +841,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(state_dir);
     }
 
-    #[tokio::test]
-    async fn test_list_profiles_handler_excludes_shared_media_db() {
-        let state = setup_state();
-        let state_dir = state.data_dir.clone();
-
-        std::fs::write(state.data_dir.join("kechimochi_alpha.db"), "").unwrap();
-        std::fs::write(state.data_dir.join("kechimochi_beta.db"), "").unwrap();
-        std::fs::write(state.data_dir.join("kechimochi_shared_media.db"), "").unwrap();
-
-        let profiles = list_profiles(State(state)).await.unwrap().0;
-
-        assert!(profiles.contains(&"alpha".to_string()));
-        assert!(profiles.contains(&"beta".to_string()));
-        assert!(!profiles.contains(&"shared_media".to_string()));
-
-        let _ = std::fs::remove_dir_all(state_dir);
-    }
 
     #[tokio::test]
     async fn test_clear_activities_handler_removes_logs_only() {
@@ -905,40 +874,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_switch_profile_handler_creates_profile_db() {
+    async fn test_initialize_user_db_handler_creates_db() {
         let state = setup_state();
         let state_dir = state.data_dir.clone();
 
-        let body = SwitchProfileBody {
-            profile_name: "webprofile".to_string(),
+        let body = InitializeDbBody {
+            fallback_username: Some("webuser".to_string()),
         };
-        let _ = switch_profile(State(state.clone()), Json(body)).await.unwrap();
+        let _ = initialize_user_db_handler(State(state.clone()), Json(body)).await.unwrap();
 
-        let expected_db = state.data_dir.join("kechimochi_webprofile.db");
+        let expected_db = state.data_dir.join("kechimochi_user.db");
         assert!(expected_db.exists());
-
-        let profiles = list_profiles(State(state)).await.unwrap().0;
-        assert!(profiles.contains(&"webprofile".to_string()));
-
-        let _ = std::fs::remove_dir_all(state_dir);
-    }
-
-    #[tokio::test]
-    async fn test_delete_profile_handler_removes_profile_file() {
-        let state = setup_state();
-        let state_dir = state.data_dir.clone();
-
-        let profile_name = "delete_me".to_string();
-        let profile_path = state.data_dir.join(format!("kechimochi_{}.db", profile_name));
-        std::fs::write(&profile_path, "").unwrap();
-        assert!(profile_path.exists());
-
-        let _ = delete_profile_handler(State(state.clone()), Path(profile_name.clone())).await.unwrap();
-
-        assert!(!profile_path.exists());
-
-        let profiles = list_profiles(State(state)).await.unwrap().0;
-        assert!(!profiles.contains(&profile_name));
 
         let _ = std::fs::remove_dir_all(state_dir);
     }
@@ -951,13 +897,13 @@ mod tests {
         let covers_dir = state.data_dir.join("covers");
         std::fs::create_dir_all(&covers_dir).unwrap();
         std::fs::write(covers_dir.join("x.png"), "img").unwrap();
-        std::fs::write(state.data_dir.join("kechimochi_alpha.db"), "").unwrap();
+        std::fs::write(state.data_dir.join("kechimochi_user.db"), "").unwrap();
         std::fs::write(state.data_dir.join("kechimochi_shared_media.db"), "").unwrap();
 
         let _ = wipe_everything_handler(State(state.clone())).await.unwrap();
 
         assert!(!covers_dir.exists());
-        assert!(!state.data_dir.join("kechimochi_alpha.db").exists());
+        assert!(!state.data_dir.join("kechimochi_user.db").exists());
         assert!(!state.data_dir.join("kechimochi_shared_media.db").exists());
 
         let _ = std::fs::remove_dir_all(state_dir);

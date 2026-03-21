@@ -7,7 +7,7 @@ export async function initialProfilePrompt(defaultName: string = "User"): Promis
         overlay.innerHTML = `
             <div class="modal-content" style="text-align: center;">
                 <h3 style="margin-bottom: 0.5rem;">Welcome to Kechimochi!</h3>
-                <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1.5rem;">Please enter a name for your first profile to get started.</p>
+                <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1.5rem;">Please enter your name to get started.</p>
                 <div style="margin-top: 1rem; text-align: left;">
                     <input type="text" id="initial-prompt-input" placeholder="e.g. ${defaultName}" style="width: 100%; border: 1px solid var(--border-color); background: var(--bg-dark); color: var(--text-primary); padding: 0.5rem; border-radius: var(--radius-sm);" autocomplete="off" />
                 </div>

@@ -3,7 +3,7 @@ import path from "node:path";
 import os from "node:os";
 import { randomUUID } from 'node:crypto';
 import { waitForAppReady } from '../helpers/setup.js';
-import { submitPrompt } from '../helpers/common.js';
+import { navigateTo, verifyActiveView } from '../helpers/navigation.js';
 
 async function seedLogsViaCsv(count: number) {
     const dataDir = process.env.KECHIMOCHI_DATA_DIR || os.tmpdir();
@@ -23,9 +23,9 @@ async function seedLogsViaCsv(count: number) {
     await browser.refresh();
     await waitForAppReady();
 
-    try { 
-        fs.unlinkSync(csvPath); 
-    } catch (err: unknown) { 
+    try {
+        fs.unlinkSync(csvPath);
+    } catch (err: unknown) {
         if ((err as Error).message.includes('EBUSY')) {
             // ignore
         }
@@ -33,24 +33,22 @@ async function seedLogsViaCsv(count: number) {
 }
 
 describe('Dashboard Pagination E2E', () => {
-    const testProfile = 'PAGETEST';
-
     before(async () => {
         await waitForAppReady();
+        await navigateTo('dashboard');
+        expect(await verifyActiveView('dashboard')).toBe(true);
 
-        // Add a new profile
-        const addProfileBtn = await $('#btn-add-profile');
-        await addProfileBtn.click();
+        // The single-user fixture starts with seeded activity logs.
+        // Clear them so pagination expectations start from an empty dashboard.
+        await browser.execute(async () => {
+            // @ts-expect-error - reaching into Tauri internals for E2E setup
+            await globalThis.__TAURI_INTERNALS__.invoke('clear_activities');
+        });
 
-        await submitPrompt(testProfile);
-
-        // Wait for switch and re-render
-        const profileSelect = await $('#select-profile');
-        await browser.waitUntil(async () => {
-            return (await profileSelect.getValue()) === testProfile;
-        }, { timeout: 5000, timeoutMsg: `Failed to switch to ${testProfile} profile` });
-
+        await browser.refresh();
         await waitForAppReady();
+        await navigateTo('dashboard');
+        expect(await verifyActiveView('dashboard')).toBe(true);
     });
 
     it('should NOT show pagination with 15 or fewer activities', async () => {

@@ -41,12 +41,8 @@
 
         <div id="nav-controls-row">
           <div class="dev-build-label" id="dev-build-badge" style="display: none;">Development Build</div>
-          <div id="nav-profile-controls" style="background: var(--bg-dark); padding: 0.2rem 0.5rem; border-radius: var(--radius-md); border: 1px solid var(--border-color);">
-             <select id="select-profile" style="border: none; background: transparent; padding: 0; outline: none; font-size: 0.9rem; font-weight: 500; cursor: pointer;">
-                 <option value="default">default</option>
-             </select>
-             <button class="btn btn-ghost" id="btn-add-profile" style="padding: 0.1rem 0.4rem; font-size: 0.75rem;" title="Add new user">+</button>
-             <button class="btn btn-ghost" id="btn-delete-profile" style="padding: 0.1rem 0.4rem; font-size: 0.75rem;" title="Delete current user">-</button>
+          <div id="nav-profile-controls" style="background: var(--bg-dark); padding: 0.2rem 0.5rem; border-radius: var(--radius-md); border: 1px solid var(--border-color); display: flex; align-items: center; justify-content: center; min-width: 80px;">
+             <span id="nav-user-name" style="font-size: 0.9rem; font-weight: 500; cursor: default;">User</span>
           </div>
         </div>
 

@@ -52,11 +52,9 @@ export function getLogs(): Promise<ActivitySummary[]> { return getServices().get
 export function getHeatmap(): Promise<DailyHeatmap[]> { return getServices().getHeatmap(); }
 export function getLogsForMedia(mediaId: number): Promise<ActivitySummary[]> { return getServices().getLogsForMedia(mediaId); }
 
-export function switchProfile(profileName: string): Promise<void> { return getServices().switchProfile(profileName); }
+export function initializeUserDb(fallbackUsername?: string): Promise<void> { return getServices().initializeUserDb(fallbackUsername); }
 export function clearActivities(): Promise<void> { return getServices().clearActivities(); }
 export function wipeEverything(): Promise<void> { return getServices().wipeEverything(); }
-export function deleteProfile(profileName: string): Promise<void> { return getServices().deleteProfile(profileName); }
-export function listProfiles(): Promise<string[]> { return getServices().listProfiles(); }
 
 export function getSetting(key: string): Promise<string | null> { return getServices().getSetting(key); }
 export function setSetting(key: string, value: string): Promise<void> { return getServices().setSetting(key, value); }

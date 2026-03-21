@@ -2,11 +2,9 @@ import { Dashboard } from './components/dashboard';
 import { MediaView } from './components/media_view';
 import { ProfileView } from './components/profile';
 import {
-    switchProfile, deleteProfile, listProfiles,
-    getUsername, getSetting
+    initializeUserDb, getUsername, getSetting, setSetting
 } from './api';
 import {
-    customPrompt, customConfirm, customAlert,
     initialProfilePrompt, showLogActivityModal
 } from './modals';
 import { syncAppShell } from './app_shell';
@@ -49,7 +47,7 @@ type ViewType = typeof VIEW_NAMES[keyof typeof VIEW_NAMES];
 
 class App {
     private currentView: ViewType = VIEW_NAMES.DASHBOARD;
-    private currentProfile: string = localStorage.getItem(STORAGE_KEYS.CURRENT_PROFILE) || DEFAULTS.PROFILE;
+    private currentProfile: string = '';
 
     private readonly dashboard: Dashboard;
     private readonly mediaView: MediaView;
@@ -60,13 +58,13 @@ class App {
     private readonly mediaContainer: HTMLElement;
     private readonly profileContainer: HTMLElement;
 
-    private readonly selectProfileEl: HTMLSelectElement;
+    private readonly navUserNameEl: HTMLElement;
     private readonly devBuildBadgeEl: HTMLElement | null;
     private readonly navLinks: NodeListOf<HTMLElement>;
 
     constructor() {
         this.viewContainer = document.getElementById('view-container')!;
-        this.selectProfileEl = document.querySelector<HTMLSelectElement>('#select-profile')!;
+        this.navUserNameEl = document.getElementById('nav-user-name')!;
         this.devBuildBadgeEl = document.getElementById('dev-build-badge');
         this.navLinks = document.querySelectorAll('.nav-link');
 
@@ -95,7 +93,6 @@ class App {
     private async init() {
         this.setupWindowControls();
         this.setupNavigation();
-        this.setupProfileControls();
         this.setupGlobalActions();
         this.setupEventListeners();
 
@@ -108,14 +105,10 @@ class App {
             }
         }
 
-        await this.ensureProfilesList();
+        await this.initProfile();
+        await this.loadTheme();
 
-        if (this.currentProfile) {
-            await switchProfile(this.currentProfile);
-            await this.loadTheme();
-        }
-
-        this.renderCurrentView();
+        await this.switchView(this.currentView);
     }
 
     private setupWindowControls() {
@@ -134,50 +127,7 @@ class App {
         });
     }
 
-    private setupProfileControls() {
-        this.selectProfileEl.addEventListener('change', async () => {
-            this.currentProfile = this.selectProfileEl.value;
-            localStorage.setItem(STORAGE_KEYS.CURRENT_PROFILE, this.currentProfile);
-            await switchProfile(this.currentProfile);
-            await this.loadTheme();
-            localStorage.setItem(STORAGE_KEYS.THEME_CACHE, document.body.dataset.theme || DEFAULTS.THEME);
-            this.resetViews();
-            this.renderCurrentView();
-        });
 
-        document.getElementById('btn-add-profile')?.addEventListener('click', async () => {
-            const newProfile = await customPrompt("Enter new user profile name:");
-            if (newProfile && newProfile.trim() !== '') {
-                this.currentProfile = newProfile.trim();
-                localStorage.setItem(STORAGE_KEYS.CURRENT_PROFILE, this.currentProfile);
-                await switchProfile(this.currentProfile);
-                await this.loadTheme();
-                await this.ensureProfilesList();
-                this.resetViews();
-                this.renderCurrentView();
-            }
-        });
-
-        document.getElementById('btn-delete-profile')?.addEventListener('click', async () => {
-            const profiles = await listProfiles();
-            if (profiles.length <= 1) {
-                await customAlert("Error", "Cannot delete the current profile because it is the only remaining user.");
-                return;
-            }
-            const yes = await customConfirm("Delete User", `Are you sure you want to permanently delete the user '${this.currentProfile}'?`, "btn-danger", "Delete");
-            if (yes) {
-                await deleteProfile(this.currentProfile);
-                const updatedProfiles = await listProfiles();
-                this.currentProfile = updatedProfiles.length > 0 ? updatedProfiles[0] : DEFAULTS.PROFILE;
-                localStorage.setItem(STORAGE_KEYS.CURRENT_PROFILE, this.currentProfile);
-                await switchProfile(this.currentProfile);
-                await this.loadTheme();
-                await this.ensureProfilesList();
-                this.resetViews();
-                this.renderCurrentView();
-            }
-        });
-    }
 
     private setupGlobalActions() {
         document.getElementById('btn-add-activity')?.addEventListener('click', async () => {
@@ -201,42 +151,47 @@ class App {
             }
         });
 
-        globalThis.addEventListener(EVENTS.PROFILE_UPDATED, () => {
+        globalThis.addEventListener(EVENTS.PROFILE_UPDATED, async () => {
             this.loadTheme();
-            this.ensureProfilesList();
+            const newName = await getSetting('profile_name');
+            if (newName && newName !== this.currentProfile) {
+                this.currentProfile = newName;
+                this.navUserNameEl.textContent = this.currentProfile;
+            }
         });
     }
 
-    private async ensureProfilesList() {
-        let profiles = await listProfiles();
-
-        if (profiles.length === 0) {
-            const osUsername = await getUsername();
-            const initialName = await initialProfilePrompt(osUsername);
-            this.currentProfile = initialName;
-            localStorage.setItem(STORAGE_KEYS.CURRENT_PROFILE, this.currentProfile);
-            await switchProfile(this.currentProfile);
-            profiles = await listProfiles();
-        } else if (!profiles.includes(this.currentProfile)) {
-            this.currentProfile = profiles[0];
-            localStorage.setItem(STORAGE_KEYS.CURRENT_PROFILE, this.currentProfile);
+    private async initProfile() {
+        let profileName: string | null = null;
+        try {
+            profileName = await getSetting('profile_name');
+        } catch (e) {
+            Logger.info('[kechimochi] DB uninitialized (no settings table found), proceeding with fallback.', e);
         }
-
-        this.selectProfileEl.replaceChildren(
-            ...profiles.map(profile => {
-                const option = document.createElement('option');
-                option.value = profile;
-                option.textContent = profile;
-                return option;
-            })
-        );
-        this.selectProfileEl.value = this.currentProfile;
-    }
-
-    private resetViews() {
-        this.dashboard.setState({ isInitialized: false });
-        this.mediaView.setState({ isInitialized: false });
-        this.profileView.setState({ isInitialized: false });
+        
+        if (profileName) {
+            // DB is already initialized, just load it
+            await initializeUserDb();
+            this.currentProfile = profileName;
+        } else {
+            // Check for previous user profile in localStorage to migrate it
+            const oldProfile = localStorage.getItem(STORAGE_KEYS.CURRENT_PROFILE);
+            if (oldProfile && oldProfile !== 'default') {
+                await initializeUserDb(oldProfile);
+                await setSetting('profile_name', oldProfile);
+                this.currentProfile = oldProfile;
+            } else {
+                // Initialize default db
+                const osUsername = await getUsername();
+                const newName = await initialProfilePrompt(osUsername);
+                await initializeUserDb(newName);
+                await setSetting('profile_name', newName);
+                this.currentProfile = newName;
+            }
+        }
+        
+        localStorage.setItem(STORAGE_KEYS.CURRENT_PROFILE, this.currentProfile);
+        this.navUserNameEl.textContent = this.currentProfile;
     }
 
     private async loadTheme() {

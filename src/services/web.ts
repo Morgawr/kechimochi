@@ -93,11 +93,9 @@ export class WebServices implements AppServices {
     getHeatmap():                           Promise<DailyHeatmap[]>   { return get('/logs/heatmap'); }
     getLogsForMedia(mediaId: number):       Promise<ActivitySummary[]> { return get(`/logs/media/${mediaId}`); }
 
-    switchProfile(profileName: string):      Promise<void>             { return post('/profiles/switch', { profile_name: profileName }); }
+    initializeUserDb(fallbackUsername?: string):Promise<void>            { return post('/profiles/initialize', { fallback_username: fallbackUsername }); }
     clearActivities():                       Promise<void>             { return post('/activities/clear'); }
     wipeEverything():                        Promise<void>             { return post('/reset'); }
-    deleteProfile(profileName: string):      Promise<void>             { return del(`/profiles/${encodeURIComponent(profileName)}`); }
-    listProfiles():                          Promise<string[]>          { return get('/profiles'); }
 
     getSetting(key: string):                 Promise<string | null>    { return get(`/settings/${encodeURIComponent(key)}`); }
     setSetting(key: string, value: string):  Promise<void>             { return put(`/settings/${encodeURIComponent(key)}`, { value }); }

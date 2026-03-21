@@ -42,11 +42,9 @@ export interface AppServices {
     getHeatmap(): Promise<DailyHeatmap[]>;
     getLogsForMedia(mediaId: number): Promise<ActivitySummary[]>;
 
-    switchProfile(profileName: string): Promise<void>;
+    initializeUserDb(fallbackUsername?: string): Promise<void>;
     clearActivities(): Promise<void>;
     wipeEverything(): Promise<void>;
-    deleteProfile(profileName: string): Promise<void>;
-    listProfiles(): Promise<string[]>;
 
     getSetting(key: string): Promise<string | null>;
     setSetting(key: string, value: string): Promise<void>;
