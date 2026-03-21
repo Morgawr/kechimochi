@@ -34,5 +34,7 @@ commands.allow = [
     "update_milestone",
     "export_milestones_csv",
     "import_milestones_csv",
-    "delete_milestones_for_media"
+    "delete_milestones_for_media",
+    "export_full_backup",
+    "import_full_backup"
 ]

@@ -104,3 +104,11 @@ export function uploadCoverImage(mediaId: number, path: string): Promise<string>
 export function readFileBytes(path: string): Promise<number[]> {
   return desktopInvoke<number[]>('read_file_bytes', { path });
 }
+
+export function exportFullBackup(localStorageData: string, version: string): Promise<void | null> {
+  return getServices().pickAndExportFullBackup(localStorageData, version);
+}
+
+export function importFullBackup(): Promise<string | null> {
+  return getServices().pickAndImportFullBackup();
+}

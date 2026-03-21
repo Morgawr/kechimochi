@@ -125,6 +125,8 @@ async fn main() {
         .route("/api/export/media",          get(export_media_handler))
         .route("/api/import/milestones",     post(import_milestones))
         .route("/api/export/milestones",     get(export_milestones))
+        .route("/api/export/full-backup",    post(export_full_backup_handler))
+        .route("/api/import/full-backup",    post(import_full_backup_handler))
         // Covers — specific routes before the parameterised :media_id route
         .route("/api/covers/download",       post(download_cover))
         .route("/api/covers/file/:filename", get(serve_cover))
@@ -496,6 +498,49 @@ async fn export_milestones(State(s): State<Shared>) -> HandlerResult<Response> {
         .header("x-row-count", count.to_string())
         .body(Body::from(bytes))
         .ae()
+}
+
+// ── Full Backup ───────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct ExportFullBackupBody {
+    local_storage: String,
+    version: String,
+}
+
+async fn export_full_backup_handler(
+    State(s): State<Shared>,
+    Json(body): Json<ExportFullBackupBody>,
+) -> HandlerResult<Response> {
+    let tmp = tempfile::NamedTempFile::new().ae()?;
+    let path = tmp.path().to_str().ok_or_else(|| AppError("Invalid temp path".into()))?.to_owned();
+
+    {
+        let conn = s.conn.lock().await;
+        kechimochi_lib::backup::export_full_backup_internal(&s.data_dir, &conn, &path, &body.local_storage, &body.version).ae()?;
+    }
+
+    let bytes = std::fs::read(tmp.path()).ae()?;
+    Response::builder()
+        .header(header::CONTENT_TYPE, "application/zip")
+        .header(header::CONTENT_DISPOSITION, "attachment; filename=\"full_backup.zip\"")
+        .body(Body::from(bytes))
+        .ae()
+}
+
+async fn import_full_backup_handler(
+    State(s): State<Shared>,
+    mut multipart: Multipart,
+) -> HandlerResult<Json<serde_json::Value>> {
+    let tmp = field_to_tempfile(&mut multipart).await?;
+    let path = tmp.path().to_str().ok_or_else(|| AppError("Invalid temp path".into()))?.to_owned();
+
+    let ls = {
+        let mut conn = s.conn.lock().await;
+        kechimochi_lib::backup::import_full_backup_internal(&s.data_dir, &mut conn, &path).ae()?
+    };
+
+    Ok(Json(serde_json::json!({ "localStorage": ls })))
 }
 
 // ── Cover images ──────────────────────────────────────────────────────────────

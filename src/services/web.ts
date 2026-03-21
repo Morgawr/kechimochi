@@ -148,6 +148,29 @@ export class WebServices implements AppServices {
         return post('/import/media/apply', records);
     }
 
+    // ── Full Backup operations ────────────────────────────────────────────────
+    async pickAndExportFullBackup(localStorageData: string, version: string): Promise<void | null> {
+        const res = await fetch(apiUrl('/export/full-backup'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ localStorage: localStorageData, version })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const blob = await res.blob();
+        triggerDownload(blob, 'kechimochi_full_backup.zip');
+    }
+
+    async pickAndImportFullBackup(): Promise<string | null> {
+        const file = await pickFile('.zip');
+        if (!file) return null;
+        const form = new FormData();
+        form.append('file', file);
+        const res = await fetch(apiUrl('/import/full-backup'), { method: 'POST', body: form });
+        if (!res.ok) throw new Error(await res.text());
+        const { localStorage: ls } = await res.json();
+        return ls as string;
+    }
+
     // ── Milestone operations ─────────────────────────────────────────────────
     getMilestones(mediaTitle: string): Promise<Milestone[]> {
         return get(`/milestones/media/${encodeURIComponent(mediaTitle)}`);

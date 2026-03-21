@@ -96,6 +96,22 @@ export class DesktopServices implements AppServices {
         return invoke('apply_media_import', { records });
     }
 
+    // ── Full Backup operations ────────────────────────────────────────────────
+    async pickAndExportFullBackup(localStorageData: string, version: string): Promise<void | null> {
+        const savePath = this.getMockSavePath() ?? await tauriSave({
+            filters: [{ name: 'ZIP', extensions: ['zip'] }],
+            defaultPath: `kechimochi_full_backup.zip`,
+        });
+        if (!savePath) return null;
+        return invoke('export_full_backup', { filePath: savePath, localStorage: localStorageData, version });
+    }
+
+    async pickAndImportFullBackup(): Promise<string | null> {
+        const selected = this.getMockOpenPath() ?? await tauriOpen({ multiple: false, filters: [{ name: 'ZIP', extensions: ['zip'] }] });
+        if (!selected || typeof selected !== 'string') return null;
+        return invoke('import_full_backup', { filePath: selected });
+    }
+
     // ── Milestone operations ─────────────────────────────────────────────────
     getMilestones(mediaTitle: string): Promise<Milestone[]> {
         return invoke('get_milestones', { mediaTitle });

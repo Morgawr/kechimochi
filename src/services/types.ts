@@ -64,6 +64,10 @@ export interface AppServices {
     /** Applies the pre-approved list of media rows returned by analyzeMediaCsvFromPick. */
     applyMediaImport(records: MediaCsvRow[]): Promise<number>;
 
+    // ── Full Backup operations ──────────────────────────────────────────────
+    pickAndExportFullBackup(localStorageData: string, version: string): Promise<void | null>;
+    pickAndImportFullBackup(): Promise<string | null>;
+
     // ── Milestone operations ────────────────────────────────────────────────
     getMilestones(mediaTitle: string): Promise<Milestone[]>;
     addMilestone(milestone: Milestone): Promise<number>;

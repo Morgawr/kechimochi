@@ -1,6 +1,7 @@
 pub mod db;
 pub mod models;
 pub mod csv_import;
+pub mod backup;
 
 use rusqlite::Connection;
 use std::sync::Mutex;
@@ -332,7 +333,9 @@ pub fn run() {
             download_and_save_image,
             get_username,
             set_setting,
-            get_setting
+            get_setting,
+            backup::export_full_backup,
+            backup::import_full_backup
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

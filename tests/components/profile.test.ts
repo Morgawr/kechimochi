@@ -15,6 +15,8 @@ vi.mock('../../src/api', () => ({
     importCsv: vi.fn(),
     exportCsv: vi.fn(),
     clearActivities: vi.fn(),
+    exportFullBackup: vi.fn(),
+    importFullBackup: vi.fn(),
 }));
 
 vi.mock('../../src/utils/dialogs', () => ({
@@ -43,6 +45,12 @@ describe('ProfileView', () => {
         vi.stubGlobal('localStorage', {
             getItem: vi.fn(key => store[key] || null),
             setItem: vi.fn((key, val) => store[key] = val),
+            clear: vi.fn(() => {
+                for (const key of Object.keys(store)) {
+                    delete store[key];
+                }
+            }),
+            removeItem: vi.fn((key) => delete store[key]),
         });
     });
 
@@ -158,5 +166,61 @@ describe('ProfileView', () => {
             expect(modals.customConfirm).toHaveBeenCalled();
             expect(api.clearActivities).toHaveBeenCalled();
         });
+    });
+
+    it('should call exportFullBackup when export button is clicked', async () => {
+        vi.mocked(api.getSetting).mockResolvedValue('0');
+        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+        vi.mocked(api.exportFullBackup).mockResolvedValue(undefined);
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-export-full-backup')).not.toBeNull());
+
+        const exportBtn = container.querySelector('#profile-btn-export-full-backup') as HTMLElement;
+        exportBtn.click();
+
+        await vi.waitFor(() => {
+            expect(api.getAppVersion).toHaveBeenCalled();
+            expect(api.exportFullBackup).toHaveBeenCalled();
+            expect(modals.customAlert).toHaveBeenCalledWith("Success", expect.stringContaining("exported"));
+        });
+    });
+
+    it('should call importFullBackup when import button is clicked and confirmed', async () => {
+        vi.mocked(api.getSetting).mockResolvedValue('0');
+        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+        vi.mocked(modals.customConfirm).mockResolvedValue(true);
+        vi.mocked(api.importFullBackup).mockResolvedValue('{"theme":"dark"}');
+
+        // Mock window.location.reload
+        const originalLocation = globalThis.location;
+        Object.defineProperty(globalThis, 'location', {
+            value: { reload: vi.fn() },
+            configurable: true,
+        });
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-import-full-backup')).not.toBeNull());
+
+        const importBtn = container.querySelector('#profile-btn-import-full-backup') as HTMLElement;
+        importBtn.click();
+
+        await vi.waitFor(() => {
+            expect(modals.customConfirm).toHaveBeenCalled();
+            expect(api.importFullBackup).toHaveBeenCalled();
+            expect(modals.customAlert).toHaveBeenCalledWith("Success", expect.stringContaining("imported"));
+            expect(globalThis.location.reload).toHaveBeenCalled();
+        });
+
+        // Restore
+        Object.defineProperty(globalThis, 'location', {
+            value: originalLocation,
+            configurable: true,
+        });
+        expect(localStorage.getItem('theme')).toBe('dark');
     });
 });
