@@ -47,13 +47,15 @@ async function getTopmostVisibleOverlay(selector?: string) {
 }
 
 async function waitForOverlayToDisappear(overlay: WebdriverIO.Element, timeout = 5000) {
-    const modalId = await overlay.getAttribute('data-modal-id').catch(() => '');
+    const modalId = await browser.execute((el) => {
+        return (el as HTMLElement).dataset.modalId ?? '';
+    }, overlay).catch(() => '');
 
     await browser.waitUntil(async () => {
         if (modalId) {
             const isTrackedOverlayStillActive = await browser.execute((id) => {
                 const trackedOverlay = document.querySelector(`.modal-overlay[data-modal-id="${id}"]`);
-                return Boolean(trackedOverlay && trackedOverlay.classList.contains('active'));
+                return trackedOverlay?.classList.contains('active') ?? false;
             }, modalId).catch(() => false);
 
             if (!isTrackedOverlayStillActive) return true;

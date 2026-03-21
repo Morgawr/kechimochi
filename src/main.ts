@@ -169,7 +169,11 @@ class App {
             Logger.info('[kechimochi] DB uninitialized (no settings table found), proceeding with fallback.', e);
         }
         
-        if (!profileName) {
+        if (profileName) {
+            // DB is already initialized, just load it
+            await initializeUserDb();
+            this.currentProfile = profileName;
+        } else {
             // Check for previous user profile in localStorage to migrate it
             const oldProfile = localStorage.getItem(STORAGE_KEYS.CURRENT_PROFILE);
             if (oldProfile && oldProfile !== 'default') {
@@ -184,10 +188,6 @@ class App {
                 await setSetting('profile_name', newName);
                 this.currentProfile = newName;
             }
-        } else {
-            // DB is already initialized, just load it
-            await initializeUserDb();
-            this.currentProfile = profileName;
         }
         
         localStorage.setItem(STORAGE_KEYS.CURRENT_PROFILE, this.currentProfile);
