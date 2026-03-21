@@ -112,7 +112,7 @@ export async function openProfileNameEditor(): Promise<WebdriverIO.Element> {
                 detail: 2,
                 button: 0,
                 buttons: 1,
-                view: window
+                view: globalThis as unknown as Window
             }));
         }, PROFILE_NAME_SELECTOR);
 
