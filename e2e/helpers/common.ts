@@ -47,11 +47,48 @@ async function getTopmostVisibleOverlay(selector?: string) {
 }
 
 async function waitForOverlayToDisappear(overlay: WebdriverIO.Element, timeout = 5000) {
+    const modalId = await overlay.getAttribute('data-modal-id').catch(() => '');
+
     await browser.waitUntil(async () => {
+        if (modalId) {
+            const isTrackedOverlayStillActive = await browser.execute((id) => {
+                const trackedOverlay = document.querySelector(`.modal-overlay[data-modal-id="${id}"]`);
+                return Boolean(trackedOverlay && trackedOverlay.classList.contains('active'));
+            }, modalId).catch(() => false);
+
+            if (!isTrackedOverlayStillActive) return true;
+        }
+
+        const isDisplayed = await overlay.isDisplayed().catch(() => false);
+        if (!isDisplayed) return true;
+
         return !(await isOverlayActive(overlay));
     }, {
         timeout,
         timeoutMsg: 'Modal overlay did not disappear in time'
+    });
+}
+
+async function waitForModalContentToDisappear(
+    overlay: WebdriverIO.Element,
+    selector: string,
+    timeout = 5000,
+    timeoutMsg = `Modal content "${selector}" did not disappear in time`
+) {
+    const scopedElement = overlay.$(selector);
+
+    await browser.waitUntil(async () => {
+        if (!(await scopedElement.isDisplayed().catch(() => false))) return true;
+
+        const activeModalStillContainsSelector = await browser.execute((trackedSelector) => {
+            return Array.from(document.querySelectorAll('.modal-overlay.active'))
+                .some((modal) => Boolean(modal.querySelector(trackedSelector)));
+        }, selector).catch(() => false);
+
+        return !activeModalStillContainsSelector;
+    }, {
+        timeout,
+        timeoutMsg
     });
 }
 
@@ -162,7 +199,7 @@ export async function submitPrompt(value: string): Promise<void> {
     await confirmBtn.waitForClickable({ timeout: 2000 });
     await confirmBtn.click();
 
-    await waitForOverlayToDisappear(overlay, 5000);
+    await waitForModalContentToDisappear(overlay, '#prompt-input', 5000, 'Prompt modal did not disappear in time');
 }
 
 /**

@@ -347,7 +347,7 @@ export class ProfileView extends Component<ProfileState> {
         root.addEventListener('click', async (e) => {
             const target = (e.target as HTMLElement).closest('button');
             if (!target) return;
-            
+
             if (target.id === 'profile-btn-import-milestones') {
                 try {
                     const count = await importMilestonesCsv('');
@@ -356,7 +356,7 @@ export class ProfileView extends Component<ProfileState> {
                     await customAlert("Error", `Import failed: ${e}`);
                 }
             }
-            
+
             if (target.id === 'profile-btn-export-milestones') {
                 try {
                     const count = await exportMilestonesCsv('');

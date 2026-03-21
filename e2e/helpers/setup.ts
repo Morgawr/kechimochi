@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { execSync } from 'node:child_process';
 import { Logger } from '../../src/core/logger';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -14,15 +15,26 @@ const FIXTURES_DIR = path.resolve(__dirname, '..', 'fixtures');
 export function prepareTestDir(): string {
   const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kechimochi-e2e-'));
 
-  // Copy fixture databases
-  for (const file of ['kechimochi_TESTUSER.db', 'kechimochi_shared_media.db']) {
-    const src = path.join(FIXTURES_DIR, file);
-    const dest = path.join(testDir, file);
-    if (fs.existsSync(src)) {
-      fs.copyFileSync(src, dest);
-    } else {
-      throw new Error(`Fixture file not found: ${src}. Did you run 'npm run e2e:seed'?`);
+  // Copy and pre-migrate fixture databases so localStorage leak is bypassed entirely
+  const srcTestUser = path.join(FIXTURES_DIR, 'kechimochi_TESTUSER.db');
+  const destUser = path.join(testDir, 'kechimochi_user.db');
+  if (fs.existsSync(srcTestUser)) {
+    fs.copyFileSync(srcTestUser, destUser);
+    try {
+      execSync(`sqlite3 "${destUser}" "INSERT OR REPLACE INTO settings (key, value) VALUES ('profile_name', 'TESTUSER');"`, { stdio: 'ignore' });
+    } catch (err) {
+      console.warn('Failed to pre-seed sqlite test database with profile_name', err);
     }
+  } else {
+    throw new Error(`Fixture file not found: ${srcTestUser}`);
+  }
+
+  const srcShared = path.join(FIXTURES_DIR, 'kechimochi_shared_media.db');
+  const destShared = path.join(testDir, 'kechimochi_shared_media.db');
+  if (fs.existsSync(srcShared)) {
+    fs.copyFileSync(srcShared, destShared);
+  } else {
+    throw new Error(`Fixture file not found: ${srcShared}`);
   }
 
   // Copy covers directory
@@ -100,6 +112,7 @@ export async function waitForAppReady(timeout = 30000): Promise<void> {
     try {
       await browser.execute((date: string) => {
         sessionStorage.setItem('kechimochi_mock_date', date);
+        localStorage.setItem('kechimochi_profile', 'TESTUSER');
       }, MOCK_DATE);
       setResolved = true;
     } catch (e: unknown) {

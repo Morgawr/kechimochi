@@ -1,88 +1,51 @@
 import { waitForAppReady } from '../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../helpers/navigation.js';
-import { submitPrompt, confirmAction } from '../helpers/common.js';
+import { openProfileNameEditor, renameProfile } from '../helpers/profile.js';
 
-describe('Profile Management CUJ', () => {
+describe('Single-User Profile Renaming CUJ', () => {
   before(async () => {
     await waitForAppReady();
   });
 
-  it('should verify the initial profile is TESTUSER', async () => {
+  it('should verify the initial profile is TESTUSER in the header', async () => {
+    const headerName = await $('#nav-user-name');
+    await browser.waitUntil(async () => {
+      return (await headerName.getText()) === 'TESTUSER';
+    }, { timeout: 5000, timeoutMsg: 'Header profile name was not TESTUSER' });
+    expect(await headerName.getText()).toBe('TESTUSER');
+  });
+
+  it('should verify the initial profile is TESTUSER in the profile tab', async () => {
     await navigateTo('profile');
     expect(await verifyActiveView('profile')).toBe(true);
-    
+
     const profileHeading = await $('#profile-name');
     await browser.waitUntil(async () => {
-        return (await profileHeading.getText()) === 'TESTUSER';
+      return (await profileHeading.getText()) === 'TESTUSER';
     }, { timeout: 5000, timeoutMsg: 'Initial profile was not TESTUSER' });
     expect(await profileHeading.getText()).toBe('TESTUSER');
   });
 
-  it('should navigate back to dashboard', async () => {
-    await navigateTo('dashboard');
-    expect(await verifyActiveView('dashboard')).toBe(true);
-  });
-
-  it('should add a new profile named BESTUSER', async () => {
-    const addProfileBtn = await $('#btn-add-profile');
-    await addProfileBtn.click();
-    
-    await submitPrompt('BESTUSER');
-
-    const profileSelect = await $('#select-profile');
-    await browser.waitUntil(async () => {
-      const selectedProfile = await profileSelect.getValue();
-      const storedProfile = await browser.execute(() => localStorage.getItem('kechimochi_profile'));
-      return selectedProfile === 'BESTUSER' && storedProfile === 'BESTUSER';
-    }, {
-      timeout: 10000,
-      timeoutMsg: 'Profile selector/storage did not switch to BESTUSER'
-    });
-  });
-
-  it('should verify the new profile name in the profile tab', async () => {
-    await navigateTo('profile');
-    expect(await verifyActiveView('profile')).toBe(true);
-    
+  it('should rename the user profile by double-clicking the profile name', async () => {
     const profileHeading = await $('#profile-name');
+    await profileHeading.waitForDisplayed({ timeout: 5000 });
+
+    const input = await openProfileNameEditor();
+    expect(await input.isDisplayed()).toBe(true);
+    expect(await input.getValue()).toBe('TESTUSER');
+
+    await renameProfile('RENAMED_PRO');
+
+    const finalHeading = await $('#profile-name');
+    expect(await finalHeading.getText()).toBe('RENAMED_PRO');
+  });
+
+  it('should verify the header reflects the new name after renaming', async () => {
+    const headerName = await $('#nav-user-name');
     await browser.waitUntil(async () => {
-        return (await profileHeading.getText()) === 'BESTUSER';
-    }, { timeout: 5000, timeoutMsg: 'Profile did not switch to BESTUSER' });
-    expect(await profileHeading.getText()).toBe('BESTUSER');
+      return (await headerName.getText()) === 'RENAMED_PRO';
+    }, { timeout: 5000, timeoutMsg: 'Header did not update to RENAMED_PRO' });
+    expect(await headerName.getText()).toBe('RENAMED_PRO');
   });
 
-  it('should verify that TESTUSER is no longer displayed in the profile view', async () => {
-    const container = await $('#view-container');
-    await browser.waitUntil(async () => {
-      const containerText = await container.getText();
-      return !containerText.includes('TESTUSER');
-    }, {
-      timeout: 5000,
-      timeoutMsg: 'Profile view still displayed TESTUSER after switching to BESTUSER'
-    });
-
-    const containerText = await container.getText();
-    expect(containerText).not.toContain('TESTUSER');
-  });
-
-  it('should delete the current profile (BESTUSER)', async () => {
-    const deleteProfileBtn = await $('#btn-delete-profile');
-    await deleteProfileBtn.click();
-    
-    await confirmAction(true);
-    
-    await browser.pause(2000);
-    await waitForAppReady();
-  });
-
-  it('should verify that the current profile is back to TESTUSER', async () => {
-    await navigateTo('profile');
-    expect(await verifyActiveView('profile')).toBe(true);
-    
-    const profileHeading = await $('#profile-name');
-    await browser.waitUntil(async () => {
-        return (await profileHeading.getText()) === 'TESTUSER';
-    }, { timeout: 5000, timeoutMsg: 'Profile did not return to TESTUSER' });
-    expect(await profileHeading.getText()).toBe('TESTUSER');
-  });
 });

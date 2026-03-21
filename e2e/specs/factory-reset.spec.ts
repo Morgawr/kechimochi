@@ -6,21 +6,21 @@ describe('Factory Reset CUJ', () => {
   before(async () => {
     // We set the profile in localStorage and THEN refresh to ensure the app picks it up
     await browser.execute(() => {
-        localStorage.clear();
-        sessionStorage.clear();
-        localStorage.setItem('kechimochi_profile', 'TESTUSER');
+      localStorage.clear();
+      sessionStorage.clear();
+      localStorage.setItem('kechimochi_profile', 'TESTUSER');
     });
-    await browser.refresh(); 
+    await browser.refresh();
     await waitForAppReady();
   });
 
   it('should launch app, navigate to profile, and verify current profile is TESTUSER', async () => {
     await navigateTo('profile');
     expect(await verifyActiveView('profile')).toBe(true);
-    
+
     const profileNameEl = $('#profile-name');
     await browser.waitUntil(async () => {
-        return (await profileNameEl.getText()) === 'TESTUSER';
+      return (await profileNameEl.getText()) === 'TESTUSER';
     }, { timeout: 5000, timeoutMsg: 'Profile name did not match TESTUSER' });
     expect(await profileNameEl.getText()).toBe('TESTUSER');
   });
@@ -59,7 +59,7 @@ describe('Factory Reset CUJ', () => {
 
   it('should verify dashboard is empty', async () => {
     await navigateTo('dashboard');
-    
+
     const emptyState = $('p=No activity logged yet.');
     expect(await emptyState.isDisplayed()).toBe(true);
 
@@ -69,7 +69,7 @@ describe('Factory Reset CUJ', () => {
 
   it('should verify library page is empty', async () => {
     await navigateTo('media');
-    
+
     const mediaItems = await $$('.media-grid-item');
     expect(await mediaItems.length).toBe(0);
   });
@@ -80,10 +80,10 @@ describe('Factory Reset CUJ', () => {
 
     const profileNameEl = $('#profile-name');
     await browser.waitUntil(async () => {
-        return (await profileNameEl.getText()) === 'BESTUSER';
+      return (await profileNameEl.getText()) === 'BESTUSER';
     }, { timeout: 5000, timeoutMsg: 'Profile name did not match BESTUSER after reset' });
     expect(await profileNameEl.getText()).toBe('BESTUSER');
-    
+
     const bodyText = await $('body').getText();
     expect(bodyText).not.toContain('TESTUSER');
   });
