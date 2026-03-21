@@ -232,11 +232,10 @@ fn apply_media_import(app_handle: tauri::AppHandle, state: State<DbState>, recor
 }
 
 #[tauri::command]
-fn switch_profile(app_handle: tauri::AppHandle, state: State<DbState>, profile_name: String) -> Result<(), String> {
+fn initialize_user_db(app_handle: tauri::AppHandle, state: State<DbState>, fallback_username: Option<String>) -> Result<(), String> {
     let app_dir = db::get_data_dir(&app_handle);
-    let new_conn = db::init_db(app_dir, &profile_name).map_err(|e| e.to_string())?;
-    let mut conn_guard = state.conn.lock().unwrap();
-    *conn_guard = new_conn;
+    let new_conn = db::init_db(app_dir, fallback_username.as_deref()).map_err(|e| e.to_string())?;
+    *state.conn.lock().unwrap() = new_conn;
     Ok(())
 }
 
@@ -255,23 +254,6 @@ fn wipe_everything(app_handle: tauri::AppHandle, state: State<DbState>) -> Resul
     
     let app_dir = db::get_data_dir(&app_handle);
     db::wipe_everything(app_dir)
-}
-
-#[tauri::command]
-fn delete_profile(app_handle: tauri::AppHandle, state: State<DbState>, profile_name: String) -> Result<(), String> {
-    {
-        let mut conn_guard = state.conn.lock().unwrap();
-        *conn_guard = rusqlite::Connection::open_in_memory().unwrap();
-    }
-    let app_dir = db::get_data_dir(&app_handle);
-    db::wipe_profile(app_dir, &profile_name)?;
-    Ok(())
-}
-
-#[tauri::command]
-fn list_profiles(app_handle: tauri::AppHandle) -> Result<Vec<String>, String> {
-    let app_dir = db::get_data_dir(&app_handle);
-    db::list_profiles(app_dir)
 }
 
 #[tauri::command]
@@ -304,14 +286,13 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let app_dir = db::get_data_dir(app.handle());
-            let profiles = db::list_profiles(app_dir).unwrap_or_default();
-            let conn = if profiles.is_empty() {
-                // If no profile exists, start with a temporary in-memory db. 
-                // The frontend will force the user to create an initial profile and call switchProfile.
-                rusqlite::Connection::open_in_memory().unwrap()
+            let user_db_path = app_dir.join("kechimochi_user.db");
+            let conn = if user_db_path.exists() {
+                db::init_db(app_dir, None).expect("Failed to initialize database")
             } else {
-                let app_dir = db::get_data_dir(app.handle());
-                db::init_db(app_dir, &profiles[0]).expect("Failed to initialize database")
+                // If no user DB exists, start with a temporary in-memory db. 
+                // The frontend will force the user to create an initial profile and call initialize_user_db.
+                rusqlite::Connection::open_in_memory().unwrap()
             };
             app.manage(DbState {
                 conn: Mutex::new(conn),
@@ -333,11 +314,9 @@ pub fn run() {
             export_media_csv,
             analyze_media_csv,
             apply_media_import,
-            switch_profile,
+            initialize_user_db,
             clear_activities,
             wipe_everything,
-            delete_profile,
-            list_profiles,
             get_logs_for_media,
             get_milestones,
             add_milestone,

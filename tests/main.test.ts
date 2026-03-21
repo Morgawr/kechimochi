@@ -26,11 +26,11 @@ vi.mock('chart.js/auto', () => {
 });
 
 vi.mock('../src/api', () => ({
-    switchProfile: vi.fn(),
-    listProfiles: vi.fn(() => Promise.resolve(['test-user'])),
+    initializeUserDb: vi.fn(() => Promise.resolve()),
     getUsername: vi.fn(() => Promise.resolve('os-user')),
     getSetting: vi.fn((key) => {
         if (key === SETTING_KEYS.THEME) return Promise.resolve('dark');
+        if (key === 'profile_name') return Promise.resolve('test-user');
         return Promise.resolve(null);
     }),
     getLogs: vi.fn(() => Promise.resolve([{ id: 0, date: '2024-01-01', duration_minutes: 0, title: 'T', media_id: 1, media_type: 'M', language: 'Japanese' } as ActivitySummary])),
@@ -38,7 +38,6 @@ vi.mock('../src/api', () => ({
     getHeatmap: vi.fn(() => Promise.resolve([{ date: '2024-01-01', total_minutes: 10 }])),
     getMilestones: vi.fn(() => Promise.resolve([])),
     getAppVersion: vi.fn(() => Promise.resolve('1.0.0')),
-    deleteProfile: vi.fn(),
     clearMilestones: vi.fn(),
     deleteMilestone: vi.fn(),
     setSetting: vi.fn(),
@@ -56,7 +55,7 @@ describe('main.ts initialization', () => {
     const bootApp = async () => {
         await import('../src/main');
         document.dispatchEvent(new Event('DOMContentLoaded'));
-        await vi.waitFor(() => expect(api.listProfiles).toHaveBeenCalled());
+        await vi.waitFor(() => expect(api.initializeUserDb).toHaveBeenCalled());
     };
 
     beforeEach(async () => {
@@ -64,7 +63,7 @@ describe('main.ts initialization', () => {
         
         document.body.innerHTML = `
             <div id="view-container"></div>
-            <select id="select-profile"></select>
+            <span id="nav-user-name"></span>
             <div id="dev-build-badge"></div>
             <div class="nav-link" data-view="dashboard"></div>
             <div class="nav-link" data-view="media"></div>
@@ -72,8 +71,6 @@ describe('main.ts initialization', () => {
             <button id="win-min"></button>
             <button id="win-max"></button>
             <button id="win-close"></button>
-            <button id="btn-add-profile"></button>
-            <button id="btn-delete-profile"></button>
             <button id="btn-add-activity"></button>
         `;
         
@@ -95,30 +92,7 @@ describe('main.ts initialization', () => {
         expect(localStorage.getItem).toHaveBeenCalled();
     });
 
-    it('should handle adding a profile', async () => {
-        await bootApp();
-        
-        vi.mocked(api.switchProfile).mockResolvedValue();
-        vi.mocked(modals.customPrompt).mockResolvedValue('new-user');
-        
-        const addBtn = document.getElementById('btn-add-profile');
-        addBtn?.dispatchEvent(new Event('click'));
-        
-        await vi.waitFor(() => expect(modals.customPrompt).toHaveBeenCalled());
-        expect(api.switchProfile).toHaveBeenCalledWith('new-user');
-    });
 
-    it('should handle deleting a profile', async () => {
-        await bootApp();
-
-        vi.mocked(api.listProfiles).mockResolvedValue(['user1', 'user2']);
-        vi.mocked(modals.customConfirm).mockResolvedValue(true);
-        
-        const deleteBtn = document.getElementById('btn-delete-profile');
-        deleteBtn?.dispatchEvent(new Event('click'));
-        
-        await vi.waitFor(() => expect(api.deleteProfile).toHaveBeenCalled());
-    });
 
     it('should switch views', async () => {
         await bootApp();
@@ -147,14 +121,16 @@ describe('main.ts initialization', () => {
         await vi.waitFor(() => expect(mediaLink?.classList.contains('active')).toBe(true));
     });
 
-    it('should handle no profiles fallback', async () => {
-        vi.mocked(api.listProfiles).mockResolvedValueOnce([]).mockResolvedValue(['new-user']);
+    it('should handle initial profile prompt', async () => {
+        vi.mocked(api.getSetting).mockResolvedValue(null);
+        const store: Record<string, string> = {};
+        vi.mocked(localStorage.getItem).mockImplementation((key) => store[key] || null);
         vi.mocked(modals.initialProfilePrompt).mockResolvedValue('new-user');
         
         await bootApp();
         
         await vi.waitFor(() => expect(modals.initialProfilePrompt).toHaveBeenCalled());
-        expect(api.switchProfile).toHaveBeenCalledWith('new-user');
+        expect(api.initializeUserDb).toHaveBeenCalledWith('new-user');
     });
 
     it('should handle global add activity button', async () => {
@@ -171,10 +147,13 @@ describe('main.ts initialization', () => {
     it('should handle profile updated event', async () => {
         await bootApp();
 
-        vi.mocked(api.listProfiles).mockResolvedValue(['test-user']);
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === 'profile_name') return 'updated-user';
+            return null;
+        });
         globalThis.dispatchEvent(new Event('profile-updated'));
 
-        await vi.waitFor(() => expect(api.listProfiles).toHaveBeenCalled());
+        await vi.waitFor(() => expect(document.getElementById('nav-user-name')?.textContent).toBe('updated-user'));
     });
 
     it('should handle window controls', async () => {

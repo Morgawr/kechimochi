@@ -147,19 +147,9 @@ describe('api.ts', () => {
   });
 
   describe('profile and settings functions', () => {
-    it('switchProfile should call invoke', async () => {
-      await api.switchProfile('p');
-      expect(invoke).toHaveBeenCalledWith('switch_profile', { profileName: 'p' });
-    });
-
-    it('deleteProfile should call invoke', async () => {
-      await api.deleteProfile('p');
-      expect(invoke).toHaveBeenCalledWith('delete_profile', { profileName: 'p' });
-    });
-
-    it('listProfiles should call invoke', async () => {
-      await api.listProfiles();
-      expect(invoke).toHaveBeenCalledWith('list_profiles');
+    it('initializeUserDb should call invoke', async () => {
+      await api.initializeUserDb('p');
+      expect(invoke).toHaveBeenCalledWith('initialize_user_db', { fallbackUsername: 'p' });
     });
 
     it('wipeEverything should call invoke', async () => {

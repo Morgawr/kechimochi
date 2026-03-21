@@ -48,6 +48,7 @@ describe('ProfileView', () => {
 
     it('should load settings and render profile name', async () => {
         vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === 'profile_name') return 'test-user';
             if (key === SETTING_KEYS.THEME) return 'pastel-pink';
             if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '2024-01-01T00:00:00Z';
             return '0';

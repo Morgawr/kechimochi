@@ -235,14 +235,34 @@ pub fn create_tables(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-pub fn init_db(app_dir: std::path::PathBuf, profile_name: &str) -> Result<Connection> {
+pub fn init_db(app_dir: std::path::PathBuf, fallback_username: Option<&str>) -> Result<Connection> {
     fs::create_dir_all(&app_dir).expect("Failed to create app data dir");
     
     let shared_db_path = app_dir.join("kechimochi_shared_media.db");
-    let file_name = format!("kechimochi_{}.db", profile_name);
-    let db_path = app_dir.join(file_name);
+    let user_db_path = app_dir.join("kechimochi_user.db");
 
-    let conn = Connection::open(db_path)?;
+    if !user_db_path.exists() {
+        if let Some(username) = fallback_username {
+            let fallback_path = app_dir.join(format!("kechimochi_{}.db", username));
+            if fallback_path.exists() {
+                let _ = fs::copy(&fallback_path, &user_db_path);
+                
+                let fallback_wal = app_dir.join(format!("kechimochi_{}.db-wal", username));
+                let user_wal = app_dir.join("kechimochi_user.db-wal");
+                if fallback_wal.exists() {
+                    let _ = fs::copy(&fallback_wal, &user_wal);
+                }
+
+                let fallback_shm = app_dir.join(format!("kechimochi_{}.db-shm", username));
+                let user_shm = app_dir.join("kechimochi_user.db-shm");
+                if fallback_shm.exists() {
+                    let _ = fs::copy(&fallback_shm, &user_shm);
+                }
+            }
+        }
+    }
+
+    let conn = Connection::open(user_db_path)?;
     
     // Attach shared database
     conn.execute(
@@ -264,34 +284,6 @@ pub fn init_db(app_dir: std::path::PathBuf, profile_name: &str) -> Result<Connec
     Ok(conn)
 }
 
-pub fn wipe_profile(app_dir: std::path::PathBuf, profile_name: &str) -> std::result::Result<(), String> {
-    let file_name = format!("kechimochi_{}.db", profile_name);
-    let db_path = app_dir.join(file_name);
-    
-    if db_path.exists() {
-        // Activity logs are wiped with the profile DB deletion. 
-        // Media remains untouched.
-        fs::remove_file(&db_path).map_err(|e| e.to_string())?;
-    }
-    
-    Ok(())
-}
-
-pub fn list_profiles(app_dir: std::path::PathBuf) -> std::result::Result<Vec<String>, String> {
-    let mut profiles = Vec::new();
-    if let Ok(entries) = fs::read_dir(app_dir) {
-        for entry in entries.filter_map(std::result::Result::ok) {
-            let path = entry.path();
-            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                if name.starts_with("kechimochi_") && name.ends_with(".db") && name != "kechimochi_shared_media.db" {
-                    let profile_name = name.trim_start_matches("kechimochi_").trim_end_matches(".db");
-                    profiles.push(profile_name.to_string());
-                }
-            }
-        }
-    }
-    Ok(profiles)
-}
 
 pub fn wipe_everything(app_dir: std::path::PathBuf) -> std::result::Result<(), String> {
     // Delete covers dir
@@ -1075,27 +1067,6 @@ mod tests {
         assert_eq!(logs[0].title, "Legacy Manga");
     }
 
-    #[test]
-    fn test_list_and_wipe_profiles() {
-        let temp_dir = std::env::temp_dir().join(format!("kechimochi_profiles_test_{}", std::process::id()));
-        std::fs::create_dir_all(&temp_dir).unwrap();
-        
-        std::fs::write(temp_dir.join("kechimochi_user1.db"), "").unwrap();
-        std::fs::write(temp_dir.join("kechimochi_user2.db"), "").unwrap();
-        std::fs::write(temp_dir.join("kechimochi_shared_media.db"), "").unwrap();
-
-        let profiles = list_profiles(temp_dir.clone()).unwrap();
-        assert_eq!(profiles.len(), 2);
-        assert!(profiles.contains(&"user1".to_string()));
-        assert!(profiles.contains(&"user2".to_string()));
-
-        wipe_profile(temp_dir.clone(), "user1").unwrap();
-        let profiles = list_profiles(temp_dir.clone()).unwrap();
-        assert_eq!(profiles.len(), 1);
-        assert!(!profiles.contains(&"user1".to_string()));
-
-        std::fs::remove_dir_all(temp_dir).ok();
-    }
 
     #[test]
     fn test_save_cover_image() {
@@ -1136,13 +1107,13 @@ mod tests {
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         // Initialize a new profile
-        let conn = init_db(temp_dir.clone(), "test_user").unwrap();
+        let conn = init_db(temp_dir.clone(), Some("test_user")).unwrap();
         
         // Verify tables exist in both
         let _: i64 = conn.query_row("SELECT COUNT(*) FROM shared.media", [], |r| r.get(0)).unwrap();
         let _: i64 = conn.query_row("SELECT COUNT(*) FROM main.activity_logs", [], |r| r.get(0)).unwrap();
         
-        assert!(temp_dir.join("kechimochi_test_user.db").exists());
+        assert!(temp_dir.join("kechimochi_user.db").exists());
         assert!(temp_dir.join("kechimochi_shared_media.db").exists());
 
         std::fs::remove_dir_all(temp_dir).ok();

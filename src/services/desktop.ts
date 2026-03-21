@@ -47,11 +47,9 @@ export class DesktopServices implements AppServices {
     getHeatmap():                           Promise<DailyHeatmap[]>  { return invoke('get_heatmap'); }
     getLogsForMedia(mediaId: number):       Promise<ActivitySummary[]>{ return invoke('get_logs_for_media', { mediaId }); }
 
-    switchProfile(profileName: string):      Promise<void>            { return invoke('switch_profile', { profileName }); }
+    initializeUserDb(fallbackUsername?: string):Promise<void>            { return invoke('initialize_user_db', { fallbackUsername }); }
     clearActivities():                       Promise<void>            { return invoke('clear_activities'); }
     wipeEverything():                        Promise<void>            { return invoke('wipe_everything'); }
-    deleteProfile(profileName: string):      Promise<void>            { return invoke('delete_profile', { profileName }); }
-    listProfiles():                          Promise<string[]>        { return invoke('list_profiles'); }
 
     getSetting(key: string):                 Promise<string | null>   { return invoke('get_setting', { key }); }
     setSetting(key: string, value: string):  Promise<void>            { return invoke('set_setting', { key, value }); }

@@ -2,17 +2,17 @@ import { Logger } from '../core/logger';
 import { Component } from '../core/component';
 import { html } from '../core/html';
 import {
-    getAllMedia, getLogsForMedia, deleteProfile,
+    getAllMedia, getLogsForMedia,
     clearActivities, wipeEverything,
-    applyMediaImport, switchProfile, listProfiles, getSetting, setSetting,
+    applyMediaImport, getSetting, setSetting,
     getAppVersion, importMilestonesCsv, exportMilestonesCsv
 } from '../api';
 import {
     customPrompt, showExportCsvModal, customAlert, customConfirm,
-    showMediaCsvConflictModal, initialProfilePrompt
+    showMediaCsvConflictModal
 } from '../modals';
 import { getServices } from '../services';
-import { STORAGE_KEYS, SETTING_KEYS, DEFAULTS } from '../constants';
+import { STORAGE_KEYS, SETTING_KEYS, DEFAULTS, EVENTS } from '../constants';
 
 interface ProfileState {
     currentProfile: string;
@@ -62,7 +62,7 @@ export class ProfileView extends Component<ProfileState> {
         const timestamp = await getSetting(SETTING_KEYS.STATS_REPORT_TIMESTAMP) || '';
         const appVersion = await getAppVersion();
 
-        const currentProfile = localStorage.getItem(STORAGE_KEYS.CURRENT_PROFILE) || DEFAULTS.PROFILE;
+        const currentProfile = await getSetting('profile_name') || DEFAULTS.PROFILE;
         localStorage.setItem(STORAGE_KEYS.THEME_CACHE, theme);
         this.setState({
             currentProfile,
@@ -82,8 +82,7 @@ export class ProfileView extends Component<ProfileState> {
     }
 
     render() {
-        const localStorageProfile = localStorage.getItem(STORAGE_KEYS.CURRENT_PROFILE) || DEFAULTS.PROFILE;
-        const needsLoad = !this.state.isInitialized || this.state.currentProfile !== localStorageProfile;
+        const needsLoad = !this.state.isInitialized;
         if (!this.isRefreshing && needsLoad) {
             this.isRefreshing = true;
             this.loadData()
@@ -99,7 +98,7 @@ export class ProfileView extends Component<ProfileState> {
             <div id="profile-root" class="animate-fade-in" style="display: flex; flex-direction: column; gap: 2rem; max-width: 600px; margin: 0 auto; padding-top: 1rem; padding-bottom: 2rem;">
                 
                 <div style="text-align: center; margin-bottom: 2rem;">
-                    <h2 id="profile-name" style="margin: 0; font-size: 2rem; color: var(--text-primary);">${currentProfile}</h2>
+                    <h2 id="profile-name" title="Double click to rename" style="margin: 0; font-size: 2rem; color: var(--text-primary); cursor: pointer; transition: opacity 0.2s;">${currentProfile}</h2>
                     <p style="color: var(--text-secondary); margin-top: 0.5rem;">Manage your profile and data</p>
                 </div>
 
@@ -182,18 +181,11 @@ export class ProfileView extends Component<ProfileState> {
                         <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
                             <div>
                                 <strong style="color: #ff4757;">Clear User Activities</strong>
-                                <p style="color: var(--text-secondary); font-size: 0.8rem; margin: 0;">Removes all recorded activity logs for '${currentProfile}', but keeps the profile and media library intact.</p>
+                                <p style="color: var(--text-secondary); font-size: 0.8rem; margin: 0;">Removes all recorded activity logs, but keeps the profile and media library intact.</p>
                             </div>
                             <button class="btn btn-danger" id="profile-btn-clear-activities" style="background-color: transparent !important; border: 1px solid #ff4757; color: #ff4757 !important; min-width: 140px;">Clear Activities</button>
                         </div>
 
-                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
-                            <div>
-                                <strong style="color: #ff4757;">Delete User Profile</strong>
-                                <p style="color: var(--text-secondary); font-size: 0.8rem; margin: 0;">Deletes the '${currentProfile}' profile and its activity logs permanently. Cannot be undone.</p>
-                            </div>
-                            <button class="btn btn-danger" id="profile-btn-delete-profile" style="background-color: #ff4757 !important; color: #ffffff !important; border: none; min-width: 140px;">Delete Profile</button>
-                        </div>
 
                         <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem;">
                             <div>
@@ -245,6 +237,52 @@ export class ProfileView extends Component<ProfileState> {
 
     private setupListeners(root: HTMLElement) {
         const { currentProfile } = this.state;
+
+        const nameEl = root.querySelector('#profile-name') as HTMLElement;
+        if (nameEl) {
+            nameEl.addEventListener('dblclick', () => {
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.value = this.state.currentProfile;
+                input.style.fontSize = '2rem';
+                input.style.fontWeight = 'bold';
+                input.style.color = 'var(--text-primary)';
+                input.style.background = 'transparent';
+                input.style.border = '1px solid var(--border-color)';
+                input.style.borderRadius = 'var(--radius-sm)';
+                input.style.padding = '0.2rem 0.5rem';
+                input.style.margin = '0';
+                input.style.outline = 'none';
+                input.style.fontFamily = 'inherit';
+                input.style.width = '100%';
+                input.style.maxWidth = '400px';
+                input.style.textAlign = 'center';
+
+                const saveName = async () => {
+                    const newName = input.value.trim();
+                    if (newName && newName !== this.state.currentProfile) {
+                        await setSetting('profile_name', newName);
+                        localStorage.setItem(STORAGE_KEYS.CURRENT_PROFILE, newName);
+                        this.setState({ currentProfile: newName });
+                        globalThis.dispatchEvent(new CustomEvent(EVENTS.PROFILE_UPDATED));
+                    }
+                    this.render();
+                };
+
+                input.addEventListener('blur', saveName);
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        input.blur();
+                    } else if (e.key === 'Escape') {
+                        this.render(); // Cancel
+                    }
+                });
+
+                nameEl.replaceWith(input);
+                input.focus();
+                input.select();
+            });
+        }
 
         root.querySelector('#profile-select-theme')?.addEventListener('change', async (e) => {
             const theme = (e.target as HTMLSelectElement).value;
@@ -330,26 +368,9 @@ export class ProfileView extends Component<ProfileState> {
         });
 
         root.querySelector('#profile-btn-clear-activities')?.addEventListener('click', async () => {
-            if (await customConfirm("Clear Activities", `Are you sure you want to delete all activity logs for '${currentProfile}'?`, "btn-danger", "Clear")) {
+            if (await customConfirm("Clear Activities", `Are you sure you want to delete all activity logs?`, "btn-danger", "Clear")) {
                 await clearActivities();
-                await customAlert("Success", "All activity logs removed for the current profile.");
-            }
-        });
-
-        root.querySelector('#profile-btn-delete-profile')?.addEventListener('click', async () => {
-            const profiles = await listProfiles();
-            if (profiles.length <= 1) {
-                await customAlert("Error", "Cannot delete the current profile because it is the only remaining user.");
-                return;
-            }
-            const name = await customPrompt(`Type '${currentProfile}' to confirm profile deletion:`);
-            if (name === currentProfile) {
-                await deleteProfile(currentProfile);
-                const updatedProfiles = await listProfiles();
-                const nextProfile = updatedProfiles.length > 0 ? updatedProfiles[0] : DEFAULTS.PROFILE;
-                localStorage.setItem(STORAGE_KEYS.CURRENT_PROFILE, nextProfile);
-                await switchProfile(nextProfile);
-                globalThis.location.reload();
+                await customAlert("Success", "All activity logs removed.");
             }
         });
 
@@ -357,9 +378,6 @@ export class ProfileView extends Component<ProfileState> {
             if (await customPrompt(`DANGER! Type 'WIPE_EVERYTHING' to confirm a total factory reset:`) === 'WIPE_EVERYTHING') {
                 await wipeEverything();
                 localStorage.removeItem(STORAGE_KEYS.CURRENT_PROFILE);
-                const initialName = await initialProfilePrompt("User");
-                localStorage.setItem(STORAGE_KEYS.CURRENT_PROFILE, initialName);
-                await switchProfile(initialName);
                 globalThis.location.reload();
             }
         });
