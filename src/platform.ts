@@ -14,6 +14,12 @@ export async function fetchExternalJson(
     body?: string,
     headers?: Record<string, string>,
 ): Promise<string> {
+    const mocks = (globalThis as unknown as { mockExternalJSON?: Record<string, unknown> }).mockExternalJSON;
+    if (mocks) {
+        for (const [key, value] of Object.entries(mocks)) {
+            if (url.includes(key)) return typeof value === 'string' ? value : JSON.stringify(value);
+        }
+    }
     return getServices().fetchExternalJson(url, method, body, headers);
 }
 
