@@ -4,14 +4,14 @@ pub mod csv_import;
 pub mod backup;
 
 use rusqlite::Connection;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::{Manager, State};
 
 use models::{ActivityLog, ActivitySummary, DailyHeatmap, Media, Milestone};
 
 // Database state
 pub struct DbState {
-    pub conn: Mutex<Connection>,
+    pub conn: Arc<Mutex<Connection>>,
 }
 
 #[tauri::command]
@@ -296,7 +296,7 @@ pub fn run() {
                 rusqlite::Connection::open_in_memory().unwrap()
             };
             app.manage(DbState {
-                conn: Mutex::new(conn),
+                conn: Arc::new(Mutex::new(conn)),
             });
             Ok(())
         })

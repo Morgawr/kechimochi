@@ -65,7 +65,7 @@ export interface AppServices {
     applyMediaImport(records: MediaCsvRow[]): Promise<number>;
 
     // ── Full Backup operations ──────────────────────────────────────────────
-    pickAndExportFullBackup(localStorageData: string, version: string): Promise<void | null>;
+    pickAndExportFullBackup(localStorageData: string, version: string): Promise<boolean>;
     pickAndImportFullBackup(): Promise<string | null>;
 
     // ── Milestone operations ────────────────────────────────────────────────

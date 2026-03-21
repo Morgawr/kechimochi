@@ -29,6 +29,7 @@ vi.mock('../../src/modals', () => ({
     customConfirm: vi.fn(),
     customPrompt: vi.fn(),
     showExportCsvModal: vi.fn(),
+    showBlockingStatus: vi.fn(() => ({ close: vi.fn() })),
 }));
 
 import * as modals from '../../src/modals';
@@ -171,7 +172,7 @@ describe('ProfileView', () => {
     it('should call exportFullBackup when export button is clicked', async () => {
         vi.mocked(api.getSetting).mockResolvedValue('0');
         vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
-        vi.mocked(api.exportFullBackup).mockResolvedValue(undefined);
+        vi.mocked(api.exportFullBackup).mockResolvedValue(true);
 
         const view = new ProfileView(container);
         view.render();
@@ -184,7 +185,8 @@ describe('ProfileView', () => {
         await vi.waitFor(() => {
             expect(api.getAppVersion).toHaveBeenCalled();
             expect(api.exportFullBackup).toHaveBeenCalled();
-            expect(modals.customAlert).toHaveBeenCalledWith("Success", expect.stringContaining("exported"));
+            expect(modals.showBlockingStatus).toHaveBeenCalledWith("Exporting Full Backup", "Export in progress...");
+            expect(modals.customAlert).toHaveBeenCalledWith("Success", "Full backup export completed.");
         });
     });
 

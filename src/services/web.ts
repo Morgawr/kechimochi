@@ -149,7 +149,7 @@ export class WebServices implements AppServices {
     }
 
     // ── Full Backup operations ────────────────────────────────────────────────
-    async pickAndExportFullBackup(localStorageData: string, version: string): Promise<void | null> {
+    async pickAndExportFullBackup(localStorageData: string, version: string): Promise<boolean> {
         const res = await fetch(apiUrl('/export/full-backup'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -158,6 +158,7 @@ export class WebServices implements AppServices {
         if (!res.ok) throw new Error(await res.text());
         const blob = await res.blob();
         triggerDownload(blob, 'kechimochi_full_backup.zip');
+        return true;
     }
 
     async pickAndImportFullBackup(): Promise<string | null> {

@@ -105,7 +105,7 @@ export function readFileBytes(path: string): Promise<number[]> {
   return desktopInvoke<number[]>('read_file_bytes', { path });
 }
 
-export function exportFullBackup(localStorageData: string, version: string): Promise<void | null> {
+export function exportFullBackup(localStorageData: string, version: string): Promise<boolean> {
   return getServices().pickAndExportFullBackup(localStorageData, version);
 }
 

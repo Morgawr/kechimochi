@@ -28,6 +28,31 @@ export function createOverlay(): { overlay: HTMLDivElement, cleanup: () => void 
     return { overlay, cleanup };
 }
 
+export function showBlockingStatus(title: string, text: string): { close: () => void } {
+    const { overlay, cleanup } = createOverlay();
+    const escapedTitle = escapeHTML(title);
+    const escapedText = escapeHTML(text);
+    let isClosed = false;
+
+    overlay.innerHTML = `
+        <div class="modal-content" role="alertdialog" aria-live="assertive" aria-busy="true" style="text-align: center; max-width: 420px;">
+            <h3>${escapedTitle}</h3>
+            <p style="margin-top: 1rem; color: var(--text-secondary);">${escapedText}</p>
+            <div style="margin-top: 1.5rem; display: flex; justify-content: center;">
+                <div aria-hidden="true" style="width: 28px; height: 28px; border-radius: 999px; border: 3px solid var(--border-color); border-top-color: var(--accent-blue); animation: spin 0.8s linear infinite;"></div>
+            </div>
+        </div>
+    `;
+
+    return {
+        close: () => {
+            if (isClosed) return;
+            isClosed = true;
+            cleanup();
+        }
+    };
+}
+
 export async function customPrompt(title: string, defaultValue = "", text = ""): Promise<string | null> {
     return new Promise((resolve) => {
         const { overlay, cleanup } = createOverlay();

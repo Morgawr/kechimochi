@@ -3,6 +3,7 @@ use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::Path;
 use tauri::{AppHandle, State};
+use tauri::async_runtime::spawn_blocking;
 use zip::{ZipArchive, ZipWriter};
 use zip::write::SimpleFileOptions;
 use walkdir::WalkDir;
@@ -11,15 +12,22 @@ use crate::db;
 use crate::DbState;
 
 #[tauri::command]
-pub fn export_full_backup(
+pub async fn export_full_backup(
     app_handle: AppHandle,
-    state: State<DbState>,
+    state: State<'_, DbState>,
     file_path: String,
     local_storage: String,
     version: String,
 ) -> Result<(), String> {
     let app_dir = db::get_data_dir(&app_handle);
-    export_full_backup_internal(&app_dir, &state.conn.lock().unwrap(), &file_path, &local_storage, &version)
+    let conn = state.conn.clone();
+
+    spawn_blocking(move || {
+        let conn_guard = conn.lock().map_err(|e| e.to_string())?;
+        export_full_backup_internal(&app_dir, &conn_guard, &file_path, &local_storage, &version)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 pub fn export_full_backup_internal(
@@ -82,7 +90,8 @@ pub fn export_full_backup_internal(
         }
     }
 
-    zip.finish().map_err(|e| e.to_string())?;
+    let finished_file = zip.finish().map_err(|e| e.to_string())?;
+    finished_file.sync_all().map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -245,5 +254,3 @@ fn rollback_backup(app_dir: &Path, backup_dir: &Path, files: &[&str]) {
         }
     }
 }
-
-

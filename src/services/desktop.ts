@@ -97,13 +97,14 @@ export class DesktopServices implements AppServices {
     }
 
     // ── Full Backup operations ────────────────────────────────────────────────
-    async pickAndExportFullBackup(localStorageData: string, version: string): Promise<void | null> {
+    async pickAndExportFullBackup(localStorageData: string, version: string): Promise<boolean> {
         const savePath = this.getMockSavePath() ?? await tauriSave({
             filters: [{ name: 'ZIP', extensions: ['zip'] }],
             defaultPath: `kechimochi_full_backup.zip`,
         });
-        if (!savePath) return null;
-        return invoke('export_full_backup', { filePath: savePath, localStorage: localStorageData, version });
+        if (!savePath) return false;
+        await invoke('export_full_backup', { filePath: savePath, localStorage: localStorageData, version });
+        return true;
     }
 
     async pickAndImportFullBackup(): Promise<string | null> {

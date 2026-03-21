@@ -71,28 +71,6 @@ async function waitForOverlayToDisappear(overlay: WebdriverIO.Element, timeout =
     });
 }
 
-async function waitForModalContentToDisappear(
-    overlay: WebdriverIO.Element,
-    selector: string,
-    timeout = 5000,
-    timeoutMsg = `Modal content "${selector}" did not disappear in time`
-) {
-    const scopedElement = overlay.$(selector);
-
-    await browser.waitUntil(async () => {
-        if (!(await scopedElement.isDisplayed().catch(() => false))) return true;
-
-        const activeModalStillContainsSelector = await browser.execute((trackedSelector) => {
-            return Array.from(document.querySelectorAll('.modal-overlay.active'))
-                .some((modal) => Boolean(modal.querySelector(trackedSelector)));
-        }, selector).catch(() => false);
-
-        return !activeModalStillContainsSelector;
-    }, {
-        timeout,
-        timeoutMsg
-    });
-}
 
 /**
  * Use OCR to verify text is visible on screen.
