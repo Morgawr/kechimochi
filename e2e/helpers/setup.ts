@@ -2,11 +2,21 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { execSync } from 'node:child_process';
+import Database from 'better-sqlite3';
 import { Logger } from '../../src/core/logger';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = path.resolve(__dirname, '..', 'fixtures');
+
+function seedProfileNameSetting(dbPath: string, profileName: string): void {
+  const db = new Database(dbPath);
+
+  try {
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('profile_name', profileName);
+  } finally {
+    db.close();
+  }
+}
 
 /**
  * Creates a temporary test directory by copying all fixture data into it.
@@ -21,9 +31,9 @@ export function prepareTestDir(): string {
   if (fs.existsSync(srcTestUser)) {
     fs.copyFileSync(srcTestUser, destUser);
     try {
-      execSync(`sqlite3 "${destUser}" "INSERT OR REPLACE INTO settings (key, value) VALUES ('profile_name', 'TESTUSER');"`, { stdio: 'ignore' });
+      seedProfileNameSetting(destUser, 'TESTUSER');
     } catch (err) {
-      console.warn('Failed to pre-seed sqlite test database with profile_name', err);
+      Logger.warn('Failed to pre-seed sqlite test database with profile_name', err);
     }
   } else {
     throw new Error(`Fixture file not found: ${srcTestUser}`);
