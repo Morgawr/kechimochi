@@ -201,7 +201,7 @@ export async function submitPrompt(value: string): Promise<void> {
     await confirmBtn.waitForClickable({ timeout: 2000 });
     await confirmBtn.click();
 
-    await waitForModalContentToDisappear(overlay, '#prompt-input', 5000, 'Prompt modal did not disappear in time');
+    await waitForOverlayToDisappear(overlay, 5000);
 }
 
 /**
