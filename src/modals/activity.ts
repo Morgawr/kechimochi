@@ -1,4 +1,5 @@
 import { getAllMedia, addLog, updateLog, addMedia, updateMedia, ActivitySummary } from '../api';
+import { ACTIVITY_TYPES } from '../constants';
 import { buildCalendar } from './calendar';
 import { customPrompt, customAlert, createOverlay } from './base';
 import { Logger } from '../core/logger';
@@ -64,6 +65,10 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
         const escapedTitle = escapeHTML(editLog?.title || prefillMediaTitle || '');
         const activeMediaOptions = activeMedia.map(m => `<option value="${escapeHTML(m.title)}">`).join('');
 
+        // Determine the default activity type
+        const prefillMedia = mediaList.find(m => m.title.toLowerCase() === (editLog?.title || prefillMediaTitle || '').toLowerCase());
+        const defaultActivityType = editLog?.media_type || prefillMedia?.media_type || 'Reading';
+
         overlay.innerHTML = `
             <div class="modal-content" style="width: 450px;">
                 <h3>${editLog ? 'Edit Activity' : 'Log Activity'}</h3>
@@ -81,6 +86,12 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
                         <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.5rem;">
                             <label style="font-size: 0.85rem; color: var(--text-secondary);">Characters</label>
                             <input type="number" id="activity-characters" value="${editLog?.characters || 0}" min="0" step="1" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); width: 100%;" />
+                        </div>
+                        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.5rem;">
+                            <label style="font-size: 0.85rem; color: var(--text-secondary);">Activity Type</label>
+                            <select id="activity-type" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); width: 100%;">
+                                ${ACTIVITY_TYPES.map(t => `<option value="${t}" ${t === defaultActivityType ? 'selected' : ''}>${t}</option>`).join('')}
+                            </select>
                         </div>
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 0.5rem; align-items: center;">
@@ -164,18 +175,20 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
             }
 
             try {
+                const activityType = overlay.querySelector<HTMLSelectElement>('#activity-type')!.value;
                 if (editLog) {
                     await updateLog({
                         id: editLog.id,
                         media_id: editLog.media_id,
                         duration_minutes: duration,
                         characters,
-                        date: selectedDate
+                        date: selectedDate,
+                        activity_type: activityType
                     });
                 } else {
                     const mediaId = await resolveMediaId(mediaTitle);
                     if (mediaId === null) return;
-                    await addLog({ media_id: mediaId, duration_minutes: duration, characters, date: selectedDate });
+                    await addLog({ media_id: mediaId, duration_minutes: duration, characters, date: selectedDate, activity_type: activityType });
                 }
                 newCleanup();
                 resolve(true);

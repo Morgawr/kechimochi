@@ -226,7 +226,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                                 <select class="badge badge-select ${this.getTrackingStatusClass(media.tracking_status)}" id="media-tracking-status" title="Click to edit tracking status">
                                     ${rawHtml(TRACKING_STATUSES.map(opt => `<option value="${opt}" ${opt === media.tracking_status ? 'selected' : ''}>${opt}</option>`).join(''))}
                                 </select>
-                                <select class="badge badge-select" id="media-type" title="Click to edit activity type">
+                                <select class="badge badge-select" id="media-type" title="Click to edit default activity type">
                                     ${rawHtml(ACTIVITY_TYPES.map(opt => `<option value="${opt}" ${opt === media.media_type ? 'selected' : ''}>${opt}</option>`).join(''))}
                                 </select>
                                 <select class="badge badge-select badge-content" id="media-content-type" title="Click to edit content type">
@@ -362,12 +362,7 @@ export class MediaDetail extends Component<MediaDetailState> {
     }
 
     private getContentTypeOptions(media: Media): string {
-        const validOptions: string[] = ['Unknown'];
-        const mType = media.media_type;
-        if (mType === 'Reading') validOptions.push('Visual Novel', 'Manga', 'Novel', 'WebNovel', 'NonFiction');
-        else if (mType === 'Playing') validOptions.push('Videogame');
-        else if (mType === 'Listening') validOptions.push('Audio');
-        else if (mType === 'Watching') validOptions.push('Anime', 'Movie', 'Youtube Video', 'Livestream', 'Drama');
+        const validOptions = ['Unknown', 'Visual Novel', 'Manga', 'Novel', 'WebNovel', 'NonFiction', 'Videogame', 'Audio', 'Anime', 'Movie', 'Youtube Video', 'Livestream', 'Drama'];
         return validOptions.map(opt => `<option value="${opt}" ${opt === media.content_type ? 'selected' : ''}>${opt}</option>`).join('');
     }
 
@@ -407,15 +402,16 @@ export class MediaDetail extends Component<MediaDetailState> {
         }).join('');
     }
 
-    private async computeReadingSpeedHtml(media: Media, totalMin: number): Promise<string> {
+    private async computeReadingSpeedHtml(media: Media, readingMin: number): Promise<string> {
         try {
             const extra = JSON.parse(media.extra_data || "{}");
             const charRaw = extra["Character count"] || "";
             const charCount = Number.parseInt(charRaw.replaceAll(',', ''), 10);
             if (Number.isNaN(charCount) || charCount <= 0) return "";
+            if (readingMin <= 0) return "";
 
             if (media.tracking_status === 'Complete') {
-                const speed = Math.round(charCount / (totalMin / 60));
+                const speed = Math.round(charCount / (readingMin / 60));
                 return `<span style="margin-left: 2rem; color: var(--accent-yellow); font-weight: 800; border: 1px solid var(--accent-yellow); padding: 0.2rem 0.6rem; border-radius: 4px; background: rgba(0,0,0,0.2);">Est. Reading Speed: <strong style="color: var(--text-primary);">${speed.toLocaleString()} char/hr</strong></span>`;
             }
 
@@ -431,8 +427,8 @@ export class MediaDetail extends Component<MediaDetailState> {
 
             const estTotalMin = (charCount / avgSpeed) * 60;
             const totalEstTotalMin = Math.round(estTotalMin);
-            const estRemainingMin = Math.max(0, totalEstTotalMin - totalMin);
-            const completionRate = Math.min(100, Math.round((totalMin / estTotalMin) * 100));
+            const estRemainingMin = Math.max(0, totalEstTotalMin - readingMin);
+            const completionRate = Math.min(100, Math.round((readingMin / estTotalMin) * 100));
             const remStr = formatHhMm(estRemainingMin);
             const totalEstStr = formatHhMm(totalEstTotalMin);
 
@@ -460,15 +456,31 @@ export class MediaDetail extends Component<MediaDetailState> {
         const totalChars = logs.reduce((acc, log) => acc + log.characters, 0);
         const totalStr = formatHhMm(totalMin);
 
+        // Determine verb from the most common activity type across logs
+        const typeCounts = new Map<string, number>();
+        for (const log of logs) {
+            const t = log.media_type || media.media_type;
+            typeCounts.set(t, (typeCounts.get(t) || 0) + 1);
+        }
+        let dominantType = media.media_type;
+        let maxCount = 0;
+        for (const [t, c] of typeCounts) {
+            if (c > maxCount) { dominantType = t; maxCount = c; }
+        }
+
         let verb = "Logged";
         let totalLabel = "Total Time";
-        if (media.media_type === "Playing") { verb = "Played"; totalLabel = "Total Playtime"; }
-        else if (media.media_type === "Listening") { verb = "Listened"; totalLabel = "Total Listening Time"; }
-        else if (media.media_type === "Watching") { verb = "Watched"; totalLabel = "Total Watchtime"; }
-        else if (media.media_type === "Reading") { verb = "Read"; totalLabel = "Total Readtime"; }
+        if (dominantType === "Playing") { verb = "Played"; totalLabel = "Total Playtime"; }
+        else if (dominantType === "Listening") { verb = "Listened"; totalLabel = "Total Listening Time"; }
+        else if (dominantType === "Watching") { verb = "Watched"; totalLabel = "Total Watchtime"; }
+        else if (dominantType === "Reading") { verb = "Read"; totalLabel = "Total Readtime"; }
 
         const isReadingType = ["Novel", "Visual Novel", "Manga", "WebNovel", "NonFiction"].includes(media.content_type || "");
-        const readingSpeedHtml = isReadingType && totalMin > 0 ? await this.computeReadingSpeedHtml(media, totalMin) : "";
+        // For reading speed, only use time from logs tagged as Reading
+        const readingMin = isReadingType
+            ? logs.filter(l => (l.media_type || media.media_type) === 'Reading').reduce((acc, l) => acc + l.duration_minutes, 0)
+            : 0;
+        const readingSpeedHtml = isReadingType && readingMin > 0 ? await this.computeReadingSpeedHtml(media, readingMin) : "";
 
         statsDiv.innerHTML = `
             <span style="color: var(--text-secondary);">First ${verb}: <strong style="color: var(--text-primary);">${firstLogDate}</strong></span>

@@ -141,7 +141,8 @@ fn create_activity_logs_table(conn: &Connection) -> Result<()> {
             media_id INTEGER NOT NULL,
             duration_minutes INTEGER NOT NULL,
             characters INTEGER NOT NULL DEFAULT 0,
-            date TEXT NOT NULL
+            date TEXT NOT NULL,
+            activity_type TEXT NOT NULL DEFAULT ''
         )",
         [],
     )?;
@@ -175,6 +176,24 @@ fn migrate_milestones(conn: &Connection) -> Result<()> {
 
 fn migrate_to_character_tracking(conn: &Connection) -> Result<()> {
     let _ = conn.execute("ALTER TABLE main.activity_logs ADD COLUMN characters INTEGER NOT NULL DEFAULT 0", []);
+    Ok(())
+}
+
+fn migrate_activity_type_to_logs(conn: &Connection) -> Result<()> {
+    // Add the column (gracefully fails if already exists)
+    let added = conn.execute(
+        "ALTER TABLE main.activity_logs ADD COLUMN activity_type TEXT NOT NULL DEFAULT ''",
+        [],
+    );
+    // Only backfill if the column was just added
+    if added.is_ok() {
+        conn.execute(
+            "UPDATE main.activity_logs SET activity_type = (
+                SELECT media_type FROM shared.media WHERE id = activity_logs.media_id
+            ) WHERE activity_type = ''",
+            [],
+        )?;
+    }
     Ok(())
 }
 
@@ -279,6 +298,7 @@ pub fn init_db(app_dir: std::path::PathBuf, fallback_username: Option<&str>) -> 
     create_tables(&conn)?;
     migrate_milestones(&conn)?;
     migrate_to_character_tracking(&conn)?;
+    migrate_activity_type_to_logs(&conn)?;
     create_indexes(&conn)?;
 
     Ok(conn)
@@ -395,8 +415,8 @@ pub fn add_log(conn: &Connection, log: &ActivityLog) -> Result<i64> {
         return Err(rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Activity must have either duration or characters"))));
     }
     conn.execute(
-        "INSERT INTO main.activity_logs (media_id, duration_minutes, characters, date) VALUES (?1, ?2, ?3, ?4)",
-        params![log.media_id, log.duration_minutes, log.characters, log.date],
+        "INSERT INTO main.activity_logs (media_id, duration_minutes, characters, date, activity_type) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![log.media_id, log.duration_minutes, log.characters, log.date, log.activity_type],
     )?;
     Ok(conn.last_insert_rowid())
 }
@@ -411,8 +431,8 @@ pub fn update_log(conn: &Connection, log: &ActivityLog) -> Result<()> {
         return Err(rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Activity must have either duration or characters"))));
     }
     conn.execute(
-        "UPDATE main.activity_logs SET media_id = ?1, duration_minutes = ?2, characters = ?3, date = ?4 WHERE id = ?5",
-        params![log.media_id, log.duration_minutes, log.characters, log.date, log.id.unwrap()],
+        "UPDATE main.activity_logs SET media_id = ?1, duration_minutes = ?2, characters = ?3, date = ?4, activity_type = ?5 WHERE id = ?6",
+        params![log.media_id, log.duration_minutes, log.characters, log.date, log.activity_type, log.id.unwrap()],
     )?;
     Ok(())
 }
@@ -424,7 +444,7 @@ pub fn clear_activities(conn: &Connection) -> Result<()> {
 
 pub fn get_logs(conn: &Connection) -> Result<Vec<ActivitySummary>> {
     let mut stmt = conn.prepare(
-        "SELECT a.id, a.media_id, m.title, m.media_type, a.duration_minutes, a.characters, a.date, m.language 
+        "SELECT a.id, a.media_id, m.title, COALESCE(NULLIF(a.activity_type, ''), m.media_type) as activity_type, a.duration_minutes, a.characters, a.date, m.language 
          FROM main.activity_logs a 
          JOIN shared.media m ON a.media_id = m.id
          ORDER BY a.date DESC, a.id DESC",
@@ -451,7 +471,7 @@ pub fn get_logs(conn: &Connection) -> Result<Vec<ActivitySummary>> {
 
 pub fn get_logs_for_media(conn: &Connection, media_id: i64) -> Result<Vec<ActivitySummary>> {
     let mut stmt = conn.prepare(
-        "SELECT a.id, a.media_id, m.title, m.media_type, a.duration_minutes, a.characters, a.date, m.language 
+        "SELECT a.id, a.media_id, m.title, COALESCE(NULLIF(a.activity_type, ''), m.media_type) as activity_type, a.duration_minutes, a.characters, a.date, m.language 
          FROM main.activity_logs a 
          JOIN shared.media m ON a.media_id = m.id
          WHERE a.media_id = ?1
@@ -831,6 +851,7 @@ mod tests {
             duration_minutes: 60,
             characters: 0,
             date: "2024-01-15".to_string(),
+            activity_type: String::new(),
         };
         add_log(&conn, &log).unwrap();
 
@@ -853,7 +874,7 @@ mod tests {
     fn test_delete_log() {
         let conn = setup_test_db();
         let media_id = add_media_with_id(&conn, &sample_media("Log")).unwrap();
-        let log_id = add_log(&conn, &ActivityLog { id: None, media_id, duration_minutes: 30, characters: 0, date: "2024-01-01".to_string() }).unwrap();
+        let log_id = add_log(&conn, &ActivityLog { id: None, media_id, duration_minutes: 30, characters: 0, date: "2024-01-01".to_string(), activity_type: String::new() }).unwrap();
         
         assert_eq!(get_logs(&conn).unwrap().len(), 1);
         delete_log(&conn, log_id).unwrap();
@@ -872,6 +893,7 @@ mod tests {
             duration_minutes: 45,
             characters: 100,
             date: "2024-03-01".to_string(),
+            activity_type: String::new(),
         };
         let log_id = add_log(&conn, &log).unwrap();
         assert!(log_id > 0);
@@ -894,6 +916,7 @@ mod tests {
             duration_minutes: 0,
             characters: 0,
             date: "2024-03-01".to_string(),
+            activity_type: String::new(),
         };
         let result = add_log(&conn, &log);
         assert!(result.is_err());
@@ -913,6 +936,7 @@ mod tests {
             duration_minutes: 30,
             characters: 100,
             date: "2024-06-01".to_string(),
+            activity_type: String::new(),
         }).unwrap();
         add_log(&conn, &ActivityLog {
             id: None,
@@ -920,6 +944,7 @@ mod tests {
             duration_minutes: 45,
             characters: 200,
             date: "2024-06-01".to_string(),
+            activity_type: String::new(),
         }).unwrap();
 
         // One log on a different day
@@ -929,6 +954,7 @@ mod tests {
             duration_minutes: 20,
             characters: 50,
             date: "2024-06-02".to_string(),
+            activity_type: String::new(),
         }).unwrap();
 
         let heatmap = get_heatmap(&conn).unwrap();
@@ -947,8 +973,8 @@ mod tests {
         let m1_id = add_media_with_id(&conn, &sample_media("Media 1")).unwrap();
         let m2_id = add_media_with_id(&conn, &sample_media("Media 2")).unwrap();
 
-        add_log(&conn, &ActivityLog { id: None, media_id: m1_id, duration_minutes: 10, characters: 0, date: "2024-03-01".to_string() }).unwrap();
-        add_log(&conn, &ActivityLog { id: None, media_id: m2_id, duration_minutes: 10, characters: 0, date: "2024-03-02".to_string() }).unwrap();
+        add_log(&conn, &ActivityLog { id: None, media_id: m1_id, duration_minutes: 10, characters: 0, date: "2024-03-01".to_string(), activity_type: String::new() }).unwrap();
+        add_log(&conn, &ActivityLog { id: None, media_id: m2_id, duration_minutes: 10, characters: 0, date: "2024-03-02".to_string(), activity_type: String::new() }).unwrap();
 
         let m1_logs = get_logs_for_media(&conn, m1_id).unwrap();
         assert_eq!(m1_logs.len(), 1);
@@ -979,7 +1005,7 @@ mod tests {
     fn test_clear_activities() {
         let conn = setup_test_db();
         let media_id = add_media_with_id(&conn, &sample_media("Test")).unwrap();
-        add_log(&conn, &ActivityLog { id: None, media_id, duration_minutes: 30, characters: 0, date: "2024-01-01".to_string() }).unwrap();
+        add_log(&conn, &ActivityLog { id: None, media_id, duration_minutes: 30, characters: 0, date: "2024-01-01".to_string(), activity_type: String::new() }).unwrap();
         
         assert_eq!(get_logs(&conn).unwrap().len(), 1);
         
@@ -999,7 +1025,7 @@ mod tests {
             status: "Archived".to_string(),
             ..sample_media("Archived Recent")
         }).unwrap();
-        add_log(&conn, &ActivityLog { id: None, media_id: m1_id, duration_minutes: 10, characters: 0, date: "2024-03-01".to_string() }).unwrap();
+        add_log(&conn, &ActivityLog { id: None, media_id: m1_id, duration_minutes: 10, characters: 0, date: "2024-03-01".to_string(), activity_type: String::new() }).unwrap();
 
         // 2. Active entry but NOT ongoing (should be middle: Tier 1)
         let m2_id = add_media_with_id(&conn, &Media {
@@ -1007,7 +1033,7 @@ mod tests {
             tracking_status: "Complete".to_string(),
             ..sample_media("Active Complete")
         }).unwrap();
-        add_log(&conn, &ActivityLog { id: None, media_id: m2_id, duration_minutes: 10, characters: 0, date: "2024-03-02".to_string() }).unwrap();
+        add_log(&conn, &ActivityLog { id: None, media_id: m2_id, duration_minutes: 10, characters: 0, date: "2024-03-02".to_string(), activity_type: String::new() }).unwrap();
 
         // 3. Ongoing media with older activity (should be first: Tier 0)
         let m3_id = add_media_with_id(&conn, &Media {
@@ -1015,7 +1041,7 @@ mod tests {
             tracking_status: "Ongoing".to_string(),
             ..sample_media("Ongoing Old")
         }).unwrap();
-        add_log(&conn, &ActivityLog { id: None, media_id: m3_id, duration_minutes: 10, characters: 0, date: "2024-01-01".to_string() }).unwrap();
+        add_log(&conn, &ActivityLog { id: None, media_id: m3_id, duration_minutes: 10, characters: 0, date: "2024-01-01".to_string(), activity_type: String::new() }).unwrap();
 
         // 4. Ongoing media with NO activity (should be after Tier 0 with activity)
         let _m4_id = add_media_with_id(&conn, &Media {
@@ -1293,6 +1319,7 @@ mod tests {
             duration_minutes: 30,
             characters: 0,
             date: "2024-01-01".to_string(),
+            activity_type: String::new(),
         };
         let id = add_log(&conn, &log).unwrap();
 
@@ -1302,6 +1329,7 @@ mod tests {
             duration_minutes: 45,
             characters: 100,
             date: "2024-01-02".to_string(),
+            activity_type: "Watching".to_string(),
         };
         update_log(&conn, &updated_log).unwrap();
 
