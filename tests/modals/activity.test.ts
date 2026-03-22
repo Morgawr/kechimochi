@@ -61,7 +61,8 @@ describe('modals/activity.ts', () => {
                 media_id: 10,
                 duration_minutes: 45,
                 characters: 0,
-                date: expect.any(String)
+                date: expect.any(String),
+                activity_type: 'Reading'
             });
         });
 

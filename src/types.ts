@@ -38,6 +38,7 @@ export interface ActivityLog {
     duration_minutes: number;
     characters: number;
     date: string;
+    activity_type?: string;
 }
 
 export interface ActivitySummary {

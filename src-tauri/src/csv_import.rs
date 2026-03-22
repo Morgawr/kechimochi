@@ -21,6 +21,8 @@ struct CsvRow {
     language: String,
     #[serde(rename = "Characters")]
     characters: Option<i64>,
+    #[serde(rename = "Activity Type", default)]
+    activity_type: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -129,6 +131,9 @@ pub fn import_csv(conn: &mut Connection, file_path: &str) -> Result<usize, Strin
             duration_minutes: record.duration,
             characters: record.characters.unwrap_or(0),
             date: formatted_date,
+            activity_type: record.activity_type
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| record.media_type.clone()),
         };
 
         match db::add_log(&tx, &new_log) {
@@ -182,7 +187,7 @@ pub fn export_logs_csv(conn: &Connection, file_path: &str, start_date: Option<St
     let mut count = 0;
     let mut wtr = csv::Writer::from_path(file_path).map_err(|e| e.to_string())?;
     
-    wtr.write_record(["Date", "Log Name", "Media Type", "Duration", "Language", "Characters"]).map_err(|e| e.to_string())?;
+    wtr.write_record(["Date", "Log Name", "Media Type", "Duration", "Language", "Characters", "Activity Type"]).map_err(|e| e.to_string())?;
     
     for log in logs {
         if let Some(start) = &start_date {
@@ -198,7 +203,8 @@ pub fn export_logs_csv(conn: &Connection, file_path: &str, start_date: Option<St
             &log.media_type,
             &log.duration_minutes.to_string(),
             &log.language,
-            &log.characters.to_string()
+            &log.characters.to_string(),
+            &log.media_type,
         ]).map_err(|e| e.to_string())?;
         
         count += 1;
@@ -577,9 +583,9 @@ mod tests {
         let conn = setup_test_db();
         let m_id = db::add_media_with_id(&conn, &sample_media("Log Test")).unwrap();
         
-        db::add_log(&conn, &ActivityLog { id: None, media_id: m_id, duration_minutes: 30, characters: 100, date: "2024-01-01".to_string() }).unwrap();
-        db::add_log(&conn, &ActivityLog { id: None, media_id: m_id, duration_minutes: 45, characters: 200, date: "2024-02-01".to_string() }).unwrap();
-        db::add_log(&conn, &ActivityLog { id: None, media_id: m_id, duration_minutes: 60, characters: 300, date: "2024-03-01".to_string() }).unwrap();
+        db::add_log(&conn, &ActivityLog { id: None, media_id: m_id, duration_minutes: 30, characters: 100, date: "2024-01-01".to_string(), activity_type: "Reading".to_string() }).unwrap();
+        db::add_log(&conn, &ActivityLog { id: None, media_id: m_id, duration_minutes: 45, characters: 200, date: "2024-02-01".to_string(), activity_type: "Reading".to_string() }).unwrap();
+        db::add_log(&conn, &ActivityLog { id: None, media_id: m_id, duration_minutes: 60, characters: 300, date: "2024-03-01".to_string(), activity_type: "Reading".to_string() }).unwrap();
 
         let dir = std::env::temp_dir();
         let path = dir.join("export_logs_test.csv");

@@ -814,6 +814,7 @@ mod tests {
                 duration_minutes: 30,
                 characters: 0,
                 date: "2024-01-01".to_string(),
+                activity_type: String::new(),
             }).unwrap();
             db::add_log(&conn, &models::ActivityLog {
                 id: None,
@@ -821,6 +822,7 @@ mod tests {
                 duration_minutes: 45,
                 characters: 0,
                 date: "2024-01-02".to_string(),
+                activity_type: String::new(),
             }).unwrap();
         }
 
@@ -901,6 +903,7 @@ mod tests {
                 duration_minutes: 20,
                 characters: 0,
                 date: "2024-03-01".to_string(),
+                activity_type: String::new(),
             }).unwrap();
         }
 

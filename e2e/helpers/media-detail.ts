@@ -342,7 +342,7 @@ export async function getMilestoneListText(): Promise<string> {
 /**
  * Logs an activity directly from the Media Detail view using the "+ New Entry" button.
  */
-export async function logActivityFromDetail(expectedTitle: string, duration: string, characters: string = "0"): Promise<void> {
+export async function logActivityFromDetail(expectedTitle: string, duration: string, characters: string = "0", activityType?: string): Promise<void> {
     const newEntryBtn = $('#btn-new-media-entry');
     await newEntryBtn.waitForDisplayed({ timeout: 5000 });
     await newEntryBtn.click();
@@ -370,6 +370,13 @@ export async function logActivityFromDetail(expectedTitle: string, duration: str
     const charInput = $('#activity-characters');
     if (await charInput.isExisting()) {
         await charInput.setValue(characters);
+    }
+
+    if (activityType) {
+        const typeSelect = $('#activity-type');
+        if (await typeSelect.isExisting()) {
+            await typeSelect.selectByVisibleText(activityType);
+        }
     }
 
     // Pick today in the calendar

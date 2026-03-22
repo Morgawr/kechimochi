@@ -63,7 +63,7 @@ describe('CUJ: Data Management (CSV Export)', () => {
     expect(fs.existsSync(tempExportAll)).toBe(true);
     
     const content = fs.readFileSync(tempExportAll, 'utf-8');
-    expect(content).toContain('Date,Log Name,Media Type,Duration,Language');
+    expect(content).toContain('Date,Log Name,Media Type,Duration,Language,Characters,Activity Type');
     expect(content).toContain('呪術廻戦');
     expect(content.split('\n').length).toBeGreaterThan(10); 
   });

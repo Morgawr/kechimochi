@@ -21,6 +21,8 @@ pub struct ActivityLog {
     pub duration_minutes: i64,
     pub characters: i64,
     pub date: String, // YYYY-MM-DD
+    #[serde(default)]
+    pub activity_type: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
