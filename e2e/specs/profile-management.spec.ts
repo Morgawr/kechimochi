@@ -1,8 +1,11 @@
+import path from 'node:path';
 import { waitForAppReady } from '../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../helpers/navigation.js';
-import { openProfileNameEditor, renameProfile } from '../helpers/profile.js';
+import { openProfileNameEditor, renameProfile, uploadProfilePicture } from '../helpers/profile.js';
 
 describe('Single-User Profile Renaming CUJ', () => {
+  const profilePictureFixture = path.resolve(process.cwd(), 'e2e/fixtures/covers/profile_placeholder.png');
+
   before(async () => {
     await waitForAppReady();
   });
@@ -15,6 +18,12 @@ describe('Single-User Profile Renaming CUJ', () => {
     expect(await headerName.getText()).toBe('TESTUSER');
   });
 
+  it('should show TE as the initial missing profile picture fallback in the header', async () => {
+    const avatarFallback = $('#nav-user-avatar-fallback');
+    await avatarFallback.waitForDisplayed({ timeout: 5000 });
+    expect(await avatarFallback.getText()).toBe('TE');
+  });
+
   it('should verify the initial profile is TESTUSER in the profile tab', async () => {
     await navigateTo('profile');
     expect(await verifyActiveView('profile')).toBe(true);
@@ -24,6 +33,35 @@ describe('Single-User Profile Renaming CUJ', () => {
       return (await profileHeading.getText()) === 'TESTUSER';
     }, { timeout: 5000, timeoutMsg: 'Initial profile was not TESTUSER' });
     expect(await profileHeading.getText()).toBe('TESTUSER');
+  });
+
+  it('should show TE as the missing profile picture fallback in the profile view', async () => {
+    const heroFallback = $('#profile-hero-avatar .profile-avatar-fallback');
+    await heroFallback.waitForDisplayed({ timeout: 5000 });
+    expect(await heroFallback.getText()).toBe('TE');
+  });
+
+  it('should upload a profile picture and show it in both the header and profile view', async () => {
+    await uploadProfilePicture(profilePictureFixture);
+
+    const heroImg = $('#profile-hero-avatar img');
+    const navImg = $('#nav-user-avatar-image');
+    const navFallback = $('#nav-user-avatar-fallback');
+
+    await heroImg.waitForDisplayed({ timeout: 5000 });
+    await navImg.waitForDisplayed({ timeout: 5000 });
+
+    await browser.waitUntil(async () => {
+      return (await heroImg.getAttribute('src'))?.startsWith('data:image/') ?? false;
+    }, { timeout: 5000, timeoutMsg: 'Profile hero avatar did not render a data URL image' });
+
+    await browser.waitUntil(async () => {
+      return (await navImg.getAttribute('src'))?.startsWith('data:image/') ?? false;
+    }, { timeout: 5000, timeoutMsg: 'Header avatar did not render a data URL image' });
+
+    expect(await heroImg.isDisplayed()).toBe(true);
+    expect(await navImg.isDisplayed()).toBe(true);
+    expect(await navFallback.isDisplayed().catch(() => false)).toBe(false);
   });
 
   it('should rename the user profile by double-clicking the profile name', async () => {

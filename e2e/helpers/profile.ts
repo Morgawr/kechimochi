@@ -3,7 +3,7 @@
  */
 /// <reference types="@wdio/globals/types" />
 import { Logger } from '../../src/core/logger';
-import { dismissAlert } from './common.js';
+import { dismissAlert, setDialogMockPath } from './common.js';
 
 /**
  * Triggers report calculation in the Profile view.
@@ -154,5 +154,47 @@ export async function renameProfile(newName: string): Promise<void> {
     }, {
         timeout: 5000,
         timeoutMsg: `Profile name did not update to ${newName}`
+    });
+}
+
+/**
+ * Opens the profile picture picker by double-clicking the hero avatar.
+ */
+export async function uploadProfilePicture(imagePath: string): Promise<void> {
+    await setDialogMockPath(imagePath);
+
+    const avatar = $('#profile-hero-avatar');
+    await avatar.waitForDisplayed({ timeout: 5000 });
+    await avatar.scrollIntoView();
+
+    await browser.waitUntil(async () => {
+        const currentAvatar = $('#profile-hero-avatar');
+        if (!await currentAvatar.isExisting()) return false;
+
+        try {
+            await currentAvatar.doubleClick();
+        } catch {
+            // Ignore interaction-level failures and fall back to a DOM dblclick below.
+        }
+
+        await browser.execute(() => {
+            const el = document.getElementById('profile-hero-avatar');
+            if (!el) return;
+            el.dispatchEvent(new MouseEvent('dblclick', {
+                bubbles: true,
+                cancelable: true,
+                detail: 2,
+                button: 0,
+                buttons: 1,
+                view: globalThis as unknown as Window
+            }));
+        });
+
+        const heroImg = $('#profile-hero-avatar img');
+        return await heroImg.isDisplayed().catch(() => false);
+    }, {
+        timeout: 5000,
+        interval: 250,
+        timeoutMsg: 'Profile picture did not appear after double-clicking the hero avatar'
     });
 }
