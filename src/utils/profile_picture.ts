@@ -1,7 +1,7 @@
 import type { ProfilePicture } from '../types';
 
 export function profilePictureToDataUrl(profilePicture: ProfilePicture | null): string | null {
-    if (!profilePicture || !profilePicture.base64_data || !profilePicture.mime_type) {
+    if (!profilePicture?.base64_data || !profilePicture?.mime_type) {
         return null;
     }
     return `data:${profilePicture.mime_type};base64,${profilePicture.base64_data}`;
