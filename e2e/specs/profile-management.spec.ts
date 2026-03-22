@@ -3,10 +3,16 @@ import { waitForAppReady } from '../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../helpers/navigation.js';
 import { openProfileNameEditor, renameProfile, uploadProfilePicture } from '../helpers/profile.js';
 
-const FIXTURES_DIR = path.resolve(process.cwd(), 'e2e', 'fixtures');
 
 describe('Single-User Profile Renaming CUJ', () => {
-  const profilePictureFixture = path.join(FIXTURES_DIR, 'covers', 'profile_placeholder.png');
+  // Use the isolated data directory that is also accessible by the Tauri process.
+  // prepareTestDir() already copies e2e/fixtures/covers/ there, so the file
+  // always exists at a path both wdio (Node) and Tauri (Rust) can reach.
+  const profilePictureFixture = path.join(
+    process.env.KECHIMOCHI_DATA_DIR ?? path.resolve(process.cwd(), 'e2e', 'fixtures'),
+    'covers',
+    'profile_placeholder.png',
+  );
 
   before(async () => {
     await waitForAppReady();
