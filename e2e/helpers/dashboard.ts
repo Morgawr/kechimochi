@@ -7,7 +7,7 @@ import { confirmAction, performActivityEdit } from './common.js';
 /**
  * High-level helper to log an activity from the dashboard
  */
-export async function logActivity(title: string, duration: string, characters: string = "0", date?: string): Promise<void> {
+export async function logActivity(title: string, duration: string, characters: string = "0", date?: string, activityType?: string): Promise<void> {
     const addActivityBtn = $('#btn-add-activity');
     await addActivityBtn.waitForClickable({ timeout: 5000 });
     await addActivityBtn.click();
@@ -23,6 +23,13 @@ export async function logActivity(title: string, duration: string, characters: s
     const charInput = $('#activity-characters');
     if (await charInput.isExisting()) {
         await charInput.setValue(characters);
+    }
+
+    if (activityType) {
+        const typeSelect = $('#activity-type');
+        if (await typeSelect.isExisting()) {
+            await typeSelect.selectByVisibleText(activityType);
+        }
     }
 
     if (date) {
@@ -87,7 +94,7 @@ export async function getHeatmapCellColor(date: string): Promise<string> {
 /**
  * Logs activity using the global (+) button in the navbar.
  */
-export async function logActivityGlobal(mediaTitle: string, minutes: number, characters: number = 0): Promise<void> {
+export async function logActivityGlobal(mediaTitle: string, minutes: number, characters: number = 0, activityType?: string): Promise<void> {
     const logBtn = $('#btn-add-activity');
     await logBtn.waitForDisplayed({ timeout: 5000 });
     await logBtn.click();
@@ -104,6 +111,13 @@ export async function logActivityGlobal(mediaTitle: string, minutes: number, cha
     const charInput = $('#activity-characters');
     if (await charInput.isExisting()) {
         await charInput.setValue(characters);
+    }
+
+    if (activityType) {
+        const typeSelect = $('#activity-type');
+        if (await typeSelect.isExisting()) {
+            await typeSelect.selectByVisibleText(activityType);
+        }
     }
     
     const form = $('#add-activity-form');

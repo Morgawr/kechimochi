@@ -124,7 +124,7 @@ const MEDIA_ENTRIES = [
 ];
 
 function generateActivityLogs(mediaIds: Map<string, number>) {
-  const logs: { media_id: number; duration_minutes: number; date: string }[] = [];
+  const logs: { media_id: number; duration_minutes: number; date: string; characters: number; activity_type: string }[] = [];
   const year = 2024;
   const entries: [string, number, string][] = [
     // [title, minutes, date]
@@ -163,8 +163,15 @@ function generateActivityLogs(mediaIds: Map<string, number>) {
 
   for (const [title, minutes, date] of entries) {
     const mediaId = mediaIds.get(title);
-    if (mediaId !== undefined) {
-      logs.push({ media_id: mediaId, duration_minutes: minutes, date });
+    const mediaEntry = MEDIA_ENTRIES.find(m => m.title === title);
+    if (mediaId !== undefined && mediaEntry) {
+      logs.push({
+        media_id: mediaId,
+        duration_minutes: minutes,
+        date,
+        characters: 0,
+        activity_type: mediaEntry.media_type
+      });
     }
   }
 
@@ -251,7 +258,9 @@ function main() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       media_id INTEGER NOT NULL,
       duration_minutes INTEGER NOT NULL,
-      date TEXT NOT NULL
+      characters INTEGER NOT NULL DEFAULT 0,
+      date TEXT NOT NULL,
+      activity_type TEXT NOT NULL DEFAULT ''
     )
   `);
   userDb.exec(`
@@ -262,8 +271,8 @@ function main() {
   `);
 
   const insertLog = userDb.prepare(`
-    INSERT INTO activity_logs (media_id, duration_minutes, date)
-    VALUES (@media_id, @duration_minutes, @date)
+    INSERT INTO activity_logs (media_id, duration_minutes, characters, date, activity_type)
+    VALUES (@media_id, @duration_minutes, @characters, @date, @activity_type)
   `);
 
   const logs = generateActivityLogs(mediaIds);
