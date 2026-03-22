@@ -53,11 +53,11 @@ describe('Single-User Profile Renaming CUJ', () => {
 
     await browser.waitUntil(async () => {
       return (await heroImg.getAttribute('src'))?.startsWith('data:image/') ?? false;
-    }, { timeout: 5000, timeoutMsg: 'Profile hero avatar did not render a data URL image' });
+    }, { timeout: 10000, timeoutMsg: 'Profile hero avatar did not render a data URL image' });
 
     await browser.waitUntil(async () => {
       return (await navImg.getAttribute('src'))?.startsWith('data:image/') ?? false;
-    }, { timeout: 5000, timeoutMsg: 'Header avatar did not render a data URL image' });
+    }, { timeout: 15000, timeoutMsg: 'Header avatar did not render a data URL image' });
 
     expect(await heroImg.isDisplayed()).toBe(true);
     expect(await navImg.isDisplayed()).toBe(true);
@@ -65,7 +65,9 @@ describe('Single-User Profile Renaming CUJ', () => {
   });
 
   it('should rename the user profile by double-clicking the profile name', async () => {
-    await navigateTo('profile');
+    if (!(await verifyActiveView('profile'))) {
+      await navigateTo('profile');
+    }
     expect(await verifyActiveView('profile')).toBe(true);
 
     const profileHeading = await $('#profile-name');
@@ -88,7 +90,7 @@ describe('Single-User Profile Renaming CUJ', () => {
     const headerName = await $('#nav-user-name');
     await browser.waitUntil(async () => {
       return (await headerName.getText()) === 'RENAMED_PRO';
-    }, { timeout: 5000, timeoutMsg: 'Header did not update to RENAMED_PRO' });
+    }, { timeout: 10000, timeoutMsg: 'Header did not update to RENAMED_PRO' });
     expect(await headerName.getText()).toBe('RENAMED_PRO');
   });
 

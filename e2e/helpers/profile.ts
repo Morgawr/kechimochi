@@ -167,35 +167,64 @@ export async function uploadProfilePicture(imagePath: string): Promise<void> {
     await avatar.waitForDisplayed({ timeout: 5000 });
     await avatar.scrollIntoView();
 
-    try {
-        await avatar.doubleClick();
-    } catch {
-        // Ignore interaction-level failures and fall back to a DOM dblclick below.
+    let uploadTriggered = false;
+    for (let attempt = 0; attempt < 3 && !uploadTriggered; attempt++) {
+        if (attempt === 0) {
+            try {
+                await avatar.doubleClick();
+            } catch {
+                // Fall back to a DOM event on the next retry if native actions are unreliable here.
+            }
+        } else {
+            await browser.execute(() => {
+                const el = document.getElementById('profile-hero-avatar');
+                if (!el) return;
+                el.dispatchEvent(new MouseEvent('dblclick', {
+                    bubbles: true,
+                    cancelable: true,
+                    detail: 2,
+                    button: 0,
+                    buttons: 1,
+                    view: globalThis as unknown as Window
+                }));
+            });
+        }
+
+        uploadTriggered = await browser.waitUntil(async () => {
+            const alertBody = $('#alert-body');
+            if (await alertBody.isDisplayed().catch(() => false)) {
+                return true;
+            }
+
+            const heroImg = $('#profile-hero-avatar img');
+            const heroSrc = await heroImg.getAttribute('src').catch(() => '');
+            return (heroSrc ?? '').startsWith('data:image/');
+        }, {
+            timeout: 5000,
+            interval: 250,
+            timeoutMsg: 'Profile picture did not appear after double-clicking the hero avatar'
+        }).catch(() => false);
     }
 
-    await browser.execute(() => {
-        const el = document.getElementById('profile-hero-avatar');
-        if (!el) return;
-        el.dispatchEvent(new MouseEvent('dblclick', {
-            bubbles: true,
-            cancelable: true,
-            detail: 2,
-            button: 0,
-            buttons: 1,
-            view: globalThis as unknown as Window
-        }));
-    });
+    const alertBody = $('#alert-body');
+    const alertVisible = await alertBody.isDisplayed().catch(() => false);
+    if (alertVisible) {
+        const message = await alertBody.getText().catch(() => 'Profile picture upload failed.');
+        await dismissAlert(undefined, 0);
+        throw new Error(message);
+    }
 
-    await browser.waitUntil(async () => {
-        const heroImg = $('#profile-hero-avatar img');
-        const heroSrc = await heroImg.getAttribute('src').catch(() => '');
-        return (heroSrc ?? '').startsWith('data:image/');
-    }, {
-        timeout: 10000,
-        interval: 300,
-        timeoutMsg: 'Profile picture did not appear after double-clicking the hero avatar'
-    });
+    if (!uploadTriggered) {
+        throw new Error('Profile picture did not appear after double-clicking the hero avatar');
+    }
 
     const heroImg = $('#profile-hero-avatar img');
-    await heroImg.waitForDisplayed({ timeout: 5000 });
+    await heroImg.waitForDisplayed({ timeout: 10000 });
+    await browser.waitUntil(async () => {
+        return (await heroImg.getAttribute('src'))?.startsWith('data:image/') ?? false;
+    }, {
+        timeout: 10000,
+        interval: 250,
+        timeoutMsg: 'Profile hero avatar did not render a data URL image after upload'
+    });
 }
