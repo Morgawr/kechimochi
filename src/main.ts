@@ -2,7 +2,7 @@ import { Dashboard } from './components/dashboard';
 import { MediaView } from './components/media_view';
 import { ProfileView } from './components/profile';
 import {
-    initializeUserDb, getUsername, getSetting, setSetting
+    initializeUserDb, getUsername, getSetting, setSetting, getProfilePicture
 } from './api';
 import {
     initialProfilePrompt, showLogActivityModal
@@ -10,7 +10,9 @@ import {
 import { syncAppShell } from './app_shell';
 import { initServices, getServices } from './services';
 import { Logger } from './core/logger';
+import { getProfileInitials, profilePictureToDataUrl } from './utils/profile_picture';
 import { STORAGE_KEYS, SETTING_KEYS, VIEW_NAMES, EVENTS, DEFAULTS } from './constants';
+import type { ProfilePicture } from './types';
 
 // Support global date mocking for E2E tests
 let mockDateStr: string | null = null;
@@ -59,12 +61,18 @@ class App {
     private readonly profileContainer: HTMLElement;
 
     private readonly navUserNameEl: HTMLElement;
+    private readonly navUserAvatarEl: HTMLElement | null;
+    private readonly navUserAvatarImgEl: HTMLImageElement | null;
+    private readonly navUserAvatarFallbackEl: HTMLElement | null;
     private readonly devBuildBadgeEl: HTMLElement | null;
     private readonly navLinks: NodeListOf<HTMLElement>;
 
     constructor() {
         this.viewContainer = document.getElementById('view-container')!;
         this.navUserNameEl = document.getElementById('nav-user-name')!;
+        this.navUserAvatarEl = document.getElementById('nav-user-avatar');
+        this.navUserAvatarImgEl = document.getElementById('nav-user-avatar-image') as HTMLImageElement | null;
+        this.navUserAvatarFallbackEl = document.getElementById('nav-user-avatar-fallback');
         this.devBuildBadgeEl = document.getElementById('dev-build-badge');
         this.navLinks = document.querySelectorAll('.nav-link');
 
@@ -152,19 +160,15 @@ class App {
         });
 
         globalThis.addEventListener(EVENTS.PROFILE_UPDATED, async () => {
-            this.loadTheme();
-            const newName = await getSetting('profile_name');
-            if (newName && newName !== this.currentProfile) {
-                this.currentProfile = newName;
-                this.navUserNameEl.textContent = this.currentProfile;
-            }
+            await this.loadTheme();
+            await this.refreshProfileChrome();
         });
     }
 
     private async initProfile() {
         let profileName: string | null = null;
         try {
-            profileName = await getSetting('profile_name');
+            profileName = await getSetting(SETTING_KEYS.PROFILE_NAME);
         } catch (e) {
             Logger.info('[kechimochi] DB uninitialized (no settings table found), proceeding with fallback.', e);
         }
@@ -178,26 +182,61 @@ class App {
             const oldProfile = localStorage.getItem(STORAGE_KEYS.CURRENT_PROFILE);
             if (oldProfile && oldProfile !== 'default') {
                 await initializeUserDb(oldProfile);
-                await setSetting('profile_name', oldProfile);
+                await setSetting(SETTING_KEYS.PROFILE_NAME, oldProfile);
                 this.currentProfile = oldProfile;
             } else {
                 // Initialize default db
                 const osUsername = await getUsername();
                 const newName = await initialProfilePrompt(osUsername);
                 await initializeUserDb(newName);
-                await setSetting('profile_name', newName);
+                await setSetting(SETTING_KEYS.PROFILE_NAME, newName);
                 this.currentProfile = newName;
             }
         }
         
         localStorage.setItem(STORAGE_KEYS.CURRENT_PROFILE, this.currentProfile);
-        this.navUserNameEl.textContent = this.currentProfile;
+        await this.refreshProfileChrome();
     }
 
     private async loadTheme() {
         const theme = await getSetting(SETTING_KEYS.THEME) || DEFAULTS.THEME;
         document.body.dataset.theme = theme;
         localStorage.setItem(STORAGE_KEYS.THEME_CACHE, theme);
+    }
+
+    private async refreshProfileChrome() {
+        const newName = await getSetting(SETTING_KEYS.PROFILE_NAME) || this.currentProfile || DEFAULTS.PROFILE;
+        this.currentProfile = newName;
+        this.navUserNameEl.textContent = this.currentProfile;
+
+        const initials = getProfileInitials(this.currentProfile);
+        if (this.navUserAvatarFallbackEl) {
+            this.navUserAvatarFallbackEl.textContent = initials;
+        }
+
+        const profilePicture = await this.loadProfilePicture();
+        const profilePictureSrc = profilePictureToDataUrl(profilePicture);
+        if (this.navUserAvatarImgEl) {
+            if (profilePictureSrc) {
+                this.navUserAvatarImgEl.src = profilePictureSrc;
+                this.navUserAvatarImgEl.style.display = 'block';
+                if (this.navUserAvatarFallbackEl) this.navUserAvatarFallbackEl.style.display = 'none';
+            } else {
+                this.navUserAvatarImgEl.removeAttribute('src');
+                this.navUserAvatarImgEl.style.display = 'none';
+                if (this.navUserAvatarFallbackEl) this.navUserAvatarFallbackEl.style.display = 'flex';
+            }
+        }
+        this.navUserAvatarEl?.setAttribute('aria-label', `${this.currentProfile} profile picture`);
+    }
+
+    private async loadProfilePicture(): Promise<ProfilePicture | null> {
+        try {
+            return await getProfilePicture();
+        } catch (e) {
+            Logger.warn('[kechimochi] Failed to load profile picture, falling back to initials.', e);
+            return null;
+        }
     }
 
     private async switchView(view: ViewType) {

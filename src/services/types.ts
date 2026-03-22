@@ -6,6 +6,7 @@ import type {
     MediaCsvRow,
     MediaConflict,
     Milestone,
+    ProfilePicture,
 } from '../types';
 
 export type {
@@ -16,6 +17,7 @@ export type {
     MediaCsvRow,
     MediaConflict,
     Milestone,
+    ProfilePicture,
 } from '../types';
 
 /**
@@ -51,6 +53,8 @@ export interface AppServices {
 
     getUsername(): Promise<string>;
     getAppVersion(): Promise<string>;
+    getProfilePicture(): Promise<ProfilePicture | null>;
+    deleteProfilePicture(): Promise<void>;
 
     // ── File-based operations (no filesystem paths exposed to callers) ────────
     /** Opens a file picker and imports the selected activities CSV. */
@@ -76,6 +80,10 @@ export interface AppServices {
     clearMilestones(mediaTitle: string): Promise<void>;
     exportMilestonesCsv(filePath: string): Promise<number>;
     importMilestonesCsv(filePath: string): Promise<number>;
+
+    // ── Profile picture operations ────────────────────────────────────────────
+    /** Opens a file picker, validates/uploads the image, and returns the stored profile picture. */
+    pickAndUploadProfilePicture(): Promise<ProfilePicture | null>;
 
     // ── Cover image operations ────────────────────────────────────────────────
     /** Opens a file picker, uploads the image, and returns the stored reference. */

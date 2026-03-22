@@ -72,6 +72,7 @@ describe('DesktopServices', () => {
 
         await expect(services.pickAndImportActivities()).resolves.toBeNull();
         await expect(services.pickAndExportFullBackup('{}', '1.0.0')).resolves.toBe(false);
+        await expect(services.pickAndUploadProfilePicture()).resolves.toBeNull();
     });
 
     it('exports media and full backups through invoke', async () => {
@@ -116,6 +117,22 @@ describe('DesktopServices', () => {
         await expect(services.loadCoverImage(`${SAFE_DIR}/cover.png`)).resolves.toBe('blob:desktop');
         await expect(services.loadCoverImage(`${SAFE_DIR}/missing.png`)).resolves.toBeNull();
         await expect(services.loadCoverImage('')).resolves.toBeNull();
+    });
+
+    it('gets, uploads, and deletes profile pictures via invoke', async () => {
+        vi.mocked(invoke)
+            .mockResolvedValueOnce({ mime_type: 'image/png', base64_data: 'abc', byte_size: 3, width: 1, height: 1, updated_at: '2026-03-23T00:00:00Z' })
+            .mockResolvedValueOnce({ mime_type: 'image/png', base64_data: 'abc', byte_size: 3, width: 1, height: 1, updated_at: '2026-03-23T00:00:00Z' })
+            .mockResolvedValueOnce(undefined);
+        vi.mocked(tauriOpen).mockResolvedValue(`${SAFE_DIR}/avatar.png`);
+
+        await expect(services.getProfilePicture()).resolves.toMatchObject({ mime_type: 'image/png' });
+        await expect(services.pickAndUploadProfilePicture()).resolves.toMatchObject({ width: 1 });
+        await expect(services.deleteProfilePicture()).resolves.toBeUndefined();
+
+        expect(invoke).toHaveBeenNthCalledWith(1, 'get_profile_picture');
+        expect(invoke).toHaveBeenNthCalledWith(2, 'upload_profile_picture', { path: `${SAFE_DIR}/avatar.png` });
+        expect(invoke).toHaveBeenNthCalledWith(3, 'delete_profile_picture');
     });
 
     it('caches the current window for window control methods', () => {

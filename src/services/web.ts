@@ -7,7 +7,7 @@
  * to the same origin (so the Vite dev proxy or a bundled server both work).
  */
 import type { AppServices } from './types';
-import type { Media, ActivityLog, ActivitySummary, DailyHeatmap, MediaCsvRow, MediaConflict, Milestone } from '../types';
+import type { Media, ActivityLog, ActivitySummary, DailyHeatmap, MediaCsvRow, MediaConflict, Milestone, ProfilePicture } from '../types';
 
 const API_BASE: string = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -102,6 +102,8 @@ export class WebServices implements AppServices {
 
     getUsername():                           Promise<string>            { return get('/username'); }
     getAppVersion():                         Promise<string>            { return get('/version'); }
+    getProfilePicture():                     Promise<ProfilePicture | null> { return get('/profile-picture'); }
+    deleteProfilePicture():                  Promise<void>              { return del('/profile-picture'); }
 
     // ── File-based operations ─────────────────────────────────────────────────
     async pickAndImportActivities(): Promise<number | null> {
@@ -210,6 +212,17 @@ export class WebServices implements AppServices {
         if (!res.ok) throw new Error(await res.text());
         const { count } = await res.json();
         return count as number;
+    }
+
+    // ── Profile picture operations ────────────────────────────────────────────
+    async pickAndUploadProfilePicture(): Promise<ProfilePicture | null> {
+        const file = await pickFile('image/png,image/jpeg,image/webp');
+        if (!file) return null;
+        const form = new FormData();
+        form.append('file', file);
+        const res = await fetch(apiUrl('/profile-picture'), { method: 'POST', body: form });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
     }
 
     // ── Cover image operations ────────────────────────────────────────────────

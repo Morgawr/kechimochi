@@ -162,6 +162,16 @@ describe('api.ts', () => {
       expect(invoke).toHaveBeenCalledWith('get_username');
     });
 
+    it('getProfilePicture should call invoke', async () => {
+      await api.getProfilePicture();
+      expect(invoke).toHaveBeenCalledWith('get_profile_picture');
+    });
+
+    it('deleteProfilePicture should call invoke', async () => {
+      await api.deleteProfilePicture();
+      expect(invoke).toHaveBeenCalledWith('delete_profile_picture');
+    });
+
     it('getSetting should call invoke', async () => {
       await api.getSetting('k');
       expect(invoke).toHaveBeenCalledWith('get_setting', { key: 'k' });
@@ -196,6 +206,7 @@ describe('api.ts', () => {
       expect(result).toBe('mock-path');
       delete g.mockDownloadedImagePath;
     });
+
   });
 
   describe('getAppVersion', () => {

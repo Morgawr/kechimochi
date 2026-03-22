@@ -3,10 +3,13 @@ import { ProfileView } from '../../src/components/profile';
 import * as api from '../../src/api';
 import { Media } from '../../src/api';
 import { STORAGE_KEYS, SETTING_KEYS } from '../../src/constants';
+import { Logger } from '../../src/core/logger';
 
 vi.mock('../../src/api', () => ({
     getSetting: vi.fn(),
     getAppVersion: vi.fn(),
+    getProfilePicture: vi.fn(() => Promise.resolve(null)),
+    uploadProfilePicture: vi.fn(),
     getAllMedia: vi.fn(),
     listProfiles: vi.fn(),
     setSetting: vi.fn(),
@@ -17,6 +20,17 @@ vi.mock('../../src/api', () => ({
     clearActivities: vi.fn(),
     exportFullBackup: vi.fn(),
     importFullBackup: vi.fn(),
+}));
+
+const mockServices = {
+    pickAndImportActivities: vi.fn(),
+    exportActivities: vi.fn(),
+    analyzeMediaCsvFromPick: vi.fn(),
+    exportMediaLibrary: vi.fn(),
+};
+
+vi.mock('../../src/services', () => ({
+    getServices: vi.fn(() => mockServices),
 }));
 
 vi.mock('../../src/utils/dialogs', () => ({
@@ -40,6 +54,7 @@ describe('ProfileView', () => {
     beforeEach(() => {
         container = document.createElement('div');
         vi.clearAllMocks();
+        vi.spyOn(Logger, 'warn').mockImplementation(() => {});
         
         // Mock localStorage
         const store: Record<string, string> = { [STORAGE_KEYS.CURRENT_PROFILE]: 'test-user' };
@@ -57,7 +72,7 @@ describe('ProfileView', () => {
 
     it('should load settings and render profile name', async () => {
         vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === 'profile_name') return 'test-user';
+            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
             if (key === SETTING_KEYS.THEME) return 'pastel-pink';
             if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '2024-01-01T00:00:00Z';
             return '0';
@@ -70,6 +85,76 @@ describe('ProfileView', () => {
         await vi.waitFor(() => expect(container.textContent).toContain('test-user'));
         expect(container.textContent).toContain('v1.2.3');
         expect(container.textContent).toContain('Since 2024-01-01');
+    });
+
+    it('should render profile picture preview when one exists', async () => {
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
+            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
+            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
+            return '0';
+        });
+        vi.mocked(api.getAppVersion).mockResolvedValue('1.2.3');
+        vi.mocked(api.getProfilePicture).mockResolvedValue({
+            mime_type: 'image/png',
+            base64_data: 'YWJj',
+            byte_size: 3,
+            width: 1,
+            height: 1,
+            updated_at: '2026-03-23T00:00:00Z',
+        });
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-hero-avatar img')).not.toBeNull());
+    });
+
+    it('should still render the profile view if profile picture loading fails', async () => {
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
+            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
+            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
+            return '0';
+        });
+        vi.mocked(api.getAppVersion).mockResolvedValue('1.2.3');
+        vi.mocked(api.getProfilePicture).mockRejectedValue(new Error('missing backend route'));
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-name')?.textContent).toBe('test-user'));
+        expect(container.querySelector('#profile-hero-avatar img')).toBeNull();
+    });
+
+    it('should upload a profile picture by double-clicking the hero avatar', async () => {
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
+            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
+            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
+            return '0';
+        });
+        vi.mocked(api.getAppVersion).mockResolvedValue('1.2.3');
+        vi.mocked(api.uploadProfilePicture).mockResolvedValue({
+            mime_type: 'image/png',
+            base64_data: 'YWJj',
+            byte_size: 3,
+            width: 1,
+            height: 1,
+            updated_at: '2026-03-23T00:00:00Z',
+        });
+
+        const dispatchSpy = vi.spyOn(globalThis, 'dispatchEvent');
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-hero-avatar')).not.toBeNull());
+
+        container.querySelector('#profile-hero-avatar')?.dispatchEvent(new MouseEvent('dblclick'));
+        await vi.waitFor(() => expect(api.uploadProfilePicture).toHaveBeenCalled());
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-hero-avatar img')).not.toBeNull());
+        expect(dispatchSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'profile-updated' }));
     });
 
     it('should change theme', async () => {

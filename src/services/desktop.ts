@@ -8,7 +8,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open as tauriOpen, save as tauriSave } from '@tauri-apps/plugin-dialog';
 
 import type { AppServices } from './types';
-import type { Media, ActivityLog, ActivitySummary, DailyHeatmap, MediaCsvRow, MediaConflict, Milestone } from '../types';
+import type { Media, ActivityLog, ActivitySummary, DailyHeatmap, MediaCsvRow, MediaConflict, Milestone, ProfilePicture } from '../types';
 
 declare const __APP_GIT_HASH__: string;
 
@@ -55,6 +55,8 @@ export class DesktopServices implements AppServices {
     setSetting(key: string, value: string):  Promise<void>            { return invoke('set_setting', { key, value }); }
 
     getUsername():                           Promise<string>          { return invoke('get_username'); }
+    getProfilePicture():                     Promise<ProfilePicture | null> { return invoke('get_profile_picture'); }
+    deleteProfilePicture():                  Promise<void>            { return invoke('delete_profile_picture'); }
 
     async getAppVersion(): Promise<string> {
         const base = await getVersion();
@@ -161,6 +163,15 @@ export class DesktopServices implements AppServices {
             if (!selected || typeof selected !== 'string') return 0;
             return invoke<number>('import_milestones_csv', { filePath: selected });
         });
+    }
+
+    // ── Profile picture operations ────────────────────────────────────────────
+    async pickAndUploadProfilePicture(): Promise<ProfilePicture | null> {
+        const selected = this.getMockOpenPath() ?? await tauriOpen({
+            filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }],
+        });
+        if (!selected || typeof selected !== 'string') return null;
+        return invoke('upload_profile_picture', { path: selected });
     }
 
     // ── Cover image operations ────────────────────────────────────────────────

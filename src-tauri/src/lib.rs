@@ -2,12 +2,13 @@ pub mod db;
 pub mod models;
 pub mod csv_import;
 pub mod backup;
+pub mod profile_picture;
 
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 use tauri::{Manager, State};
 
-use models::{ActivityLog, ActivitySummary, DailyHeatmap, Media, Milestone};
+use models::{ActivityLog, ActivitySummary, DailyHeatmap, Media, Milestone, ProfilePicture};
 
 // Database state
 pub struct DbState {
@@ -274,6 +275,26 @@ fn get_username() -> String {
     get_username_logic()
 }
 
+#[tauri::command]
+fn get_profile_picture(state: State<DbState>) -> Result<Option<ProfilePicture>, String> {
+    let conn = state.conn.lock().unwrap();
+    db::get_profile_picture(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn upload_profile_picture(state: State<DbState>, path: String) -> Result<ProfilePicture, String> {
+    let profile_picture = profile_picture::process_profile_picture_file(&path)?;
+    let conn = state.conn.lock().unwrap();
+    db::upsert_profile_picture(&conn, &profile_picture).map_err(|e| e.to_string())?;
+    Ok(profile_picture)
+}
+
+#[tauri::command]
+fn delete_profile_picture(state: State<DbState>) -> Result<(), String> {
+    let conn = state.conn.lock().unwrap();
+    db::delete_profile_picture(&conn).map_err(|e| e.to_string())
+}
+
 pub fn get_username_logic() -> String {
     std::env::var("USER")
         .or_else(|_| std::env::var("USERNAME"))
@@ -332,6 +353,9 @@ pub fn run() {
             fetch_external_json,
             download_and_save_image,
             get_username,
+            get_profile_picture,
+            upload_profile_picture,
+            delete_profile_picture,
             set_setting,
             get_setting,
             backup::export_full_backup,

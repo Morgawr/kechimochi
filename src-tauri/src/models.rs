@@ -53,3 +53,13 @@ pub struct Milestone {
     pub characters: i64,
     pub date: Option<String>,
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ProfilePicture {
+    pub mime_type: String,
+    pub base64_data: String,
+    pub byte_size: i64,
+    pub width: i64,
+    pub height: i64,
+    pub updated_at: String,
+}

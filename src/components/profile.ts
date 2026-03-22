@@ -6,18 +6,22 @@ import {
     clearActivities, wipeEverything,
     applyMediaImport, getSetting, setSetting,
     getAppVersion, importMilestonesCsv, exportMilestonesCsv,
-    exportFullBackup, importFullBackup
+    exportFullBackup, importFullBackup,
+    getProfilePicture, uploadProfilePicture
 } from '../api';
 import {
     customPrompt, showExportCsvModal, customAlert, customConfirm,
     showMediaCsvConflictModal, showBlockingStatus
 } from '../modals';
 import { getServices } from '../services';
+import type { ProfilePicture } from '../types';
+import { getProfileInitials, profilePictureToDataUrl } from '../utils/profile_picture';
 import { STORAGE_KEYS, SETTING_KEYS, DEFAULTS, EVENTS } from '../constants';
 
 interface ProfileState {
     currentProfile: string;
     theme: string;
+    profilePicture: ProfilePicture | null;
     report: {
         novelSpeed: string;
         novelCount: string;
@@ -38,6 +42,7 @@ export class ProfileView extends Component<ProfileState> {
         super(container, {
             currentProfile: localStorage.getItem(STORAGE_KEYS.CURRENT_PROFILE) || DEFAULTS.PROFILE,
             theme: localStorage.getItem(STORAGE_KEYS.THEME_CACHE) || DEFAULTS.THEME,
+            profilePicture: null,
             report: {
                 novelSpeed: '0',
                 novelCount: '0',
@@ -62,12 +67,14 @@ export class ProfileView extends Component<ProfileState> {
         const vnCount = await getSetting(SETTING_KEYS.STATS_VN_COUNT) || '0';
         const timestamp = await getSetting(SETTING_KEYS.STATS_REPORT_TIMESTAMP) || '';
         const appVersion = await getAppVersion();
+        const profilePicture = await this.loadProfilePicture();
 
-        const currentProfile = await getSetting('profile_name') || DEFAULTS.PROFILE;
+        const currentProfile = await getSetting(SETTING_KEYS.PROFILE_NAME) || DEFAULTS.PROFILE;
         localStorage.setItem(STORAGE_KEYS.THEME_CACHE, theme);
         this.setState({
             currentProfile,
             theme,
+            profilePicture,
             report: {
                 novelSpeed,
                 novelCount,
@@ -82,6 +89,15 @@ export class ProfileView extends Component<ProfileState> {
         });
     }
 
+    private async loadProfilePicture(): Promise<ProfilePicture | null> {
+        try {
+            return await getProfilePicture();
+        } catch (e) {
+            Logger.warn('Failed to load profile picture, falling back to initials.', e);
+            return null;
+        }
+    }
+
     render() {
         const needsLoad = !this.state.isInitialized;
         if (!this.isRefreshing && needsLoad) {
@@ -93,12 +109,23 @@ export class ProfileView extends Component<ProfileState> {
         }
 
         this.clear();
-        const { currentProfile, theme, report, appVersion } = this.state;
+        const { currentProfile, theme, profilePicture, appVersion } = this.state;
+        const profilePictureSrc = profilePictureToDataUrl(profilePicture);
+        const initials = getProfileInitials(currentProfile);
 
         const content = html`
             <div id="profile-root" class="animate-fade-in" style="display: flex; flex-direction: column; gap: 2rem; max-width: 600px; margin: 0 auto; padding-top: 1rem; padding-bottom: 2rem;">
                 
                 <div style="text-align: center; margin-bottom: 2rem;">
+                    ${this.renderAvatar(
+                        profilePictureSrc,
+                        currentProfile,
+                        initials,
+                        'profile-avatar-hero profile-avatar-clickable',
+                        'profile-hero-avatar',
+                        'profile picture',
+                        'Double click to change picture'
+                    )}
                     <h2 id="profile-name" title="Double click to rename" style="margin: 0; font-size: 2rem; color: var(--text-primary); cursor: pointer; transition: opacity 0.2s;">${currentProfile}</h2>
                     <p style="color: var(--text-secondary); margin-top: 0.5rem;">Manage your profile and data</p>
                 </div>
@@ -114,13 +141,13 @@ export class ProfileView extends Component<ProfileState> {
                     <div id="profile-report-card-content" style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.5rem; font-size: 0.95rem;">
                         ${this.renderReportContent()}
                     </div>
-                    ${report.timestamp ? html`<div id="profile-report-timestamp" style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.5rem; text-align: right;">Since ${new Date(report.timestamp).toISOString().split('T')[0]}</div>` : ''}
+                    ${this.renderReportTimestamp()}
                 </div>
 
                 <!-- Appearance -->
                 <div class="card" style="display: flex; flex-direction: column; gap: 1rem;">
                     <h3>Appearance</h3>
-                    <p style="color: var(--text-secondary); font-size: 0.9rem;">Choose your preferred theme for this profile.</p>
+                    <p style="color: var(--text-secondary); font-size: 0.9rem;">Choose your preferred theme for this profile. Double click the profile picture above to change it.</p>
                     
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">
                         <label for="profile-select-theme" style="font-size: 0.85rem; font-weight: 500;">Theme</label>
@@ -223,6 +250,25 @@ export class ProfileView extends Component<ProfileState> {
         this.setupListeners(content);
     }
 
+    private renderAvatar(
+        profilePictureSrc: string | null,
+        currentProfile: string,
+        initials: string,
+        variantClassName: string,
+        id: string,
+        altSuffix: string,
+        title?: string,
+    ) {
+        return html`
+            <div class="profile-avatar ${variantClassName}" id="${id}" ${title ? `title="${title}"` : ''}>
+                ${profilePictureSrc
+                    ? html`<img src="${profilePictureSrc}" alt="${currentProfile} ${altSuffix}" class="profile-avatar-image" />`
+                    : html`<span class="profile-avatar-fallback">${initials}</span>`
+                }
+            </div>
+        `;
+    }
+
     private renderReportContent() {
         const { report } = this.state;
         if (!report.timestamp) {
@@ -247,9 +293,18 @@ export class ProfileView extends Component<ProfileState> {
         `;
     }
 
-    private setupListeners(root: HTMLElement) {
-        const { currentProfile } = this.state;
+    private renderReportTimestamp() {
+        const { timestamp } = this.state.report;
+        if (!timestamp) return '';
 
+        return html`
+            <div id="profile-report-timestamp" style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.5rem; text-align: right;">
+                Since ${new Date(timestamp).toISOString().split('T')[0]}
+            </div>
+        `;
+    }
+
+    private setupListeners(root: HTMLElement) {
         const nameEl = root.querySelector('#profile-name') as HTMLElement;
         if (nameEl) {
             nameEl.addEventListener('dblclick', () => {
@@ -273,7 +328,7 @@ export class ProfileView extends Component<ProfileState> {
                 const saveName = async () => {
                     const newName = input.value.trim();
                     if (newName && newName !== this.state.currentProfile) {
-                        await setSetting('profile_name', newName);
+                        await setSetting(SETTING_KEYS.PROFILE_NAME, newName);
                         localStorage.setItem(STORAGE_KEYS.CURRENT_PROFILE, newName);
                         this.setState({ currentProfile: newName });
                         globalThis.dispatchEvent(new CustomEvent(EVENTS.PROFILE_UPDATED));
@@ -346,9 +401,21 @@ export class ProfileView extends Component<ProfileState> {
             }
         });
 
+        root.querySelector('#profile-hero-avatar')?.addEventListener('dblclick', async () => {
+            try {
+                const profilePicture = await uploadProfilePicture();
+                if (!profilePicture) return;
+                this.setState({ profilePicture });
+                this.render();
+                globalThis.dispatchEvent(new CustomEvent(EVENTS.PROFILE_UPDATED));
+            } catch (e) {
+                await customAlert("Error", `Profile picture upload failed: ${e}`);
+            }
+        });
+
         root.querySelector('#profile-btn-export-media')?.addEventListener('click', async () => {
             try {
-                const count = await getServices().exportMediaLibrary(currentProfile);
+                const count = await getServices().exportMediaLibrary(this.state.currentProfile);
                 if (count !== null) await customAlert("Success", `Successfully exported ${count} media library entries!`);
             } catch (e) {
                 await customAlert("Error", `Export failed: ${e}`);

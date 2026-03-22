@@ -21,6 +21,7 @@ export const STORAGE_KEYS = {
 
 export const SETTING_KEYS = {
     THEME: 'theme',
+    PROFILE_NAME: 'profile_name',
     STATS_NOVEL_SPEED: 'stats_novel_speed',
     STATS_NOVEL_COUNT: 'stats_novel_count',
     STATS_MANGA_SPEED: 'stats_manga_speed',

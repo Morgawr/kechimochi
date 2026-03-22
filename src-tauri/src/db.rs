@@ -3,7 +3,7 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::Manager;
 
-use crate::models::{ActivityLog, ActivitySummary, Media, DailyHeatmap, Milestone};
+use crate::models::{ActivityLog, ActivitySummary, Media, DailyHeatmap, Milestone, ProfilePicture};
 
 pub trait DataDirProvider {
     fn app_data_dir(&self) -> Option<PathBuf>;
@@ -208,6 +208,22 @@ fn create_settings_table(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn create_profile_picture_table(conn: &Connection) -> Result<()> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS main.profile_picture (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            mime_type TEXT NOT NULL,
+            base64_data TEXT NOT NULL,
+            byte_size INTEGER NOT NULL,
+            width INTEGER NOT NULL,
+            height INTEGER NOT NULL,
+            updated_at TEXT NOT NULL
+        )",
+        [],
+    )?;
+    Ok(())
+}
+
 fn apply_pragmas(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "PRAGMA foreign_keys = ON;
@@ -251,6 +267,7 @@ pub fn create_tables(conn: &Connection) -> Result<()> {
     create_activity_logs_table(conn)?;
     create_milestones_table(conn)?;
     create_settings_table(conn)?;
+    create_profile_picture_table(conn)?;
     Ok(())
 }
 
@@ -538,6 +555,55 @@ pub fn get_setting(conn: &Connection, key: &str) -> Result<Option<String>> {
     }
 }
 
+pub fn get_profile_picture(conn: &Connection) -> Result<Option<ProfilePicture>> {
+    let mut stmt = conn.prepare(
+        "SELECT mime_type, base64_data, byte_size, width, height, updated_at
+         FROM main.profile_picture
+         WHERE id = 1",
+    )?;
+    let mut rows = stmt.query([])?;
+    if let Some(row) = rows.next()? {
+        Ok(Some(ProfilePicture {
+            mime_type: row.get(0)?,
+            base64_data: row.get(1)?,
+            byte_size: row.get(2)?,
+            width: row.get(3)?,
+            height: row.get(4)?,
+            updated_at: row.get(5)?,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn upsert_profile_picture(conn: &Connection, profile_picture: &ProfilePicture) -> Result<()> {
+    conn.execute(
+        "INSERT INTO main.profile_picture (id, mime_type, base64_data, byte_size, width, height, updated_at)
+         VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6)
+         ON CONFLICT(id) DO UPDATE SET
+            mime_type = excluded.mime_type,
+            base64_data = excluded.base64_data,
+            byte_size = excluded.byte_size,
+            width = excluded.width,
+            height = excluded.height,
+            updated_at = excluded.updated_at",
+        params![
+            profile_picture.mime_type,
+            profile_picture.base64_data,
+            profile_picture.byte_size,
+            profile_picture.width,
+            profile_picture.height,
+            profile_picture.updated_at,
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn delete_profile_picture(conn: &Connection) -> Result<()> {
+    conn.execute("DELETE FROM main.profile_picture WHERE id = 1", [])?;
+    Ok(())
+}
+
 // Milestone Operations
 pub fn get_milestones_for_media(conn: &Connection, media_title: &str) -> Result<Vec<Milestone>> {
     let mut stmt = conn.prepare(
@@ -690,6 +756,17 @@ mod tests {
         }
     }
 
+    fn sample_profile_picture() -> ProfilePicture {
+        ProfilePicture {
+            mime_type: "image/png".to_string(),
+            base64_data: "YWJj".to_string(),
+            byte_size: 3,
+            width: 32,
+            height: 32,
+            updated_at: "2026-03-23T00:00:00Z".to_string(),
+        }
+    }
+
     #[test]
     fn test_get_data_dir_prefers_env_var() {
         let _guard = ENV_LOCK.lock().unwrap();
@@ -712,6 +789,22 @@ mod tests {
                 std::env::remove_var("KECHIMOCHI_DATA_DIR");
             },
         }
+    }
+
+    #[test]
+    fn test_profile_picture_crud() {
+        let conn = setup_test_db();
+        assert!(get_profile_picture(&conn).unwrap().is_none());
+
+        let picture = sample_profile_picture();
+        upsert_profile_picture(&conn, &picture).unwrap();
+
+        let stored = get_profile_picture(&conn).unwrap().unwrap();
+        assert_eq!(stored.mime_type, picture.mime_type);
+        assert_eq!(stored.base64_data, picture.base64_data);
+
+        delete_profile_picture(&conn).unwrap();
+        assert!(get_profile_picture(&conn).unwrap().is_none());
     }
 
     #[test]

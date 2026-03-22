@@ -14,6 +14,7 @@ export type {
   MediaCsvRow,
   MediaConflict,
   Milestone,
+  ProfilePicture,
 } from './types';
 
 import type {
@@ -24,6 +25,7 @@ import type {
   MediaCsvRow,
   MediaConflict,
   Milestone,
+  ProfilePicture,
 } from './types';
 
 declare global {
@@ -61,6 +63,9 @@ export function setSetting(key: string, value: string): Promise<void> { return g
 
 export function getUsername(): Promise<string> { return getServices().getUsername(); }
 export function getAppVersion(): Promise<string> { return getServices().getAppVersion(); }
+export function getProfilePicture(): Promise<ProfilePicture | null> { return getServices().getProfilePicture(); }
+export function deleteProfilePicture(): Promise<void> { return getServices().deleteProfilePicture(); }
+export function uploadProfilePicture(): Promise<ProfilePicture | null> { return getServices().pickAndUploadProfilePicture(); }
 
 export function applyMediaImport(records: MediaCsvRow[]): Promise<number> { return getServices().applyMediaImport(records); }
 

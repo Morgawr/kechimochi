@@ -66,3 +66,12 @@ export interface Milestone {
     characters: number;
     date?: string;
 }
+
+export interface ProfilePicture {
+    mime_type: string;
+    base64_data: string;
+    byte_size: number;
+    width: number;
+    height: number;
+    updated_at: string;
+}

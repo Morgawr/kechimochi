@@ -23,7 +23,7 @@ use serde::Deserialize;
 use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
 
-use kechimochi_lib::{csv_import, db, get_username_logic, models};
+use kechimochi_lib::{csv_import, db, get_username_logic, models, profile_picture};
 
 // ── Error handling ────────────────────────────────────────────────────────────
 
@@ -110,6 +110,7 @@ async fn main() {
         .route("/api/milestones/:id",        delete(delete_milestone_handler))
         // Profiles
         .route("/api/profiles/initialize",   post(initialize_user_db_handler))
+        .route("/api/profile-picture",       get(get_profile_picture_handler).post(upload_profile_picture_handler).delete(delete_profile_picture_handler))
         // Settings
         .route("/api/settings/:key",         get(get_setting).put(set_setting))
         // Utility
@@ -349,6 +350,36 @@ async fn initialize_user_db_handler(
     let new_conn = db::init_db(s.data_dir.clone(), body.fallback_username.as_deref()).ae()?;
     *s.conn.lock().await = new_conn;
     Ok(Json(()))
+}
+
+async fn get_profile_picture_handler(
+    State(s): State<Shared>,
+) -> HandlerResult<Json<Option<models::ProfilePicture>>> {
+    let conn = s.conn.lock().await;
+    db::get_profile_picture(&conn).ae().map(Json)
+}
+
+async fn upload_profile_picture_handler(
+    State(s): State<Shared>,
+    mut multipart: Multipart,
+) -> HandlerResult<Json<models::ProfilePicture>> {
+    let field = multipart
+        .next_field()
+        .await
+        .ae()?
+        .ok_or_else(|| AppError("No file field in multipart".into()))?;
+    let bytes = field.bytes().await.ae()?.to_vec();
+    let profile_picture = profile_picture::process_profile_picture_bytes(&bytes).ae()?;
+    let conn = s.conn.lock().await;
+    db::upsert_profile_picture(&conn, &profile_picture).ae()?;
+    Ok(Json(profile_picture))
+}
+
+async fn delete_profile_picture_handler(
+    State(s): State<Shared>,
+) -> HandlerResult<Json<()>> {
+    let conn = s.conn.lock().await;
+    db::delete_profile_picture(&conn).ae().map(|_| Json(()))
 }
 
 // ── Settings handlers ─────────────────────────────────────────────────────────

@@ -129,6 +129,30 @@ describe('WebServices', () => {
         expect(fetchMock).not.toHaveBeenCalled();
     });
 
+    it('gets, uploads, and deletes profile pictures through the API', async () => {
+        const file = new File(['img'], 'avatar.png', { type: 'image/png' });
+        mockFilePicker(file);
+        fetchMock
+            .mockResolvedValueOnce(okJson({ mime_type: 'image/png', base64_data: 'abc', byte_size: 3, width: 1, height: 1, updated_at: '2026-03-23T00:00:00Z' }))
+            .mockResolvedValueOnce({
+                ok: true,
+                json: vi.fn().mockResolvedValue({ mime_type: 'image/png', base64_data: 'abc', byte_size: 3, width: 1, height: 1, updated_at: '2026-03-23T00:00:00Z' }),
+                text: vi.fn().mockResolvedValue(''),
+            })
+            .mockResolvedValueOnce(okJson(null));
+
+        await expect(services.getProfilePicture()).resolves.toMatchObject({ width: 1 });
+        await expect(services.pickAndUploadProfilePicture()).resolves.toMatchObject({ mime_type: 'image/png' });
+        await expect(services.deleteProfilePicture()).resolves.toBeNull();
+
+        expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/profile-picture');
+        expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/profile-picture', expect.objectContaining({
+            method: 'POST',
+            body: expect.any(FormData),
+        }));
+        expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/profile-picture', { method: 'DELETE' });
+    });
+
     it('loads cover images from API filenames and handles blank refs', async () => {
         expect(await services.loadCoverImage('')).toBeNull();
         expect(await services.loadCoverImage(String.raw`C:\covers\sample image.png`)).toBe('/api/covers/file/sample%20image.png');
