@@ -77,7 +77,8 @@ const PROFILE_NAME_INPUT_SELECTOR = '#profile-root input[type="text"]';
 export async function openProfileNameEditor(): Promise<WebdriverIO.Element> {
     const existingInput = $(PROFILE_NAME_INPUT_SELECTOR);
     if (await existingInput.isExisting() && await existingInput.isDisplayed()) {
-        return await existingInput;
+        // @ts-expect-error: WDIO v9 typing quirk
+        return existingInput;
     }
 
     const heading = $(PROFILE_NAME_SELECTOR);
@@ -126,7 +127,8 @@ export async function openProfileNameEditor(): Promise<WebdriverIO.Element> {
 
     const input = $(PROFILE_NAME_INPUT_SELECTOR);
     await input.waitForDisplayed({ timeout: 2000 });
-    return await input;
+    // @ts-expect-error: WDIO v9 typing quirk
+    return input;
 }
 
 /**
@@ -166,65 +168,49 @@ export async function uploadProfilePicture(imagePath: string): Promise<void> {
     const avatar = $('#profile-hero-avatar');
     await avatar.waitForDisplayed({ timeout: 5000 });
     await avatar.scrollIntoView();
+    await browser.pause(500);
 
-    let uploadTriggered = false;
-    for (let attempt = 0; attempt < 3 && !uploadTriggered; attempt++) {
-        if (attempt === 0) {
-            try {
-                await avatar.doubleClick();
-            } catch {
-                // Fall back to a DOM event on the next retry if native actions are unreliable here.
-            }
-        } else {
-            await browser.execute(() => {
-                const el = document.getElementById('profile-hero-avatar');
-                if (!el) return;
-                el.dispatchEvent(new MouseEvent('dblclick', {
-                    bubbles: true,
-                    cancelable: true,
-                    detail: 2,
-                    button: 0,
-                    buttons: 1,
-                    view: globalThis as unknown as Window
-                }));
-            });
+    await browser.execute(() => {
+        const el = document.getElementById('profile-hero-avatar');
+        if (!el) return;
+        el.dispatchEvent(new MouseEvent('dblclick', {
+            bubbles: true,
+            cancelable: true,
+            detail: 2,
+            button: 0,
+            buttons: 1,
+            view: globalThis as unknown as Window
+        }));
+    });
+
+    const isSuccess = await browser.waitUntil(async () => {
+        const alertBody = $('#alert-body');
+        if (await alertBody.isDisplayed().catch(() => false)) {
+            return true;
         }
 
-        uploadTriggered = await browser.waitUntil(async () => {
-            const alertBody = $('#alert-body');
-            if (await alertBody.isDisplayed().catch(() => false)) {
+        const heroImg = $('#profile-hero-avatar img');
+        if (await heroImg.isDisplayed().catch(() => false)) {
+            const heroSrc = await heroImg.getAttribute('src').catch(() => '');
+            if ((heroSrc ?? '').startsWith('data:image/')) {
                 return true;
             }
-
-            const heroImg = $('#profile-hero-avatar img');
-            const heroSrc = await heroImg.getAttribute('src').catch(() => '');
-            return (heroSrc ?? '').startsWith('data:image/');
-        }, {
-            timeout: 5000,
-            interval: 250,
-            timeoutMsg: 'Profile picture did not appear after double-clicking the hero avatar'
-        }).catch(() => false);
-    }
+        }
+        return false;
+    }, {
+        timeout: 15000,
+        interval: 250,
+        timeoutMsg: 'Profile picture upload did not produce a success image or an error alert in time'
+    }).catch(() => false);
 
     const alertBody = $('#alert-body');
-    const alertVisible = await alertBody.isDisplayed().catch(() => false);
-    if (alertVisible) {
+    if (await alertBody.isDisplayed().catch(() => false)) {
         const message = await alertBody.getText().catch(() => 'Profile picture upload failed.');
         await dismissAlert(undefined, 0);
         throw new Error(message);
     }
 
-    if (!uploadTriggered) {
-        throw new Error('Profile picture did not appear after double-clicking the hero avatar');
+    if (!isSuccess) {
+        throw new Error('Profile picture hero avatar did not render a data URL image after upload in time');
     }
-
-    const heroImg = $('#profile-hero-avatar img');
-    await heroImg.waitForDisplayed({ timeout: 10000 });
-    await browser.waitUntil(async () => {
-        return (await heroImg.getAttribute('src'))?.startsWith('data:image/') ?? false;
-    }, {
-        timeout: 10000,
-        interval: 250,
-        timeoutMsg: 'Profile hero avatar did not render a data URL image after upload'
-    });
 }

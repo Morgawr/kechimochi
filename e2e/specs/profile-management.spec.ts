@@ -1,11 +1,9 @@
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { waitForAppReady } from '../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../helpers/navigation.js';
 import { openProfileNameEditor, renameProfile, uploadProfilePicture } from '../helpers/profile.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURES_DIR = path.resolve(__dirname, '..', 'fixtures');
+const FIXTURES_DIR = path.resolve(process.cwd(), 'e2e', 'fixtures');
 
 describe('Single-User Profile Renaming CUJ', () => {
   const profilePictureFixture = path.join(FIXTURES_DIR, 'covers', 'profile_placeholder.png');

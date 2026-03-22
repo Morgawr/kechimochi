@@ -37,6 +37,7 @@ describe('CUJ: Progress Analysis (Projections)', () => {
         await addExtraField('Character count', '15000');
         expect(await getProjectionValue('est-remaining-time')).toBe('1h15min');
         expect(await getProjectionValue('est-completion-rate')).toBe('75%');
+        await backToGrid();
 
         await logActivityGlobal('呪術廻戦', 30);
         
