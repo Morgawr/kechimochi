@@ -65,8 +65,14 @@ describe('Single-User Profile Renaming CUJ', () => {
   });
 
   it('should rename the user profile by double-clicking the profile name', async () => {
+    await navigateTo('profile');
+    expect(await verifyActiveView('profile')).toBe(true);
+
     const profileHeading = await $('#profile-name');
-    await profileHeading.waitForDisplayed({ timeout: 5000 });
+    await profileHeading.waitForDisplayed({ timeout: 10000 });
+    await browser.waitUntil(async () => {
+      return (await profileHeading.getText()) === 'TESTUSER';
+    }, { timeout: 10000, timeoutMsg: 'Profile heading did not stabilize before renaming' });
 
     const input = await openProfileNameEditor();
     expect(await input.isDisplayed()).toBe(true);

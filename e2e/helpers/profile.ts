@@ -167,34 +167,35 @@ export async function uploadProfilePicture(imagePath: string): Promise<void> {
     await avatar.waitForDisplayed({ timeout: 5000 });
     await avatar.scrollIntoView();
 
+    try {
+        await avatar.doubleClick();
+    } catch {
+        // Ignore interaction-level failures and fall back to a DOM dblclick below.
+    }
+
+    await browser.execute(() => {
+        const el = document.getElementById('profile-hero-avatar');
+        if (!el) return;
+        el.dispatchEvent(new MouseEvent('dblclick', {
+            bubbles: true,
+            cancelable: true,
+            detail: 2,
+            button: 0,
+            buttons: 1,
+            view: globalThis as unknown as Window
+        }));
+    });
+
     await browser.waitUntil(async () => {
-        const currentAvatar = $('#profile-hero-avatar');
-        if (!await currentAvatar.isExisting()) return false;
-
-        try {
-            await currentAvatar.doubleClick();
-        } catch {
-            // Ignore interaction-level failures and fall back to a DOM dblclick below.
-        }
-
-        await browser.execute(() => {
-            const el = document.getElementById('profile-hero-avatar');
-            if (!el) return;
-            el.dispatchEvent(new MouseEvent('dblclick', {
-                bubbles: true,
-                cancelable: true,
-                detail: 2,
-                button: 0,
-                buttons: 1,
-                view: globalThis as unknown as Window
-            }));
-        });
-
         const heroImg = $('#profile-hero-avatar img');
-        return await heroImg.isDisplayed().catch(() => false);
+        const heroSrc = await heroImg.getAttribute('src').catch(() => '');
+        return (heroSrc ?? '').startsWith('data:image/');
     }, {
-        timeout: 5000,
-        interval: 250,
+        timeout: 10000,
+        interval: 300,
         timeoutMsg: 'Profile picture did not appear after double-clicking the hero avatar'
     });
+
+    const heroImg = $('#profile-hero-avatar img');
+    await heroImg.waitForDisplayed({ timeout: 5000 });
 }
