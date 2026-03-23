@@ -7,7 +7,13 @@ COPY index.html tsconfig.json vite.config.ts ./
 COPY src/ src/
 COPY public/ public/
 ARG VITE_GIT_HASH=docker
+ARG VITE_APP_VERSION=0.0.0-dev.docker
+ARG VITE_APP_CHANNEL=dev
+ARG VITE_RELEASE_STAGE=beta
 ENV VITE_GIT_HASH=$VITE_GIT_HASH
+ENV VITE_APP_VERSION=$VITE_APP_VERSION
+ENV VITE_APP_CHANNEL=$VITE_APP_CHANNEL
+ENV VITE_RELEASE_STAGE=$VITE_RELEASE_STAGE
 RUN npm run web:build
 
 # ── Stage 2: Build Rust web server binary ─────────────────────────────────────

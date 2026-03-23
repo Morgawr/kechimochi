@@ -14,6 +14,7 @@ import {
     showMediaCsvConflictModal, showBlockingStatus
 } from '../modals';
 import { getServices } from '../services';
+import { formatProductVersionLabel, getAppVersionInfo } from '../app_version';
 import type { ProfilePicture } from '../types';
 import { getProfileInitials, profilePictureToDataUrl } from '../utils/profile_picture';
 import { STORAGE_KEYS, SETTING_KEYS, DEFAULTS, EVENTS } from '../constants';
@@ -237,7 +238,7 @@ export class ProfileView extends Component<ProfileState> {
                 </div>
 
                 <div style="text-align: center; margin-top: 1rem; font-size: 0.8rem; color: var(--text-secondary); opacity: 0.7;">
-                    <div>Kechimochi v${appVersion}</div>
+                    <div>${formatProductVersionLabel({ ...getAppVersionInfo(), version: appVersion })}</div>
                     <div style="margin-top: 0.4rem;">
                         Found a bug? File an issue on <a href="https://github.com/Morgawr/kechimochi/issues" target="_blank" style="color: var(--text-secondary); text-decoration: underline;">github</a>
                     </div>

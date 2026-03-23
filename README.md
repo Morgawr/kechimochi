@@ -13,13 +13,13 @@
 
 ---
 
-Status of the project: Pre-release.
+Status: Beta.
 
 ## Log and Visualize Your Japanese Immersion
 
 Kechimochi is a personal activity tracker built for those who learn Japanese through immersion. It provides a simple way to log time spent with native content, whether you are reading manga, watching anime, playing video games, or listening to podcasts.
 
-Designed with a local first philosophy, Kechimochi ensures that your data remains yours. It provides a focused interface to manage your media library and track your study habits without relying on external websites or cloud services.
+Designed with a local first philosophy, Kechimochi ensures that your data remains yours. It provides a focused interface to manage your media library, track your study habits, and keep ownership of your history without relying on external websites or cloud services.
 
 ## Core Features
 
@@ -27,13 +27,13 @@ Designed with a local first philosophy, Kechimochi ensures that your data remain
 
 ![Dashboard](demos/dashboard_demo.gif)
 
-A vibrant and colorful dashboard where you can see your historical activities and immersion time, including statistics of how many hours have been spent every day, week, year, and on what content. You can also track your activities by clicking on the **New Activity** button.
+A vibrant and colorful dashboard where you can see your historical activities and immersion time, including statistics of how many hours have been spent every day, week, year, and on what content. The dashboard also includes yearly heatmaps and per-media breakdowns so you can see where your study time is really going. You can log new activity directly from the **New Activity** button.
 
 ### Media Management & Automated Metadata
 
 ![Library](demos/library_demo.gif)
 
-A fast and responsive library which tracks all the media you have added. You can browse the media you are currently watching, playing, or reading, and add milestones to track your breakthroughs (finished a route in a VN, reached a certain chapter in a book, finished a specific challenge in a game, etc). 
+A fast and responsive library which tracks all the media you have added. You can browse the media you are currently watching, playing, or reading, track progress over time, manage cover images, and add milestones to record specific breakthroughs such as routes, chapters, endings, or in-game goals.
 
 The metadata of each entry is provided by various websites which the user can add and download from automatically:
 *   **Visual Novels**: VNDB
@@ -48,27 +48,39 @@ Are we missing some sites? Let us know by opening an [issue](https://github.com/
 
 ![Themes](demos/themes_demo.gif)
 
-Multiple profiles to choose from to get your preferred color theme.
+Customizable themes and a profile picture let you personalize the app while keeping the local-first workflow simple.
 
 ### Reading Analysis
 
-The application includes dedicated reading reports to help you understand your pace across different media. It estimates your reading speed and provides progress projections to calculate when you might finish your current book or manga based on your past activity.
+The application includes dedicated reading reports to help you understand your pace across different media. It estimates your reading speed from completed content and provides progress projections to calculate when you might finish your current book, manga, or visual novel based on your past activity.
 
 ### Data Ownership and Portability
 
 Your logs are stored in local SQLite databases, giving you full control over your information.
 *   **CSV Import**: Migrate your existing logs from other spreadsheets or tools.
-*   **CSV Export**: Backup your activity or library at any time.
+*   **CSV Export**: Export your activity history, milestones, or library when you need a plain-text dataset.
+*   **Full Backup / Restore**: Save and restore the entire application state, including databases, settings, and covers.
+*   **Local First Storage**: Keep your data on your machine or your own server.
+
+We take data preservation seriously. Kechimochi is designed to keep your data local, ships with explicit backup and restore support, and uses cautious database versioning and migration rules to reduce the risk of accidental data loss during updates. Even so, you should still keep regular backups of anything you care about.
+
+### Desktop and Self-Hosted Web
+
+Kechimochi supports both a desktop application and a self-hosted web mode powered by the same Rust backend. If you want a local native app, use the Tauri desktop build. If you want to host it for yourself, you can run the bundled web server or the published Docker image.
+
+The desktop application is the primary and most thoroughly tested way to use Kechimochi. The web mode is available as a best-effort option for self-hosting, but it has not been exercised as extensively as the desktop app.
 
 ## Getting Started
 
-Kechimochi is a desktop application built with Tauri. It supports a standalone app interface, as well as a self hosted web application.
+Kechimochi is built with Tauri for desktop and also supports a self-hosted web deployment.
 
 For details on how to run the software on developer builds (and contribute!) see the [Development.md](Development.md) document.
 
-The software is still in heavy early development. Most core features are already implemented and work and is in a more than usable state, but some core features are still missing or might change significantly before official release. Be aware that you are choosing to trust this software at your own risk.
+Kechimochi is currently in beta. Core tracking, media management, analytics, import/export, and backup flows are implemented and working, but you should still expect active iteration and occasional rough edges as the app continues to evolve.
 
-If you want to run it on dev builds without needing to build it yourself, grab one of the latest  pre-release artifacts from one of the [published artifacts](https://github.com/Morgawr/kechimochi/actions/workflows/publish.yml) for either Linux or Windows.
+If you want a beta release build, download it from the [GitHub Releases](https://github.com/Morgawr/kechimochi/releases) page.
+
+If you want to test the latest in-progress development build without building it yourself, grab one of the workflow artifacts from [Publish Dev Artifacts](https://github.com/Morgawr/kechimochi/actions/workflows/publish.yml). Those builds are for testers and contributors, and they display a `DEV BUILD x.y.z-dev.<git-hash>` label in the UI.
 
 ### Docker (Self Hosted)
 
@@ -90,6 +102,8 @@ docker run -d \
 Then open `http://<your-server-ip>:3000`.
 
 The `/data` volume contains your SQLite databases and covers, so keep it on persistent storage.
+
+The web deployment is still a best-effort option. If you want the most tested and supported experience today, prefer the desktop build.
 
 ### Docker Compose Example
 

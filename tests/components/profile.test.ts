@@ -55,6 +55,9 @@ describe('ProfileView', () => {
         container = document.createElement('div');
         vi.clearAllMocks();
         vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+        const globals = globalThis as Record<string, unknown>;
+        globals.__APP_BUILD_CHANNEL__ = 'release';
+        globals.__APP_RELEASE_STAGE__ = 'beta';
         
         // Mock localStorage
         const store: Record<string, string> = { [STORAGE_KEYS.CURRENT_PROFILE]: 'test-user' };
@@ -83,7 +86,7 @@ describe('ProfileView', () => {
         view.render();
 
         await vi.waitFor(() => expect(container.textContent).toContain('test-user'));
-        expect(container.textContent).toContain('v1.2.3');
+        expect(container.textContent).toContain('Kechimochi BETA VERSION 1.2.3');
         expect(container.textContent).toContain('Since 2024-01-01');
     });
 

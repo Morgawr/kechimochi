@@ -58,6 +58,7 @@ You can then access the app via `http://localhost:3000`.
 We use a variety of tools to ensure code quality and stability.
 
 For database compatibility rules and migration workflow, see `docs/database-versioning.md`.
+For the release workflow, changelog process, and versioning tracks, see `docs/release-process.md`.
 
 ### Frontend Quality
 All frontend commands should be run from the project root.

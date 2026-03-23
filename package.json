@@ -17,6 +17,8 @@
     "e2e:seed": "tsx e2e/fixtures/seed.ts",
     "e2e:test": "npm run e2e:build && wdio run e2e/wdio.conf.ts",
     "e2e": "npm run e2e:seed && npm run e2e:test",
+    "version:set": "node scripts/set-version.mjs",
+    "changelog:extract": "node scripts/extract-changelog.mjs",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint 'src/**/*.{ts,tsx}' 'tests/**/*.ts' 'e2e/**/*.ts'"
