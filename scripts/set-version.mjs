@@ -26,25 +26,31 @@ updateJsonFile(new URL('../package-lock.json', import.meta.url), current => ({
   packages: current.packages
     ? {
         ...current.packages,
-        '': {
-          ...(current.packages[''] ?? {}),
-          version,
-        },
+        '': current.packages['']
+          ? {
+              ...current.packages[''],
+              version,
+            }
+          : { version },
       }
     : current.packages,
 }));
 
 const cargoTomlUrl = new URL('../src-tauri/Cargo.toml', import.meta.url);
 const cargoToml = readFileSync(cargoTomlUrl, 'utf8');
-const nextCargoToml = cargoToml.replace(
-  /(\[package\][\s\S]*?^version = ")([^"]+)(")/m,
-  `$1${version}$3`,
+const cargoTomlLines = cargoToml.split('\n');
+const packageHeaderIndex = cargoTomlLines.findIndex(line => line.trim() === '[package]');
+const versionLineIndex = cargoTomlLines.findIndex(
+  (line, index) => index > packageHeaderIndex && line.startsWith('version = '),
 );
 
-if (nextCargoToml === cargoToml) {
+if (packageHeaderIndex === -1 || versionLineIndex === -1) {
   console.error('Failed to update src-tauri/Cargo.toml package version.');
   process.exit(1);
 }
+
+cargoTomlLines[versionLineIndex] = `version = "${version}"`;
+const nextCargoToml = cargoTomlLines.join('\n');
 
 writeFileSync(cargoTomlUrl, nextCargoToml);
 

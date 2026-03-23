@@ -11,14 +11,17 @@ if (!version || !/^\d+\.\d+\.\d+$/.test(version)) {
 }
 
 function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return value.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 }
 
-const changelog = readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
-const headerPattern = new RegExp(`^## \\[${escapeRegExp(version)}\\](?:\\s*-\\s*.+)?$`, 'm');
+const changelog = readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
+const headerPattern = new RegExp(
+  String.raw`^## \[${escapeRegExp(version)}\](?:\s*-\s*.+)?$`,
+  'm',
+);
 const headerMatch = changelog.match(headerPattern);
 
-if (!headerMatch || headerMatch.index === undefined) {
+if (headerMatch?.index === undefined) {
   console.error(`Could not find CHANGELOG.md section for version ${version}`);
   process.exit(1);
 }

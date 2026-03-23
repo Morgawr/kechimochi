@@ -3,12 +3,11 @@ name: "Publish Dev Artifacts"
 on:
   workflow_call:
 
-permissions:
-  contents: read
-
 jobs:
   prepare:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       head_sha: ${{ steps.metadata.outputs.head_sha }}
       display_version: ${{ steps.metadata.outputs.display_version }}
@@ -31,6 +30,8 @@ jobs:
   publish-web-linux:
     runs-on: ubuntu-latest
     needs: prepare
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -90,6 +91,8 @@ jobs:
   publish-web-windows:
     runs-on: windows-latest
     needs: prepare
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -138,6 +141,8 @@ jobs:
   publish-linux:
     runs-on: ubuntu-latest
     needs: prepare
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -189,6 +194,8 @@ jobs:
   publish-windows:
     runs-on: windows-latest
     needs: prepare
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
