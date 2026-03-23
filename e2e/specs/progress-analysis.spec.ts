@@ -29,22 +29,37 @@ describe('CUJ: Progress Analysis (Projections)', () => {
         await navigateTo('media');
         await clickMediaItem('呪術廻戦');
         await addExtraField('Character count', '6000');
-        expect(await getProjectionValue('est-remaining-time')).toBe('15min');
-        expect(await getProjectionValue('est-completion-rate')).toBe('75%');
+        
+        await browser.waitUntil(async () => (await getProjectionValue('est-remaining-time')) === '15min', {
+            timeout: 5000, timeoutMsg: 'est-remaining-time for Jututsu did not reach 15min'
+        });
+        await browser.waitUntil(async () => (await getProjectionValue('est-completion-rate')) === '75%', {
+            timeout: 5000, timeoutMsg: 'est-completion-rate for Jututsu did not reach 75%'
+        });
         await backToGrid();
 
         await clickMediaItem('薬屋のひとりごと');
         await addExtraField('Character count', '15000');
-        expect(await getProjectionValue('est-remaining-time')).toBe('1h15min');
-        expect(await getProjectionValue('est-completion-rate')).toBe('75%');
+        
+        await browser.waitUntil(async () => (await getProjectionValue('est-remaining-time')) === '1h15min', {
+            timeout: 5000, timeoutMsg: 'est-remaining-time for Kusuriya did not reach 1h15min'
+        });
+        await browser.waitUntil(async () => (await getProjectionValue('est-completion-rate')) === '75%', {
+            timeout: 5000, timeoutMsg: 'est-completion-rate for Kusuriya did not reach 75%'
+        });
         await backToGrid();
 
         await logActivityGlobal('呪術廻戦', 30);
+        await $('#add-activity-form').waitForExist({ reverse: true, timeout: 5000 });
         
         await navigateTo('media');
         await clickMediaItem('呪術廻戦');
         
-        expect(await getProjectionValue('est-remaining-time')).toBe('0min');
-        expect(await getProjectionValue('est-completion-rate')).toBe('100%');
+        await browser.waitUntil(async () => (await getProjectionValue('est-remaining-time')) === '0min', {
+            timeout: 5000, timeoutMsg: 'est-remaining-time for Jujutsu (post-log) did not reach 0min'
+        });
+        await browser.waitUntil(async () => (await getProjectionValue('est-completion-rate')) === '100%', {
+            timeout: 5000, timeoutMsg: 'est-completion-rate for Jujutsu (post-log) did not reach 100%'
+        });
     });
 });

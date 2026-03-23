@@ -61,7 +61,7 @@ describe('Media Management CUJs', () => {
         const gridItem = $(`.media-grid-item[data-title="Cyberpunk 2077"]`);
         await gridItem.waitForDisplayed({ timeout: 5000 });
         await gridItem.click();
-        await browser.pause(2000); // Allow onMount (milestones, image) to complete
+        await $('#media-description').waitForDisplayed({ timeout: 10000 });
       }
 
       const fieldKey = 'TestField';
@@ -165,16 +165,16 @@ describe('Media Management CUJs', () => {
 
       await mediaLink.click();
 
-      // Verify it navigated to media detail
-      const detailTitleEl = $('#media-title');
-      await detailTitleEl.waitForExist({ timeout: 5000 });
-
+      // Re-query #media-title inside the poll loop — the view transition
+      // re-renders the DOM so any reference captured before the click goes stale.
       await browser.waitUntil(async () => {
-        const text = await detailTitleEl.getText();
+        const el = $('#media-title');
+        if (!(await el.isExisting().catch(() => false))) return false;
+        const text = await el.getText().catch(() => '');
         return text === 'Cyberpunk 2077';
       }, {
-        timeout: 5000,
-        timeoutMsg: `Expected media title on detail page to be Cyberpunk 2077, but was "${await detailTitleEl.getText()}"`
+        timeout: 8000,
+        timeoutMsg: 'Expected media title on detail page to be Cyberpunk 2077',
       });
 
       expect(await verifyActiveView('media')).toBe(true);

@@ -301,10 +301,13 @@ export async function addMilestone(name: string, hours: string, minutes: string,
         await firstDay.click();
     }
 
+    const { getTopmostVisibleOverlay, waitForOverlayToDisappear } = await import('./common.js');
+    const overlay = await getTopmostVisibleOverlay('#milestone-name');
+    
     await $('#milestone-confirm').click();
     
-    // Wait for the modal to disappear for stability
-    await $('#milestone-name').waitForExist({ reverse: true, timeout: 3000 });
+    // Wait for the modal to fully disappear
+    await waitForOverlayToDisappear(overlay, 5000);
     
     return selectedDate;
 }

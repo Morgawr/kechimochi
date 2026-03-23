@@ -6,12 +6,12 @@
 /// <reference types="@wdio/ocr-service" />
 import path from 'node:path';
 
-async function isOverlayActive(overlay: WebdriverIO.Element): Promise<boolean> {
+export async function isOverlayActive(overlay: WebdriverIO.Element): Promise<boolean> {
     const className = await overlay.getAttribute('class').catch(() => '');
     return (className ?? '').split(/\s+/).includes('active');
 }
 
-async function getTopmostVisibleOverlay(selector?: string) {
+export async function getTopmostVisibleOverlay(selector?: string) {
     await browser.waitUntil(async () => {
         const overlays = Array.from(await $$('.modal-overlay')).reverse();
         for (const overlay of overlays) {
@@ -46,7 +46,7 @@ async function getTopmostVisibleOverlay(selector?: string) {
     throw new Error(`No visible modal overlay found for selector "${selector || '<any>'}"`);
 }
 
-async function waitForOverlayToDisappear(overlay: WebdriverIO.Element, timeout = 5000) {
+export async function waitForOverlayToDisappear(overlay: WebdriverIO.Element, timeout = 5000) {
     const modalId = await browser.execute((el) => {
         return (el as HTMLElement).dataset.modalId ?? '';
     }, overlay).catch(() => '');

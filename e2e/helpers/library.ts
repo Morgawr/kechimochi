@@ -33,7 +33,11 @@ export async function addMedia(title: string, type: string, contentType?: string
 
     const confirmBtn = $('#add-media-confirm');
     await confirmBtn.waitForClickable({ timeout: 5000 });
+    
+    const { getTopmostVisibleOverlay, waitForOverlayToDisappear } = await import('./common.js');
+    const overlay = await getTopmostVisibleOverlay('#add-media-confirm');
     await confirmBtn.click();
+    await waitForOverlayToDisappear(overlay);
 
     // Addition can either auto-open detail or return to grid depending on timing.
     // Make this deterministic for tests: if detail is not visible, open the newly added item.
@@ -202,5 +206,8 @@ export async function clickMediaItem(title: string): Promise<void> {
     }
     await item.waitForDisplayed({ timeout: 5000 });
     await item.click();
-    await browser.pause(500);
+    
+    // Wait for the detail view root to be present and displayed before returning
+    const detailHeader = $('#media-detail-header');
+    await detailHeader.waitForDisplayed({ timeout: 8000 });
 }

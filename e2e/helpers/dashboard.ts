@@ -123,5 +123,5 @@ export async function logActivityGlobal(mediaTitle: string, minutes: number, cha
     const form = $('#add-activity-form');
     const confirmBtn = form.$('button[type="submit"]');
     await confirmBtn.click();
-    await browser.pause(500); // Wait for re-render
+    await browser.pause(500); // Original pause to wait for re-render
 }

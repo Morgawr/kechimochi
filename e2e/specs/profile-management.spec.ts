@@ -19,17 +19,18 @@ describe('Single-User Profile Renaming CUJ', () => {
   });
 
   it('should verify the initial profile is TESTUSER in the header', async () => {
-    const headerName = await $('#nav-user-name');
+    const nameHeader = $('#nav-user-name');
     await browser.waitUntil(async () => {
-      return (await headerName.getText()) === 'TESTUSER';
+      const text = await nameHeader.getText();
+      return text === 'TESTUSER';
     }, { timeout: 5000, timeoutMsg: 'Header profile name was not TESTUSER' });
-    expect(await headerName.getText()).toBe('TESTUSER');
+    expect(await nameHeader.getText()).toBe('TESTUSER');
   });
 
   it('should show TE as the initial missing profile picture fallback in the header', async () => {
-    const avatarFallback = $('#nav-user-avatar-fallback');
-    await avatarFallback.waitForDisplayed({ timeout: 5000 });
-    expect(await avatarFallback.getText()).toBe('TE');
+    const headerFallback = $('#nav-user-avatar-fallback');
+    await headerFallback.waitForDisplayed({ timeout: 5000 });
+    expect(await headerFallback.getText()).toBe('TE');
   });
 
   it('should verify the initial profile is TESTUSER in the profile tab', async () => {
@@ -44,7 +45,7 @@ describe('Single-User Profile Renaming CUJ', () => {
   });
 
   it('should show TE as the missing profile picture fallback in the profile view', async () => {
-    const heroFallback = $('#profile-hero-avatar .profile-avatar-fallback');
+    const heroFallback = await $('#profile-hero-avatar .profile-avatar-fallback');
     await heroFallback.waitForDisplayed({ timeout: 5000 });
     expect(await heroFallback.getText()).toBe('TE');
   });
@@ -54,18 +55,22 @@ describe('Single-User Profile Renaming CUJ', () => {
 
     const heroImg = $('#profile-hero-avatar img');
     const navImg = $('#nav-user-avatar-image');
-    const navFallback = $('#nav-user-avatar-fallback');
+    const navFallback = $('#nav-user-avatar-fallback'); // Re-added for the check below
 
     await heroImg.waitForDisplayed({ timeout: 5000 });
     await navImg.waitForDisplayed({ timeout: 5000 });
 
+    // Header should show data URL
     await browser.waitUntil(async () => {
-      return (await heroImg.getAttribute('src'))?.startsWith('data:image/') ?? false;
-    }, { timeout: 10000, timeoutMsg: 'Profile hero avatar did not render a data URL image' });
+      const src = await navImg.getAttribute('src');
+      return (src ?? '').startsWith('data:image/');
+    }, { timeout: 10000, timeoutMsg: 'Header avatar did not show data URL' });
 
+    // Hero should show data URL
     await browser.waitUntil(async () => {
-      return (await navImg.getAttribute('src'))?.startsWith('data:image/') ?? false;
-    }, { timeout: 15000, timeoutMsg: 'Header avatar did not render a data URL image' });
+      const src = await heroImg.getAttribute('src');
+      return (src ?? '').startsWith('data:image/');
+    }, { timeout: 5000, timeoutMsg: 'Profile view avatar did not show data URL' });
 
     expect(await heroImg.isDisplayed()).toBe(true);
     expect(await navImg.isDisplayed()).toBe(true);
