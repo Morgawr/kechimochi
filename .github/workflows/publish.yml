@@ -6,6 +6,9 @@ on:
     types:
       - completed
 
+permissions:
+  contents: read
+
 jobs:
   prepare:
     runs-on: ubuntu-latest
@@ -16,7 +19,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          repository: ${{ github.repository }}
           ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
 
       - name: derive dev build metadata
         id: metadata
@@ -32,11 +37,13 @@ jobs:
   publish-web-linux:
     runs-on: ubuntu-latest
     needs: prepare
-    if: ${{ needs.prepare.outputs.display_version != '' }}
+    if: ${{ needs.prepare.outputs.display_version != '' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository }}
     steps:
       - uses: actions/checkout@v4
         with:
+          repository: ${{ github.repository }}
           ref: ${{ needs.prepare.outputs.head_sha }}
+          persist-credentials: false
 
       - name: setup node
         uses: actions/setup-node@v4
@@ -91,11 +98,13 @@ jobs:
   publish-web-windows:
     runs-on: windows-latest
     needs: prepare
-    if: ${{ needs.prepare.outputs.display_version != '' }}
+    if: ${{ needs.prepare.outputs.display_version != '' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository }}
     steps:
       - uses: actions/checkout@v4
         with:
+          repository: ${{ github.repository }}
           ref: ${{ needs.prepare.outputs.head_sha }}
+          persist-credentials: false
 
       - name: setup node
         uses: actions/setup-node@v4
@@ -139,11 +148,13 @@ jobs:
   publish-linux:
     runs-on: ubuntu-latest
     needs: prepare
-    if: ${{ needs.prepare.outputs.display_version != '' }}
+    if: ${{ needs.prepare.outputs.display_version != '' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository }}
     steps:
       - uses: actions/checkout@v4
         with:
+          repository: ${{ github.repository }}
           ref: ${{ needs.prepare.outputs.head_sha }}
+          persist-credentials: false
 
       - name: setup node
         uses: actions/setup-node@v4
@@ -155,10 +166,10 @@ jobs:
         run: npm ci
 
       - name: install rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
 
       - name: cache rust dependencies
-        uses: swatinem/rust-cache@v2
+        uses: swatinem/rust-cache@aa7c1c80a07a27a84c0aa76d0cef0aad3830e330 # v2.7.8
         with:
           workspaces: './src-tauri -> target'
 
@@ -190,11 +201,13 @@ jobs:
   publish-windows:
     runs-on: windows-latest
     needs: prepare
-    if: ${{ needs.prepare.outputs.display_version != '' }}
+    if: ${{ needs.prepare.outputs.display_version != '' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository }}
     steps:
       - uses: actions/checkout@v4
         with:
+          repository: ${{ github.repository }}
           ref: ${{ needs.prepare.outputs.head_sha }}
+          persist-credentials: false
 
       - name: setup node
         uses: actions/setup-node@v4
@@ -206,10 +219,10 @@ jobs:
         run: npm ci
 
       - name: install rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
 
       - name: cache rust dependencies
-        uses: swatinem/rust-cache@v2
+        uses: swatinem/rust-cache@aa7c1c80a07a27a84c0aa76d0cef0aad3830e330 # v2.7.8
         with:
           workspaces: './src-tauri -> target'
 
