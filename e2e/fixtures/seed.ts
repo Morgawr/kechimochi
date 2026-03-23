@@ -203,8 +203,11 @@ function main() {
   for (const f of [SHARED_DB_PATH, USER_DB_PATH]) {
     if (fs.existsSync(f)) fs.unlinkSync(f);
   }
-  if (fs.existsSync(COVERS_DIR)) {
-    fs.rmSync(COVERS_DIR, { recursive: true });
+  // Only remove the auto-generated placeholder; preserve manually committed
+  // fixtures (e.g. profile_placeholder.png) so they survive across seed runs.
+  const generatedCoverPath = path.join(COVERS_DIR, 'placeholder.png');
+  if (fs.existsSync(generatedCoverPath)) {
+    fs.unlinkSync(generatedCoverPath);
   }
   fs.mkdirSync(COVERS_DIR, { recursive: true });
 
