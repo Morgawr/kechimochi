@@ -97,49 +97,60 @@ async fn main() {
 
     let app = Router::new()
         // Media
-        .route("/api/media",                 get(get_all_media).post(add_media))
-        .route("/api/media/:id",             put(update_media).delete(delete_media_handler))
+        .route("/api/media", get(get_all_media).post(add_media))
+        .route(
+            "/api/media/:id",
+            put(update_media).delete(delete_media_handler),
+        )
         // Logs — specific routes before the parameterised :id route
-        .route("/api/logs/heatmap",          get(get_heatmap))
-        .route("/api/logs/media/:id",        get(get_logs_for_media))
-        .route("/api/logs",                  get(get_logs).post(add_log))
-        .route("/api/logs/:id",              delete(delete_log_handler))
+        .route("/api/logs/heatmap", get(get_heatmap))
+        .route("/api/logs/media/:id", get(get_logs_for_media))
+        .route("/api/logs", get(get_logs).post(add_log))
+        .route("/api/logs/:id", delete(delete_log_handler))
         // Milestones
-        .route("/api/milestones",            post(add_milestone_handler))
-        .route("/api/milestones/media/:title", get(get_milestones_for_media_handler).delete(clear_milestones_for_media_handler))
-        .route("/api/milestones/:id",        delete(delete_milestone_handler))
+        .route("/api/milestones", post(add_milestone_handler))
+        .route(
+            "/api/milestones/media/:title",
+            get(get_milestones_for_media_handler).delete(clear_milestones_for_media_handler),
+        )
+        .route("/api/milestones/:id", delete(delete_milestone_handler))
         // Profiles
-        .route("/api/profiles/initialize",   post(initialize_user_db_handler))
-        .route("/api/profile-picture",       get(get_profile_picture_handler).post(upload_profile_picture_handler).delete(delete_profile_picture_handler))
+        .route("/api/profiles/initialize", post(initialize_user_db_handler))
+        .route(
+            "/api/profile-picture",
+            get(get_profile_picture_handler)
+                .post(upload_profile_picture_handler)
+                .delete(delete_profile_picture_handler),
+        )
         // Settings
-        .route("/api/settings/:key",         get(get_setting).put(set_setting))
+        .route("/api/settings/:key", get(get_setting).put(set_setting))
         // Utility
-        .route("/api/username",              get(get_username))
-        .route("/api/version",               get(get_version))
-        .route("/api/activities/clear",      post(clear_activities))
-        .route("/api/reset",                 post(wipe_everything_handler))
+        .route("/api/username", get(get_username))
+        .route("/api/version", get(get_version))
+        .route("/api/activities/clear", post(clear_activities))
+        .route("/api/reset", post(wipe_everything_handler))
         // Import / export
-        .route("/api/import/activities",     post(import_activities))
-        .route("/api/export/activities",     get(export_activities))
-        .route("/api/import/media/analyze",  post(analyze_media_csv_upload))
-        .route("/api/import/media/apply",    post(apply_media_import_handler))
-        .route("/api/export/media",          get(export_media_handler))
-        .route("/api/import/milestones",     post(import_milestones))
-        .route("/api/export/milestones",     get(export_milestones))
-        .route("/api/export/full-backup",    post(export_full_backup_handler))
-        .route("/api/import/full-backup",    post(import_full_backup_handler))
+        .route("/api/import/activities", post(import_activities))
+        .route("/api/export/activities", get(export_activities))
+        .route("/api/import/media/analyze", post(analyze_media_csv_upload))
+        .route("/api/import/media/apply", post(apply_media_import_handler))
+        .route("/api/export/media", get(export_media_handler))
+        .route("/api/import/milestones", post(import_milestones))
+        .route("/api/export/milestones", get(export_milestones))
+        .route("/api/export/full-backup", post(export_full_backup_handler))
+        .route("/api/import/full-backup", post(import_full_backup_handler))
         // Covers — specific routes before the parameterised :media_id route
-        .route("/api/covers/download",       post(download_cover))
+        .route("/api/covers/download", post(download_cover))
         .route("/api/covers/file/:filename", get(serve_cover))
-        .route("/api/covers/:media_id",      post(upload_cover))
+        .route("/api/covers/:media_id", post(upload_cover))
         // External proxy
-        .route("/api/fetch/json",            post(fetch_json_proxy))
-        .route("/api/fetch/bytes",           post(fetch_bytes_proxy))
+        .route("/api/fetch/json", post(fetch_json_proxy))
+        .route("/api/fetch/bytes", post(fetch_bytes_proxy))
         // Any unmatched /api route should remain an API 404, not SPA fallback.
-        .route("/api",                       any(api_not_found))
-        .route("/api/*path",                 any(api_not_found))
-        .route("/",                          get(serve_spa_index))
-        .route("/*path",                     get(serve_static_or_spa))
+        .route("/api", any(api_not_found))
+        .route("/api/*path", any(api_not_found))
+        .route("/", get(serve_spa_index))
+        .route("/*path", get(serve_static_or_spa))
         .with_state(state)
         .layer(cors);
 
@@ -147,7 +158,9 @@ async fn main() {
     let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
     let addr = format!("{}:{}", host, port);
     println!("[kechimochi] listening on http://{}", addr);
-    let listener = tokio::net::TcpListener::bind(&addr).await.expect("Failed to bind");
+    let listener = tokio::net::TcpListener::bind(&addr)
+        .await
+        .expect("Failed to bind");
     axum::serve(listener, app).await.expect("Server error");
 }
 
@@ -333,7 +346,9 @@ async fn clear_milestones_for_media_handler(
     Path(title): Path<String>,
 ) -> HandlerResult<Json<()>> {
     let conn = s.conn.lock().await;
-    db::delete_milestones_for_media(&conn, &title).ae().map(|_| Json(()))
+    db::delete_milestones_for_media(&conn, &title)
+        .ae()
+        .map(|_| Json(()))
 }
 
 // ── Profile handlers ──────────────────────────────────────────────────────────
@@ -375,9 +390,7 @@ async fn upload_profile_picture_handler(
     Ok(Json(profile_picture))
 }
 
-async fn delete_profile_picture_handler(
-    State(s): State<Shared>,
-) -> HandlerResult<Json<()>> {
+async fn delete_profile_picture_handler(State(s): State<Shared>) -> HandlerResult<Json<()>> {
     let conn = s.conn.lock().await;
     db::delete_profile_picture(&conn).ae().map(|_| Json(()))
 }
@@ -403,7 +416,9 @@ async fn set_setting(
     Json(body): Json<SetSettingBody>,
 ) -> HandlerResult<Json<()>> {
     let conn = s.conn.lock().await;
-    db::set_setting(&conn, &key, &body.value).ae().map(|_| Json(()))
+    db::set_setting(&conn, &key, &body.value)
+        .ae()
+        .map(|_| Json(()))
 }
 
 // ── Utility handlers ──────────────────────────────────────────────────────────
@@ -424,7 +439,9 @@ async fn clear_activities(State(s): State<Shared>) -> HandlerResult<Json<()>> {
 
 async fn wipe_everything_handler(State(s): State<Shared>) -> HandlerResult<Json<()>> {
     *s.conn.lock().await = rusqlite::Connection::open_in_memory().ae()?;
-    db::wipe_everything(s.data_dir.clone()).ae().map(|_| Json(()))
+    db::wipe_everything(s.data_dir.clone())
+        .ae()
+        .map(|_| Json(()))
 }
 
 // ── CSV import / export ───────────────────────────────────────────────────────
@@ -434,7 +451,11 @@ async fn import_activities(
     mut multipart: Multipart,
 ) -> HandlerResult<Json<serde_json::Value>> {
     let tmp = field_to_tempfile(&mut multipart).await?;
-    let path = tmp.path().to_str().ok_or_else(|| AppError("Invalid temp path".into()))?.to_owned();
+    let path = tmp
+        .path()
+        .to_str()
+        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .to_owned();
     let count = {
         let mut conn = s.conn.lock().await;
         csv_import::import_csv(&mut conn, &path).ae()?
@@ -453,7 +474,11 @@ async fn export_activities(
     Query(params): Query<ExportParams>,
 ) -> HandlerResult<Response> {
     let tmp = tempfile::NamedTempFile::new().ae()?;
-    let path = tmp.path().to_str().ok_or_else(|| AppError("Invalid temp path".into()))?.to_owned();
+    let path = tmp
+        .path()
+        .to_str()
+        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .to_owned();
     let count = {
         let conn = s.conn.lock().await;
         csv_import::export_logs_csv(&conn, &path, params.start, params.end).ae()?
@@ -461,7 +486,10 @@ async fn export_activities(
     let bytes = std::fs::read(tmp.path()).ae()?;
     Response::builder()
         .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
-        .header(header::CONTENT_DISPOSITION, "attachment; filename=\"activities.csv\"")
+        .header(
+            header::CONTENT_DISPOSITION,
+            "attachment; filename=\"activities.csv\"",
+        )
         .header("x-row-count", count.to_string())
         .body(Body::from(bytes))
         .ae()
@@ -472,7 +500,11 @@ async fn analyze_media_csv_upload(
     mut multipart: Multipart,
 ) -> HandlerResult<Json<Vec<csv_import::MediaConflict>>> {
     let tmp = field_to_tempfile(&mut multipart).await?;
-    let path = tmp.path().to_str().ok_or_else(|| AppError("Invalid temp path".into()))?.to_owned();
+    let path = tmp
+        .path()
+        .to_str()
+        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .to_owned();
     let conn = s.conn.lock().await;
     csv_import::analyze_media_csv(&conn, &path).ae().map(Json)
 }
@@ -483,12 +515,18 @@ async fn apply_media_import_handler(
 ) -> HandlerResult<Json<usize>> {
     let covers_dir = s.data_dir.join("covers");
     let mut conn = s.conn.lock().await;
-    csv_import::apply_media_import(covers_dir, &mut conn, records).ae().map(Json)
+    csv_import::apply_media_import(covers_dir, &mut conn, records)
+        .ae()
+        .map(Json)
 }
 
 async fn export_media_handler(State(s): State<Shared>) -> HandlerResult<Response> {
     let tmp = tempfile::NamedTempFile::new().ae()?;
-    let path = tmp.path().to_str().ok_or_else(|| AppError("Invalid temp path".into()))?.to_owned();
+    let path = tmp
+        .path()
+        .to_str()
+        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .to_owned();
     let count = {
         let conn = s.conn.lock().await;
         csv_import::export_media_csv(&conn, &path).ae()?
@@ -496,7 +534,10 @@ async fn export_media_handler(State(s): State<Shared>) -> HandlerResult<Response
     let bytes = std::fs::read(tmp.path()).ae()?;
     Response::builder()
         .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
-        .header(header::CONTENT_DISPOSITION, "attachment; filename=\"media_library.csv\"")
+        .header(
+            header::CONTENT_DISPOSITION,
+            "attachment; filename=\"media_library.csv\"",
+        )
         .header("x-row-count", count.to_string())
         .body(Body::from(bytes))
         .ae()
@@ -507,7 +548,11 @@ async fn import_milestones(
     mut multipart: Multipart,
 ) -> HandlerResult<Json<serde_json::Value>> {
     let tmp = field_to_tempfile(&mut multipart).await?;
-    let path = tmp.path().to_str().ok_or_else(|| AppError("Invalid temp path".into()))?.to_owned();
+    let path = tmp
+        .path()
+        .to_str()
+        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .to_owned();
     let count = {
         let mut conn = s.conn.lock().await;
         csv_import::import_milestones_csv(&mut conn, &path).ae()?
@@ -517,7 +562,11 @@ async fn import_milestones(
 
 async fn export_milestones(State(s): State<Shared>) -> HandlerResult<Response> {
     let tmp = tempfile::NamedTempFile::new().ae()?;
-    let path = tmp.path().to_str().ok_or_else(|| AppError("Invalid temp path".into()))?.to_owned();
+    let path = tmp
+        .path()
+        .to_str()
+        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .to_owned();
     let count = {
         let conn = s.conn.lock().await;
         csv_import::export_milestones_csv(&conn, &path).ae()?
@@ -525,7 +574,10 @@ async fn export_milestones(State(s): State<Shared>) -> HandlerResult<Response> {
     let bytes = std::fs::read(tmp.path()).ae()?;
     Response::builder()
         .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
-        .header(header::CONTENT_DISPOSITION, "attachment; filename=\"milestones.csv\"")
+        .header(
+            header::CONTENT_DISPOSITION,
+            "attachment; filename=\"milestones.csv\"",
+        )
         .header("x-row-count", count.to_string())
         .body(Body::from(bytes))
         .ae()
@@ -544,17 +596,31 @@ async fn export_full_backup_handler(
     Json(body): Json<ExportFullBackupBody>,
 ) -> HandlerResult<Response> {
     let tmp = tempfile::NamedTempFile::new().ae()?;
-    let path = tmp.path().to_str().ok_or_else(|| AppError("Invalid temp path".into()))?.to_owned();
+    let path = tmp
+        .path()
+        .to_str()
+        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .to_owned();
 
     {
         let conn = s.conn.lock().await;
-        kechimochi_lib::backup::export_full_backup_internal(&s.data_dir, &conn, &path, &body.local_storage, &body.version).ae()?;
+        kechimochi_lib::backup::export_full_backup_internal(
+            &s.data_dir,
+            &conn,
+            &path,
+            &body.local_storage,
+            &body.version,
+        )
+        .ae()?;
     }
 
     let bytes = std::fs::read(tmp.path()).ae()?;
     Response::builder()
         .header(header::CONTENT_TYPE, "application/zip")
-        .header(header::CONTENT_DISPOSITION, "attachment; filename=\"full_backup.zip\"")
+        .header(
+            header::CONTENT_DISPOSITION,
+            "attachment; filename=\"full_backup.zip\"",
+        )
         .body(Body::from(bytes))
         .ae()
 }
@@ -564,7 +630,11 @@ async fn import_full_backup_handler(
     mut multipart: Multipart,
 ) -> HandlerResult<Json<serde_json::Value>> {
     let tmp = field_to_tempfile(&mut multipart).await?;
-    let path = tmp.path().to_str().ok_or_else(|| AppError("Invalid temp path".into()))?.to_owned();
+    let path = tmp
+        .path()
+        .to_str()
+        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .to_owned();
 
     let ls = {
         let mut conn = s.conn.lock().await;
@@ -616,11 +686,15 @@ async fn serve_cover(
         return Err(AppError("Cover not found".into()));
     }
     let bytes = std::fs::read(&file_path).ae()?;
-    let content_type = match file_path.extension().and_then(|e| e.to_str()).unwrap_or("jpg") {
-        "png"  => "image/png",
-        "gif"  => "image/gif",
+    let content_type = match file_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("jpg")
+    {
+        "png" => "image/png",
+        "gif" => "image/gif",
         "webp" => "image/webp",
-        _      => "image/jpeg",
+        _ => "image/jpeg",
     };
     Response::builder()
         .header(header::CONTENT_TYPE, content_type)
@@ -678,7 +752,9 @@ async fn fetch_json_proxy(
     Json(payload): Json<FetchJsonBody>,
 ) -> HandlerResult<Json<serde_json::Value>> {
     let default_ua = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-    let ua = payload.headers.as_ref()
+    let ua = payload
+        .headers
+        .as_ref()
         .and_then(|h| h.get("User-Agent"))
         .map(|s| s.to_owned())
         .unwrap_or_else(|| default_ua.to_owned());
@@ -686,18 +762,28 @@ async fn fetch_json_proxy(
     let client = reqwest::Client::builder().user_agent(&ua).build().ae()?;
     let mut req = match payload.method.to_uppercase().as_str() {
         "POST" => client.post(&payload.url),
-        _      => client.get(&payload.url),
+        _ => client.get(&payload.url),
     };
     if let Some(ref h) = payload.headers {
         for (k, v) in h {
-            if k.eq_ignore_ascii_case("User-Agent") { continue; }
+            if k.eq_ignore_ascii_case("User-Agent") {
+                continue;
+            }
             req = req.header(k, v);
         }
     }
     if let Some(b) = payload.body {
         req = req.header("Content-Type", "application/json").body(b);
     }
-    let text = req.send().await.ae()?.error_for_status().ae()?.text().await.ae()?;
+    let text = req
+        .send()
+        .await
+        .ae()?
+        .error_for_status()
+        .ae()?
+        .text()
+        .await
+        .ae()?;
     Ok(Json(serde_json::json!({ "data": text })))
 }
 
@@ -709,12 +795,20 @@ struct FetchBytesBody {
 async fn fetch_bytes_proxy(
     Json(payload): Json<FetchBytesBody>,
 ) -> HandlerResult<Json<serde_json::Value>> {
-    let client = reqwest::Client::builder().user_agent("Mozilla/5.0").build().ae()?;
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0")
+        .build()
+        .ae()?;
     let bytes: Vec<u8> = client
         .get(&payload.url)
-        .send().await.ae()?
-        .error_for_status().ae()?
-        .bytes().await.ae()?
+        .send()
+        .await
+        .ae()?
+        .error_for_status()
+        .ae()?
+        .bytes()
+        .await
+        .ae()?
         .to_vec();
     Ok(Json(serde_json::json!({ "bytes": bytes })))
 }
@@ -744,7 +838,11 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        std::env::temp_dir().join(format!("kechimochi_web_server_test_{}_{}", std::process::id(), ts))
+        std::env::temp_dir().join(format!(
+            "kechimochi_web_server_test_{}_{}",
+            std::process::id(),
+            ts
+        ))
     }
 
     fn sample_media(title: &str) -> models::Media {
@@ -775,7 +873,8 @@ mod tests {
 
     fn setup_state() -> Shared {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
-        conn.execute("ATTACH DATABASE ':memory:' AS shared", []).unwrap();
+        conn.execute("ATTACH DATABASE ':memory:' AS shared", [])
+            .unwrap();
         db::create_tables(&conn).unwrap();
 
         let data_dir = unique_data_dir();
@@ -800,7 +899,10 @@ mod tests {
         let state_dir = state.data_dir.clone();
 
         let media = sample_media("Web Handler Test");
-        let inserted = add_media(State(state.clone()), Json(media)).await.unwrap().0;
+        let inserted = add_media(State(state.clone()), Json(media))
+            .await
+            .unwrap()
+            .0;
         assert!(inserted > 0);
 
         let all = get_all_media(State(state)).await.unwrap().0;
@@ -823,7 +925,10 @@ mod tests {
             .await
             .unwrap();
 
-        let value = get_setting(State(state), Path("theme".to_string())).await.unwrap().0;
+        let value = get_setting(State(state), Path("theme".to_string()))
+            .await
+            .unwrap()
+            .0;
         assert_eq!(value, Some("molokai".to_string()));
 
         let _ = std::fs::remove_dir_all(state_dir);
@@ -834,30 +939,47 @@ mod tests {
         let state = setup_state();
         let state_dir = state.data_dir.clone();
 
-        let media_a = add_media(State(state.clone()), Json(sample_media("A"))).await.unwrap().0;
-        let media_b = add_media(State(state.clone()), Json(sample_media("B"))).await.unwrap().0;
+        let media_a = add_media(State(state.clone()), Json(sample_media("A")))
+            .await
+            .unwrap()
+            .0;
+        let media_b = add_media(State(state.clone()), Json(sample_media("B")))
+            .await
+            .unwrap()
+            .0;
 
         {
             let conn = state.conn.lock().await;
-            db::add_log(&conn, &models::ActivityLog {
-                id: None,
-                media_id: media_a,
-                duration_minutes: 30,
-                characters: 0,
-                date: "2024-01-01".to_string(),
-                activity_type: String::new(),
-            }).unwrap();
-            db::add_log(&conn, &models::ActivityLog {
-                id: None,
-                media_id: media_b,
-                duration_minutes: 45,
-                characters: 0,
-                date: "2024-01-02".to_string(),
-                activity_type: String::new(),
-            }).unwrap();
+            db::add_log(
+                &conn,
+                &models::ActivityLog {
+                    id: None,
+                    media_id: media_a,
+                    duration_minutes: 30,
+                    characters: 0,
+                    date: "2024-01-01".to_string(),
+                    activity_type: String::new(),
+                },
+            )
+            .unwrap();
+            db::add_log(
+                &conn,
+                &models::ActivityLog {
+                    id: None,
+                    media_id: media_b,
+                    duration_minutes: 45,
+                    characters: 0,
+                    date: "2024-01-02".to_string(),
+                    activity_type: String::new(),
+                },
+            )
+            .unwrap();
         }
 
-        let logs_for_a = get_logs_for_media(State(state), Path(media_a)).await.unwrap().0;
+        let logs_for_a = get_logs_for_media(State(state), Path(media_a))
+            .await
+            .unwrap()
+            .0;
         assert_eq!(logs_for_a.len(), 1);
         assert_eq!(logs_for_a[0].media_id, media_a);
         assert_eq!(logs_for_a[0].title, "A");
@@ -874,22 +996,31 @@ mod tests {
         let _ = add_media(State(state.clone()), Json(media)).await.unwrap();
 
         let milestone = sample_milestone("Milestone Media", "Chapter 1", 120);
-        let inserted_id = add_milestone_handler(State(state.clone()), Json(milestone)).await.unwrap().0;
-        assert!(inserted_id > 0);
-
-        let milestones = get_milestones_for_media_handler(State(state.clone()), Path("Milestone Media".to_string()))
+        let inserted_id = add_milestone_handler(State(state.clone()), Json(milestone))
             .await
             .unwrap()
             .0;
+        assert!(inserted_id > 0);
+
+        let milestones = get_milestones_for_media_handler(
+            State(state.clone()),
+            Path("Milestone Media".to_string()),
+        )
+        .await
+        .unwrap()
+        .0;
         assert_eq!(milestones.len(), 1);
         assert_eq!(milestones[0].name, "Chapter 1");
 
-        let _ = delete_milestone_handler(State(state.clone()), Path(inserted_id)).await.unwrap();
-
-        let milestones_after_delete = get_milestones_for_media_handler(State(state), Path("Milestone Media".to_string()))
+        let _ = delete_milestone_handler(State(state.clone()), Path(inserted_id))
             .await
-            .unwrap()
-            .0;
+            .unwrap();
+
+        let milestones_after_delete =
+            get_milestones_for_media_handler(State(state), Path("Milestone Media".to_string()))
+                .await
+                .unwrap()
+                .0;
         assert_eq!(milestones_after_delete.len(), 0);
 
         let _ = std::fs::remove_dir_all(state_dir);
@@ -900,17 +1031,36 @@ mod tests {
         let state = setup_state();
         let state_dir = state.data_dir.clone();
 
-        let _ = add_media(State(state.clone()), Json(sample_media("A"))).await.unwrap();
-        let _ = add_media(State(state.clone()), Json(sample_media("B"))).await.unwrap();
+        let _ = add_media(State(state.clone()), Json(sample_media("A")))
+            .await
+            .unwrap();
+        let _ = add_media(State(state.clone()), Json(sample_media("B")))
+            .await
+            .unwrap();
 
-        let _ = add_milestone_handler(State(state.clone()), Json(sample_milestone("A", "A1", 60))).await.unwrap();
-        let _ = add_milestone_handler(State(state.clone()), Json(sample_milestone("A", "A2", 90))).await.unwrap();
-        let _ = add_milestone_handler(State(state.clone()), Json(sample_milestone("B", "B1", 45))).await.unwrap();
+        let _ = add_milestone_handler(State(state.clone()), Json(sample_milestone("A", "A1", 60)))
+            .await
+            .unwrap();
+        let _ = add_milestone_handler(State(state.clone()), Json(sample_milestone("A", "A2", 90)))
+            .await
+            .unwrap();
+        let _ = add_milestone_handler(State(state.clone()), Json(sample_milestone("B", "B1", 45)))
+            .await
+            .unwrap();
 
-        let _ = clear_milestones_for_media_handler(State(state.clone()), Path("A".to_string())).await.unwrap();
+        let _ = clear_milestones_for_media_handler(State(state.clone()), Path("A".to_string()))
+            .await
+            .unwrap();
 
-        let a_milestones = get_milestones_for_media_handler(State(state.clone()), Path("A".to_string())).await.unwrap().0;
-        let b_milestones = get_milestones_for_media_handler(State(state), Path("B".to_string())).await.unwrap().0;
+        let a_milestones =
+            get_milestones_for_media_handler(State(state.clone()), Path("A".to_string()))
+                .await
+                .unwrap()
+                .0;
+        let b_milestones = get_milestones_for_media_handler(State(state), Path("B".to_string()))
+            .await
+            .unwrap()
+            .0;
 
         assert_eq!(a_milestones.len(), 0);
         assert_eq!(b_milestones.len(), 1);
@@ -919,23 +1069,29 @@ mod tests {
         let _ = std::fs::remove_dir_all(state_dir);
     }
 
-
     #[tokio::test]
     async fn test_clear_activities_handler_removes_logs_only() {
         let state = setup_state();
         let state_dir = state.data_dir.clone();
 
-        let media_id = add_media(State(state.clone()), Json(sample_media("Clear Activities"))).await.unwrap().0;
+        let media_id = add_media(State(state.clone()), Json(sample_media("Clear Activities")))
+            .await
+            .unwrap()
+            .0;
         {
             let conn = state.conn.lock().await;
-            db::add_log(&conn, &models::ActivityLog {
-                id: None,
-                media_id,
-                duration_minutes: 20,
-                characters: 0,
-                date: "2024-03-01".to_string(),
-                activity_type: String::new(),
-            }).unwrap();
+            db::add_log(
+                &conn,
+                &models::ActivityLog {
+                    id: None,
+                    media_id,
+                    duration_minutes: 20,
+                    characters: 0,
+                    date: "2024-03-01".to_string(),
+                    activity_type: String::new(),
+                },
+            )
+            .unwrap();
         }
 
         let before_logs = get_logs(State(state.clone())).await.unwrap().0;
@@ -960,7 +1116,9 @@ mod tests {
         let body = InitializeDbBody {
             fallback_username: Some("webuser".to_string()),
         };
-        let _ = initialize_user_db_handler(State(state.clone()), Json(body)).await.unwrap();
+        let _ = initialize_user_db_handler(State(state.clone()), Json(body))
+            .await
+            .unwrap();
 
         let expected_db = state.data_dir.join("kechimochi_user.db");
         assert!(expected_db.exists());

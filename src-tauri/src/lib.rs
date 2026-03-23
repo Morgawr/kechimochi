@@ -1,7 +1,7 @@
+pub mod backup;
+pub mod csv_import;
 pub mod db;
 pub mod models;
-pub mod csv_import;
-pub mod backup;
 pub mod profile_picture;
 
 use rusqlite::Connection;
@@ -70,7 +70,10 @@ fn get_heatmap(state: State<DbState>) -> Result<Vec<DailyHeatmap>, String> {
 }
 
 #[tauri::command]
-fn get_logs_for_media(state: State<DbState>, media_id: i64) -> Result<Vec<ActivitySummary>, String> {
+fn get_logs_for_media(
+    state: State<DbState>,
+    media_id: i64,
+) -> Result<Vec<ActivitySummary>, String> {
     let conn = state.conn.lock().unwrap();
     db::get_logs_for_media(&conn, media_id).map_err(|e| e.to_string())
 }
@@ -118,7 +121,12 @@ fn import_milestones_csv(state: State<DbState>, file_path: String) -> Result<usi
 }
 
 #[tauri::command]
-fn upload_cover_image(app_handle: tauri::AppHandle, state: State<DbState>, media_id: i64, path: String) -> Result<String, String> {
+fn upload_cover_image(
+    app_handle: tauri::AppHandle,
+    state: State<DbState>,
+    media_id: i64,
+    path: String,
+) -> Result<String, String> {
     let app_dir = db::get_data_dir(&app_handle);
     let covers_dir = app_dir.join("covers");
     let conn = state.conn.lock().unwrap();
@@ -136,7 +144,7 @@ async fn fetch_remote_bytes(url: String) -> Result<Vec<u8>, String> {
         .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         .build()
         .map_err(|e| e.to_string())?;
-    
+
     let res = client.get(&url).send().await.map_err(|e| e.to_string())?;
     let res = res.error_for_status().map_err(|e| e.to_string())?;
     let bytes = res.bytes().await.map_err(|e| e.to_string())?;
@@ -144,35 +152,44 @@ async fn fetch_remote_bytes(url: String) -> Result<Vec<u8>, String> {
 }
 
 #[tauri::command]
-async fn fetch_external_json(url: String, method: String, body: Option<String>, headers: Option<std::collections::HashMap<String, String>>) -> Result<String, String> {
+async fn fetch_external_json(
+    url: String,
+    method: String,
+    body: Option<String>,
+    headers: Option<std::collections::HashMap<String, String>>,
+) -> Result<String, String> {
     let builder = reqwest::Client::builder();
-    
+
     // Set a default user agent, then try to override below if provided
     let default_ua = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
     let ua = if let Some(ref h) = headers {
-        h.get("User-Agent").map(|s| s.as_str()).unwrap_or(default_ua)
+        h.get("User-Agent")
+            .map(|s| s.as_str())
+            .unwrap_or(default_ua)
     } else {
         default_ua
     };
-    
+
     let client = builder.user_agent(ua).build().map_err(|e| e.to_string())?;
-    
+
     let mut req = match method.to_uppercase().as_str() {
         "POST" => client.post(&url),
         _ => client.get(&url),
     };
-    
+
     if let Some(h) = headers {
         for (k, v) in h.iter() {
-            if k.eq_ignore_ascii_case("User-Agent") { continue; }
+            if k.eq_ignore_ascii_case("User-Agent") {
+                continue;
+            }
             req = req.header(k, v);
         }
     }
-    
+
     if let Some(b) = body {
         req = req.header("Content-Type", "application/json").body(b);
     }
-    
+
     let res = req.send().await.map_err(|e| e.to_string())?;
     let res = res.error_for_status().map_err(|e| e.to_string())?;
     let text = res.text().await.map_err(|e| e.to_string())?;
@@ -180,21 +197,29 @@ async fn fetch_external_json(url: String, method: String, body: Option<String>, 
 }
 
 #[tauri::command]
-async fn download_and_save_image(app_handle: tauri::AppHandle, state: State<'_, DbState>, media_id: i64, url: String) -> Result<String, String> {
+async fn download_and_save_image(
+    app_handle: tauri::AppHandle,
+    state: State<'_, DbState>,
+    media_id: i64,
+    url: String,
+) -> Result<String, String> {
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         .build()
         .map_err(|e| e.to_string())?;
-    
+
     let res = client.get(&url).send().await.map_err(|e| e.to_string())?;
     let res = res.error_for_status().map_err(|e| e.to_string())?;
     let bytes = res.bytes().await.map_err(|e| e.to_string())?;
     let bytes_vec = bytes.to_vec();
-    
+
     let app_dir = db::get_data_dir(&app_handle);
     let covers_dir = app_dir.join("covers");
-    
-    let ext = std::path::Path::new(&url).extension().and_then(|e| e.to_str()).unwrap_or("jpg");
+
+    let ext = std::path::Path::new(&url)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("jpg");
     let ext = ext.split('?').next().unwrap_or("jpg");
 
     let conn = state.conn.lock().unwrap();
@@ -208,7 +233,12 @@ fn import_csv(state: State<DbState>, file_path: String) -> Result<usize, String>
 }
 
 #[tauri::command]
-fn export_csv(state: State<DbState>, file_path: String, start_date: Option<String>, end_date: Option<String>) -> Result<usize, String> {
+fn export_csv(
+    state: State<DbState>,
+    file_path: String,
+    start_date: Option<String>,
+    end_date: Option<String>,
+) -> Result<usize, String> {
     let conn = state.conn.lock().unwrap();
     csv_import::export_logs_csv(&conn, &file_path, start_date, end_date)
 }
@@ -220,13 +250,20 @@ fn export_media_csv(state: State<DbState>, file_path: String) -> Result<usize, S
 }
 
 #[tauri::command]
-fn analyze_media_csv(state: State<DbState>, file_path: String) -> Result<Vec<csv_import::MediaConflict>, String> {
+fn analyze_media_csv(
+    state: State<DbState>,
+    file_path: String,
+) -> Result<Vec<csv_import::MediaConflict>, String> {
     let conn = state.conn.lock().unwrap();
     csv_import::analyze_media_csv(&conn, &file_path)
 }
 
 #[tauri::command]
-fn apply_media_import(app_handle: tauri::AppHandle, state: State<DbState>, records: Vec<csv_import::MediaCsvRow>) -> Result<usize, String> {
+fn apply_media_import(
+    app_handle: tauri::AppHandle,
+    state: State<DbState>,
+    records: Vec<csv_import::MediaCsvRow>,
+) -> Result<usize, String> {
     let mut conn = state.conn.lock().unwrap();
     let app_dir = db::get_data_dir(&app_handle);
     let covers_dir = app_dir.join("covers");
@@ -234,7 +271,11 @@ fn apply_media_import(app_handle: tauri::AppHandle, state: State<DbState>, recor
 }
 
 #[tauri::command]
-fn initialize_user_db(app_handle: tauri::AppHandle, state: State<DbState>, fallback_username: Option<String>) -> Result<(), String> {
+fn initialize_user_db(
+    app_handle: tauri::AppHandle,
+    state: State<DbState>,
+    fallback_username: Option<String>,
+) -> Result<(), String> {
     let app_dir = db::get_data_dir(&app_handle);
     let new_conn = db::init_db(app_dir, fallback_username.as_deref()).map_err(|e| e.to_string())?;
     *state.conn.lock().unwrap() = new_conn;
@@ -253,7 +294,7 @@ fn wipe_everything(app_handle: tauri::AppHandle, state: State<DbState>) -> Resul
         let mut conn_guard = state.conn.lock().unwrap();
         *conn_guard = rusqlite::Connection::open_in_memory().unwrap();
     }
-    
+
     let app_dir = db::get_data_dir(&app_handle);
     db::wipe_everything(app_dir)
 }
@@ -312,7 +353,7 @@ pub fn run() {
             let conn = if user_db_path.exists() {
                 db::init_db(app_dir, None).expect("Failed to initialize database")
             } else {
-                // If no user DB exists, start with a temporary in-memory db. 
+                // If no user DB exists, start with a temporary in-memory db.
                 // The frontend will force the user to create an initial profile and call initialize_user_db.
                 rusqlite::Connection::open_in_memory().unwrap()
             };

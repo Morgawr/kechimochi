@@ -5,7 +5,7 @@ use std::path::Path;
 
 use crate::db;
 use crate::models::{ActivityLog, Media, Milestone};
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 
 #[derive(Debug, Deserialize)]
 struct CsvRow {
@@ -72,7 +72,9 @@ pub fn import_csv(conn: &mut Connection, file_path: &str) -> Result<usize, Strin
     }
 
     let file = File::open(path).map_err(|e| e.to_string())?;
-    let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(file);
+    let mut rdr = csv::ReaderBuilder::new()
+        .has_headers(true)
+        .from_reader(file);
 
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     let mut imported_count = 0;
@@ -110,7 +112,7 @@ pub fn import_csv(conn: &mut Connection, file_path: &str) -> Result<usize, Strin
                     content_type: "Unknown".to_string(),
                     tracking_status: "Untracked".to_string(),
                 };
-                
+
                 match db::add_media_with_id(&tx, &new_media) {
                     Ok(id) => id,
                     Err(e) => {
@@ -131,7 +133,8 @@ pub fn import_csv(conn: &mut Connection, file_path: &str) -> Result<usize, Strin
             duration_minutes: record.duration,
             characters: record.characters.unwrap_or(0),
             date: formatted_date,
-            activity_type: record.activity_type
+            activity_type: record
+                .activity_type
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| record.media_type.clone()),
         };
@@ -181,22 +184,40 @@ pub fn export_media_csv(conn: &Connection, file_path: &str) -> Result<usize, Str
     Ok(count)
 }
 
-pub fn export_logs_csv(conn: &Connection, file_path: &str, start_date: Option<String>, end_date: Option<String>) -> Result<usize, String> {
+pub fn export_logs_csv(
+    conn: &Connection,
+    file_path: &str,
+    start_date: Option<String>,
+    end_date: Option<String>,
+) -> Result<usize, String> {
     let logs = db::get_logs(conn).map_err(|e| e.to_string())?;
-    
+
     let mut count = 0;
     let mut wtr = csv::Writer::from_path(file_path).map_err(|e| e.to_string())?;
-    
-    wtr.write_record(["Date", "Log Name", "Media Type", "Duration", "Language", "Characters", "Activity Type"]).map_err(|e| e.to_string())?;
-    
+
+    wtr.write_record([
+        "Date",
+        "Log Name",
+        "Media Type",
+        "Duration",
+        "Language",
+        "Characters",
+        "Activity Type",
+    ])
+    .map_err(|e| e.to_string())?;
+
     for log in logs {
         if let Some(start) = &start_date {
-            if &log.date < start { continue; }
+            if &log.date < start {
+                continue;
+            }
         }
         if let Some(end) = &end_date {
-            if &log.date > end { continue; }
+            if &log.date > end {
+                continue;
+            }
         }
-        
+
         wtr.write_record([
             &log.date,
             &log.title,
@@ -205,11 +226,12 @@ pub fn export_logs_csv(conn: &Connection, file_path: &str, start_date: Option<St
             &log.language,
             &log.characters.to_string(),
             &log.media_type,
-        ]).map_err(|e| e.to_string())?;
-        
+        ])
+        .map_err(|e| e.to_string())?;
+
         count += 1;
     }
-    
+
     wtr.flush().map_err(|e| e.to_string())?;
     Ok(count)
 }
@@ -217,16 +239,18 @@ pub fn export_logs_csv(conn: &Connection, file_path: &str, start_date: Option<St
 pub fn export_milestones_csv(conn: &Connection, file_path: &str) -> Result<usize, String> {
     let mut stmt = conn.prepare("SELECT id, media_title, name, duration, characters, date FROM main.milestones ORDER BY id ASC")
         .map_err(|e| e.to_string())?;
-    
-    let milestone_iter = stmt.query_map([], |row| {
-        Ok(MilestoneCsvRow {
-            media_title: row.get(1)?,
-            name: row.get(2)?,
-            duration: row.get(3)?,
-            characters: row.get(4)?,
-            date: row.get(5)?,
+
+    let milestone_iter = stmt
+        .query_map([], |row| {
+            Ok(MilestoneCsvRow {
+                media_title: row.get(1)?,
+                name: row.get(2)?,
+                duration: row.get(3)?,
+                characters: row.get(4)?,
+                date: row.get(5)?,
+            })
         })
-    }).map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?;
 
     let mut count = 0;
     let mut wtr = csv::Writer::from_path(file_path).map_err(|e| e.to_string())?;
@@ -248,7 +272,9 @@ pub fn import_milestones_csv(conn: &mut Connection, file_path: &str) -> Result<u
     }
 
     let file = File::open(path).map_err(|e| e.to_string())?;
-    let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(file);
+    let mut rdr = csv::ReaderBuilder::new()
+        .has_headers(true)
+        .from_reader(file);
 
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     let mut imported_count = 0;
@@ -290,7 +316,9 @@ pub fn analyze_media_csv(conn: &Connection, file_path: &str) -> Result<Vec<Media
     }
 
     let file = File::open(path).map_err(|e| e.to_string())?;
-    let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(file);
+    let mut rdr = csv::ReaderBuilder::new()
+        .has_headers(true)
+        .from_reader(file);
     let mut conflicts = Vec::new();
 
     for result in rdr.deserialize() {
@@ -328,7 +356,11 @@ pub fn analyze_media_csv(conn: &Connection, file_path: &str) -> Result<Vec<Media
     Ok(conflicts)
 }
 
-pub fn apply_media_import(covers_dir: std::path::PathBuf, conn: &mut Connection, records: Vec<MediaCsvRow>) -> Result<usize, String> {
+pub fn apply_media_import(
+    covers_dir: std::path::PathBuf,
+    conn: &mut Connection,
+    records: Vec<MediaCsvRow>,
+) -> Result<usize, String> {
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     let mut imported = 0;
 
@@ -336,18 +368,23 @@ pub fn apply_media_import(covers_dir: std::path::PathBuf, conn: &mut Connection,
 
     for req in records {
         // Find existing to possibly delete old cover
-        let existing_id: Option<i64> = tx.query_row(
-            "SELECT id FROM shared.media WHERE title = ?1",
-            [&req.title],
-            |row| row.get(0)
-        ).ok();
+        let existing_id: Option<i64> = tx
+            .query_row(
+                "SELECT id FROM shared.media WHERE title = ?1",
+                [&req.title],
+                |row| row.get(0),
+            )
+            .ok();
 
         let mut final_cover_path = String::new();
 
         if !req.cover_image_b64.is_empty() {
             if let Ok(bytes) = BASE64.decode(&req.cover_image_b64) {
                 // Generate a generic name using the title hash or timestamp to avoid collisions
-                let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis();
+                let stamp = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis();
                 let dest_file = format!("import_{}.png", stamp);
                 let dest = covers_dir.join(&dest_file);
                 if std::fs::write(&dest, bytes).is_ok() {
@@ -358,12 +395,14 @@ pub fn apply_media_import(covers_dir: std::path::PathBuf, conn: &mut Connection,
 
         if let Some(id) = existing_id {
             // Delete old cover
-            let old_cover: String = tx.query_row(
-                "SELECT cover_image FROM shared.media WHERE id = ?1",
-                [&id],
-                |row| row.get(0)
-            ).unwrap_or_default();
-            
+            let old_cover: String = tx
+                .query_row(
+                    "SELECT cover_image FROM shared.media WHERE id = ?1",
+                    [&id],
+                    |row| row.get(0),
+                )
+                .unwrap_or_default();
+
             if !old_cover.is_empty() {
                 let _ = std::fs::remove_file(&old_cover);
             }
@@ -412,7 +451,8 @@ mod tests {
 
     fn setup_test_db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
-        conn.execute("ATTACH DATABASE ':memory:' AS shared", []).unwrap();
+        conn.execute("ATTACH DATABASE ':memory:' AS shared", [])
+            .unwrap();
         db::create_tables(&conn).unwrap();
         conn
     }
@@ -451,7 +491,7 @@ mod tests {
         let csv_path = write_csv(
             "Date,Log Name,Media Type,Duration,Language,Characters\n\
              2024-01-15,ある魔女が死ぬまで,Reading,45,Japanese,1000\n\
-             2024-01-16,呪術廻戦,Watching,25,Japanese,0\n"
+             2024-01-16,呪術廻戦,Watching,25,Japanese,0\n",
         );
 
         let count = import_csv(&mut conn, &csv_path).unwrap();
@@ -472,7 +512,7 @@ mod tests {
         let csv_path = write_csv(
             "Date,Log Name,Media Type,Duration,Language\n\
              2024-01-15,FF7,Playing,60,Japanese\n\
-             2024-01-16,FF7,Playing,120,Japanese\n"
+             2024-01-16,FF7,Playing,120,Japanese\n",
         );
 
         let count = import_csv(&mut conn, &csv_path).unwrap();
@@ -494,7 +534,7 @@ mod tests {
         let mut conn = setup_test_db();
         let csv_path = write_csv(
             "Date,Log Name,Media Type,Duration,Language\n\
-             2024/03/01,本好きの下剋上,Reading,30,Japanese\n"
+             2024/03/01,本好きの下剋上,Reading,30,Japanese\n",
         );
 
         let count = import_csv(&mut conn, &csv_path).unwrap();
@@ -534,7 +574,11 @@ mod tests {
         assert!(content.contains("Export Test"));
         assert!(content.contains("Novel"));
         // CSV escapes double quotes in fields by doubling them
-        assert!(content.contains("\"{ \"\"key\"\": \"\"val\"\" }\"") || content.contains("\"{ \"\"key\"\":\"\"val\"\" }\"") || content.contains("key") && content.contains("val"));
+        assert!(
+            content.contains("\"{ \"\"key\"\": \"\"val\"\" }\"")
+                || content.contains("\"{ \"\"key\"\":\"\"val\"\" }\"")
+                || content.contains("key") && content.contains("val")
+        );
 
         std::fs::remove_file(path).ok();
     }
@@ -582,17 +626,56 @@ mod tests {
     fn test_export_logs_csv() {
         let conn = setup_test_db();
         let m_id = db::add_media_with_id(&conn, &sample_media("Log Test")).unwrap();
-        
-        db::add_log(&conn, &ActivityLog { id: None, media_id: m_id, duration_minutes: 30, characters: 100, date: "2024-01-01".to_string(), activity_type: "Reading".to_string() }).unwrap();
-        db::add_log(&conn, &ActivityLog { id: None, media_id: m_id, duration_minutes: 45, characters: 200, date: "2024-02-01".to_string(), activity_type: "Reading".to_string() }).unwrap();
-        db::add_log(&conn, &ActivityLog { id: None, media_id: m_id, duration_minutes: 60, characters: 300, date: "2024-03-01".to_string(), activity_type: "Reading".to_string() }).unwrap();
+
+        db::add_log(
+            &conn,
+            &ActivityLog {
+                id: None,
+                media_id: m_id,
+                duration_minutes: 30,
+                characters: 100,
+                date: "2024-01-01".to_string(),
+                activity_type: "Reading".to_string(),
+            },
+        )
+        .unwrap();
+        db::add_log(
+            &conn,
+            &ActivityLog {
+                id: None,
+                media_id: m_id,
+                duration_minutes: 45,
+                characters: 200,
+                date: "2024-02-01".to_string(),
+                activity_type: "Reading".to_string(),
+            },
+        )
+        .unwrap();
+        db::add_log(
+            &conn,
+            &ActivityLog {
+                id: None,
+                media_id: m_id,
+                duration_minutes: 60,
+                characters: 300,
+                date: "2024-03-01".to_string(),
+                activity_type: "Reading".to_string(),
+            },
+        )
+        .unwrap();
 
         let dir = std::env::temp_dir();
         let path = dir.join("export_logs_test.csv");
         let path_str = path.to_str().unwrap().to_string();
 
         // Test with date filtering
-        let count = export_logs_csv(&conn, &path_str, Some("2024-01-15".into()), Some("2024-02-15".into())).unwrap();
+        let count = export_logs_csv(
+            &conn,
+            &path_str,
+            Some("2024-01-15".into()),
+            Some("2024-02-15".into()),
+        )
+        .unwrap();
         assert_eq!(count, 1); // Only 2024-02-01 should match
 
         let content = std::fs::read_to_string(&path).unwrap();
@@ -612,7 +695,7 @@ mod tests {
         let csv_path = write_csv(
             "Date,Log Name,Media Type,Duration,Language\n\
              2024-01-15,Good Row,Reading,45,Japanese\n\
-             2024-01-16,Bad Row,Reading,MissingCol\n"
+             2024-01-16,Bad Row,Reading,MissingCol\n",
         );
 
         let count = import_csv(&mut conn, &csv_path).unwrap();
@@ -630,10 +713,11 @@ mod tests {
         let conn = setup_test_db();
         let media_id = db::add_media_with_id(&conn, &sample_media("Byte Test")).unwrap();
         let temp_dir = std::env::temp_dir().join(format!("byte_covers_{}", std::process::id()));
-        
+
         let bytes = vec![0, 1, 2, 3];
-        let dest = db::save_cover_bytes(&conn, temp_dir.clone(), media_id, bytes.clone(), "png").unwrap();
-        
+        let dest =
+            db::save_cover_bytes(&conn, temp_dir.clone(), media_id, bytes.clone(), "png").unwrap();
+
         assert!(std::path::Path::new(&dest).exists());
         assert_eq!(std::fs::read(&dest).unwrap(), bytes);
 
@@ -651,18 +735,16 @@ mod tests {
         let fake_image_bytes = vec![255, 216, 255, 224, 0, 16, 74, 70, 73, 70]; // Fake JPEG header
         let b64_img = BASE64.encode(&fake_image_bytes);
 
-        let records = vec![
-            MediaCsvRow {
-                title: "Binary Media".to_string(),
-                media_type: "Watching".to_string(),
-                status: "Ongoing".to_string(),
-                language: "English".to_string(),
-                description: "".to_string(),
-                content_type: "Anime".to_string(),
-                extra_data: "{}".to_string(),
-                cover_image_b64: b64_img,
-            }
-        ];
+        let records = vec![MediaCsvRow {
+            title: "Binary Media".to_string(),
+            media_type: "Watching".to_string(),
+            status: "Ongoing".to_string(),
+            language: "English".to_string(),
+            description: "".to_string(),
+            content_type: "Anime".to_string(),
+            extra_data: "{}".to_string(),
+            cover_image_b64: b64_img,
+        }];
 
         apply_media_import(covers_dir.clone(), &mut conn, records).unwrap();
 
@@ -681,14 +763,18 @@ mod tests {
     #[test]
     fn test_export_milestones_csv() {
         let conn = setup_test_db();
-        db::add_milestone(&conn, &Milestone { 
-            id: None, 
-            media_title: "Export M".into(), 
-            name: "M1".into(), 
-            duration: 120, 
-            characters: 500,
-            date: Some("2024-03-12".into()) 
-        }).unwrap();
+        db::add_milestone(
+            &conn,
+            &Milestone {
+                id: None,
+                media_title: "Export M".into(),
+                name: "M1".into(),
+                duration: 120,
+                characters: 500,
+                date: Some("2024-03-12".into()),
+            },
+        )
+        .unwrap();
 
         let dir = std::env::temp_dir();
         let path = dir.join("milestones_export.csv");
@@ -713,7 +799,7 @@ mod tests {
         let csv_path = write_csv(
             "Media Title,Name,Duration,Characters,Date\n\
              Imported Media,First Quest,60,100,2024-01-01\n\
-             Imported Media,Second Quest,120,200,\n"
+             Imported Media,Second Quest,120,200,\n",
         );
 
         let count = import_milestones_csv(&mut conn, &csv_path).unwrap();
@@ -736,7 +822,7 @@ mod tests {
         // Missing "Characters" column
         let csv_path = write_csv(
             "Date,Log Name,Media Type,Duration,Language\n\
-             2024-01-15,Old Format,Reading,45,Japanese\n"
+             2024-01-15,Old Format,Reading,45,Japanese\n",
         );
 
         let count = import_csv(&mut conn, &csv_path).unwrap();

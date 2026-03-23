@@ -1,7 +1,9 @@
 use std::io::Cursor;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use image::{codecs::jpeg::JpegEncoder, imageops::FilterType, DynamicImage, GenericImageView, ImageFormat};
+use image::{
+    codecs::jpeg::JpegEncoder, imageops::FilterType, DynamicImage, GenericImageView, ImageFormat,
+};
 
 use crate::models::ProfilePicture;
 
@@ -18,7 +20,8 @@ pub fn process_profile_picture_bytes(bytes: &[u8]) -> Result<ProfilePicture, Str
         return Err("Profile picture file is empty".to_string());
     }
 
-    let format = image::guess_format(bytes).map_err(|_| "Unsupported profile picture format. Use PNG, JPEG, or WebP.".to_string())?;
+    let format = image::guess_format(bytes)
+        .map_err(|_| "Unsupported profile picture format. Use PNG, JPEG, or WebP.".to_string())?;
     match format {
         ImageFormat::Png | ImageFormat::Jpeg | ImageFormat::WebP => {}
         _ => return Err("Unsupported profile picture format. Use PNG, JPEG, or WebP.".to_string()),
@@ -27,7 +30,9 @@ pub fn process_profile_picture_bytes(bytes: &[u8]) -> Result<ProfilePicture, Str
     let mut image = image::load_from_memory_with_format(bytes, format)
         .map_err(|e| format!("Failed to decode profile picture: {e}"))?;
 
-    if image.width() > MAX_PROFILE_PICTURE_DIMENSION || image.height() > MAX_PROFILE_PICTURE_DIMENSION {
+    if image.width() > MAX_PROFILE_PICTURE_DIMENSION
+        || image.height() > MAX_PROFILE_PICTURE_DIMENSION
+    {
         image = image.resize(
             MAX_PROFILE_PICTURE_DIMENSION,
             MAX_PROFILE_PICTURE_DIMENSION,
@@ -37,7 +42,9 @@ pub fn process_profile_picture_bytes(bytes: &[u8]) -> Result<ProfilePicture, Str
 
     let (encoded_bytes, mime_type) = encode_image(&image)?;
     if encoded_bytes.len() > MAX_PROFILE_PICTURE_BYTES {
-        return Err("Profile picture is too large after processing. Keep it under 3 MB.".to_string());
+        return Err(
+            "Profile picture is too large after processing. Keep it under 3 MB.".to_string(),
+        );
     }
 
     let (width, height) = image.dimensions();
