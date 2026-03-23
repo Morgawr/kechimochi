@@ -138,3 +138,10 @@ jobs:
           name: e2e-logs
           path: e2e/logs/
           if-no-files-found: ignore
+
+  publish-dev-artifacts:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    permissions:
+      contents: read
+    uses: ./.github/workflows/publish.yml

@@ -1,10 +1,7 @@
 name: "Publish Dev Artifacts"
 
 on:
-  workflow_run:
-    workflows: ["Test"]
-    types:
-      - completed
+  workflow_call:
 
 permissions:
   contents: read
@@ -12,15 +9,12 @@ permissions:
 jobs:
   prepare:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository }}
     outputs:
       head_sha: ${{ steps.metadata.outputs.head_sha }}
       display_version: ${{ steps.metadata.outputs.display_version }}
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: ${{ github.repository }}
-          ref: ${{ github.event.workflow_run.head_sha }}
           persist-credentials: false
 
       - name: derive dev build metadata
@@ -37,11 +31,9 @@ jobs:
   publish-web-linux:
     runs-on: ubuntu-latest
     needs: prepare
-    if: ${{ needs.prepare.outputs.display_version != '' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository }}
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: ${{ github.repository }}
           ref: ${{ needs.prepare.outputs.head_sha }}
           persist-credentials: false
 
@@ -98,11 +90,9 @@ jobs:
   publish-web-windows:
     runs-on: windows-latest
     needs: prepare
-    if: ${{ needs.prepare.outputs.display_version != '' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository }}
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: ${{ github.repository }}
           ref: ${{ needs.prepare.outputs.head_sha }}
           persist-credentials: false
 
@@ -148,11 +138,9 @@ jobs:
   publish-linux:
     runs-on: ubuntu-latest
     needs: prepare
-    if: ${{ needs.prepare.outputs.display_version != '' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository }}
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: ${{ github.repository }}
           ref: ${{ needs.prepare.outputs.head_sha }}
           persist-credentials: false
 
@@ -201,11 +189,9 @@ jobs:
   publish-windows:
     runs-on: windows-latest
     needs: prepare
-    if: ${{ needs.prepare.outputs.display_version != '' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository }}
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: ${{ github.repository }}
           ref: ${{ needs.prepare.outputs.head_sha }}
           persist-credentials: false
 
