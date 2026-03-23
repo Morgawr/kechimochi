@@ -8,6 +8,7 @@
  */
 import type { AppServices } from './types';
 import type { Media, ActivityLog, ActivitySummary, DailyHeatmap, MediaCsvRow, MediaConflict, Milestone, ProfilePicture } from '../types';
+import { getBuildVersion } from '../app_version';
 
 const API_BASE: string = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -101,7 +102,7 @@ export class WebServices implements AppServices {
     setSetting(key: string, value: string):  Promise<void>             { return put(`/settings/${encodeURIComponent(key)}`, { value }); }
 
     getUsername():                           Promise<string>            { return get('/username'); }
-    getAppVersion():                         Promise<string>            { return get('/version'); }
+    getAppVersion():                         Promise<string>            { return Promise.resolve(getBuildVersion()); }
     getProfilePicture():                     Promise<ProfilePicture | null> { return get('/profile-picture'); }
     deleteProfilePicture():                  Promise<void>              { return del('/profile-picture'); }
 

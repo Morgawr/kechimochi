@@ -1,0 +1,336 @@
+name: "Publish Release"
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  CARGO_TERM_COLOR: always
+
+jobs:
+  validate-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release_stage: ${{ steps.version.outputs.release_stage }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: install node dependencies
+        run: npm ci
+
+      - name: derive release metadata
+        id: version
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "release_stage=beta" >> "$GITHUB_OUTPUT"
+
+      - name: validate version files
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          TAURI_VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          CARGO_VERSION=$(node -e "const fs = require('fs'); const toml = fs.readFileSync('src-tauri/Cargo.toml', 'utf8'); const match = toml.match(/\\[package\\][\\s\\S]*?^version = \\\"([^\\\"]+)\\\"/m); if (!match) { process.exit(1); } console.log(match[1]);")
+          test "$PACKAGE_VERSION" = "$VERSION"
+          test "$TAURI_VERSION" = "$VERSION"
+          test "$CARGO_VERSION" = "$VERSION"
+
+      - name: ensure changelog entry exists
+        run: npm run changelog:extract -- ${{ steps.version.outputs.version }} > /tmp/release-notes.md
+
+      - name: ensure tag commit is on main
+        run: |
+          git fetch origin main --depth=1
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+  build-release-web-linux:
+    runs-on: ubuntu-latest
+    needs: validate-release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: install node dependencies
+        run: npm ci
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+
+      - name: cache rust dependencies
+        uses: swatinem/rust-cache@aa7c1c80a07a27a84c0aa76d0cef0aad3830e330 # v2.7.8
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: install system dependencies (linux web)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            pkg-config
+
+      - name: build web release artifacts
+        env:
+          VITE_APP_VERSION: ${{ needs.validate-release.outputs.version }}
+          VITE_APP_CHANNEL: release
+          VITE_RELEASE_STAGE: ${{ needs.validate-release.outputs.release_stage }}
+        run: npm run web:release
+
+      - name: package release asset
+        shell: bash
+        run: |
+          VERSION="${{ needs.validate-release.outputs.version }}"
+          DEST="release-web/kechimochi-web-linux-${VERSION}"
+          mkdir -p "$DEST"
+          cp -r dist "$DEST/dist"
+          cp src-tauri/target/release/web_server "$DEST/web_server"
+          cp README.md "$DEST/README.md"
+          (
+            cd release-web
+            zip -r "kechimochi-web-linux-${VERSION}.zip" "kechimochi-web-linux-${VERSION}"
+          )
+
+      - name: upload release asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-web-linux
+          path: release-web/kechimochi-web-linux-${{ needs.validate-release.outputs.version }}.zip
+
+  build-release-web-windows:
+    runs-on: windows-latest
+    needs: validate-release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: install node dependencies
+        run: npm ci
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+
+      - name: cache rust dependencies
+        uses: swatinem/rust-cache@aa7c1c80a07a27a84c0aa76d0cef0aad3830e330 # v2.7.8
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: build web release artifacts
+        env:
+          VITE_APP_VERSION: ${{ needs.validate-release.outputs.version }}
+          VITE_APP_CHANNEL: release
+          VITE_RELEASE_STAGE: ${{ needs.validate-release.outputs.release_stage }}
+        run: npm run web:release
+
+      - name: package release asset
+        shell: pwsh
+        run: |
+          $version = "${{ needs.validate-release.outputs.version }}"
+          $dest = "release-web/kechimochi-web-windows-$version"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Copy-Item -Recurse dist "$dest/dist"
+          Copy-Item src-tauri/target/release/web_server.exe "$dest/web_server.exe"
+          Copy-Item README.md "$dest/README.md"
+          Compress-Archive -Path $dest -DestinationPath "release-web/kechimochi-web-windows-$version.zip" -Force
+
+      - name: upload release asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-web-windows
+          path: release-web/kechimochi-web-windows-${{ needs.validate-release.outputs.version }}.zip
+
+  build-release-linux:
+    runs-on: ubuntu-latest
+    needs: validate-release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: install node dependencies
+        run: npm ci
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: cache rust dependencies
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: install system dependencies (linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+          cargo install tauri-cli --git https://github.com/tauri-apps/tauri --branch feat/truly-portable-appimage
+
+      - name: build tauri app
+        working-directory: ./src-tauri
+        env:
+          TAURI_BUNDLER_NEW_APPIMAGE_FORMAT: 1
+          VITE_APP_VERSION: ${{ needs.validate-release.outputs.version }}
+          VITE_APP_CHANNEL: release
+          VITE_RELEASE_STAGE: ${{ needs.validate-release.outputs.release_stage }}
+        run: cargo tauri build --bundles appimage --verbose
+
+      - name: rename AppImage asset
+        shell: bash
+        run: |
+          VERSION="${{ needs.validate-release.outputs.version }}"
+          mkdir -p release-desktop
+          APPIMAGE=$(find src-tauri/target/release/bundle/appimage -maxdepth 1 -name '*.AppImage' | head -n 1)
+          cp "$APPIMAGE" "release-desktop/kechimochi-linux-${VERSION}.AppImage"
+
+      - name: upload release asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: release-desktop/kechimochi-linux-${{ needs.validate-release.outputs.version }}.AppImage
+
+  build-release-windows:
+    runs-on: windows-latest
+    needs: validate-release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: install node dependencies
+        run: npm ci
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: cache rust dependencies
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: build tauri app
+        env:
+          VITE_APP_VERSION: ${{ needs.validate-release.outputs.version }}
+          VITE_APP_CHANNEL: release
+          VITE_RELEASE_STAGE: ${{ needs.validate-release.outputs.release_stage }}
+        run: npm run tauri build -- --bundles msi --verbose
+
+      - name: rename MSI asset
+        shell: pwsh
+        run: |
+          $version = "${{ needs.validate-release.outputs.version }}"
+          New-Item -ItemType Directory -Force -Path release-desktop | Out-Null
+          $msi = Get-ChildItem -Recurse -Path src-tauri/target/release/bundle/msi -Filter *.msi | Select-Object -First 1
+          Copy-Item $msi.FullName "release-desktop/kechimochi-windows-$version.msi"
+
+      - name: upload release asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: release-desktop/kechimochi-windows-${{ needs.validate-release.outputs.version }}.msi
+
+  publish-release:
+    runs-on: ubuntu-latest
+    needs:
+      - validate-release
+      - build-release-web-linux
+      - build-release-web-windows
+      - build-release-linux
+      - build-release-windows
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: install node dependencies
+        run: npm ci
+
+      - name: generate release notes
+        run: npm run changelog:extract -- ${{ needs.validate-release.outputs.version }} > release-notes.md
+
+      - name: download linux desktop asset
+        uses: actions/download-artifact@v4
+        with:
+          name: release-linux
+          path: release-assets/release-linux
+
+      - name: download windows desktop asset
+        uses: actions/download-artifact@v4
+        with:
+          name: release-windows
+          path: release-assets/release-windows
+
+      - name: download linux web asset
+        uses: actions/download-artifact@v4
+        with:
+          name: release-web-linux
+          path: release-assets/release-web-linux
+
+      - name: download windows web asset
+        uses: actions/download-artifact@v4
+        with:
+          name: release-web-windows
+          path: release-assets/release-web-windows
+
+      - name: publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Kechimochi v${{ needs.validate-release.outputs.version }} Beta
+          body_path: release-notes.md
+          prerelease: true
+          files: |
+            release-assets/release-linux/kechimochi-linux-${{ needs.validate-release.outputs.version }}.AppImage
+            release-assets/release-windows/kechimochi-windows-${{ needs.validate-release.outputs.version }}.msi
+            release-assets/release-web-linux/kechimochi-web-linux-${{ needs.validate-release.outputs.version }}.zip
+            release-assets/release-web-windows/kechimochi-web-windows-${{ needs.validate-release.outputs.version }}.zip

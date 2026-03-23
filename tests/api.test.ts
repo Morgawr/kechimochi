@@ -1,20 +1,18 @@
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as api from '../src/api';
 import { Media, Milestone, ActivityLog } from '../src/api';
 import { invoke } from '@tauri-apps/api/core';
-import { getVersion } from '@tauri-apps/api/app';
 
 // Mock Tauri's invoke
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
 }));
 
-// Mock Tauri's app
-vi.mock('@tauri-apps/api/app', () => ({
-  getVersion: vi.fn(),
-}));
-
 describe('api.ts', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   describe('media functions', () => {
     it('getAllMedia should call invoke', async () => {
       vi.mocked(invoke).mockResolvedValue([]);
@@ -210,17 +208,24 @@ describe('api.ts', () => {
   });
 
   describe('getAppVersion', () => {
-    it('should show dev version if base version starts with 0.', async () => {
-      vi.mocked(getVersion).mockResolvedValue('0.1.0');
-      (globalThis as unknown as { __APP_GIT_HASH__: string }).__APP_GIT_HASH__ = 'abc';
+    it('should return the explicit dev build version', async () => {
+      const globals = globalThis as Record<string, unknown>;
+      globals.__APP_VERSION__ = '0.1.0-dev.abc';
+      globals.__APP_BUILD_CHANNEL__ = 'dev';
+      globals.__APP_RELEASE_STAGE__ = 'beta';
+
       const result = await api.getAppVersion();
-      expect(result).toBe('0.0.0-dev.abc');
+      expect(result).toBe('0.1.0-dev.abc');
     });
 
-    it('should show base version if it does not start with 0.', async () => {
-      vi.mocked(getVersion).mockResolvedValue('1.0.0');
+    it('should return the explicit release build version', async () => {
+      const globals = globalThis as Record<string, unknown>;
+      globals.__APP_VERSION__ = '0.1.0';
+      globals.__APP_BUILD_CHANNEL__ = 'release';
+      globals.__APP_RELEASE_STAGE__ = 'beta';
+
       const result = await api.getAppVersion();
-      expect(result).toBe('1.0.0');
+      expect(result).toBe('0.1.0');
     });
   });
 });

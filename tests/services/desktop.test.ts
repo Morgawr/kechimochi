@@ -1,16 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DesktopServices } from '../../src/services/desktop';
 import { invoke } from '@tauri-apps/api/core';
-import { getVersion } from '@tauri-apps/api/app';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open as tauriOpen, save as tauriSave } from '@tauri-apps/plugin-dialog';
 
 vi.mock('@tauri-apps/api/core', () => ({
     invoke: vi.fn(),
-}));
-
-vi.mock('@tauri-apps/api/app', () => ({
-    getVersion: vi.fn(),
 }));
 
 const minimize = vi.fn();
@@ -37,7 +32,6 @@ describe('DesktopServices', () => {
     beforeEach(() => {
         services = new DesktopServices();
         vi.clearAllMocks();
-        delete (globalThis as Record<string, unknown>).__APP_GIT_HASH__;
         delete (globalThis as Record<string, unknown>).mockOpenPath;
         delete (globalThis as Record<string, unknown>).mockSavePath;
         vi.stubGlobal('URL', {
@@ -46,11 +40,17 @@ describe('DesktopServices', () => {
     });
 
     it('formats dev and release app versions correctly', async () => {
-        vi.mocked(getVersion).mockResolvedValueOnce('0.1.0').mockResolvedValueOnce('1.2.3');
-        (globalThis as Record<string, unknown>).__APP_GIT_HASH__ = 'hash123';
+        const globals = globalThis as Record<string, unknown>;
+        globals.__APP_VERSION__ = '0.1.0-dev.hash123';
+        globals.__APP_BUILD_CHANNEL__ = 'dev';
+        globals.__APP_RELEASE_STAGE__ = 'beta';
 
-        await expect(services.getAppVersion()).resolves.toBe('0.0.0-dev.hash123');
-        await expect(services.getAppVersion()).resolves.toBe('1.2.3');
+        await expect(services.getAppVersion()).resolves.toBe('0.1.0-dev.hash123');
+
+        globals.__APP_VERSION__ = '0.1.0';
+        globals.__APP_BUILD_CHANNEL__ = 'release';
+
+        await expect(services.getAppVersion()).resolves.toBe('0.1.0');
     });
 
     it('imports activities from mock and dialog-selected paths', async () => {

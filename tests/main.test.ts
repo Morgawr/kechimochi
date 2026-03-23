@@ -98,7 +98,21 @@ describe('main.ts initialization', () => {
         expect(localStorage.getItem).toHaveBeenCalled();
     });
 
+    it('should show the dev build badge by default', async () => {
+        await bootApp();
+        expect(document.getElementById('dev-build-badge')?.textContent).toBe('DEV BUILD 0.1.0-dev.test');
+    });
 
+    it('should show the beta release badge for release builds', async () => {
+        const globals = globalThis as Record<string, unknown>;
+        globals.__APP_VERSION__ = '0.1.0';
+        globals.__APP_BUILD_CHANNEL__ = 'release';
+        globals.__APP_RELEASE_STAGE__ = 'beta';
+
+        await bootApp();
+
+        expect(document.getElementById('dev-build-badge')?.textContent).toBe('BETA VERSION 0.1.0');
+    });
 
     it('should switch views', async () => {
         await bootApp();

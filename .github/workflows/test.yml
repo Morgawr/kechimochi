@@ -3,13 +3,19 @@ name: "Test"
 on:
   push:
     branches: [ "main", "setup-ci" ]
+    tags:
+      - 'v*.*.*'
     paths:
       - 'e2e/**'
       - 'src-tauri/**'
       - 'package.json'
       - 'package-lock.json'
+      - 'vite.config.ts'
+      - 'vitest.config.ts'
       - 'public/**'
+      - 'scripts/**'
       - 'src/**'
+      - 'tests/**'
       - '.github/workflows/*.yml'
   pull_request:
     branches: [ "main" ]
@@ -18,8 +24,12 @@ on:
       - 'src-tauri/**'
       - 'package.json'
       - 'package-lock.json'
+      - 'vite.config.ts'
+      - 'vitest.config.ts'
       - 'public/**'
+      - 'scripts/**'
       - 'src/**'
+      - 'tests/**'
       - '.github/workflows/*.yml'
 
 env:
@@ -39,7 +49,7 @@ jobs:
           cache: 'npm'
 
       - name: install node dependencies
-        run: npm install
+        run: npm ci
 
       - name: install rust toolchain
         uses: dtolnay/rust-toolchain@stable

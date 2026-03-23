@@ -3,14 +3,12 @@
  * This is the ONLY file that may import from @tauri-apps/*.
  */
 import { invoke } from '@tauri-apps/api/core';
-import { getVersion } from '@tauri-apps/api/app';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open as tauriOpen, save as tauriSave } from '@tauri-apps/plugin-dialog';
 
 import type { AppServices } from './types';
 import type { Media, ActivityLog, ActivitySummary, DailyHeatmap, MediaCsvRow, MediaConflict, Milestone, ProfilePicture } from '../types';
-
-declare const __APP_GIT_HASH__: string;
+import { getBuildVersion } from '../app_version';
 
 export class DesktopServices implements AppServices {
     private win: ReturnType<typeof getCurrentWindow> | null = null;
@@ -59,11 +57,7 @@ export class DesktopServices implements AppServices {
     deleteProfilePicture():                  Promise<void>            { return invoke('delete_profile_picture'); }
 
     async getAppVersion(): Promise<string> {
-        const base = await getVersion();
-        const hash = (__APP_GIT_HASH__ as string | undefined)
-            ?? ((globalThis as Record<string, unknown>).__APP_GIT_HASH__ as string)
-            ?? 'dev';
-        return base.startsWith('0.') ? `0.0.0-dev.${hash}` : base;
+        return getBuildVersion();
     }
 
     // ── File-based operations ─────────────────────────────────────────────────

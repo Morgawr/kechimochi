@@ -1,4 +1,4 @@
-name: "Publish AppImage"
+name: "Publish Dev Artifacts"
 
 on:
   workflow_run:
@@ -7,11 +7,36 @@ on:
       - completed
 
 jobs:
-  publish-web-linux:
+  prepare:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository}}
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository }}
+    outputs:
+      head_sha: ${{ steps.metadata.outputs.head_sha }}
+      display_version: ${{ steps.metadata.outputs.display_version }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: derive dev build metadata
+        id: metadata
+        shell: bash
+        run: |
+          BASE_VERSION=$(node -p "require('./package.json').version")
+          HEAD_SHA=$(git rev-parse HEAD)
+          SHA_SHORT=$(git rev-parse --short HEAD)
+          DISPLAY_VERSION="${BASE_VERSION}-dev.${SHA_SHORT}"
+          echo "head_sha=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
+          echo "display_version=${DISPLAY_VERSION}" >> "$GITHUB_OUTPUT"
+
+  publish-web-linux:
+    runs-on: ubuntu-latest
+    needs: prepare
+    if: ${{ needs.prepare.outputs.display_version != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.head_sha }}
 
       - name: setup node
         uses: actions/setup-node@v4
@@ -20,7 +45,7 @@ jobs:
           cache: 'npm'
 
       - name: install node dependencies
-        run: npm install
+        run: npm ci
 
       - name: install rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
@@ -41,35 +66,36 @@ jobs:
             libsoup-3.0-dev \
             pkg-config
 
-      - name: set artifact version
-        id: web_versioning
-        run: |
-          SHA_SHORT=$(git rev-parse --short HEAD)
-          VERSION="0.0.0-dev.${SHA_SHORT}"
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-
       - name: build web release artifacts
+        env:
+          VITE_APP_VERSION: ${{ needs.prepare.outputs.display_version }}
+          VITE_APP_CHANNEL: dev
+          VITE_RELEASE_STAGE: beta
         run: npm run web:release
 
       - name: package web artifact payload
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path release-web/kechimochi-web-linux-${{ steps.web_versioning.outputs.VERSION }} | Out-Null
-          Copy-Item -Recurse dist release-web/kechimochi-web-linux-${{ steps.web_versioning.outputs.VERSION }}/dist
-          Copy-Item src-tauri/target/release/web_server release-web/kechimochi-web-linux-${{ steps.web_versioning.outputs.VERSION }}/web_server
-          Copy-Item README.md release-web/kechimochi-web-linux-${{ steps.web_versioning.outputs.VERSION }}/README.md
+          $version = "${{ needs.prepare.outputs.display_version }}"
+          New-Item -ItemType Directory -Force -Path "release-web/kechimochi-web-linux-$version" | Out-Null
+          Copy-Item -Recurse dist "release-web/kechimochi-web-linux-$version/dist"
+          Copy-Item src-tauri/target/release/web_server "release-web/kechimochi-web-linux-$version/web_server"
+          Copy-Item README.md "release-web/kechimochi-web-linux-$version/README.md"
 
       - name: upload web artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kechimochi-web-linux-${{ steps.web_versioning.outputs.VERSION }}
-          path: release-web/kechimochi-web-linux-${{ steps.web_versioning.outputs.VERSION }}/
+          name: kechimochi-web-linux-${{ needs.prepare.outputs.display_version }}
+          path: release-web/kechimochi-web-linux-${{ needs.prepare.outputs.display_version }}/
 
   publish-web-windows:
     runs-on: windows-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository }}
+    needs: prepare
+    if: ${{ needs.prepare.outputs.display_version != '' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.head_sha }}
 
       - name: setup node
         uses: actions/setup-node@v4
@@ -78,7 +104,7 @@ jobs:
           cache: 'npm'
 
       - name: install node dependencies
-        run: npm install
+        run: npm ci
 
       - name: install rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
@@ -88,38 +114,36 @@ jobs:
         with:
           workspaces: './src-tauri -> target'
 
-      - name: set artifact version
-        id: web_versioning
-        shell: bash
-        run: |
-          SHA_SHORT=$(git rev-parse --short HEAD)
-          VERSION="0.0.0-dev.${SHA_SHORT}"
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-
       - name: build web release artifacts
+        env:
+          VITE_APP_VERSION: ${{ needs.prepare.outputs.display_version }}
+          VITE_APP_CHANNEL: dev
+          VITE_RELEASE_STAGE: beta
         run: npm run web:release
 
       - name: package web artifact payload
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path release-web/kechimochi-web-windows-${{ steps.web_versioning.outputs.VERSION }} | Out-Null
-          Copy-Item -Recurse dist release-web/kechimochi-web-windows-${{ steps.web_versioning.outputs.VERSION }}/dist
-          Copy-Item src-tauri/target/release/web_server.exe release-web/kechimochi-web-windows-${{ steps.web_versioning.outputs.VERSION }}/web_server.exe
-          Copy-Item README.md release-web/kechimochi-web-windows-${{ steps.web_versioning.outputs.VERSION }}/README.md
+          $version = "${{ needs.prepare.outputs.display_version }}"
+          New-Item -ItemType Directory -Force -Path "release-web/kechimochi-web-windows-$version" | Out-Null
+          Copy-Item -Recurse dist "release-web/kechimochi-web-windows-$version/dist"
+          Copy-Item src-tauri/target/release/web_server.exe "release-web/kechimochi-web-windows-$version/web_server.exe"
+          Copy-Item README.md "release-web/kechimochi-web-windows-$version/README.md"
 
       - name: upload web artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kechimochi-web-windows-${{ steps.web_versioning.outputs.VERSION }}
-          path: release-web/kechimochi-web-windows-${{ steps.web_versioning.outputs.VERSION }}/
+          name: kechimochi-web-windows-${{ needs.prepare.outputs.display_version }}
+          path: release-web/kechimochi-web-windows-${{ needs.prepare.outputs.display_version }}/
 
   publish-linux:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository }}
+    needs: prepare
+    if: ${{ needs.prepare.outputs.display_version != '' }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ needs.prepare.outputs.head_sha }}
 
       - name: setup node
         uses: actions/setup-node@v4
@@ -128,7 +152,7 @@ jobs:
           cache: 'npm'
 
       - name: install node dependencies
-        run: npm install
+        run: npm ci
 
       - name: install rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -145,39 +169,32 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libgtk-3-dev \
             libayatana-appindicator3-dev \
-            librsvg2-dev \
-            jq
+            librsvg2-dev
           cargo install tauri-cli --git https://github.com/tauri-apps/tauri --branch feat/truly-portable-appimage
-
-      - name: Set dynamic version
-        id: versioning
-        run: |
-          SHA_SHORT=$(git rev-parse --short HEAD)
-          VERSION="0.0.0-dev.${SHA_SHORT}"
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          jq ".version = \"$VERSION\"" package.json > package.json.tmp && mv package.json.tmp package.json
-          jq ".version = \"$VERSION\"" src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp && mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
 
       - name: build tauri app
         working-directory: ./src-tauri
         env:
           TAURI_BUNDLER_NEW_APPIMAGE_FORMAT: 1
-          VITE_APP_VERSION: ${{ steps.versioning.outputs.VERSION }}
+          VITE_APP_VERSION: ${{ needs.prepare.outputs.display_version }}
+          VITE_APP_CHANNEL: dev
+          VITE_RELEASE_STAGE: beta
         run: cargo tauri build --bundles appimage --verbose
 
       - name: upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kechimochi-appimage-${{ steps.versioning.outputs.VERSION }}
+          name: kechimochi-appimage-${{ needs.prepare.outputs.display_version }}
           path: src-tauri/target/release/bundle/appimage/*.AppImage
 
   publish-windows:
     runs-on: windows-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository }}
+    needs: prepare
+    if: ${{ needs.prepare.outputs.display_version != '' }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ needs.prepare.outputs.head_sha }}
 
       - name: setup node
         uses: actions/setup-node@v4
@@ -186,7 +203,7 @@ jobs:
           cache: 'npm'
 
       - name: install node dependencies
-        run: npm install
+        run: npm ci
 
       - name: install rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -196,26 +213,15 @@ jobs:
         with:
           workspaces: './src-tauri -> target'
 
-      - name: Set dynamic version
-        id: versioning
-        shell: bash
-        run: |
-          SHA_SHORT=$(git rev-parse --short HEAD)
-          VERSION="0.0.0-dev.${SHA_SHORT}"
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          
-          # Use hash version for package.json (usually okay for web build)
-          jq ".version = \"$VERSION\"" package.json > package.json.tmp && mv package.json.tmp package.json
-          # MSI MUST use numeric version, so we use 0.0.0 for the internal metadata
-          jq ".version = \"0.0.0\"" src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp && mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
-
       - name: build tauri app
         env:
-          VITE_APP_VERSION: ${{ steps.versioning.outputs.VERSION }}
+          VITE_APP_VERSION: ${{ needs.prepare.outputs.display_version }}
+          VITE_APP_CHANNEL: dev
+          VITE_RELEASE_STAGE: beta
         run: npm run tauri build -- --bundles msi --verbose
 
       - name: upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kechimochi-windows-${{ steps.versioning.outputs.VERSION }}
+          name: kechimochi-windows-${{ needs.prepare.outputs.display_version }}
           path: src-tauri/target/release/bundle/msi/*.msi

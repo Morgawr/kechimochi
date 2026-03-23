@@ -10,6 +10,7 @@ import {
 import { syncAppShell } from './app_shell';
 import { initServices, getServices } from './services';
 import { Logger } from './core/logger';
+import { formatBuildBadge } from './app_version';
 import { getProfileInitials, profilePictureToDataUrl } from './utils/profile_picture';
 import { STORAGE_KEYS, SETTING_KEYS, VIEW_NAMES, EVENTS, DEFAULTS } from './constants';
 import type { ProfilePicture } from './types';
@@ -104,13 +105,9 @@ class App {
         this.setupGlobalActions();
         this.setupEventListeners();
 
-        // Always show dev build label for now as requested
         if (this.devBuildBadgeEl) {
             this.devBuildBadgeEl.style.display = 'inline-flex';
-            const appVersion = import.meta.env.VITE_APP_VERSION;
-            if (appVersion) {
-                this.devBuildBadgeEl.textContent = `Dev Build ${appVersion}`;
-            }
+            this.devBuildBadgeEl.textContent = formatBuildBadge();
         }
 
         await this.initProfile();
