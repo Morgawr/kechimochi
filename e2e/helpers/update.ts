@@ -12,19 +12,19 @@ const GITHUB_RELEASES_KEY = 'api.github.com/repos/Morgawr/kechimochi/releases';
 export async function mockUpstreamRelease(options: MockReleaseOptions): Promise<void> {
   await browser.execute((payload) => {
     const gt = globalThis as unknown as { mockExternalJSON?: Record<string, unknown> };
-    gt.mockExternalJSON = {
-      ...(gt.mockExternalJSON ?? {}),
-      'api.github.com/repos/Morgawr/kechimochi/releases': [
-        {
-          tag_name: `v${payload.version}`,
-          prerelease: false,
-          draft: false,
-          body: payload.body,
-          html_url: payload.url ?? 'https://github.com/Morgawr/kechimochi/releases',
-          published_at: '2026-03-25T00:00:00Z',
-        },
-      ],
-    };
+    if (!gt.mockExternalJSON) {
+      gt.mockExternalJSON = {};
+    }
+    gt.mockExternalJSON['api.github.com/repos/Morgawr/kechimochi/releases'] = [
+      {
+        tag_name: `v${payload.version}`,
+        prerelease: false,
+        draft: false,
+        body: payload.body,
+        html_url: payload.url ?? 'https://github.com/Morgawr/kechimochi/releases',
+        published_at: '2026-03-25T00:00:00Z',
+      },
+    ];
   }, options);
 }
 

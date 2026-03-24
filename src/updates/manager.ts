@@ -35,7 +35,7 @@ function normalizeReleaseNotes(body: string): string {
 }
 
 export function parseSemver(version: string): SemverTuple | null {
-    const match = version.trim().match(/^(\d+)\.(\d+)\.(\d+)$/);
+    const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version.trim());
     if (!match) return null;
     return [
         Number.parseInt(match[1], 10),
@@ -287,7 +287,7 @@ export class UpdateManager {
         );
         const payload = JSON.parse(response) as unknown;
         if (!Array.isArray(payload)) {
-            throw new Error('Expected GitHub releases API to return an array');
+            throw new TypeError('Expected GitHub releases API to return an array');
         }
         return selectLatestEligibleRelease(payload);
     }
