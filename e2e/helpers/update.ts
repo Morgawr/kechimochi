@@ -12,9 +12,7 @@ const GITHUB_RELEASES_KEY = 'api.github.com/repos/Morgawr/kechimochi/releases';
 export async function mockUpstreamRelease(options: MockReleaseOptions): Promise<void> {
   await browser.execute((payload) => {
     const gt = globalThis as unknown as { mockExternalJSON?: Record<string, unknown> };
-    if (!gt.mockExternalJSON) {
-      gt.mockExternalJSON = {};
-    }
+    gt.mockExternalJSON ??= {};
     gt.mockExternalJSON['api.github.com/repos/Morgawr/kechimochi/releases'] = [
       {
         tag_name: `v${payload.version}`,
