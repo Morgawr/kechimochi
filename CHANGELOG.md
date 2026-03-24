@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-03-25
+
 ### Added
 - Cumulative library filters for tracking status and media type.
 - Desktop update notifications and changelog prompts for new releases.
