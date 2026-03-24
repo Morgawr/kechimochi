@@ -6,6 +6,10 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-03-25
+
+- No real updates, I am just writing a changelog to test the update check workflow
+
 ## [0.1.1] - 2026-03-25
 
 ### Added

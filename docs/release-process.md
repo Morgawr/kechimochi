@@ -10,8 +10,6 @@ Kechimochi now uses three independent version concepts:
 - Database schema version: an integer stored in SQLite and managed separately from app releases.
 - Backup format version: an integer for full-backup packaging and manifest compatibility.
 
-The current release baseline is `0.1.0`.
-
 These three versions move for different reasons:
 
 - app version changes when the product ships a new release,
