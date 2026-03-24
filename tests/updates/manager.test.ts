@@ -16,7 +16,9 @@ vi.mock('../../src/modals', () => ({
     showAvailableUpdateModal: vi.fn(() => Promise.resolve()),
 }));
 
-function createServices(): AppServices & { fetchExternalJson: ReturnType<typeof vi.fn> } {
+type TestServices = AppServices & { fetchExternalJson: ReturnType<typeof vi.fn> };
+
+function createServices(): TestServices {
     return {
         isDesktop: () => true,
         fetchExternalJson: vi.fn(),
@@ -64,6 +66,31 @@ function createServices(): AppServices & { fetchExternalJson: ReturnType<typeof 
     };
 }
 
+function mockSettings(overrides: Record<string, string | null> = {}): void {
+    vi.mocked(api.getSetting).mockImplementation(async (key) => {
+        if (Object.prototype.hasOwnProperty.call(overrides, key)) {
+            return overrides[key] ?? null;
+        }
+        return null;
+    });
+}
+
+function mockDefaultUpdateSettings(overrides: Record<string, string | null> = {}): void {
+    mockSettings({
+        updates_auto_check_enabled: 'false',
+        ...overrides,
+    });
+}
+
+async function initializeManager(
+    services: TestServices,
+    options: { isFreshInstall: boolean },
+): Promise<UpdateManager> {
+    const manager = new UpdateManager(services);
+    await manager.initialize(options);
+    return manager;
+}
+
 describe('UpdateManager helpers', () => {
     it('parses and compares semantic versions', () => {
         expect(parseSemver('1.2.3')).toEqual([1, 2, 3]);
@@ -87,7 +114,7 @@ describe('UpdateManager helpers', () => {
 });
 
 describe('UpdateManager', () => {
-    let services: AppServices & { fetchExternalJson: ReturnType<typeof vi.fn> };
+    let services: TestServices;
 
     beforeEach(() => {
         services = createServices();
@@ -101,26 +128,15 @@ describe('UpdateManager', () => {
     });
 
     it('seeds the seen-version marker on fresh install without showing the installed-update modal', async () => {
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === 'updates_auto_check_enabled') return 'false';
-            return null;
-        });
-
-        const manager = new UpdateManager(services);
-        await manager.initialize({ isFreshInstall: true });
+        mockDefaultUpdateSettings();
+        await initializeManager(services, { isFreshInstall: true });
 
         expect(modals.showInstalledUpdateModal).not.toHaveBeenCalled();
         expect(api.setSetting).toHaveBeenCalledWith('updates_last_seen_release_version', '1.0.0');
     });
 
     it('shows the installed-update modal once when an existing install has no seen marker', async () => {
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === 'updates_auto_check_enabled') return 'false';
-            return null;
-        });
-
-        const manager = new UpdateManager(services);
-        await manager.initialize({ isFreshInstall: false });
+        await initializeManager(services, { isFreshInstall: false });
 
         expect(modals.showInstalledUpdateModal).toHaveBeenCalledWith('1.0.0', expect.stringContaining('Installed notes'));
         expect(api.setSetting).toHaveBeenCalledWith('updates_last_seen_release_version', '1.0.0');
@@ -131,15 +147,12 @@ describe('UpdateManager', () => {
         globals.__APP_VERSION__ = '1.0.0-dev.test';
         globals.__APP_BUILD_CHANNEL__ = 'dev';
 
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === 'updates_e2e_release_version') return '1.0.0';
-            if (key === 'updates_auto_check_enabled') return 'false';
-            if (key === 'updates_last_seen_release_version') return '1.0.0';
-            return null;
+        mockDefaultUpdateSettings({
+            updates_e2e_release_version: '1.0.0',
+            updates_last_seen_release_version: '1.0.0',
         });
 
-        const manager = new UpdateManager(services);
-        await manager.initialize({ isFreshInstall: false });
+        const manager = await initializeManager(services, { isFreshInstall: false });
 
         expect(manager.getState()).toMatchObject({
             installedVersion: '1.0.0',
@@ -148,10 +161,8 @@ describe('UpdateManager', () => {
     });
 
     it('opens the remote update modal on a manual check when a newer stable release exists', async () => {
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === 'updates_auto_check_enabled') return 'false';
-            if (key === 'updates_last_seen_release_version') return '1.0.0';
-            return null;
+        mockDefaultUpdateSettings({
+            updates_last_seen_release_version: '1.0.0',
         });
         services.fetchExternalJson.mockResolvedValue(JSON.stringify([
             {
@@ -163,8 +174,7 @@ describe('UpdateManager', () => {
             },
         ]));
 
-        const manager = new UpdateManager(services);
-        await manager.initialize({ isFreshInstall: false });
+        const manager = await initializeManager(services, { isFreshInstall: false });
         await manager.checkForUpdates({ manual: true });
 
         expect(modals.showAvailableUpdateModal).toHaveBeenCalledWith(
@@ -176,10 +186,8 @@ describe('UpdateManager', () => {
     });
 
     it('shows an up-to-date alert when a manual check finds no newer release', async () => {
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === 'updates_auto_check_enabled') return 'false';
-            if (key === 'updates_last_seen_release_version') return '1.0.0';
-            return null;
+        mockDefaultUpdateSettings({
+            updates_last_seen_release_version: '1.0.0',
         });
         services.fetchExternalJson.mockResolvedValue(JSON.stringify([
             {
@@ -191,23 +199,19 @@ describe('UpdateManager', () => {
             },
         ]));
 
-        const manager = new UpdateManager(services);
-        await manager.initialize({ isFreshInstall: false });
+        const manager = await initializeManager(services, { isFreshInstall: false });
         await manager.checkForUpdates({ manual: true });
 
         expect(modals.customAlert).toHaveBeenCalledWith('Up to date', 'Kechimochi 1.0.0 is up to date.');
     });
 
     it('fails silently for automatic checks but surfaces an error for manual checks', async () => {
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === 'updates_auto_check_enabled') return 'false';
-            if (key === 'updates_last_seen_release_version') return '1.0.0';
-            return null;
+        mockDefaultUpdateSettings({
+            updates_last_seen_release_version: '1.0.0',
         });
         services.fetchExternalJson.mockRejectedValue(new Error('network down'));
 
-        const manager = new UpdateManager(services);
-        await manager.initialize({ isFreshInstall: false });
+        const manager = await initializeManager(services, { isFreshInstall: false });
         await manager.checkForUpdates();
         expect(modals.customAlert).not.toHaveBeenCalled();
 
