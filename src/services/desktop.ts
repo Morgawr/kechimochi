@@ -9,6 +9,7 @@ import { open as tauriOpen, save as tauriSave } from '@tauri-apps/plugin-dialog'
 import type { AppServices } from './types';
 import type { Media, ActivityLog, ActivitySummary, DailyHeatmap, MediaCsvRow, MediaConflict, Milestone, ProfilePicture } from '../types';
 import { getBuildVersion } from '../app_version';
+import { getMockExternalJsonResponse } from './external_mocks';
 
 export class DesktopServices implements AppServices {
     private win: ReturnType<typeof getCurrentWindow> | null = null;
@@ -194,6 +195,10 @@ export class DesktopServices implements AppServices {
 
     // ── External network ──────────────────────────────────────────────────────
     fetchExternalJson(url: string, method: string, body?: string, headers?: Record<string, string>): Promise<string> {
+        const mocked = getMockExternalJsonResponse(url);
+        if (mocked !== null) {
+            return Promise.resolve(mocked);
+        }
         return invoke('fetch_external_json', { url, method, body, headers });
     }
 

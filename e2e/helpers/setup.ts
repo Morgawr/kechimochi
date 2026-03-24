@@ -7,12 +7,26 @@ import { Logger } from '../../src/core/logger';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = path.resolve(__dirname, '..', 'fixtures');
+const PACKAGE_VERSION = JSON.parse(
+  fs.readFileSync(path.resolve(__dirname, '..', '..', 'package.json'), 'utf8')
+) as { version: string };
+export const E2E_PACKAGE_VERSION = PACKAGE_VERSION.version;
 
-function seedProfileNameSetting(dbPath: string, profileName: string): void {
+interface PrepareTestDirOptions {
+  extraSettings?: Record<string, string>;
+}
+
+function seedSettings(dbPath: string, settings: Record<string, string>): void {
   const db = new Database(dbPath);
 
   try {
-    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('profile_name', profileName);
+    const stmt = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
+    const tx = db.transaction((entries: Array<[string, string]>) => {
+      for (const [key, value] of entries) {
+        stmt.run(key, value);
+      }
+    });
+    tx(Object.entries(settings));
   } finally {
     db.close();
   }
@@ -22,7 +36,7 @@ function seedProfileNameSetting(dbPath: string, profileName: string): void {
  * Creates a temporary test directory by copying all fixture data into it.
  * Returns the path to the temp directory ($TEST_DIR).
  */
-export function prepareTestDir(): string {
+export function prepareTestDir(options: PrepareTestDirOptions = {}): string {
   const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kechimochi-e2e-'));
 
   // Copy and pre-migrate fixture databases so localStorage leak is bypassed entirely
@@ -31,9 +45,14 @@ export function prepareTestDir(): string {
   if (fs.existsSync(srcTestUser)) {
     fs.copyFileSync(srcTestUser, destUser);
     try {
-      seedProfileNameSetting(destUser, 'TESTUSER');
+      seedSettings(destUser, {
+        profile_name: 'TESTUSER',
+        updates_auto_check_enabled: 'false',
+        updates_last_seen_release_version: PACKAGE_VERSION.version,
+        ...options.extraSettings,
+      });
     } catch (err) {
-      Logger.warn('Failed to pre-seed sqlite test database with profile_name', err);
+      Logger.warn('Failed to pre-seed sqlite test database with settings', err);
     }
   } else {
     throw new Error(`Fixture file not found: ${srcTestUser}`);

@@ -9,6 +9,7 @@
 import type { AppServices } from './types';
 import type { Media, ActivityLog, ActivitySummary, DailyHeatmap, MediaCsvRow, MediaConflict, Milestone, ProfilePicture } from '../types';
 import { getBuildVersion } from '../app_version';
+import { getMockExternalJsonResponse } from './external_mocks';
 
 const API_BASE: string = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -253,6 +254,10 @@ export class WebServices implements AppServices {
 
     // ── External network ──────────────────────────────────────────────────────
     async fetchExternalJson(url: string, method: string, body?: string, headers?: Record<string, string>): Promise<string> {
+        const mocked = getMockExternalJsonResponse(url);
+        if (mocked !== null) {
+            return mocked;
+        }
         const res = await post<{ data: string }>('/fetch/json', { url, method, body, headers });
         return res.data;
     }

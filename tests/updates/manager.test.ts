@@ -126,6 +126,27 @@ describe('UpdateManager', () => {
         expect(api.setSetting).toHaveBeenCalledWith('updates_last_seen_release_version', '1.0.0');
     });
 
+    it('supports an e2e-forced release version even when the compiled channel is dev', async () => {
+        const globals = globalThis as Record<string, unknown>;
+        globals.__APP_VERSION__ = '1.0.0-dev.test';
+        globals.__APP_BUILD_CHANNEL__ = 'dev';
+
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === 'updates_e2e_release_version') return '1.0.0';
+            if (key === 'updates_auto_check_enabled') return 'false';
+            if (key === 'updates_last_seen_release_version') return '1.0.0';
+            return null;
+        });
+
+        const manager = new UpdateManager(services);
+        await manager.initialize({ isFreshInstall: false });
+
+        expect(manager.getState()).toMatchObject({
+            installedVersion: '1.0.0',
+            isSupported: true,
+        });
+    });
+
     it('opens the remote update modal on a manual check when a newer stable release exists', async () => {
         vi.mocked(api.getSetting).mockImplementation(async (key) => {
             if (key === 'updates_auto_check_enabled') return 'false';

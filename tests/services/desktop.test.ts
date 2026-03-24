@@ -153,4 +153,17 @@ describe('DesktopServices', () => {
         await expect(services.fetchExternalJson('https://example.com', 'GET')).resolves.toBe('json-data');
         await expect(services.fetchRemoteBytes('https://example.com/img')).resolves.toEqual([9, 8, 7]);
     });
+
+    it('prefers mockExternalJSON for external JSON requests when present', async () => {
+        (globalThis as unknown as { mockExternalJSON?: Record<string, unknown> }).mockExternalJSON = {
+            'api.github.com/repos/Morgawr/kechimochi/releases': [{ tag_name: 'v9.9.9' }],
+        };
+
+        await expect(
+            services.fetchExternalJson('https://api.github.com/repos/Morgawr/kechimochi/releases?per_page=20', 'GET')
+        ).resolves.toBe('[{"tag_name":"v9.9.9"}]');
+        expect(invoke).not.toHaveBeenCalled();
+
+        delete (globalThis as unknown as { mockExternalJSON?: Record<string, unknown> }).mockExternalJSON;
+    });
 });

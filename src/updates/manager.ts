@@ -126,9 +126,10 @@ export class UpdateManager {
     }
 
     public async initialize(options: { isFreshInstall: boolean }): Promise<void> {
+        const runtimeState = await this.resolveRuntimeState();
         this.setState({
-            installedVersion: getAppVersionInfo().version,
-            isSupported: this.computeIsSupported(),
+            installedVersion: runtimeState.installedVersion,
+            isSupported: runtimeState.isSupported,
         });
 
         if (!this.state.isSupported) {
@@ -197,6 +198,33 @@ export class UpdateManager {
     private computeIsSupported(): boolean {
         const versionInfo = getAppVersionInfo();
         return this.services.isDesktop() && versionInfo.channel === 'release';
+    }
+
+    private async resolveRuntimeState(): Promise<Pick<UpdateState, 'installedVersion' | 'isSupported'>> {
+        const versionInfo = getAppVersionInfo();
+        const forcedVersion = await this.getForcedReleaseVersion();
+
+        if (forcedVersion) {
+            return {
+                installedVersion: forcedVersion,
+                isSupported: this.services.isDesktop(),
+            };
+        }
+
+        return {
+            installedVersion: versionInfo.version,
+            isSupported: this.computeIsSupported(),
+        };
+    }
+
+    private async getForcedReleaseVersion(): Promise<string | null> {
+        try {
+            const forcedVersion = await getSetting(SETTING_KEYS.UPDATES_E2E_RELEASE_VERSION);
+            if (!forcedVersion) return null;
+            return parseSemver(forcedVersion) ? forcedVersion : null;
+        } catch {
+            return null;
+        }
     }
 
     private startAutomaticUpdateCheck(): void {

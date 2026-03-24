@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
-import { prepareTestDir, cleanupTestDir } from './helpers/setup.js';
+import { prepareTestDir, cleanupTestDir, E2E_PACKAGE_VERSION } from './helpers/setup.js';
 import { Logger } from '../src/core/logger';
 
 interface TauriSessionCaps {
@@ -195,9 +195,18 @@ export const config: WebdriverIO.Config = {
   beforeSession: async (_config: unknown, caps: TauriSessionCaps, specs: string[]) => {
     const specFile = specs[0];
     const specName = path.basename(specFile, '.spec.ts');
+    const isUpdateSpec = specName === 'update-notifications';
     
     // 1. Isolated Data Directory for this session
-    const testDir = prepareTestDir();
+    const testDir = prepareTestDir({
+      extraSettings: isUpdateSpec
+        ? {
+            updates_auto_check_enabled: 'true',
+            updates_last_seen_release_version: '0.0.1',
+            updates_e2e_release_version: E2E_PACKAGE_VERSION,
+          }
+        : undefined,
+    });
     process.env.KECHIMOCHI_DATA_DIR = testDir;
 
     // 2. Dynamic Port Assignment (offset by worker ID)

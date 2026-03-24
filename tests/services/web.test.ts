@@ -166,4 +166,17 @@ describe('WebServices', () => {
         await expect(services.fetchExternalJson('https://example.com/api', 'GET')).resolves.toBe('{"ok":true}');
         await expect(services.fetchRemoteBytes('https://example.com/image')).resolves.toEqual([1, 2, 3]);
     });
+
+    it('prefers mockExternalJSON for external JSON requests when present', async () => {
+        (globalThis as unknown as { mockExternalJSON?: Record<string, unknown> }).mockExternalJSON = {
+            'api.github.com/repos/Morgawr/kechimochi/releases': [{ tag_name: 'v9.9.9' }],
+        };
+
+        await expect(
+            services.fetchExternalJson('https://api.github.com/repos/Morgawr/kechimochi/releases?per_page=20', 'GET')
+        ).resolves.toBe('[{"tag_name":"v9.9.9"}]');
+        expect(fetchMock).not.toHaveBeenCalled();
+
+        delete (globalThis as unknown as { mockExternalJSON?: Record<string, unknown> }).mockExternalJSON;
+    });
 });
