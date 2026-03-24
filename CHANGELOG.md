@@ -8,6 +8,7 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ### Added
 - Cumulative library filters for tracking status and media type.
+- Desktop update notifications and changelog prompts for new releases.
 
 ### Changed
 - Extra field labels in the media view continue to display in uppercase, while inline editing now shows the real stored capitalization.
