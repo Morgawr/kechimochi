@@ -33,6 +33,7 @@ describe('MediaView', () => {
         container = document.createElement('div');
         document.body.appendChild(container);
         vi.clearAllMocks();
+        vi.mocked(api.getSetting).mockResolvedValue(null);
     });
 
     afterEach(() => {
@@ -42,7 +43,7 @@ describe('MediaView', () => {
     it('should load data and render grid by default', async () => {
         const mockMedia = [{ id: 1, title: 'Test' }];
         vi.mocked(api.getAllMedia).mockResolvedValue(mockMedia as unknown as Media[]);
-        vi.mocked(api.getSetting).mockResolvedValue('false');
+        vi.mocked(api.getSetting).mockResolvedValue('true');
 
         const component = new MediaView(container);
         await vi.waitFor(() => {
@@ -53,6 +54,12 @@ describe('MediaView', () => {
 
         expect(api.getAllMedia).toHaveBeenCalled();
         expect(MediaGrid).toHaveBeenCalled();
+        expect(vi.mocked(MediaGrid).mock.calls[0][1]).toEqual(expect.objectContaining({
+            searchQuery: '',
+            statusFilters: [],
+            typeFilters: [],
+            hideArchived: true,
+        }));
         // @ts-expect-error - accessing private state
         expect(component.state.viewMode).toBe('grid');
     });
@@ -111,7 +118,7 @@ describe('MediaView', () => {
         await vi.waitFor(() => expect(component.state.viewMode).toBe('grid'));
     });
 
-    it('should handle grid filter changes', async () => {
+    it('should handle grid filter changes and persist hideArchived', async () => {
         vi.mocked(api.getAllMedia).mockResolvedValue([]);
         const component = new MediaView(container);
         await vi.waitFor(() => {
@@ -121,9 +128,20 @@ describe('MediaView', () => {
         });
 
         const onFilterChange = vi.mocked(MediaGrid).mock.calls[0][4];
-        onFilterChange!({ hideArchived: true });
+        onFilterChange!({
+            statusFilters: ['Ongoing'],
+            typeFilters: ['Anime'],
+            hideArchived: true
+        });
 
         expect(api.setSetting).toHaveBeenCalledWith('grid_hide_archived', 'true');
+        // @ts-expect-error - accessing private state
+        expect(component.state.gridFilters).toEqual({
+            searchQuery: '',
+            statusFilters: ['Ongoing'],
+            typeFilters: ['Anime'],
+            hideArchived: true
+        });
     });
 
     it('should fall back to grid if media not found in detail view', async () => {

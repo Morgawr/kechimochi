@@ -91,6 +91,79 @@ export async function setSearchQuery(query: string): Promise<void> {
     }
 }
 
+async function waitForLibraryRefresh(): Promise<void> {
+    await browser.pause(250);
+}
+
+async function waitForFilterPanelState(expanded: boolean): Promise<void> {
+    const panel = $('#media-grid-filter-panel');
+    await panel.waitForExist({ timeout: 5000 });
+
+    await browser.waitUntil(async () => {
+        const ariaHidden = await panel.getAttribute('aria-hidden');
+        const height = await browser.execute((el) => {
+            return Math.round((el as HTMLElement).getBoundingClientRect().height);
+        }, await panel);
+
+        if (expanded) {
+            return ariaHidden === 'false' && height > 0;
+        }
+
+        return ariaHidden === 'true' && height === 0;
+    }, {
+        timeout: 5000,
+        timeoutMsg: `Filter panel did not become ${expanded ? 'expanded' : 'collapsed'}`
+    });
+}
+
+async function safeClick(element: WebdriverIO.Element): Promise<void> {
+    try {
+        await element.waitForClickable({ timeout: 5000 });
+        await element.click();
+    } catch {
+        await browser.execute((el) => {
+            (el as HTMLElement).click();
+        }, element);
+    }
+}
+
+export async function setFiltersExpanded(expanded: boolean): Promise<void> {
+    const toggle = $('#btn-toggle-filters');
+    await toggle.waitForDisplayed({ timeout: 5000 });
+
+    const isExpanded = async () => (await toggle.getAttribute('aria-expanded')) === 'true';
+    if ((await isExpanded()) === expanded) {
+        await waitForFilterPanelState(expanded);
+        return;
+    }
+
+    await safeClick(toggle);
+    await browser.waitUntil(isExpanded, {
+        timeout: 5000,
+        timeoutMsg: `Filters toggle did not become ${expanded ? 'expanded' : 'collapsed'}`
+    });
+    await waitForFilterPanelState(expanded);
+}
+
+async function clickFilterChip(group: 'type' | 'status', value: string): Promise<void> {
+    const selector = `.media-filter-chip[data-filter-group="${group}"][data-filter-value="${value}"]`;
+    const chip = $(selector);
+    await chip.waitForDisplayed({ timeout: 5000 });
+    await safeClick(chip);
+}
+
+async function setFilterGroup(group: 'type' | 'status', values: string[]): Promise<void> {
+    await setFiltersExpanded(true);
+
+    await clickFilterChip(group, 'All');
+    await waitForLibraryRefresh();
+
+    for (const value of values) {
+        await clickFilterChip(group, value);
+        await waitForLibraryRefresh();
+    }
+}
+
 /**
  * Wait for the library grid to have a specific number of items.
  */
@@ -112,20 +185,22 @@ export async function waitForGridCount(count: number | ((actual: number) => bool
  * Set the media type filter in the library grid.
  */
 export async function setMediaTypeFilter(type: string): Promise<void> {
-    const select = $('#grid-type-select');
-    await select.waitForDisplayed({ timeout: 5000 });
-    await select.selectByAttribute('value', type);
-    await browser.pause(300);
+    await setMediaTypeFilters(type === 'All' ? [] : [type]);
+}
+
+export async function setMediaTypeFilters(types: string[]): Promise<void> {
+    await setFilterGroup('type', types);
 }
 
 /**
  * Set the tracking status filter in the library grid.
  */
 export async function setTrackingStatusFilter(status: string): Promise<void> {
-    const select = $('#grid-status-select');
-    await select.waitForDisplayed({ timeout: 5000 });
-    await select.selectByAttribute('value', status);
-    await browser.pause(300);
+    await setTrackingStatusFilters(status === 'All' ? [] : [status]);
+}
+
+export async function setTrackingStatusFilters(statuses: string[]): Promise<void> {
+    await setFilterGroup('status', statuses);
 }
 
 /**

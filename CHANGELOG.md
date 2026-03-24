@@ -6,8 +6,12 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+### Added
+- Cumulative library filters for tracking status and media type.
+
 ### Changed
 - Extra field labels in the media view continue to display in uppercase, while inline editing now shows the real stored capitalization.
+- The library filter panel is now a compact animated dropdown, with `Hide Archived` kept as a separate toggle.
 
 ### Fixed
 - Extra field names are now treated as case-insensitively unique when adding, renaming, or importing metadata, which avoids confusing duplicate tags that differ only by capitalization.

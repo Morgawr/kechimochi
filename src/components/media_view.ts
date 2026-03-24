@@ -13,8 +13,8 @@ interface MediaViewState {
     currentIndex: number;
     gridFilters: {
         searchQuery: string;
-        typeFilter: string;
-        statusFilter: string;
+        typeFilters: string[];
+        statusFilters: string[];
         hideArchived: boolean;
     },
     isLoading: boolean;
@@ -33,8 +33,8 @@ export class MediaView extends Component<MediaViewState> {
             currentIndex: 0,
             gridFilters: {
                 searchQuery: '',
-                typeFilter: 'All',
-                statusFilter: 'All',
+                typeFilters: [],
+                statusFilters: [],
                 hideArchived: false
             },
             isLoading: false,
@@ -109,14 +109,24 @@ export class MediaView extends Component<MediaViewState> {
         if (this.state.isLoading && jumpToId === undefined) return;
         this.setState({ isLoading: true });
         try {
+            let nextGridFilters = this.state.gridFilters;
             if (!this.state.isInitialized) {
                 const hideArchivedStr = await getSetting(SETTING_KEYS.GRID_HIDE_ARCHIVED);
-                if (hideArchivedStr !== null) {
-                    this.state.gridFilters.hideArchived = hideArchivedStr === 'true';
+                if (hideArchivedStr != null) {
+                    nextGridFilters = {
+                        ...nextGridFilters,
+                        hideArchived: hideArchivedStr === 'true'
+                    };
                 }
             }
 
             const mediaList = await getAllMedia();
+            const availableTypes = new Set(mediaList.map((media) => (media.content_type || 'Unknown').trim() || 'Unknown'));
+            nextGridFilters = {
+                ...nextGridFilters,
+                typeFilters: nextGridFilters.typeFilters.filter((type) => availableTypes.has(type))
+            };
+
             const nextIndex = this.state.currentIndex;
             const targetId = jumpToId ?? this.targetMediaId;
             let finalNextIndex = nextIndex;
@@ -139,6 +149,7 @@ export class MediaView extends Component<MediaViewState> {
                 currentMediaList: mediaList,
                 currentLogs,
                 currentIndex: finalNextIndex,
+                gridFilters: nextGridFilters,
                 isLoading: false,
                 isInitialized: true,
                 viewMode
