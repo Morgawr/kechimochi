@@ -2,7 +2,7 @@ import { waitForAppReady } from '../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../helpers/navigation.js';
 import { addMedia, clickMediaItem } from '../helpers/library.js';
 import { setDialogMockPath, dismissAlert, closeModal } from '../helpers/common.js';
-import { addMilestone, deleteMilestone, clearAllMilestones, getMilestoneListText } from '../helpers/media-detail.js';
+import { addMilestone, submitInvalidMilestone, deleteMilestoneByName, clearAllMilestones, getMilestoneListText } from '../helpers/media-detail.js';
 import { exportMilestones, importMilestones } from '../helpers/profile.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,6 +12,38 @@ describe('Milestone CUJ Test', () => {
     let tempExportPath: string;
     const mediaTitle = 'Milestone CUJ Media';
 
+    async function openTargetMediaDetail(): Promise<void> {
+        await navigateTo('media');
+        expect(await verifyActiveView('media')).toBe(true);
+
+        const detailHeader = $('#media-detail-header');
+        const detailVisible = await detailHeader.isDisplayed().catch(() => false);
+
+        if (detailVisible) {
+            const currentTitle = await $('#media-title').getText().catch(() => '');
+            if (currentTitle === mediaTitle) {
+                await $('#milestone-list-container').waitForDisplayed({ timeout: 5000 });
+                return;
+            }
+
+            const backBtn = $('#btn-back-grid');
+            if (await backBtn.isDisplayed().catch(() => false)) {
+                await backBtn.click();
+                await $('#media-grid-container').waitForDisplayed({ timeout: 5000 });
+            }
+        }
+
+        await clickMediaItem(mediaTitle);
+        await browser.waitUntil(async () => {
+            return (await $('#media-title').getText().catch(() => '')) === mediaTitle;
+        }, {
+            timeout: 5000,
+            interval: 100,
+            timeoutMsg: `Media detail for "${mediaTitle}" did not open in time`
+        });
+        await $('#milestone-list-container').waitForDisplayed({ timeout: 5000 });
+    }
+
     before(async () => {
         await waitForAppReady();
         const exportBaseDir = process.env.SPEC_STAGE_DIR || os.tmpdir();
@@ -19,6 +51,10 @@ describe('Milestone CUJ Test', () => {
 
         // Setup initial state
         await addMedia(mediaTitle, 'Playing');
+    });
+
+    beforeEach(async () => {
+        await openTargetMediaDetail();
     });
 
     after(() => {
@@ -35,12 +71,12 @@ describe('Milestone CUJ Test', () => {
         // Add standard milestone (121m -> 2h1min)
         await addMilestone('First Milestone', '0', '121', '0');
 
-        const firstMilestone = $(`.milestone-item[data-milestone-name="First Milestone"]`);
         await browser.waitUntil(async () => {
+            const firstMilestone = $(`.milestone-item[data-milestone-name="First Milestone"]`);
             if (!(await firstMilestone.isExisting())) return false;
             const text = await firstMilestone.getText();
             return text.includes('2h1min');
-        }, { timeout: 5000, timeoutMsg: 'Milestone "First Milestone" did not show expected duration' });
+        }, { timeout: 5000, interval: 100, timeoutMsg: 'Milestone "First Milestone" did not show expected duration' });
 
         expect(await $('#btn-clear-milestones').isDisplayed()).toBe(true);
 
@@ -58,34 +94,28 @@ describe('Milestone CUJ Test', () => {
 
         // Add character-only milestone
         await addMilestone('Char Milestone', '0', '0', '1000');
-        const charMilestone = $(`.milestone-item[data-milestone-name="Char Milestone"]`);
         await browser.waitUntil(async () => {
+            const charMilestone = $(`.milestone-item[data-milestone-name="Char Milestone"]`);
             if (!(await charMilestone.isExisting())) return false;
             const text = await charMilestone.getText();
             return /1,?000 chars/.test(text);
-        }, { timeout: 5000, timeoutMsg: 'Milestone "Char Milestone" did not show expected character count' });
+        }, { timeout: 5000, interval: 100, timeoutMsg: 'Milestone "Char Milestone" did not show expected character count' });
 
         // Verify validation for 0 duration and 0 characters
-        await $('#btn-add-milestone').click();
-        await $('#milestone-name').setValue('Invalid Milestone');
-        await $('#milestone-hours').setValue('0');
-        await $('#milestone-minutes').setValue('0');
-        await $('#milestone-characters').setValue('0');
-        await $('#milestone-confirm').click();
+        await submitInvalidMilestone('Invalid Milestone', '0', '0', '0');
 
         await dismissAlert('Please enter either duration or characters.');
         await closeModal('#milestone-cancel');
     });
 
     it('should support single and bulk deletion', async () => {
-        // Delete the Dated Milestone (index 1)
-        await deleteMilestone(1);
+        await deleteMilestoneByName('Dated Milestone');
 
         await browser.waitUntil(async () => {
             // Re-fetch items inside the loop to avoid stale element references
             const items = $$('.milestone-item');
             return (await items.length) === 2;
-        }, { timeout: 5000, timeoutMsg: 'Expected 2 milestones after deleting one' });
+        }, { timeout: 5000, interval: 100, timeoutMsg: 'Expected 2 milestones after deleting one' });
 
         const textAfterSingle = await getMilestoneListText();
         expect(textAfterSingle).not.toContain('Dated Milestone');
@@ -98,7 +128,7 @@ describe('Milestone CUJ Test', () => {
         await browser.waitUntil(async () => {
             const text = await getMilestoneListText();
             return text.includes('No milestones yet.');
-        }, { timeout: 3000, timeoutMsg: 'Milestones were not cleared' });
+        }, { timeout: 3000, interval: 100, timeoutMsg: 'Milestones were not cleared' });
 
         expect(await $('#btn-clear-milestones').isExisting()).toBe(false);
     });
@@ -132,6 +162,6 @@ describe('Milestone CUJ Test', () => {
         await browser.waitUntil(async () => {
             const text = await getMilestoneListText();
             return text.includes('Recovery Milestone') && text.includes('2h30min');
-        }, { timeout: 15000 });
+        }, { timeout: 15000, interval: 100 });
     });
 });

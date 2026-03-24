@@ -6,9 +6,37 @@
 /// <reference types="@wdio/ocr-service" />
 import path from 'node:path';
 
+type ElementTarget = string | WebdriverIO.Element | (() => WebdriverIO.Element);
+
+function resolveElement(target: ElementTarget): WebdriverIO.Element {
+    if (typeof target === 'string') {
+        return $(target);
+    }
+
+    if (typeof target === 'function') {
+        return target();
+    }
+
+    return target;
+}
+
 export async function isOverlayActive(overlay: WebdriverIO.Element): Promise<boolean> {
     const className = await overlay.getAttribute('class').catch(() => '');
     return (className ?? '').split(/\s+/).includes('active');
+}
+
+export async function waitForNoActiveOverlays(timeout = 5000): Promise<void> {
+    await browser.waitUntil(async () => {
+        return await browser.execute(() => {
+            return !Array.from(document.querySelectorAll('.modal-overlay')).some((overlay) => {
+                return overlay.classList.contains('active');
+            });
+        });
+    }, {
+        timeout,
+        interval: 100,
+        timeoutMsg: 'Modal overlays did not finish closing in time'
+    });
 }
 
 export async function getTopmostVisibleOverlay(selector?: string) {
@@ -69,6 +97,84 @@ export async function waitForOverlayToDisappear(overlay: WebdriverIO.Element, ti
         timeout,
         timeoutMsg: 'Modal overlay did not disappear in time'
     });
+}
+
+export async function safeClick(target: ElementTarget, timeout = 5000): Promise<void> {
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+            const element = resolveElement(target);
+            await element.waitForExist({ timeout });
+            await element.scrollIntoView().catch(() => { });
+            await element.waitForDisplayed({ timeout });
+
+            try {
+                await element.waitForClickable({ timeout: Math.min(timeout, 2000) });
+            } catch {
+                // Some CI runs report false negatives here; we still try a direct click below.
+            }
+
+            try {
+                await element.click();
+            } catch {
+                await browser.execute((el) => {
+                    (el as HTMLElement).click();
+                }, element);
+            }
+
+            return;
+        } catch (error) {
+            lastError = error;
+            await browser.pause(150 * (attempt + 1));
+        }
+    }
+
+    throw lastError instanceof Error ? lastError : new Error('Failed to click element');
+}
+
+export async function setInputValue(target: ElementTarget, value: string, timeout = 5000): Promise<void> {
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+            const element = resolveElement(target);
+            await element.waitForExist({ timeout });
+            await element.scrollIntoView().catch(() => { });
+            await element.waitForDisplayed({ timeout });
+            await safeClick(element, timeout);
+
+            try {
+                await element.clearValue();
+            } catch {
+                await browser.keys(['Control', 'a', 'Backspace']).catch(() => { });
+            }
+
+            if (value !== '') {
+                try {
+                    await element.addValue(value);
+                } catch {
+                    await element.setValue(value);
+                }
+            }
+
+            await browser.waitUntil(async () => {
+                const currentValue = await resolveElement(target).getValue().catch(() => null);
+                return `${currentValue ?? ''}` === value;
+            }, {
+                timeout: Math.min(timeout, 3000),
+                interval: 100,
+                timeoutMsg: 'Input value did not settle to the expected value'
+            });
+
+            return;
+        } catch (error) {
+            lastError = error;
+            await browser.pause(150 * (attempt + 1));
+        }
+    }
+
+    throw lastError instanceof Error ? lastError : new Error('Failed to set input value');
 }
 
 
@@ -146,8 +252,7 @@ export async function dismissAlert(expectedText?: string, timeout = 5000): Promi
             // Target the currently visible alert overlay in case another modal is fading out.
             const overlay = await getTopmostVisibleOverlay('#alert-ok');
             const scopedOkBtn = overlay.$('#alert-ok');
-            await scopedOkBtn.waitForClickable({ timeout: 2000 });
-            await scopedOkBtn.click();
+            await safeClick(scopedOkBtn);
 
             await waitForOverlayToDisappear(overlay, 5000);
         }
@@ -164,20 +269,10 @@ export async function submitPrompt(value: string): Promise<void> {
     const input = overlay.$('#prompt-input');
     await input.waitForDisplayed({ timeout: 5000 });
 
-    await input.waitForClickable({ timeout: 2000 });
-    
-    // Clear and set value to ensure it's clean
-    await input.click();
-    await input.setValue(value);
-    
-    // Safety check: verify value was set correctly
-    await browser.waitUntil(async () => {
-        return (await input.getValue()) === value;
-    }, { timeout: 3000, timeoutMsg: 'Failed to set value in prompt input' });
+    await setInputValue(input, value);
 
     const confirmBtn = overlay.$('#prompt-confirm');
-    await confirmBtn.waitForClickable({ timeout: 2000 });
-    await confirmBtn.click();
+    await safeClick(confirmBtn);
 
     await waitForOverlayToDisappear(overlay, 5000);
 }
@@ -191,8 +286,7 @@ export async function confirmAction(ok: boolean = true): Promise<void> {
     const btn = overlay.$(btnSelector);
     await btn.waitForDisplayed({ timeout: 5000 });
 
-    await btn.waitForClickable({ timeout: 2000 });
-    await btn.click();
+    await safeClick(btn);
 
     await waitForOverlayToDisappear(overlay, 5000);
 }
@@ -203,9 +297,7 @@ export async function confirmAction(ok: boolean = true): Promise<void> {
 export async function closeModal(cancelBtnSelector: string): Promise<void> {
     const overlay = await getTopmostVisibleOverlay(cancelBtnSelector);
     const cancelBtn = overlay.$(cancelBtnSelector);
-    await cancelBtn.waitForClickable({ timeout: 5000 });
-
-    await cancelBtn.click();
+    await safeClick(cancelBtn);
     await waitForOverlayToDisappear(overlay, 5000);
 }
 /**

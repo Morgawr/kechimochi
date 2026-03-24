@@ -2,7 +2,16 @@
  * Media Detail helpers.
  */
 /// <reference types="@wdio/globals/types" />
-import { submitPrompt, confirmAction, performActivityEdit } from './common.js';
+import {
+    submitPrompt,
+    confirmAction,
+    performActivityEdit,
+    getTopmostVisibleOverlay,
+    waitForOverlayToDisappear,
+    safeClick,
+    setInputValue,
+    waitForNoActiveOverlays
+} from './common.js';
 
 /**
  * Clicks the "Mark as Complete" button in Media Detail.
@@ -271,66 +280,145 @@ export async function getProjectionValue(id: string): Promise<string> {
     const strong = el.$('strong');
     return await strong.getText();
 }
+
+type MilestoneFormValues = {
+    name: string;
+    hours: string;
+    minutes: string;
+    characters?: string;
+    pickDate?: boolean;
+};
+
+async function waitForMilestoneCardReady(): Promise<void> {
+    const list = $('#milestone-list-container');
+    await list.waitForDisplayed({ timeout: 5000 });
+    await waitForNoActiveOverlays(5000);
+
+    const addBtn = $('#btn-add-milestone');
+    await addBtn.waitForDisplayed({ timeout: 5000 });
+}
+
+async function openMilestoneModal(): Promise<WebdriverIO.Element> {
+    await waitForMilestoneCardReady();
+    await safeClick('#btn-add-milestone');
+
+    const overlay = await getTopmostVisibleOverlay('#milestone-name');
+    const nameInput = overlay.$('#milestone-name');
+    await nameInput.waitForDisplayed({ timeout: 5000 });
+    return overlay;
+}
+
+async function populateMilestoneForm(overlay: WebdriverIO.Element, values: MilestoneFormValues): Promise<string | null> {
+    await setInputValue(() => overlay.$('#milestone-name'), values.name);
+    await setInputValue(() => overlay.$('#milestone-hours'), values.hours);
+    await setInputValue(() => overlay.$('#milestone-minutes'), values.minutes);
+    await setInputValue(() => overlay.$('#milestone-characters'), values.characters ?? '0');
+
+    let selectedDate: string | null = null;
+    if (values.pickDate) {
+        await safeClick(() => overlay.$('#milestone-record-date'));
+
+        const firstDay = overlay.$('.cal-day');
+        await firstDay.waitForDisplayed({ timeout: 5000 });
+        selectedDate = await firstDay.getAttribute('data-date');
+        await safeClick(firstDay);
+    }
+
+    return selectedDate;
+}
+
+async function waitForMilestoneActionToSettle(): Promise<void> {
+    await waitForNoActiveOverlays(5000);
+    await browser.waitUntil(async () => {
+        const list = $('#milestone-list-container');
+        const addBtn = $('#btn-add-milestone');
+        const listVisible = await list.isDisplayed().catch(() => false);
+        const addVisible = await addBtn.isDisplayed().catch(() => false);
+        return listVisible && addVisible;
+    }, {
+        timeout: 5000,
+        interval: 100,
+        timeoutMsg: 'Milestone panel did not settle after the action'
+    });
+}
 /**
  * Adds a new milestone.
  */
 export async function addMilestone(name: string, hours: string, minutes: string, characters: string = "0", pickDate: boolean = false): Promise<string | null> {
-    const addBtn = $('#btn-add-milestone');
-    await addBtn.waitForClickable({ timeout: 5000 });
-    await addBtn.click();
+    const overlay = await openMilestoneModal();
+    const selectedDate = await populateMilestoneForm(overlay, { name, hours, minutes, characters, pickDate });
 
-    const nameInput = $('#milestone-name');
-    await nameInput.waitForDisplayed({ timeout: 5000 });
-    await nameInput.setValue(name);
-
-    await $('#milestone-hours').setValue(hours);
-    await $('#milestone-minutes').setValue(minutes);
-    
-    const charInput = $('#milestone-characters');
-    if (await charInput.isExisting()) {
-        await charInput.setValue(characters);
-    }
-
-    let selectedDate: string | null = null;
-    if (pickDate) {
-        await $('#milestone-record-date').click();
-        const firstDay = $('.cal-day');
-        await firstDay.waitForDisplayed({ timeout: 5000 });
-        const dataset = await firstDay.getProperty('dataset') as Record<string, string>;
-        selectedDate = dataset.date;
-        await firstDay.click();
-    }
-
-    const { getTopmostVisibleOverlay, waitForOverlayToDisappear } = await import('./common.js');
-    const overlay = await getTopmostVisibleOverlay('#milestone-name');
-    
-    await $('#milestone-confirm').click();
-    
-    // Wait for the modal to fully disappear
+    await safeClick(() => overlay.$('#milestone-confirm'));
     await waitForOverlayToDisappear(overlay, 5000);
-    
+    await waitForMilestoneActionToSettle();
+
     return selectedDate;
+}
+
+export async function submitInvalidMilestone(name: string, hours: string, minutes: string, characters: string = '0'): Promise<void> {
+    const overlay = await openMilestoneModal();
+    await populateMilestoneForm(overlay, { name, hours, minutes, characters });
+    await safeClick(() => overlay.$('#milestone-confirm'));
 }
 
 /**
  * Deletes a milestone by index.
  */
 export async function deleteMilestone(index: number): Promise<void> {
+    await waitForMilestoneCardReady();
+
     const deleteBtns = await $$('.delete-milestone-btn');
     if (deleteBtns[index]) {
-        await deleteBtns[index].click();
+        await safeClick(deleteBtns[index]);
         await confirmAction(true);
+        await waitForMilestoneActionToSettle();
     }
+}
+
+export async function deleteMilestoneByName(name: string): Promise<void> {
+    await waitForMilestoneCardReady();
+
+    const item = $(`.milestone-item[data-milestone-name="${name}"]`);
+    await item.waitForDisplayed({ timeout: 5000 });
+    await item.scrollIntoView();
+
+    const deleteBtn = item.$('.delete-milestone-btn');
+    await safeClick(deleteBtn);
+    await confirmAction(true);
+
+    await browser.waitUntil(async () => {
+        return !(await $(`.milestone-item[data-milestone-name="${name}"]`).isExisting().catch(() => false));
+    }, {
+        timeout: 5000,
+        interval: 100,
+        timeoutMsg: `Milestone "${name}" did not disappear after deletion`
+    });
+
+    await waitForMilestoneActionToSettle();
 }
 
 /**
  * Clears all milestones for the current media.
  */
 export async function clearAllMilestones(): Promise<void> {
+    await waitForMilestoneCardReady();
+
     const clearBtn = $('#btn-clear-milestones');
-    await clearBtn.waitForClickable({ timeout: 5000 });
-    await clearBtn.click();
+    if (!(await clearBtn.isExisting().catch(() => false))) {
+        return;
+    }
+
+    await safeClick(clearBtn);
     await confirmAction(true);
+    await browser.waitUntil(async () => {
+        const text = await getMilestoneListText();
+        return text.includes('No milestones yet.');
+    }, {
+        timeout: 5000,
+        interval: 100,
+        timeoutMsg: 'Milestone list did not return to the empty state after clearing'
+    });
+    await waitForMilestoneActionToSettle();
 }
 
 /**
