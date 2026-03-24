@@ -3,6 +3,7 @@ import { searchJiten, getJitenCoverUrl, getJitenDeckUrl, getJitenDeckChildren, J
 import { customAlert, createOverlay } from './base';
 import { escapeHTML } from '../core/html';
 import { ACTIVITY_TYPES } from '../constants';
+import { getExtraDataValue } from '../utils/extra_data';
 
 export async function showAddMediaModal(): Promise<{title: string, type: string, contentType: string} | null> {
     return new Promise((resolve) => {
@@ -108,13 +109,14 @@ function buildExtraFieldsHtml(scraped: import('../importers/index').ScrapedMetad
     let html = '';
     let count = 0;
     for (const [key, val] of Object.entries(scraped.extraData)) {
-        if (val === currentData.extraData[key]) continue;
+        const currentValue = getExtraDataValue(currentData.extraData, key);
+        if (val === currentValue) continue;
         count++;
-        const isOverwrite = !!currentData.extraData[key];
+        const isOverwrite = currentValue !== undefined;
         const overwriteText = isOverwrite ? `<span style="color: var(--accent-red); font-size: 0.7rem; margin-left: 0.5rem;">(Overwrites existing)</span>` : `<span style="color: var(--accent-green); font-size: 0.7rem; margin-left: 0.5rem;">(New field)</span>`;
         const valHtml = isOverwrite ? `
             <div style="display: flex; flex-direction: column; gap: 0.25rem; margin-top: 0.25rem;">
-                <span style="font-size: 0.75rem; color: var(--accent-red); text-decoration: line-through; word-wrap: break-word; opacity: 0.8;">${escapeHTML(currentData.extraData[key])}</span>
+                <span style="font-size: 0.75rem; color: var(--accent-red); text-decoration: line-through; word-wrap: break-word; opacity: 0.8;">${escapeHTML(currentValue || "")}</span>
                 <span style="font-size: 0.8rem; color: var(--text-secondary); word-wrap: break-word;">${escapeHTML(val)}</span>
             </div>` : `<span style="font-size: 0.8rem; color: var(--text-secondary); word-wrap: break-word;">${escapeHTML(val)}</span>`;
 

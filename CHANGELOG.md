@@ -6,6 +6,13 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+### Changed
+- Extra field labels in the media view continue to display in uppercase, while inline editing now shows the real stored capitalization.
+
+### Fixed
+- Extra field names are now treated as case-insensitively unique when adding, renaming, or importing metadata, which avoids confusing duplicate tags that differ only by capitalization.
+- Character-count-based calculations now work across capitalization variants of the `Character count` extra field.
+
 ## [0.1.0] - 2026-03-24
 
 ### Added

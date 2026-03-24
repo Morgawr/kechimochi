@@ -7,6 +7,7 @@ import { isValidImporterUrl, fetchMetadataForUrl } from '../../importers';
 import { getServices } from '../../services';
 import { MediaLog } from './MediaLog';
 import { setupCopyButton } from '../../utils/clipboard';
+import { getCharacterCountFromExtraData, mergeExtraData, normalizeExtraData, removeExtraDataKey, renameExtraDataKey, upsertExtraDataValue } from '../../utils/extra_data';
 import { formatHhMm } from '../../utils/time';
 import { TRACKING_STATUSES, ACTIVITY_TYPES, MEDIA_STATUS, CONTENT_TYPE_TO_ACTIVITY_TYPE } from '../../constants';
 
@@ -369,7 +370,7 @@ export class MediaDetail extends Component<MediaDetailState> {
     private getExtraDataHtml(media: Media) {
         let extraData: Record<string, string> = {};
         try {
-            extraData = JSON.parse(media.extra_data || "{}");
+            extraData = normalizeExtraData(JSON.parse(media.extra_data || "{}"));
         } catch (e) {
             Logger.warn("Could not parse extra data", e);
         }
@@ -405,9 +406,8 @@ export class MediaDetail extends Component<MediaDetailState> {
     private async computeReadingSpeedHtml(media: Media, readingMin: number): Promise<string> {
         try {
             const extra = JSON.parse(media.extra_data || "{}");
-            const charRaw = extra["Character count"] || "";
-            const charCount = Number.parseInt(charRaw.replaceAll(',', ''), 10);
-            if (Number.isNaN(charCount) || charCount <= 0) return "";
+            const charCount = getCharacterCountFromExtraData(extra);
+            if (charCount === null || charCount <= 0) return "";
             if (readingMin <= 0) return "";
 
             if (media.tracking_status === 'Complete') {
@@ -518,9 +518,8 @@ export class MediaDetail extends Component<MediaDetailState> {
 
         const onSave = async (field: string, value: string, isExtra: boolean = false) => {
             if (isExtra) {
-                const extraData = JSON.parse(this.state.media.extra_data || "{}");
-                extraData[field] = value;
-                this.state.media.extra_data = JSON.stringify(extraData);
+                const extraData = normalizeExtraData(JSON.parse(this.state.media.extra_data || "{}"));
+                this.state.media.extra_data = JSON.stringify(upsertExtraDataValue(extraData, field, value));
             } else {
                 (this.state.media as unknown as Record<string, unknown>)[field] = value;
             }
@@ -533,11 +532,8 @@ export class MediaDetail extends Component<MediaDetailState> {
                 this.render();
                 return;
             }
-            const extraData = JSON.parse(this.state.media.extra_data || "{}");
-            const val = extraData[oldKey];
-            delete extraData[oldKey];
-            extraData[newKey] = val;
-            this.state.media.extra_data = JSON.stringify(extraData);
+            const extraData = normalizeExtraData(JSON.parse(this.state.media.extra_data || "{}"));
+            this.state.media.extra_data = JSON.stringify(renameExtraDataKey(extraData, oldKey, newKey));
             await updateMedia(this.state.media);
             this.render();
         };
@@ -567,7 +563,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                 input.style.border = '1px solid var(--accent-green)';
                 input.style.padding = '0.2rem 0.5rem';
                 input.style.fontSize = options.isRenameKey ? '0.7rem' : 'inherit';
-                if (options.isRenameKey) input.style.textTransform = 'uppercase';
+                if (options.isRenameKey) input.style.textTransform = 'none';
 
                 const save = async () => {
                     const newVal = input.value.trim();
@@ -660,9 +656,8 @@ export class MediaDetail extends Component<MediaDetailState> {
             const key = await customPrompt("Enter field name (e.g. 'Author', 'Artist'):");
             if (!key) return;
             const val = await customPrompt(`Enter value for "${key}":`);
-            const extraData = JSON.parse(this.state.media.extra_data || "{}");
-            extraData[key] = val || "";
-            this.state.media.extra_data = JSON.stringify(extraData);
+            const extraData = normalizeExtraData(JSON.parse(this.state.media.extra_data || "{}"));
+            this.state.media.extra_data = JSON.stringify(upsertExtraDataValue(extraData, key, val || ""));
             await updateMedia(this.state.media);
             this.render();
         });
@@ -671,9 +666,8 @@ export class MediaDetail extends Component<MediaDetailState> {
             btn.addEventListener('click', async (e) => {
                 const key = (e.currentTarget as HTMLElement).dataset.key;
                 if (!key) return;
-                const extraData = JSON.parse(this.state.media.extra_data || "{}");
-                delete extraData[key];
-                this.state.media.extra_data = JSON.stringify(extraData);
+                const extraData = normalizeExtraData(JSON.parse(this.state.media.extra_data || "{}"));
+                this.state.media.extra_data = JSON.stringify(removeExtraDataKey(extraData, key));
                 await updateMedia(this.state.media);
                 this.render();
             });
@@ -759,7 +753,7 @@ export class MediaDetail extends Component<MediaDetailState> {
             // Prepare scraped data
             const scrapedMeta = { ...meta };
 
-            const currentExtraData = JSON.parse(this.state.media.extra_data || "{}");
+            const currentExtraData = normalizeExtraData(JSON.parse(this.state.media.extra_data || "{}"));
             const merged = await showImportMergeModal(scrapedMeta, {
                 description: this.state.media.description,
                 coverImageUrl: this.state.imgSrc || "",
@@ -773,7 +767,7 @@ export class MediaDetail extends Component<MediaDetailState> {
             if (merged.description !== undefined) this.state.media.description = merged.description;
 
             // Handle extra data merges
-            const finalExtraData = { ...currentExtraData, ...merged.extraData };
+            const finalExtraData = mergeExtraData(currentExtraData, merged.extraData);
             this.state.media.extra_data = JSON.stringify(finalExtraData);
 
             // Handle cover image merge

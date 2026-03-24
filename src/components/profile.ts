@@ -17,6 +17,7 @@ import { getServices } from '../services';
 import { formatProductVersionLabel, getAppVersionInfo } from '../app_version';
 import type { ProfilePicture } from '../types';
 import { getProfileInitials, profilePictureToDataUrl } from '../utils/profile_picture';
+import { getCharacterCountFromExtraData } from '../utils/extra_data';
 import { STORAGE_KEYS, SETTING_KEYS, DEFAULTS, EVENTS } from '../constants';
 
 interface ProfileState {
@@ -539,8 +540,8 @@ export class ProfileView extends Component<ProfileState> {
             let extraData: Record<string, string>;
             try { extraData = JSON.parse(media.extra_data || "{}"); } catch { continue; }
 
-            const charCount = Number.parseInt((extraData["Character count"] || "").replaceAll(',', ''), 10);
-            if (Number.isNaN(charCount)) continue;
+            const charCount = getCharacterCountFromExtraData(extraData);
+            if (charCount === null) continue;
 
             const logs = await getLogsForMedia(media.id!);
             if (logs.length === 0 || logs[0].date < cutoffStr) continue;

@@ -141,6 +141,47 @@ describe('MediaDetail', () => {
         expect(container.textContent).not.toContain('0m');
     });
 
+    it('should preserve original extra field casing while editing keys', async () => {
+        vi.mocked(api.getMilestones).mockResolvedValue([]);
+
+        const component = new MediaDetail(
+            container,
+            { ...mockMedia, extra_data: '{"Character Count":"10,000"}' } as unknown as Media,
+            [],
+            [mockMedia as unknown as Media],
+            0,
+            mockCallbacks
+        );
+        component.triggerMount();
+        component.render();
+
+        const extraKey = container.querySelector('.editable-extra-key[data-key="Character Count"]') as HTMLElement;
+        expect(extraKey.style.textTransform).toBe('uppercase');
+        extraKey.dispatchEvent(new Event('dblclick'));
+
+        const input = container.querySelector('.edit-input') as HTMLInputElement;
+        expect(input.value).toBe('Character Count');
+        expect(input.style.textTransform).toBe('none');
+    });
+
+    it('should compute reading speed with case-insensitive character count keys', async () => {
+        vi.mocked(api.getMilestones).mockResolvedValue([]);
+        const completedMedia = {
+            ...mockMedia,
+            tracking_status: 'Complete',
+            extra_data: '{"CHARACTER COUNT":"10,000"}'
+        };
+        const mockLogs = [
+            { id: 1, duration_minutes: 60, characters: 1000, date: '2024-03-01', media_id: 1, title: 'T1', media_type: 'Reading', language: 'Japanese' }
+        ] as unknown as api.ActivitySummary[];
+
+        const component = new MediaDetail(container, completedMedia as unknown as Media, mockLogs, [completedMedia as unknown as Media], 0, mockCallbacks);
+        component.triggerMount();
+
+        await vi.waitFor(() => expect(container.textContent).toContain('Est. Reading Speed'));
+        expect(container.textContent).toContain('10,000 char/hr');
+    });
+
     it('should handle extra field deletion', async () => {
         vi.mocked(api.getMilestones).mockResolvedValue([]);
         const component = new MediaDetail(container, { ...mockMedia } as unknown as Media, [], [mockMedia as unknown as Media], 0, mockCallbacks);
@@ -315,6 +356,54 @@ describe('MediaDetail', () => {
 
         await vi.waitFor(() => expect(modals.customPrompt).toHaveBeenCalled());
         expect(api.updateMedia).not.toHaveBeenCalled();
+    });
+
+    it('should merge duplicate extra field names case-insensitively when adding a field', async () => {
+        vi.mocked(api.getMilestones).mockResolvedValue([]);
+        vi.mocked(modals.customPrompt).mockResolvedValueOnce('author').mockResolvedValueOnce('Rewriter');
+
+        const component = new MediaDetail(container, { ...mockMedia } as unknown as Media, [], [mockMedia as unknown as Media], 0, mockCallbacks);
+        component.triggerMount();
+        component.render();
+
+        (container.querySelector('#btn-add-extra') as HTMLButtonElement).click();
+
+        await vi.waitFor(() => expect(api.updateMedia).toHaveBeenCalled());
+        expect(api.updateMedia).toHaveBeenCalledWith(expect.objectContaining({
+            extra_data: '{"Author":"Rewriter"}'
+        }));
+    });
+
+    it('should merge imported extra field names case-insensitively', async () => {
+        vi.mocked(importers.getAvailableSourcesForContentType).mockReturnValue(['MockSource']);
+        vi.mocked(api.getMilestones).mockResolvedValue([]);
+        const mockScraped = {
+            title: 'Scraped',
+            extraData: { 'genre': 'New' }
+        };
+        vi.mocked(importers.fetchMetadataForUrl).mockResolvedValue(mockScraped as unknown as ScrapedMetadata);
+        vi.mocked(modals.showImportMergeModal).mockResolvedValue({
+            extraData: { 'genre': 'New' }
+        });
+
+        const component = new MediaDetail(
+            container,
+            { ...mockMedia, extra_data: '{"Genre":"Old"}' } as unknown as Media,
+            [],
+            [mockMedia as unknown as Media],
+            0,
+            mockCallbacks
+        );
+        component.triggerMount();
+        component.render();
+
+        vi.mocked(modals.customPrompt).mockResolvedValue('https://vndb.org/v1');
+        (container.querySelector('#btn-import-meta') as HTMLElement).click();
+
+        await vi.waitFor(() => expect(api.updateMedia).toHaveBeenCalled());
+        expect(api.updateMedia).toHaveBeenCalledWith(expect.objectContaining({
+            extra_data: '{"Genre":"New"}'
+        }));
     });
 
     it('should refresh logs after creating a new media entry', async () => {

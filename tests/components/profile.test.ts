@@ -204,6 +204,33 @@ describe('ProfileView', () => {
         expect(modals.customAlert).toHaveBeenCalledWith("Success", expect.stringContaining("calculated"));
     });
 
+    it('should calculate report with case-insensitive character count keys', async () => {
+        vi.mocked(api.getSetting).mockResolvedValue('0');
+        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+        vi.mocked(api.getAllMedia).mockResolvedValue([{
+            id: 1, title: 'M1', tracking_status: 'Complete', content_type: 'Novel', extra_data: '{"CHARACTER COUNT":"10,000"}'
+        }] as unknown as Media[]);
+        vi.mocked(api.getLogsForMedia).mockResolvedValue([{
+            id: 1,
+            media_id: 1,
+            title: 'M1',
+            media_type: 'Reading',
+            language: 'Japanese',
+            date: new Date().toISOString().split('T')[0],
+            duration_minutes: 60,
+            characters: 0
+        }] as unknown as api.ActivitySummary[]);
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-calculate-report')).not.toBeNull());
+
+        (container.querySelector('#profile-btn-calculate-report') as HTMLButtonElement).click();
+
+        await vi.waitFor(() => expect(api.setSetting).toHaveBeenCalledWith(SETTING_KEYS.STATS_NOVEL_SPEED, '10000'));
+    });
+
     it('should handle report calculation failure', async () => {
         vi.mocked(api.getAllMedia).mockRejectedValue(new Error('API Error'));
         const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
