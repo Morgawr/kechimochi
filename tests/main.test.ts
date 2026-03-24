@@ -51,6 +51,8 @@ vi.mock('../src/modals', () => ({
     customConfirm: vi.fn(),
     customPrompt: vi.fn(),
     showLogActivityModal: vi.fn(),
+    showInstalledUpdateModal: vi.fn(() => Promise.resolve()),
+    showAvailableUpdateModal: vi.fn(() => Promise.resolve()),
 }));
 
 describe('main.ts initialization', () => {
@@ -71,6 +73,7 @@ describe('main.ts initialization', () => {
             <span id="nav-user-avatar-fallback"></span>
             <span id="nav-user-name"></span>
             <div id="dev-build-badge"></div>
+            <button id="update-available-badge"></button>
             <div class="nav-link" data-view="dashboard"></div>
             <div class="nav-link" data-view="media"></div>
             <div class="nav-link" data-view="profile"></div>

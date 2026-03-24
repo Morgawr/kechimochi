@@ -1,6 +1,8 @@
 declare const __APP_VERSION__: string;
 declare const __APP_BUILD_CHANNEL__: string;
 declare const __APP_RELEASE_STAGE__: string;
+declare const __APP_RELEASE_NOTES__: string;
+declare const __APP_RELEASES_URL__: string;
 
 export type AppBuildChannel = 'dev' | 'release';
 export type AppReleaseStage = 'beta' | 'stable';
@@ -12,7 +14,12 @@ export interface AppVersionInfo {
 }
 
 function readBuildString(
-    globalKey: '__APP_VERSION__' | '__APP_BUILD_CHANNEL__' | '__APP_RELEASE_STAGE__',
+    globalKey:
+        | '__APP_VERSION__'
+        | '__APP_BUILD_CHANNEL__'
+        | '__APP_RELEASE_STAGE__'
+        | '__APP_RELEASE_NOTES__'
+        | '__APP_RELEASES_URL__',
     compileValue: string,
     fallback: string,
 ): string {
@@ -58,4 +65,16 @@ export function formatBuildBadge(versionInfo: AppVersionInfo = getAppVersionInfo
 
 export function formatProductVersionLabel(versionInfo: AppVersionInfo = getAppVersionInfo()): string {
     return `Kechimochi ${formatBuildBadge(versionInfo)}`;
+}
+
+export function getBundledReleaseNotes(): string {
+    return readBuildString('__APP_RELEASE_NOTES__', __APP_RELEASE_NOTES__, '');
+}
+
+export function getReleasesUrl(): string {
+    return readBuildString(
+        '__APP_RELEASES_URL__',
+        __APP_RELEASES_URL__,
+        'https://github.com/Morgawr/kechimochi/releases',
+    );
 }

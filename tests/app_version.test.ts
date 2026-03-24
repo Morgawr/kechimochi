@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatBuildBadge, formatProductVersionLabel } from '../src/app_version';
+import { formatBuildBadge, formatProductVersionLabel, getBundledReleaseNotes, getReleasesUrl } from '../src/app_version';
 
 describe('app_version helpers', () => {
     it('formats dev build badges', () => {
@@ -24,5 +24,10 @@ describe('app_version helpers', () => {
             channel: 'release',
             releaseStage: 'stable',
         })).toBe('Kechimochi VERSION 1.0.0');
+    });
+
+    it('exposes bundled release metadata', () => {
+        expect(getBundledReleaseNotes()).toContain('Bundled notes');
+        expect(getReleasesUrl()).toBe('https://github.com/Morgawr/kechimochi/releases');
     });
 });

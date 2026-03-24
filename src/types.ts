@@ -75,3 +75,19 @@ export interface ProfilePicture {
     height: number;
     updated_at: string;
 }
+
+export interface ReleaseInfo {
+    version: string;
+    body: string;
+    url: string;
+    publishedAt: string;
+    prerelease: boolean;
+}
+
+export interface UpdateState {
+    checking: boolean;
+    autoCheckEnabled: boolean;
+    availableRelease: ReleaseInfo | null;
+    installedVersion: string;
+    isSupported: boolean;
+}

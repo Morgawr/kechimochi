@@ -15,10 +15,11 @@ import {
 } from '../modals';
 import { getServices } from '../services';
 import { formatProductVersionLabel, getAppVersionInfo } from '../app_version';
-import type { ProfilePicture } from '../types';
+import type { ProfilePicture, UpdateState } from '../types';
 import { getProfileInitials, profilePictureToDataUrl } from '../utils/profile_picture';
 import { getCharacterCountFromExtraData } from '../utils/extra_data';
 import { STORAGE_KEYS, SETTING_KEYS, DEFAULTS, EVENTS } from '../constants';
+import type { UpdateManager } from '../updates';
 
 interface ProfileState {
     currentProfile: string;
@@ -35,12 +36,14 @@ interface ProfileState {
     };
     appVersion: string;
     isInitialized: boolean;
+    updateState: UpdateState;
 }
 
 export class ProfileView extends Component<ProfileState> {
     private isRefreshing = false;
+    private removeUpdateListener: (() => void) | null = null;
 
-    constructor(container: HTMLElement) {
+    constructor(container: HTMLElement, private readonly updateManager?: UpdateManager) {
         super(container, {
             currentProfile: localStorage.getItem(STORAGE_KEYS.CURRENT_PROFILE) || DEFAULTS.PROFILE,
             theme: localStorage.getItem(STORAGE_KEYS.THEME_CACHE) || DEFAULTS.THEME,
@@ -55,8 +58,26 @@ export class ProfileView extends Component<ProfileState> {
                 timestamp: ''
             },
             appVersion: '',
-            isInitialized: false
+            isInitialized: false,
+            updateState: updateManager?.getState() ?? {
+                checking: false,
+                autoCheckEnabled: true,
+                availableRelease: null,
+                installedVersion: getAppVersionInfo().version,
+                isSupported: false,
+            },
         });
+    }
+
+    protected onMount(): void {
+        if (!this.updateManager) return;
+        this.removeUpdateListener = this.updateManager.subscribe(updateState => {
+            this.setState({ updateState });
+        });
+    }
+
+    public destroy(): void {
+        this.removeUpdateListener?.();
     }
 
     async loadData() {
@@ -169,6 +190,8 @@ export class ProfileView extends Component<ProfileState> {
                         </select>
                     </div>
                 </div>
+
+                ${this.renderUpdatesCard()}
 
                 <!-- Activity Logs -->
                 <div class="card" style="display: flex; flex-direction: column; gap: 1rem;">
@@ -306,6 +329,32 @@ export class ProfileView extends Component<ProfileState> {
         `;
     }
 
+    private renderUpdatesCard() {
+        const { updateState } = this.state;
+        if (!updateState.isSupported) {
+            return '';
+        }
+
+        return html`
+            <div class="card" style="display: flex; flex-direction: column; gap: 1rem;">
+                <h3>Updates</h3>
+                <p style="color: var(--text-secondary); font-size: 0.9rem;">Check for new desktop releases and control whether Kechimochi checks automatically on startup.</p>
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
+                    <label for="profile-updates-auto-check" style="display: inline-flex; align-items: center; gap: 0.6rem; color: var(--text-primary); cursor: pointer;">
+                        <input id="profile-updates-auto-check" type="checkbox" ${updateState.autoCheckEnabled ? 'checked' : ''} />
+                        Automatically check for updates on startup
+                    </label>
+                    <button class="btn btn-primary" id="profile-btn-check-updates" ${updateState.checking ? 'disabled' : ''}>
+                        ${updateState.checking ? 'Checking...' : 'Check for updates'}
+                    </button>
+                </div>
+                ${updateState.availableRelease
+                    ? html`<p id="profile-update-summary" style="margin: 0; color: var(--text-secondary);">Latest available version: <strong style="color: var(--text-primary);">${updateState.availableRelease.version}</strong></p>`
+                    : html`<p id="profile-update-summary" style="margin: 0; color: var(--text-secondary);">No newer release has been found in this session yet.</p>`}
+            </div>
+        `;
+    }
+
     private setupListeners(root: HTMLElement) {
         const nameEl = root.querySelector('#profile-name') as HTMLElement;
         if (nameEl) {
@@ -359,6 +408,17 @@ export class ProfileView extends Component<ProfileState> {
             document.body.dataset.theme = theme;
             localStorage.setItem(STORAGE_KEYS.THEME_CACHE, theme);
             this.setState({ theme });
+        });
+
+        root.querySelector('#profile-updates-auto-check')?.addEventListener('change', async (e) => {
+            if (!this.updateManager) return;
+            const enabled = (e.target as HTMLInputElement).checked;
+            await this.updateManager.setAutoCheckEnabled(enabled);
+        });
+
+        root.querySelector('#profile-btn-check-updates')?.addEventListener('click', async () => {
+            if (!this.updateManager) return;
+            await this.updateManager.checkForUpdates({ manual: true });
         });
 
         root.querySelector('#profile-btn-import-csv')?.addEventListener('click', async () => {

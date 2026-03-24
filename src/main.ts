@@ -14,6 +14,7 @@ import { formatBuildBadge } from './app_version';
 import { getProfileInitials, profilePictureToDataUrl } from './utils/profile_picture';
 import { STORAGE_KEYS, SETTING_KEYS, VIEW_NAMES, EVENTS, DEFAULTS } from './constants';
 import type { ProfilePicture } from './types';
+import { UpdateManager } from './updates';
 
 // Support global date mocking for E2E tests
 let mockDateStr: string | null = null;
@@ -48,13 +49,14 @@ if (mockDateStr) {
 }
 type ViewType = typeof VIEW_NAMES[keyof typeof VIEW_NAMES];
 
-class App {
+export class App {
     private currentView: ViewType = VIEW_NAMES.DASHBOARD;
     private currentProfile: string = '';
 
     private readonly dashboard: Dashboard;
     private readonly mediaView: MediaView;
     private readonly profileView: ProfileView;
+    private readonly updateManager: UpdateManager;
 
     private readonly viewContainer: HTMLElement;
     private readonly dashboardContainer: HTMLElement;
@@ -66,15 +68,18 @@ class App {
     private readonly navUserAvatarImgEl: HTMLImageElement | null;
     private readonly navUserAvatarFallbackEl: HTMLElement | null;
     private readonly devBuildBadgeEl: HTMLElement | null;
+    private readonly updateBadgeEl: HTMLButtonElement | null;
     private readonly navLinks: NodeListOf<HTMLElement>;
 
-    constructor() {
+    constructor(updateManager: UpdateManager = new UpdateManager()) {
+        this.updateManager = updateManager;
         this.viewContainer = document.getElementById('view-container')!;
         this.navUserNameEl = document.getElementById('nav-user-name')!;
         this.navUserAvatarEl = document.getElementById('nav-user-avatar');
         this.navUserAvatarImgEl = document.getElementById('nav-user-avatar-image') as HTMLImageElement | null;
         this.navUserAvatarFallbackEl = document.getElementById('nav-user-avatar-fallback');
         this.devBuildBadgeEl = document.getElementById('dev-build-badge');
+        this.updateBadgeEl = document.getElementById('update-available-badge') as HTMLButtonElement | null;
         this.navLinks = document.querySelectorAll('.nav-link');
 
         this.dashboardContainer = document.createElement('div');
@@ -90,11 +95,21 @@ class App {
 
         this.dashboard = new Dashboard(this.dashboardContainer);
         this.mediaView = new MediaView(this.mediaContainer);
-        this.profileView = new ProfileView(this.profileContainer);
+        this.profileView = new ProfileView(this.profileContainer, this.updateManager);
+
+        this.updateManager.subscribe(state => {
+            if (!this.updateBadgeEl) return;
+            const isVisible = state.isSupported && state.availableRelease !== null;
+            this.updateBadgeEl.style.display = isVisible ? 'inline-flex' : 'none';
+            this.updateBadgeEl.disabled = state.availableRelease === null;
+            this.updateBadgeEl.textContent = state.availableRelease
+                ? `New update available: ${state.availableRelease.version}`
+                : 'New update available';
+        });
     }
 
-    public static async start(): Promise<App> {
-        const app = new App();
+    public static async start(updateManager?: UpdateManager): Promise<App> {
+        const app = new App(updateManager);
         await app.init();
         return app;
     }
@@ -110,10 +125,16 @@ class App {
             this.devBuildBadgeEl.textContent = formatBuildBadge();
         }
 
-        await this.initProfile();
+        const isFreshInstall = await this.initProfile();
         await this.loadTheme();
 
         await this.switchView(this.currentView);
+
+        try {
+            await this.updateManager.initialize({ isFreshInstall });
+        } catch (e) {
+            Logger.warn('[kechimochi] Failed to initialize update manager:', e);
+        }
     }
 
     private setupWindowControls() {
@@ -129,6 +150,10 @@ class App {
                 const view = link.dataset.view as ViewType;
                 if (view) this.switchView(view);
             });
+        });
+
+        this.updateBadgeEl?.addEventListener('click', async () => {
+            await this.updateManager.openAvailableUpdateModal();
         });
     }
 
@@ -162,7 +187,7 @@ class App {
         });
     }
 
-    private async initProfile() {
+    private async initProfile(): Promise<boolean> {
         let profileName: string | null = null;
         try {
             profileName = await getSetting(SETTING_KEYS.PROFILE_NAME);
@@ -174,6 +199,9 @@ class App {
             // DB is already initialized, just load it
             await initializeUserDb();
             this.currentProfile = profileName;
+            localStorage.setItem(STORAGE_KEYS.CURRENT_PROFILE, this.currentProfile);
+            await this.refreshProfileChrome();
+            return false;
         } else {
             // Check for previous user profile in localStorage to migrate it
             const oldProfile = localStorage.getItem(STORAGE_KEYS.CURRENT_PROFILE);
@@ -190,9 +218,10 @@ class App {
                 this.currentProfile = newName;
             }
         }
-        
+
         localStorage.setItem(STORAGE_KEYS.CURRENT_PROFILE, this.currentProfile);
         await this.refreshProfileChrome();
+        return true;
     }
 
     private async loadTheme() {

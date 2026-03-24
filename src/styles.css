@@ -773,6 +773,35 @@ input:focus, select:focus {
     color: var(--accent-text);
 }
 
+.update-available-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem 0.8rem;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  background: color-mix(in srgb, var(--accent-blue) 22%, var(--bg-card));
+  color: var(--text-primary);
+  border: 1px solid color-mix(in srgb, var(--accent-blue) 55%, transparent);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: transform var(--transition-fast), filter var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.update-available-badge:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+  box-shadow: var(--shadow-md);
+}
+
+.update-available-badge:disabled {
+  cursor: default;
+  opacity: 0.7;
+  transform: none;
+}
+
 .badge-content {
   background: rgba(245, 192, 192, 0.15);
   color: var(--accent-purple);

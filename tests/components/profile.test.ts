@@ -27,6 +27,7 @@ const mockServices = {
     exportActivities: vi.fn(),
     analyzeMediaCsvFromPick: vi.fn(),
     exportMediaLibrary: vi.fn(),
+    isDesktop: vi.fn(() => true),
 };
 
 vi.mock('../../src/services', () => ({
@@ -44,6 +45,8 @@ vi.mock('../../src/modals', () => ({
     customPrompt: vi.fn(),
     showExportCsvModal: vi.fn(),
     showBlockingStatus: vi.fn(() => ({ close: vi.fn() })),
+    showInstalledUpdateModal: vi.fn(() => Promise.resolve()),
+    showAvailableUpdateModal: vi.fn(() => Promise.resolve()),
 }));
 
 import * as modals from '../../src/modals';
@@ -182,6 +185,53 @@ describe('ProfileView', () => {
         select.dispatchEvent(new Event('change'));
 
         expect(api.setSetting).toHaveBeenCalledWith(SETTING_KEYS.THEME, 'molokai');
+    });
+
+    it('should render update controls and forward update actions', async () => {
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
+            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
+            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
+            return '0';
+        });
+        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+
+        const subscribe = vi.fn((listener: (state: unknown) => void) => {
+            listener({
+                checking: false,
+                autoCheckEnabled: true,
+                availableRelease: { version: '1.0.1' },
+                installedVersion: '1.0.0',
+                isSupported: true,
+            });
+            return vi.fn();
+        });
+        const updateManager = {
+            getState: vi.fn(() => ({
+                checking: false,
+                autoCheckEnabled: true,
+                availableRelease: { version: '1.0.1' },
+                installedVersion: '1.0.0',
+                isSupported: true,
+            })),
+            subscribe,
+            setAutoCheckEnabled: vi.fn(() => Promise.resolve()),
+            checkForUpdates: vi.fn(() => Promise.resolve(null)),
+        };
+
+        const view = new ProfileView(container, updateManager as never);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-check-updates')).not.toBeNull());
+        expect(container.textContent).toContain('Latest available version:');
+
+        const checkbox = container.querySelector('#profile-updates-auto-check') as HTMLInputElement;
+        checkbox.checked = false;
+        checkbox.dispatchEvent(new Event('change'));
+        expect(updateManager.setAutoCheckEnabled).toHaveBeenCalledWith(false);
+
+        (container.querySelector('#profile-btn-check-updates') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(updateManager.checkForUpdates).toHaveBeenCalledWith({ manual: true }));
     });
 
     it('should calculate report', async () => {

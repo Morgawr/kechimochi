@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { extractChangelogSection } from "./scripts/changelog-utils.mjs";
 
 const host = process.env.TAURI_DEV_HOST;
 const webHost = process.env.WEB_HOST;
@@ -33,6 +34,15 @@ const defaultAppVersion = appBuildChannel === "release"
   ? packageVersion
   : `${packageVersion}-dev.${gitHash}`;
 const appVersion = process.env.VITE_APP_VERSION?.trim() || defaultAppVersion;
+const releaseNotesVersion = appBuildChannel === "release" ? appVersion : packageVersion;
+
+function getBundledReleaseNotes(version: string): string {
+  try {
+    return extractChangelogSection(version);
+  } catch {
+    return "";
+  }
+}
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
@@ -41,6 +51,8 @@ export default defineConfig(async () => ({
     __APP_BUILD_CHANNEL__: JSON.stringify(appBuildChannel),
     __APP_RELEASE_STAGE__: JSON.stringify(releaseStage),
     __APP_GIT_HASH__: JSON.stringify(gitHash),
+    __APP_RELEASE_NOTES__: JSON.stringify(getBundledReleaseNotes(releaseNotesVersion)),
+    __APP_RELEASES_URL__: JSON.stringify("https://github.com/Morgawr/kechimochi/releases"),
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
