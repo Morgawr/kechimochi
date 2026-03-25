@@ -14,6 +14,7 @@ The format is based on Keep a Changelog, with one section per released version.
 ### Changed
 - Library search, filters, hide-archived handling, refresh, and detail navigation now use shared behavior in both library layouts.
 - Viewports below the grid breakpoint now force `list` layout without overwriting the saved layout preference.
+- Clicking a heatmap day on the dashboard now jumps the activity charts to that week.
 
 ## [0.1.2] - 2026-03-25
 
