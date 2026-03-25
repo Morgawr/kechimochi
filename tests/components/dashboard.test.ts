@@ -3,6 +3,8 @@ import { Dashboard } from '../../src/components/dashboard';
 import * as api from '../../src/api';
 import { ActivitySummary } from '../../src/api';
 import { customConfirm } from '../../src/modals';
+import { HeatmapView } from '../../src/components/dashboard/HeatmapView';
+import { ActivityCharts } from '../../src/components/dashboard/ActivityCharts';
 
 vi.mock('../../src/api', () => ({
     getLogs: vi.fn(),
@@ -21,6 +23,29 @@ vi.mock('../../src/modals', () => ({
 vi.mock('../../src/components/dashboard/StatsCard');
 vi.mock('../../src/components/dashboard/HeatmapView');
 vi.mock('../../src/components/dashboard/ActivityCharts');
+
+function getLocalISODate(date: Date): string {
+    const pad = (value: number) => value.toString().padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function getUtcWeekStart(dateStr: string): number {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    const dayOfWeek = date.getUTCDay();
+    const diffToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+
+    date.setUTCDate(date.getUTCDate() - diffToMonday);
+    return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+}
+
+function getWeeklyOffset(dateStr: string): number {
+    const millisecondsPerWeek = 7 * 24 * 60 * 60 * 1000;
+    const currentWeekStart = getUtcWeekStart(getLocalISODate(new Date()));
+    const selectedWeekStart = getUtcWeekStart(dateStr);
+
+    return Math.max(0, Math.round((currentWeekStart - selectedWeekStart) / millisecondsPerWeek));
+}
 
 describe('Dashboard', () => {
     let container: HTMLElement;
@@ -124,5 +149,52 @@ describe('Dashboard', () => {
         expect(dashboard.state.chartParams.chartType).toBe('line');
         // @ts-expect-error - accessing private state
         expect(dashboard.state.chartParams.groupByMode).toBe('log_name');
+    });
+
+    it('should switch the activity charts to the clicked heatmap week', async () => {
+        const clickedDate = getLocalISODate(new Date(Date.now() - (10 * 24 * 60 * 60 * 1000)));
+
+        vi.mocked(api.getLogs).mockResolvedValue([]);
+        vi.mocked(api.getHeatmap).mockResolvedValue([
+            { date: clickedDate, total_minutes: 45, total_characters: 1800 }
+        ]);
+        vi.mocked(api.getAllMedia).mockResolvedValue([]);
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === 'dashboard_chart_type') return 'line';
+            if (key === 'dashboard_group_by') return 'log_name';
+            return null;
+        });
+
+        const dashboard = new Dashboard(container);
+        await vi.waitFor(() => {
+            // @ts-expect-error - accessing private state
+            if (!dashboard.state.isInitialized) throw new Error('Not initialized');
+        });
+
+        const initialChartChange = vi.mocked(ActivityCharts).mock.calls[0]?.[2] as ((params: Record<string, unknown>) => void) | undefined;
+        expect(initialChartChange).toBeTypeOf('function');
+        initialChartChange?.({ timeRangeDays: 30, timeRangeOffset: 2, metric: 'characters' });
+
+        const onDateSelect = vi.mocked(HeatmapView).mock.calls[0]?.[3] as ((dateStr: string) => void) | undefined;
+        expect(onDateSelect).toBeTypeOf('function');
+        onDateSelect?.(clickedDate);
+
+        const expectedOffset = getWeeklyOffset(clickedDate);
+        const latestChartState = vi.mocked(ActivityCharts).mock.calls.at(-1)?.[1];
+
+        expect(latestChartState).toMatchObject({
+            timeRangeDays: 7,
+            timeRangeOffset: expectedOffset,
+            chartType: 'line',
+            groupByMode: 'log_name',
+            metric: 'characters'
+        });
+
+        // @ts-expect-error - accessing private state
+        expect(dashboard.state.chartParams).toMatchObject({
+            timeRangeDays: 7,
+            timeRangeOffset: expectedOffset,
+            metric: 'characters'
+        });
     });
 });

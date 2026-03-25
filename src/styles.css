@@ -1195,6 +1195,15 @@ input:focus, select:focus {
   background-color: #3b3b4a;
   min-width: 0;
 }
+
+.heatmap-cell-interactive {
+  cursor: pointer;
+}
+
+.heatmap-cell-interactive:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent-green) 65%, white 35%);
+  outline-offset: 1px;
+}
 /* Gradient handled in JS */
 
 /* Charts */

@@ -204,10 +204,45 @@ export class Dashboard extends Component<DashboardState> {
                     year: this.state.currentHeatmapYear
                 }, (dir) => {
                     this.setState({ currentHeatmapYear: this.state.currentHeatmapYear + dir });
+                }, (dateStr) => {
+                    this.focusChartsOnHeatmapDate(dateStr);
                 });
             }
             this.heatmapComponent.render();
         }
+    }
+
+    private focusChartsOnHeatmapDate(dateStr: string) {
+        this.setState({
+            chartParams: {
+                ...this.state.chartParams,
+                timeRangeDays: 7,
+                timeRangeOffset: this.getWeeklyOffsetForDate(dateStr)
+            }
+        });
+    }
+
+    private getWeeklyOffsetForDate(dateStr: string): number {
+        const millisecondsPerWeek = 7 * 24 * 60 * 60 * 1000;
+        const currentWeekStart = this.getUtcWeekStart(this.getLocalISODate(new Date()));
+        const selectedWeekStart = this.getUtcWeekStart(dateStr);
+
+        return Math.max(0, Math.round((currentWeekStart - selectedWeekStart) / millisecondsPerWeek));
+    }
+
+    private getLocalISODate(date: Date): string {
+        const pad = (value: number) => value.toString().padStart(2, '0');
+        return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    }
+
+    private getUtcWeekStart(dateStr: string): number {
+        const [year, month, day] = dateStr.split('-').map(Number);
+        const date = new Date(Date.UTC(year, month - 1, day));
+        const dayOfWeek = date.getUTCDay();
+        const diffToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+
+        date.setUTCDate(date.getUTCDate() - diffToMonday);
+        return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
     }
 
     private updateCharts() {
