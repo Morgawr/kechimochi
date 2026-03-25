@@ -136,6 +136,10 @@ export class ActivityCharts extends Component<ActivityChartsState> {
 
         const colors = this.getChartColors();
         const timeRange = this.calculateTimeRange();
+        layout.dataset.rangeStart = timeRange.validStart;
+        layout.dataset.rangeEnd = timeRange.validEnd;
+        layout.dataset.timeRangeDays = String(this.state.timeRangeDays);
+        layout.dataset.timeRangeOffset = String(this.state.timeRangeOffset);
 
         this.createPieChart(pieCanvas, colors, timeRange);
         this.createBarChart(barCanvas, colors, timeRange);

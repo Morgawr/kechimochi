@@ -2,7 +2,7 @@
  * Dashboard-specific helpers.
  */
 /// <reference types="@wdio/globals/types" />
-import { confirmAction, performActivityEdit } from './common.js';
+import { confirmAction, performActivityEdit, safeClick } from './common.js';
 
 /**
  * High-level helper to log an activity from the dashboard
@@ -89,6 +89,49 @@ export async function getHeatmapCellColor(date: string): Promise<string> {
     const cell = $(`.heatmap-cell[title^="${date}"]`);
     await cell.waitForExist({ timeout: 5000 });
     return await cell.getCSSProperty('background-color').then(p => p.value || '');
+}
+
+export async function clickHeatmapCell(date: string): Promise<void> {
+    const cell = $(`.heatmap-cell[data-date="${date}"]`);
+    await cell.waitForDisplayed({ timeout: 5000 });
+    await safeClick(cell);
+}
+
+export async function selectActivityChartTimeRange(days: '7' | '30' | '365'): Promise<void> {
+    const select = $('#select-time-range');
+    await select.waitForDisplayed({ timeout: 5000 });
+    await select.selectByAttribute('value', days);
+    await browser.waitUntil(async () => (await select.getValue()) === days, {
+        timeout: 5000,
+        interval: 100,
+        timeoutMsg: `Expected activity chart time range to be ${days}`
+    });
+}
+
+export async function getActivityChartRangeMetadata(): Promise<{
+    rangeStart: string;
+    rangeEnd: string;
+    timeRangeDays: string;
+    timeRangeOffset: string;
+}> {
+    const getGrid = () => $('#activity-charts-grid');
+    await getGrid().waitForDisplayed({ timeout: 5000 });
+
+    await browser.waitUntil(async () => {
+        const rangeStart = await getGrid().getAttribute('data-range-start');
+        return Boolean(rangeStart);
+    }, {
+        timeout: 5000,
+        interval: 100,
+        timeoutMsg: 'Expected activity chart range metadata to be available'
+    });
+
+    return {
+        rangeStart: (await getGrid().getAttribute('data-range-start')) ?? '',
+        rangeEnd: (await getGrid().getAttribute('data-range-end')) ?? '',
+        timeRangeDays: (await getGrid().getAttribute('data-time-range-days')) ?? '',
+        timeRangeOffset: (await getGrid().getAttribute('data-time-range-offset')) ?? ''
+    };
 }
 
 /**
