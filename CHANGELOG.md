@@ -6,6 +6,9 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+### Added
+- A timeline view for reverse-chronological media events, including started, completed, paused, dropped, and dated milestone entries.
+
 ## [0.1.2] - 2026-03-25
 
 - No real updates, I am just writing a changelog to test the update check workflow
