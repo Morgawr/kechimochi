@@ -11,6 +11,8 @@ export type {
   ActivityLog,
   ActivitySummary,
   DailyHeatmap,
+  TimelineEventKind,
+  TimelineEvent,
   MediaCsvRow,
   MediaConflict,
   Milestone,
@@ -22,6 +24,7 @@ import type {
   ActivityLog,
   ActivitySummary,
   DailyHeatmap,
+  TimelineEvent,
   MediaCsvRow,
   MediaConflict,
   Milestone,
@@ -53,6 +56,7 @@ export function deleteLog(id: number): Promise<void> { return getServices().dele
 export function getLogs(): Promise<ActivitySummary[]> { return getServices().getLogs(); }
 export function getHeatmap(): Promise<DailyHeatmap[]> { return getServices().getHeatmap(); }
 export function getLogsForMedia(mediaId: number): Promise<ActivitySummary[]> { return getServices().getLogsForMedia(mediaId); }
+export function getTimelineEvents(): Promise<TimelineEvent[]> { return getServices().getTimelineEvents(); }
 
 export function initializeUserDb(fallbackUsername?: string): Promise<void> { return getServices().initializeUserDb(fallbackUsername); }
 export function clearActivities(): Promise<void> { return getServices().clearActivities(); }

@@ -1,10 +1,14 @@
 use rusqlite::{params, Connection, Result};
+use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
 use tauri::Manager;
 
-use crate::models::{ActivityLog, ActivitySummary, DailyHeatmap, Media, Milestone, ProfilePicture};
+use crate::models::{
+    ActivityLog, ActivitySummary, DailyHeatmap, Media, Milestone, ProfilePicture, TimelineEvent,
+    TimelineEventKind,
+};
 
 pub const CURRENT_SCHEMA_VERSION: i64 = 1;
 
@@ -1145,6 +1149,268 @@ pub fn get_milestones_for_media(conn: &Connection, media_title: &str) -> Result<
     Ok(milestone_list)
 }
 
+pub fn get_all_milestones(conn: &Connection) -> Result<Vec<Milestone>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, media_title, name, duration, characters, date
+         FROM main.milestones
+         ORDER BY date DESC, id ASC",
+    )?;
+    let milestone_iter = stmt.query_map([], |row| {
+        Ok(Milestone {
+            id: row.get(0)?,
+            media_title: row.get(1)?,
+            name: row.get(2)?,
+            duration: row.get(3)?,
+            characters: row.get(4)?,
+            date: row.get(5)?,
+        })
+    })?;
+
+    let mut milestone_list = Vec::new();
+    for milestone in milestone_iter {
+        milestone_list.push(milestone?);
+    }
+    Ok(milestone_list)
+}
+
+#[derive(Clone)]
+struct TimelineMediaContext {
+    media_id: i64,
+    media_title: String,
+    cover_image: String,
+    activity_type: String,
+    content_type: String,
+    tracking_status: String,
+    first_date: String,
+    last_date: String,
+    total_minutes: i64,
+    total_characters: i64,
+    same_day_terminal: bool,
+}
+
+fn terminal_kind(tracking_status: &str) -> Option<TimelineEventKind> {
+    match tracking_status {
+        "Complete" => Some(TimelineEventKind::Finished),
+        "Paused" => Some(TimelineEventKind::Paused),
+        "Dropped" => Some(TimelineEventKind::Dropped),
+        _ => None,
+    }
+}
+
+fn timeline_sort_rank(event: &TimelineEvent) -> u8 {
+    let is_terminal = terminal_kind(&event.tracking_status).is_some();
+
+    match event.kind {
+        TimelineEventKind::Milestone if !is_terminal => 0,
+        TimelineEventKind::Started => 1,
+        TimelineEventKind::Finished | TimelineEventKind::Paused | TimelineEventKind::Dropped
+            if event.same_day_terminal =>
+        {
+            2
+        }
+        TimelineEventKind::Finished | TimelineEventKind::Paused | TimelineEventKind::Dropped => 3,
+        TimelineEventKind::Milestone => 4,
+    }
+}
+
+fn dominant_activity_type(logs: &[ActivitySummary], fallback: &str) -> String {
+    let mut counts: HashMap<String, (usize, usize)> = HashMap::new();
+
+    for (index, log) in logs.iter().enumerate() {
+        let entry = counts
+            .entry(log.media_type.clone())
+            .or_insert((0, usize::MAX));
+        entry.0 += 1;
+        entry.1 = entry.1.min(index);
+    }
+
+    counts
+        .into_iter()
+        .max_by(
+            |(left_kind, (left_count, left_first_seen)),
+             (right_kind, (right_count, right_first_seen))| {
+                left_count
+                    .cmp(right_count)
+                    .then_with(|| right_first_seen.cmp(left_first_seen))
+                    .then_with(|| right_kind.cmp(left_kind))
+            },
+        )
+        .map(|(kind, _)| kind)
+        .unwrap_or_else(|| fallback.to_string())
+}
+
+fn build_timeline_event(
+    context: &TimelineMediaContext,
+    kind: TimelineEventKind,
+    date: String,
+    milestone_name: Option<String>,
+    milestone_minutes: i64,
+    milestone_characters: i64,
+) -> TimelineEvent {
+    TimelineEvent {
+        kind,
+        date,
+        media_id: context.media_id,
+        media_title: context.media_title.clone(),
+        cover_image: context.cover_image.clone(),
+        activity_type: context.activity_type.clone(),
+        content_type: context.content_type.clone(),
+        tracking_status: context.tracking_status.clone(),
+        milestone_name,
+        first_date: context.first_date.clone(),
+        last_date: context.last_date.clone(),
+        total_minutes: context.total_minutes,
+        total_characters: context.total_characters,
+        milestone_minutes,
+        milestone_characters,
+        same_day_terminal: context.same_day_terminal,
+    }
+}
+
+pub fn get_timeline_events(conn: &Connection) -> Result<Vec<TimelineEvent>> {
+    let media_list = get_all_media(conn)?;
+    let logs = get_logs(conn)?;
+    let milestones = get_all_milestones(conn)?;
+
+    let mut logs_by_media_id: HashMap<i64, Vec<ActivitySummary>> = HashMap::new();
+    for log in logs {
+        logs_by_media_id.entry(log.media_id).or_default().push(log);
+    }
+
+    let mut media_contexts_by_id: HashMap<i64, TimelineMediaContext> = HashMap::new();
+    let mut media_ids_by_title: HashMap<String, i64> = HashMap::new();
+    let mut timeline_events = Vec::new();
+
+    for media in media_list {
+        let Some(media_id) = media.id else {
+            continue;
+        };
+
+        media_ids_by_title.insert(media.title.clone(), media_id);
+
+        let fallback_context = TimelineMediaContext {
+            media_id,
+            media_title: media.title.clone(),
+            cover_image: media.cover_image.clone(),
+            activity_type: media.media_type.clone(),
+            content_type: media.content_type.clone(),
+            tracking_status: media.tracking_status.clone(),
+            first_date: String::new(),
+            last_date: String::new(),
+            total_minutes: 0,
+            total_characters: 0,
+            same_day_terminal: false,
+        };
+        media_contexts_by_id.insert(media_id, fallback_context.clone());
+
+        let Some(media_logs) = logs_by_media_id.get(&media_id) else {
+            continue;
+        };
+        if media_logs.is_empty() {
+            continue;
+        }
+
+        let first_date = media_logs
+            .last()
+            .map(|log| log.date.clone())
+            .unwrap_or_default();
+        let last_date = media_logs
+            .first()
+            .map(|log| log.date.clone())
+            .unwrap_or_default();
+        let total_minutes = media_logs.iter().map(|log| log.duration_minutes).sum();
+        let total_characters = media_logs.iter().map(|log| log.characters).sum();
+        let activity_type = dominant_activity_type(media_logs, &media.media_type);
+        let terminal_event = terminal_kind(&media.tracking_status);
+        let same_day_terminal = terminal_event.is_some() && first_date == last_date;
+
+        let context = TimelineMediaContext {
+            media_id,
+            media_title: media.title.clone(),
+            cover_image: media.cover_image.clone(),
+            activity_type,
+            content_type: media.content_type.clone(),
+            tracking_status: media.tracking_status.clone(),
+            first_date: first_date.clone(),
+            last_date: last_date.clone(),
+            total_minutes,
+            total_characters,
+            same_day_terminal,
+        };
+        media_contexts_by_id.insert(media_id, context.clone());
+
+        if let Some(kind) = terminal_event {
+            timeline_events.push(build_timeline_event(
+                &context,
+                kind,
+                last_date.clone(),
+                None,
+                0,
+                0,
+            ));
+
+            if !same_day_terminal {
+                timeline_events.push(build_timeline_event(
+                    &context,
+                    TimelineEventKind::Started,
+                    first_date,
+                    None,
+                    0,
+                    0,
+                ));
+            }
+            continue;
+        }
+
+        timeline_events.push(build_timeline_event(
+            &context,
+            TimelineEventKind::Started,
+            first_date.clone(),
+            None,
+            0,
+            0,
+        ));
+    }
+
+    for milestone in milestones {
+        let Some(date) = milestone.date.clone() else {
+            continue;
+        };
+        let Some(media_id) = media_ids_by_title.get(&milestone.media_title).copied() else {
+            continue;
+        };
+        let Some(context) = media_contexts_by_id.get(&media_id).cloned() else {
+            continue;
+        };
+
+        timeline_events.push(build_timeline_event(
+            &context,
+            TimelineEventKind::Milestone,
+            date,
+            Some(milestone.name),
+            milestone.duration,
+            milestone.characters,
+        ));
+    }
+
+    timeline_events.sort_by(|left, right| {
+        right
+            .date
+            .cmp(&left.date)
+            .then_with(|| timeline_sort_rank(left).cmp(&timeline_sort_rank(right)))
+            .then_with(|| left.media_title.cmp(&right.media_title))
+            .then_with(|| left.media_id.cmp(&right.media_id))
+            .then_with(|| {
+                left.milestone_name
+                    .as_deref()
+                    .unwrap_or("")
+                    .cmp(right.milestone_name.as_deref().unwrap_or(""))
+            })
+    });
+
+    Ok(timeline_events)
+}
+
 pub fn add_milestone(conn: &Connection, milestone: &Milestone) -> Result<i64> {
     if milestone.duration == 0 && milestone.characters == 0 {
         return Err(rusqlite::Error::ToSqlConversionFailure(Box::new(
@@ -1291,6 +1557,7 @@ pub fn save_cover_bytes(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::TimelineEventKind;
     use rusqlite::Connection;
     use std::sync::Mutex;
 
@@ -1327,6 +1594,17 @@ mod tests {
             width: 32,
             height: 32,
             updated_at: "2026-03-23T00:00:00Z".to_string(),
+        }
+    }
+
+    fn sample_log(media_id: i64, date: &str, activity_type: &str) -> ActivityLog {
+        ActivityLog {
+            id: None,
+            media_id,
+            duration_minutes: 30,
+            characters: 1200,
+            date: date.to_string(),
+            activity_type: activity_type.to_string(),
         }
     }
 
@@ -1697,6 +1975,300 @@ mod tests {
         let m2_logs = get_logs_for_media(&conn, m2_id).unwrap();
         assert_eq!(m2_logs.len(), 1);
         assert_eq!(m2_logs[0].title, "Media 2");
+    }
+
+    #[test]
+    fn test_get_all_milestones_returns_all_rows_in_date_order() {
+        let conn = setup_test_db();
+
+        add_milestone(
+            &conn,
+            &Milestone {
+                id: None,
+                media_title: "Alpha".to_string(),
+                name: "Older".to_string(),
+                duration: 10,
+                characters: 0,
+                date: Some("2024-01-01".to_string()),
+            },
+        )
+        .unwrap();
+        add_milestone(
+            &conn,
+            &Milestone {
+                id: None,
+                media_title: "Beta".to_string(),
+                name: "Newer".to_string(),
+                duration: 20,
+                characters: 0,
+                date: Some("2024-02-01".to_string()),
+            },
+        )
+        .unwrap();
+
+        let milestones = get_all_milestones(&conn).unwrap();
+        assert_eq!(milestones.len(), 2);
+        assert_eq!(milestones[0].name, "Newer");
+        assert_eq!(milestones[1].name, "Older");
+    }
+
+    #[test]
+    fn test_get_timeline_events_builds_lifecycle_events() {
+        let conn = setup_test_db();
+
+        let complete_id = add_media_with_id(
+            &conn,
+            &Media {
+                tracking_status: "Complete".to_string(),
+                content_type: "Novel".to_string(),
+                ..sample_media("Complete Title")
+            },
+        )
+        .unwrap();
+        let paused_id = add_media_with_id(
+            &conn,
+            &Media {
+                media_type: "Playing".to_string(),
+                tracking_status: "Paused".to_string(),
+                content_type: "Videogame".to_string(),
+                ..sample_media("Paused Title")
+            },
+        )
+        .unwrap();
+        let dropped_id = add_media_with_id(
+            &conn,
+            &Media {
+                media_type: "Watching".to_string(),
+                tracking_status: "Dropped".to_string(),
+                content_type: "Anime".to_string(),
+                ..sample_media("Dropped Title")
+            },
+        )
+        .unwrap();
+        let ongoing_id = add_media_with_id(
+            &conn,
+            &Media {
+                media_type: "Listening".to_string(),
+                tracking_status: "Ongoing".to_string(),
+                content_type: "Audio".to_string(),
+                ..sample_media("Ongoing Title")
+            },
+        )
+        .unwrap();
+        let single_id = add_media_with_id(
+            &conn,
+            &Media {
+                tracking_status: "Ongoing".to_string(),
+                content_type: "Manga".to_string(),
+                ..sample_media("Single Session")
+            },
+        )
+        .unwrap();
+
+        add_log(&conn, &sample_log(complete_id, "2024-03-01", "Reading")).unwrap();
+        add_log(&conn, &sample_log(complete_id, "2024-03-05", "Reading")).unwrap();
+        add_log(&conn, &sample_log(paused_id, "2024-03-02", "Playing")).unwrap();
+        add_log(&conn, &sample_log(paused_id, "2024-03-04", "Playing")).unwrap();
+        add_log(&conn, &sample_log(dropped_id, "2024-03-03", "Watching")).unwrap();
+        add_log(&conn, &sample_log(dropped_id, "2024-03-07", "Watching")).unwrap();
+        add_log(&conn, &sample_log(ongoing_id, "2024-02-01", "Listening")).unwrap();
+        add_log(&conn, &sample_log(ongoing_id, "2024-02-08", "Listening")).unwrap();
+        add_log(&conn, &sample_log(single_id, "2024-01-10", "Reading")).unwrap();
+
+        add_milestone(
+            &conn,
+            &Milestone {
+                id: None,
+                media_title: "Complete Title".to_string(),
+                name: "Halfway".to_string(),
+                duration: 60,
+                characters: 0,
+                date: Some("2024-03-04".to_string()),
+            },
+        )
+        .unwrap();
+        add_milestone(
+            &conn,
+            &Milestone {
+                id: None,
+                media_title: "Ongoing Title".to_string(),
+                name: "Undated".to_string(),
+                duration: 30,
+                characters: 0,
+                date: None,
+            },
+        )
+        .unwrap();
+
+        let events = get_timeline_events(&conn).unwrap();
+
+        assert_eq!(events[0].kind, TimelineEventKind::Dropped);
+        assert_eq!(events[0].media_title, "Dropped Title");
+
+        assert!(events.iter().any(|event| {
+            event.kind == TimelineEventKind::Finished
+                && event.media_title == "Complete Title"
+                && event.date == "2024-03-05"
+        }));
+        assert!(events.iter().any(|event| {
+            event.kind == TimelineEventKind::Paused
+                && event.media_title == "Paused Title"
+                && event.date == "2024-03-04"
+        }));
+        assert!(events.iter().any(|event| {
+            event.kind == TimelineEventKind::Dropped
+                && event.media_title == "Dropped Title"
+                && event.date == "2024-03-07"
+        }));
+        assert!(events.iter().any(|event| {
+            event.kind == TimelineEventKind::Milestone
+                && event.media_title == "Complete Title"
+                && event.milestone_name.as_deref() == Some("Halfway")
+                && event.milestone_minutes == 60
+                && event.milestone_characters == 0
+        }));
+        assert!(events.iter().any(|event| {
+            event.kind == TimelineEventKind::Started
+                && event.media_title == "Ongoing Title"
+                && event.date == "2024-02-01"
+        }));
+        assert!(events.iter().any(|event| {
+            event.kind == TimelineEventKind::Started
+                && event.media_title == "Single Session"
+                && event.date == "2024-01-10"
+        }));
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.media_title == "Ongoing Title")
+                .count(),
+            1
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.media_title == "Single Session")
+                .count(),
+            1
+        );
+        assert!(!events
+            .iter()
+            .any(|event| event.milestone_name.as_deref() == Some("Undated")));
+    }
+
+    #[test]
+    fn test_get_timeline_events_collapses_same_day_terminal_activity() {
+        let conn = setup_test_db();
+        let media_id = add_media_with_id(
+            &conn,
+            &Media {
+                tracking_status: "Complete".to_string(),
+                content_type: "Novel".to_string(),
+                ..sample_media("One Day Finish")
+            },
+        )
+        .unwrap();
+
+        add_log(&conn, &sample_log(media_id, "2024-04-01", "Reading")).unwrap();
+
+        let events = get_timeline_events(&conn).unwrap();
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, TimelineEventKind::Finished);
+        assert_eq!(events[0].media_title, "One Day Finish");
+        assert!(events[0].same_day_terminal);
+    }
+
+    #[test]
+    fn test_get_timeline_events_orders_same_day_clusters_from_newest_to_oldest() {
+        let conn = setup_test_db();
+
+        let complete_id = add_media_with_id(
+            &conn,
+            &Media {
+                tracking_status: "Complete".to_string(),
+                content_type: "Novel".to_string(),
+                ..sample_media("Complete Title")
+            },
+        )
+        .unwrap();
+        let same_day_complete_id = add_media_with_id(
+            &conn,
+            &Media {
+                tracking_status: "Complete".to_string(),
+                content_type: "Novel".to_string(),
+                ..sample_media("One Day Finish")
+            },
+        )
+        .unwrap();
+        let ongoing_id = add_media_with_id(
+            &conn,
+            &Media {
+                tracking_status: "Ongoing".to_string(),
+                content_type: "Novel".to_string(),
+                ..sample_media("Ongoing Title")
+            },
+        )
+        .unwrap();
+
+        add_log(&conn, &sample_log(complete_id, "2024-03-01", "Reading")).unwrap();
+        add_log(&conn, &sample_log(complete_id, "2024-03-05", "Reading")).unwrap();
+        add_log(
+            &conn,
+            &sample_log(same_day_complete_id, "2024-03-05", "Reading"),
+        )
+        .unwrap();
+        add_log(&conn, &sample_log(ongoing_id, "2024-03-05", "Reading")).unwrap();
+
+        add_milestone(
+            &conn,
+            &Milestone {
+                id: None,
+                media_title: "Complete Title".to_string(),
+                name: "Final Stretch".to_string(),
+                duration: 25,
+                characters: 0,
+                date: Some("2024-03-05".to_string()),
+            },
+        )
+        .unwrap();
+        add_milestone(
+            &conn,
+            &Milestone {
+                id: None,
+                media_title: "Ongoing Title".to_string(),
+                name: "Checkpoint".to_string(),
+                duration: 15,
+                characters: 0,
+                date: Some("2024-03-05".to_string()),
+            },
+        )
+        .unwrap();
+
+        let same_day_events = get_timeline_events(&conn)
+            .unwrap()
+            .into_iter()
+            .filter(|event| event.date == "2024-03-05")
+            .collect::<Vec<_>>();
+
+        assert_eq!(same_day_events.len(), 5);
+
+        assert_eq!(same_day_events[0].kind, TimelineEventKind::Milestone);
+        assert_eq!(same_day_events[0].media_title, "Ongoing Title");
+
+        assert_eq!(same_day_events[1].kind, TimelineEventKind::Started);
+        assert_eq!(same_day_events[1].media_title, "Ongoing Title");
+
+        assert_eq!(same_day_events[2].kind, TimelineEventKind::Finished);
+        assert_eq!(same_day_events[2].media_title, "One Day Finish");
+        assert!(same_day_events[2].same_day_terminal);
+
+        assert_eq!(same_day_events[3].kind, TimelineEventKind::Finished);
+        assert_eq!(same_day_events[3].media_title, "Complete Title");
+        assert!(!same_day_events[3].same_day_terminal);
+
+        assert_eq!(same_day_events[4].kind, TimelineEventKind::Milestone);
+        assert_eq!(same_day_events[4].media_title, "Complete Title");
     }
 
     #[test]

@@ -38,6 +38,7 @@ vi.mock('../src/api', () => ({
     getLogs: vi.fn(() => Promise.resolve([{ id: 0, date: '2024-01-01', duration_minutes: 0, title: 'T', media_id: 1, media_type: 'M', language: 'Japanese' } as ActivitySummary])),
     getAllMedia: vi.fn(() => Promise.resolve([])),
     getHeatmap: vi.fn(() => Promise.resolve([{ date: '2024-01-01', total_minutes: 10 }])),
+    getTimelineEvents: vi.fn(() => Promise.resolve([])),
     getMilestones: vi.fn(() => Promise.resolve([])),
     getAppVersion: vi.fn(() => Promise.resolve('1.0.0')),
     clearMilestones: vi.fn(),
@@ -76,6 +77,7 @@ describe('main.ts initialization', () => {
             <button id="update-available-badge"></button>
             <div class="nav-link" data-view="dashboard"></div>
             <div class="nav-link" data-view="media"></div>
+            <div class="nav-link" data-view="timeline"></div>
             <div class="nav-link" data-view="profile"></div>
             <button id="win-min"></button>
             <button id="win-max"></button>
@@ -124,6 +126,10 @@ describe('main.ts initialization', () => {
         mediaLink?.dispatchEvent(new Event('click'));
         
         await vi.waitFor(() => expect(mediaLink?.classList.contains('active')).toBe(true));
+        const timelineLink = document.querySelector('[data-view="timeline"]');
+        timelineLink?.dispatchEvent(new Event('click'));
+        await vi.waitFor(() => expect(timelineLink?.classList.contains('active')).toBe(true));
+
         const profileLink = document.querySelector('[data-view="profile"]');
         profileLink?.dispatchEvent(new Event('click'));
         await vi.waitFor(() => expect(profileLink?.classList.contains('active')).toBe(true));
@@ -165,6 +171,26 @@ describe('main.ts initialization', () => {
         addActivityBtn?.dispatchEvent(new Event('click'));
         
         await vi.waitFor(() => expect(modals.showLogActivityModal).toHaveBeenCalled());
+    });
+
+    it('should refresh timeline data after logging activity from the timeline view', async () => {
+        await bootApp();
+
+        await vi.waitFor(() => expect(api.getTimelineEvents).toHaveBeenCalled());
+        const initialCalls = vi.mocked(api.getTimelineEvents).mock.calls.length;
+
+        const timelineLink = document.querySelector('[data-view="timeline"]');
+        timelineLink?.dispatchEvent(new Event('click'));
+        await vi.waitFor(() => expect(timelineLink?.classList.contains('active')).toBe(true));
+        const callsAfterNavigation = vi.mocked(api.getTimelineEvents).mock.calls.length;
+
+        vi.mocked(modals.showLogActivityModal).mockResolvedValue(true);
+        document.getElementById('btn-add-activity')?.dispatchEvent(new Event('click'));
+
+        await vi.waitFor(() =>
+            expect(vi.mocked(api.getTimelineEvents).mock.calls.length).toBeGreaterThan(callsAfterNavigation),
+        );
+        expect(callsAfterNavigation).toBeGreaterThanOrEqual(initialCalls);
     });
 
     it('should handle profile updated event', async () => {

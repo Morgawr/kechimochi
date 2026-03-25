@@ -72,6 +72,11 @@ describe('api.ts', () => {
       expect(invoke).toHaveBeenCalledWith('get_logs_for_media', { mediaId: 1 });
     });
 
+    it('getTimelineEvents should call invoke', async () => {
+      await api.getTimelineEvents();
+      expect(invoke).toHaveBeenCalledWith('get_timeline_events');
+    });
+
     it('clearActivities should call invoke', async () => {
       await api.clearActivities();
       expect(invoke).toHaveBeenCalledWith('clear_activities');

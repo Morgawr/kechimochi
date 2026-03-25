@@ -7,7 +7,7 @@
  * to the same origin (so the Vite dev proxy or a bundled server both work).
  */
 import type { AppServices } from './types';
-import type { Media, ActivityLog, ActivitySummary, DailyHeatmap, MediaCsvRow, MediaConflict, Milestone, ProfilePicture } from '../types';
+import type { Media, ActivityLog, ActivitySummary, DailyHeatmap, TimelineEvent, MediaCsvRow, MediaConflict, Milestone, ProfilePicture } from '../types';
 import { getBuildVersion } from '../app_version';
 import { getMockExternalJsonResponse } from './external_mocks';
 
@@ -94,6 +94,7 @@ export class WebServices implements AppServices {
     getLogs():                              Promise<ActivitySummary[]> { return get('/logs'); }
     getHeatmap():                           Promise<DailyHeatmap[]>   { return get('/logs/heatmap'); }
     getLogsForMedia(mediaId: number):       Promise<ActivitySummary[]> { return get(`/logs/media/${mediaId}`); }
+    getTimelineEvents():                    Promise<TimelineEvent[]>  { return get('/timeline'); }
 
     initializeUserDb(fallbackUsername?: string):Promise<void>            { return post('/profiles/initialize', { fallback_username: fallbackUsername }); }
     clearActivities():                       Promise<void>             { return post('/activities/clear'); }

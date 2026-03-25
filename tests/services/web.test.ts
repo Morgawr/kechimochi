@@ -61,6 +61,13 @@ describe('WebServices', () => {
         await expect(services.getAllMedia()).rejects.toThrow('Received HTML instead of JSON');
     });
 
+    it('loads timeline events from the timeline endpoint', async () => {
+        fetchMock.mockResolvedValue(okJson([{ kind: 'started', mediaId: 1 }]));
+
+        await expect(services.getTimelineEvents()).resolves.toEqual([{ kind: 'started', mediaId: 1 }]);
+        expect(fetchMock).toHaveBeenCalledWith('/api/timeline');
+    });
+
     it('exports activities with query params and triggers a download', async () => {
         const blob = new Blob(['csv']);
         fetchMock.mockResolvedValue({

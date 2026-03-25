@@ -3,6 +3,7 @@ import type {
     ActivityLog,
     ActivitySummary,
     DailyHeatmap,
+    TimelineEvent,
     MediaCsvRow,
     MediaConflict,
     Milestone,
@@ -14,6 +15,7 @@ export type {
     ActivityLog,
     ActivitySummary,
     DailyHeatmap,
+    TimelineEvent,
     MediaCsvRow,
     MediaConflict,
     Milestone,
@@ -43,6 +45,7 @@ export interface AppServices {
     getLogs(): Promise<ActivitySummary[]>;
     getHeatmap(): Promise<DailyHeatmap[]>;
     getLogsForMedia(mediaId: number): Promise<ActivitySummary[]>;
+    getTimelineEvents(): Promise<TimelineEvent[]>;
 
     initializeUserDb(fallbackUsername?: string): Promise<void>;
     clearActivities(): Promise<void>;

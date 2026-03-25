@@ -11,6 +11,7 @@ commands.allow = [
     "update_log",
     "get_logs",
     "get_heatmap",
+    "get_timeline_events",
     "import_csv",
     "export_csv",
     "export_media_csv",

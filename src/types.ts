@@ -58,6 +58,32 @@ export interface DailyHeatmap {
     total_characters: number;
 }
 
+export type TimelineEventKind =
+    | 'started'
+    | 'finished'
+    | 'paused'
+    | 'dropped'
+    | 'milestone';
+
+export interface TimelineEvent {
+    kind: TimelineEventKind;
+    date: string;
+    mediaId: number;
+    mediaTitle: string;
+    coverImage: string;
+    activityType: string;
+    contentType: string;
+    trackingStatus: string;
+    milestoneName: string | null;
+    firstDate: string;
+    lastDate: string;
+    totalMinutes: number;
+    totalCharacters: number;
+    milestoneMinutes: number;
+    milestoneCharacters: number;
+    sameDayTerminal: boolean;
+}
+
 export interface Milestone {
     id?: number;
     media_title: string;

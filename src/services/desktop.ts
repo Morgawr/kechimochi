@@ -7,7 +7,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open as tauriOpen, save as tauriSave } from '@tauri-apps/plugin-dialog';
 
 import type { AppServices } from './types';
-import type { Media, ActivityLog, ActivitySummary, DailyHeatmap, MediaCsvRow, MediaConflict, Milestone, ProfilePicture } from '../types';
+import type { Media, ActivityLog, ActivitySummary, DailyHeatmap, TimelineEvent, MediaCsvRow, MediaConflict, Milestone, ProfilePicture } from '../types';
 import { getBuildVersion } from '../app_version';
 import { getMockExternalJsonResponse } from './external_mocks';
 
@@ -45,6 +45,7 @@ export class DesktopServices implements AppServices {
     getLogs():                              Promise<ActivitySummary[]>{ return invoke('get_logs'); }
     getHeatmap():                           Promise<DailyHeatmap[]>  { return invoke('get_heatmap'); }
     getLogsForMedia(mediaId: number):       Promise<ActivitySummary[]>{ return invoke('get_logs_for_media', { mediaId }); }
+    getTimelineEvents():                    Promise<TimelineEvent[]> { return invoke('get_timeline_events'); }
 
     initializeUserDb(fallbackUsername?: string):Promise<void>            { return invoke('initialize_user_db', { fallbackUsername }); }
     clearActivities():                       Promise<void>            { return invoke('clear_activities'); }

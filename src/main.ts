@@ -1,6 +1,7 @@
 import { Dashboard } from './components/dashboard';
 import { MediaView } from './components/media_view';
 import { ProfileView } from './components/profile';
+import { TimelineView } from './components/timeline';
 import {
     initializeUserDb, getUsername, getSetting, setSetting, getProfilePicture
 } from './api';
@@ -55,12 +56,14 @@ export class App {
 
     private readonly dashboard: Dashboard;
     private readonly mediaView: MediaView;
+    private readonly timelineView: TimelineView;
     private readonly profileView: ProfileView;
     private readonly updateManager: UpdateManager;
 
     private readonly viewContainer: HTMLElement;
     private readonly dashboardContainer: HTMLElement;
     private readonly mediaContainer: HTMLElement;
+    private readonly timelineContainer: HTMLElement;
     private readonly profileContainer: HTMLElement;
 
     private readonly navUserNameEl: HTMLElement;
@@ -86,15 +89,19 @@ export class App {
         this.dashboardContainer.style.height = '100%';
         this.mediaContainer = document.createElement('div');
         this.mediaContainer.style.height = '100%';
+        this.timelineContainer = document.createElement('div');
+        this.timelineContainer.style.height = '100%';
         this.profileContainer = document.createElement('div');
         this.profileContainer.style.height = '100%';
 
         this.viewContainer.appendChild(this.dashboardContainer);
         this.viewContainer.appendChild(this.mediaContainer);
+        this.viewContainer.appendChild(this.timelineContainer);
         this.viewContainer.appendChild(this.profileContainer);
 
         this.dashboard = new Dashboard(this.dashboardContainer);
         this.mediaView = new MediaView(this.mediaContainer);
+        this.timelineView = new TimelineView(this.timelineContainer);
         this.profileView = new ProfileView(this.profileContainer, this.updateManager);
 
         this.updateManager.subscribe(state => {
@@ -165,6 +172,7 @@ export class App {
             if (success) {
                 if (this.currentView === VIEW_NAMES.DASHBOARD) await this.dashboard.loadData();
                 else if (this.currentView === VIEW_NAMES.MEDIA) await this.mediaView.loadData();
+                else if (this.currentView === VIEW_NAMES.TIMELINE) await this.timelineView.loadData();
                 this.renderCurrentView();
             }
         });
@@ -276,6 +284,7 @@ export class App {
         // Always reload data when switching views to ensure freshness
         if (view === 'dashboard') await this.dashboard.loadData();
         else if (view === 'media') await this.mediaView.resetView();
+        else if (view === 'timeline') await this.timelineView.loadData();
         else if (view === 'profile') await this.profileView.loadData();
 
         this.renderCurrentView();
@@ -284,10 +293,12 @@ export class App {
     private renderCurrentView() {
         this.dashboardContainer.style.display = this.currentView === VIEW_NAMES.DASHBOARD ? 'block' : 'none';
         this.mediaContainer.style.display = this.currentView === VIEW_NAMES.MEDIA ? 'block' : 'none';
+        this.timelineContainer.style.display = this.currentView === VIEW_NAMES.TIMELINE ? 'block' : 'none';
         this.profileContainer.style.display = this.currentView === VIEW_NAMES.PROFILE ? 'block' : 'none';
 
         if (this.currentView === VIEW_NAMES.DASHBOARD) this.dashboard.render();
         else if (this.currentView === VIEW_NAMES.MEDIA) this.mediaView.render();
+        else if (this.currentView === VIEW_NAMES.TIMELINE) this.timelineView.render();
         else if (this.currentView === VIEW_NAMES.PROFILE) this.profileView.render();
     }
 }

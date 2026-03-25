@@ -44,6 +44,37 @@ pub struct DailyHeatmap {
     pub total_characters: i64,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TimelineEventKind {
+    Started,
+    Finished,
+    Paused,
+    Dropped,
+    Milestone,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TimelineEvent {
+    pub kind: TimelineEventKind,
+    pub date: String,
+    pub media_id: i64,
+    pub media_title: String,
+    pub cover_image: String,
+    pub activity_type: String,
+    pub content_type: String,
+    pub tracking_status: String,
+    pub milestone_name: Option<String>,
+    pub first_date: String,
+    pub last_date: String,
+    pub total_minutes: i64,
+    pub total_characters: i64,
+    pub milestone_minutes: i64,
+    pub milestone_characters: i64,
+    pub same_day_terminal: bool,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Milestone {
     pub id: Option<i64>,

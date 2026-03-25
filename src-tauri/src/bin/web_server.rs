@@ -107,6 +107,7 @@ async fn main() {
         .route("/api/logs/media/:id", get(get_logs_for_media))
         .route("/api/logs", get(get_logs).post(add_log))
         .route("/api/logs/:id", delete(delete_log_handler))
+        .route("/api/timeline", get(get_timeline_events_handler))
         // Milestones
         .route("/api/milestones", post(add_milestone_handler))
         .route(
@@ -313,6 +314,13 @@ async fn get_logs_for_media(
 ) -> HandlerResult<Json<Vec<models::ActivitySummary>>> {
     let conn = s.conn.lock().await;
     db::get_logs_for_media(&conn, id).ae().map(Json)
+}
+
+async fn get_timeline_events_handler(
+    State(s): State<Shared>,
+) -> HandlerResult<Json<Vec<models::TimelineEvent>>> {
+    let conn = s.conn.lock().await;
+    db::get_timeline_events(&conn).ae().map(Json)
 }
 
 // ── Milestone handlers ───────────────────────────────────────────────────────
@@ -983,6 +991,61 @@ mod tests {
         assert_eq!(logs_for_a.len(), 1);
         assert_eq!(logs_for_a[0].media_id, media_a);
         assert_eq!(logs_for_a[0].title, "A");
+
+        let _ = std::fs::remove_dir_all(state_dir);
+    }
+
+    #[tokio::test]
+    async fn test_get_timeline_events_handler_returns_aggregated_events() {
+        let state = setup_state();
+        let state_dir = state.data_dir.clone();
+
+        let media_id = add_media(
+            State(state.clone()),
+            Json(models::Media {
+                tracking_status: "Complete".to_string(),
+                content_type: "Novel".to_string(),
+                ..sample_media("Timeline Handler")
+            }),
+        )
+        .await
+        .unwrap()
+        .0;
+
+        {
+            let conn = state.conn.lock().await;
+            db::add_log(
+                &conn,
+                &models::ActivityLog {
+                    id: None,
+                    media_id,
+                    duration_minutes: 45,
+                    characters: 1500,
+                    date: "2024-03-01".to_string(),
+                    activity_type: "Reading".to_string(),
+                },
+            )
+            .unwrap();
+            db::add_milestone(
+                &conn,
+                &models::Milestone {
+                    id: None,
+                    media_title: "Timeline Handler".to_string(),
+                    name: "Checkpoint".to_string(),
+                    duration: 45,
+                    characters: 0,
+                    date: Some("2024-03-01".to_string()),
+                },
+            )
+            .unwrap();
+        }
+
+        let events = get_timeline_events_handler(State(state)).await.unwrap().0;
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].kind, models::TimelineEventKind::Finished);
+        assert_eq!(events[1].kind, models::TimelineEventKind::Milestone);
+        assert_eq!(events[1].milestone_minutes, 45);
+        assert_eq!(events[1].milestone_characters, 0);
 
         let _ = std::fs::remove_dir_all(state_dir);
     }

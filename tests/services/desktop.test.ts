@@ -154,6 +154,13 @@ describe('DesktopServices', () => {
         await expect(services.fetchRemoteBytes('https://example.com/img')).resolves.toEqual([9, 8, 7]);
     });
 
+    it('loads timeline events through invoke', async () => {
+        vi.mocked(invoke).mockResolvedValue([{ kind: 'started', mediaId: 1 }]);
+
+        await expect(services.getTimelineEvents()).resolves.toEqual([{ kind: 'started', mediaId: 1 }]);
+        expect(invoke).toHaveBeenCalledWith('get_timeline_events');
+    });
+
     it('prefers mockExternalJSON for external JSON requests when present', async () => {
         (globalThis as unknown as { mockExternalJSON?: Record<string, unknown> }).mockExternalJSON = {
             'api.github.com/repos/Morgawr/kechimochi/releases': [{ tag_name: 'v9.9.9' }],

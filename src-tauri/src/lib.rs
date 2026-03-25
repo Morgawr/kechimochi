@@ -8,7 +8,9 @@ use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 use tauri::{Manager, State};
 
-use models::{ActivityLog, ActivitySummary, DailyHeatmap, Media, Milestone, ProfilePicture};
+use models::{
+    ActivityLog, ActivitySummary, DailyHeatmap, Media, Milestone, ProfilePicture, TimelineEvent,
+};
 
 // Database state
 pub struct DbState {
@@ -76,6 +78,12 @@ fn get_logs_for_media(
 ) -> Result<Vec<ActivitySummary>, String> {
     let conn = state.conn.lock().unwrap();
     db::get_logs_for_media(&conn, media_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_timeline_events(state: State<DbState>) -> Result<Vec<TimelineEvent>, String> {
+    let conn = state.conn.lock().unwrap();
+    db::get_timeline_events(&conn).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -381,6 +389,7 @@ pub fn run() {
             clear_activities,
             wipe_everything,
             get_logs_for_media,
+            get_timeline_events,
             get_milestones,
             add_milestone,
             delete_milestone,
