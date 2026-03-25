@@ -34,8 +34,8 @@ describe('MediaCoverLoader', () => {
         vi.mocked(api.readFileBytes).mockResolvedValue([1, 2, 3]);
         globalThis.URL.createObjectURL = vi.fn(() => 'blob:desktop-cover');
 
-        await expect(MediaCoverLoader.load('/tmp/cover.png')).resolves.toBe('blob:desktop-cover');
-        await expect(MediaCoverLoader.load('/tmp/cover.png')).resolves.toBe('blob:desktop-cover');
+        await expect(MediaCoverLoader.load('/app/covers/cover.png')).resolves.toBe('blob:desktop-cover');
+        await expect(MediaCoverLoader.load('/app/covers/cover.png')).resolves.toBe('blob:desktop-cover');
 
         expect(api.readFileBytes).toHaveBeenCalledTimes(1);
     });

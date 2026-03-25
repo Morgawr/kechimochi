@@ -12,6 +12,7 @@ import {
     setInputValue,
     waitForNoActiveOverlays
 } from './common.js';
+import { type LibraryLayoutMode, waitForLibraryLayout } from './library.js';
 
 /**
  * Clicks the "Mark as Complete" button in Media Detail.
@@ -82,6 +83,16 @@ export async function backToGrid(): Promise<void> {
     // Wait for the detail view to be gone/grid to be displayed
     const grid = $('#media-grid-container');
     await grid.waitForDisplayed({ timeout: 5000 });
+}
+
+/**
+ * Clicks the back button in Media Detail and waits for the requested library layout.
+ */
+export async function backToLibrary(layout: LibraryLayoutMode): Promise<void> {
+    const btn = $('#btn-back-grid');
+    await btn.waitForDisplayed({ timeout: 5000 });
+    await btn.click();
+    await waitForLibraryLayout(layout);
 }
 
 /**

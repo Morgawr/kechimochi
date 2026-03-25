@@ -1,5 +1,6 @@
 import { waitForAppReady } from '../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../helpers/navigation.js';
+import { setLibraryLayout, waitForLibraryLayout } from '../helpers/library.js';
 
 describe('Responsive Styling CUJ', () => {
   before(async () => {
@@ -68,6 +69,35 @@ describe('Responsive Styling CUJ', () => {
     expect(stacked.hasRequiredNodes).toBe(true);
     expect(stacked.heatmapBelowStats).toBe(true);
     expect(stacked.secondChartBelowFirst).toBe(true);
+  });
+
+  it('should switch the library to list mode on narrow widths and restore grid when widened again', async () => {
+    await browser.setWindowSize(1280, 1200);
+    await navigateTo('media');
+    expect(await verifyActiveView('media')).toBe(true);
+
+    await setLibraryLayout('grid');
+
+    const gridToggle = $('#btn-layout-grid');
+    const listToggle = $('#btn-layout-list');
+    await gridToggle.waitForDisplayed({ timeout: 10000 });
+    await listToggle.waitForDisplayed({ timeout: 10000 });
+
+    expect(await gridToggle.isEnabled()).toBe(true);
+    expect(await gridToggle.getAttribute('aria-pressed')).toBe('true');
+
+    await browser.setWindowSize(760, 1200);
+    await waitForLibraryLayout('list');
+
+    expect(await listToggle.getAttribute('aria-pressed')).toBe('true');
+    expect(await gridToggle.isEnabled()).toBe(false);
+    expect(await gridToggle.getAttribute('disabled')).not.toBeNull();
+
+    await browser.setWindowSize(1280, 1200);
+    await waitForLibraryLayout('grid');
+
+    expect(await gridToggle.isEnabled()).toBe(true);
+    expect(await gridToggle.getAttribute('aria-pressed')).toBe('true');
   });
 
   it('should apply mobile media-detail layout structure and style hooks', async () => {

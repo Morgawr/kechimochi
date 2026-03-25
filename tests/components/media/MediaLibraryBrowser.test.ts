@@ -7,17 +7,14 @@ import { showAddMediaModal } from '../../../src/modals';
 import { MediaGrid } from '../../../src/components/media/MediaGrid';
 import { MediaList } from '../../../src/components/media/MediaList';
 
-const gridInstances: Array<{ render: ReturnType<typeof vi.fn>; destroy: ReturnType<typeof vi.fn> }> = [];
 const listInstances: Array<{ render: ReturnType<typeof vi.fn>; destroy: ReturnType<typeof vi.fn> }> = [];
 
 vi.mock('../../../src/components/media/MediaGrid', () => ({
     MediaGrid: vi.fn().mockImplementation(() => {
-        const instance = {
+        return {
             render: vi.fn(),
             destroy: vi.fn(),
         };
-        gridInstances.push(instance);
-        return instance;
     }),
 }));
 
@@ -75,7 +72,6 @@ describe('MediaLibraryBrowser', () => {
     beforeEach(() => {
         container = document.createElement('div');
         vi.clearAllMocks();
-        gridInstances.length = 0;
         listInstances.length = 0;
         vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => {
             callback(0);
@@ -114,7 +110,6 @@ describe('MediaLibraryBrowser', () => {
         expect((vi.mocked(MediaGrid).mock.calls[0][1] as { mediaList: Media[] }).mediaList.map((media) => media.title)).toEqual(expectedTitles);
 
         vi.clearAllMocks();
-        gridInstances.length = 0;
         listInstances.length = 0;
 
         const listComponent = new MediaLibraryBrowser(
