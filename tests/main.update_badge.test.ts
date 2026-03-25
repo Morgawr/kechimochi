@@ -15,6 +15,7 @@ vi.mock('../src/api', () => ({
     getProfilePicture: vi.fn(() => Promise.resolve(null)),
     getLogs: vi.fn(() => Promise.resolve([])),
     getAllMedia: vi.fn(() => Promise.resolve([])),
+    getTimelineEvents: vi.fn(() => Promise.resolve([])),
     getHeatmap: vi.fn(() => Promise.resolve([])),
     getMilestones: vi.fn(() => Promise.resolve([])),
     getAppVersion: vi.fn(() => Promise.resolve('1.0.0')),

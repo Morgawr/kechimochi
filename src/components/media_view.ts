@@ -1,22 +1,28 @@
 import { Component } from '../core/component';
 import { html } from '../core/html';
-import { Media, ActivitySummary, getAllMedia, getLogsForMedia, getSetting, setSetting } from '../api';
-import { MediaGrid } from './media/MediaGrid';
+import { Media, ActivitySummary, getAllMedia, getLogs, getLogsForMedia, getSetting, setSetting } from '../api';
+import { MediaLibraryBrowser } from './media/MediaLibraryBrowser';
 import { MediaDetail } from './media/MediaDetail';
 import { Logger } from '../core/logger';
 import { SETTING_KEYS } from '../constants';
+import { GRID_LAYOUT_MEDIA_QUERY, type LibraryActivityMetrics, type LibraryLayoutMode } from './media/library_types';
 
 interface MediaViewState {
     viewMode: 'grid' | 'detail';
     currentMediaList: Media[];
     currentLogs: ActivitySummary[];
     currentIndex: number;
-    gridFilters: {
+    libraryFilters: {
         searchQuery: string;
         typeFilters: string[];
         statusFilters: string[];
         hideArchived: boolean;
-    },
+    };
+    preferredLayout: LibraryLayoutMode;
+    isGridSupported: boolean;
+    listMetricsByMediaId: Record<number, LibraryActivityMetrics>;
+    isListMetricsLoaded: boolean;
+    isListMetricsLoading: boolean;
     isLoading: boolean;
     isInitialized: boolean;
 }
@@ -24,6 +30,8 @@ interface MediaViewState {
 export class MediaView extends Component<MediaViewState> {
     private activeSubComponent: Component | null = null;
     private targetMediaId: number | null = null;
+    private gridSupportQuery: MediaQueryList | null = null;
+    private isDestroyed = false;
 
     constructor(container: HTMLElement) {
         super(container, {
@@ -31,27 +39,86 @@ export class MediaView extends Component<MediaViewState> {
             currentMediaList: [],
             currentLogs: [],
             currentIndex: 0,
-            gridFilters: {
+            libraryFilters: {
                 searchQuery: '',
                 typeFilters: [],
                 statusFilters: [],
-                hideArchived: false
+                hideArchived: false,
             },
+            preferredLayout: 'grid',
+            isGridSupported: MediaView.isGridLayoutSupported(),
+            listMetricsByMediaId: {},
+            isListMetricsLoaded: false,
+            isListMetricsLoading: false,
             isLoading: false,
-            isInitialized: false
+            isInitialized: false,
         });
     }
 
     protected onMount() {
         globalThis.addEventListener('keydown', this.keyboardHandler);
         globalThis.addEventListener('mouseup', this.mouseHandler);
-        this.loadData().catch(e => Logger.error("Failed to load data", e));
+        this.bindGridSupportListener();
+        this.loadData().catch(e => Logger.error('Failed to load data', e));
     }
 
     public destroy() {
+        this.isDestroyed = true;
         globalThis.removeEventListener('keydown', this.keyboardHandler);
         globalThis.removeEventListener('mouseup', this.mouseHandler);
+        this.unbindGridSupportListener();
         super.destroy();
+    }
+
+    private static isGridLayoutSupported(): boolean {
+        if (typeof globalThis.matchMedia !== 'function') {
+            return true;
+        }
+
+        return globalThis.matchMedia(GRID_LAYOUT_MEDIA_QUERY).matches;
+    }
+
+    private bindGridSupportListener() {
+        if (typeof globalThis.matchMedia !== 'function') {
+            return;
+        }
+
+        this.gridSupportQuery = globalThis.matchMedia(GRID_LAYOUT_MEDIA_QUERY);
+        this.updateGridSupport(this.gridSupportQuery.matches);
+
+        if (typeof this.gridSupportQuery.addEventListener === 'function') {
+            this.gridSupportQuery.addEventListener('change', this.onGridSupportChange);
+            return;
+        }
+
+        this.gridSupportQuery.addListener?.(this.onGridSupportChange);
+    }
+
+    private unbindGridSupportListener() {
+        if (!this.gridSupportQuery) {
+            return;
+        }
+
+        if (typeof this.gridSupportQuery.removeEventListener === 'function') {
+            this.gridSupportQuery.removeEventListener('change', this.onGridSupportChange);
+            this.gridSupportQuery = null;
+            return;
+        }
+
+        this.gridSupportQuery.removeListener?.(this.onGridSupportChange);
+        this.gridSupportQuery = null;
+    }
+
+    private readonly onGridSupportChange = (event: MediaQueryListEvent) => {
+        this.updateGridSupport(event.matches);
+    };
+
+    private updateGridSupport(isGridSupported: boolean) {
+        if (this.state.isGridSupported === isGridSupported) {
+            return;
+        }
+
+        this.setState({ isGridSupported });
     }
 
     private readonly keyboardHandler = (e: KeyboardEvent) => {
@@ -64,20 +131,28 @@ export class MediaView extends Component<MediaViewState> {
         }
 
         if (e.key === 'ArrowRight' || e.key.toLowerCase() === 'd') {
-            this.navigateDetail(1);
+            this.runAsync(this.navigateDetail(1), 'Failed to navigate to next media');
         } else if (e.key === 'ArrowLeft' || e.key.toLowerCase() === 'a') {
-            this.navigateDetail(-1);
+            this.runAsync(this.navigateDetail(-1), 'Failed to navigate to previous media');
         } else if (e.key === 'Escape') {
-            this.exitDetail();
+            this.runAsync(this.exitDetail(), 'Failed to exit media detail');
         }
-    }
+    };
 
     private readonly mouseHandler = (e: MouseEvent) => {
         if (!document.getElementById('media-root')) return;
         if (e.button === 3 && this.state.viewMode === 'detail') {
-            this.exitDetail();
+            this.runAsync(this.exitDetail(), 'Failed to exit media detail');
             e.preventDefault();
         }
+    };
+
+    private runAsync(task: Promise<unknown> | void, message: string) {
+        Promise.resolve(task).catch((error) => Logger.error(message, error));
+    }
+
+    private getEffectiveLayout(): LibraryLayoutMode {
+        return this.state.isGridSupported ? this.state.preferredLayout : 'list';
     }
 
     private async navigateDetail(direction: number) {
@@ -105,40 +180,118 @@ export class MediaView extends Component<MediaViewState> {
         await this.loadData(mediaId);
     }
 
+    private async ensureListMetricsLoaded() {
+        if (this.state.viewMode !== 'grid') return;
+        if (this.getEffectiveLayout() !== 'list') return;
+        if (this.state.isListMetricsLoaded || this.state.isListMetricsLoading) return;
+
+        this.setState({ isListMetricsLoading: true });
+        try {
+            const logs = await getLogs();
+            const metricsByMediaId = this.aggregateListMetrics(logs);
+            if (this.isDestroyed) return;
+
+            this.setState({
+                listMetricsByMediaId: metricsByMediaId,
+                isListMetricsLoaded: true,
+                isListMetricsLoading: false,
+            });
+        } catch (e) {
+            Logger.error('Failed to load list activity metrics', e);
+            if (!this.isDestroyed) {
+                this.setState({
+                    listMetricsByMediaId: {},
+                    isListMetricsLoaded: true,
+                    isListMetricsLoading: false,
+                });
+            }
+        }
+    }
+
+    private aggregateListMetrics(logs: ActivitySummary[]): Record<number, LibraryActivityMetrics> {
+        return logs.reduce<Record<number, LibraryActivityMetrics>>((acc, log) => {
+            const current = acc[log.media_id] ?? {
+                firstActivityDate: null,
+                lastActivityDate: null,
+                totalMinutes: 0,
+            };
+
+            const firstActivityDate = current.firstActivityDate === null || log.date < current.firstActivityDate
+                ? log.date
+                : current.firstActivityDate;
+            const lastActivityDate = current.lastActivityDate === null || log.date > current.lastActivityDate
+                ? log.date
+                : current.lastActivityDate;
+
+            acc[log.media_id] = {
+                firstActivityDate,
+                lastActivityDate,
+                totalMinutes: current.totalMinutes + log.duration_minutes,
+            };
+            return acc;
+        }, {});
+    }
+
+    private async loadInitialPreferences() {
+        let nextFilters = this.state.libraryFilters;
+        let nextPreferredLayout = this.state.preferredLayout;
+
+        if (this.state.isInitialized) {
+            return { nextFilters, nextPreferredLayout };
+        }
+
+        const [hideArchivedStr, storedLayout] = await Promise.all([
+            getSetting(SETTING_KEYS.GRID_HIDE_ARCHIVED),
+            getSetting(SETTING_KEYS.LIBRARY_LAYOUT_MODE),
+        ]);
+
+        if (hideArchivedStr != null) {
+            nextFilters = {
+                ...nextFilters,
+                hideArchived: hideArchivedStr === 'true',
+            };
+        }
+
+        if (storedLayout === 'grid' || storedLayout === 'list') {
+            nextPreferredLayout = storedLayout;
+        }
+
+        return { nextFilters, nextPreferredLayout };
+    }
+
+    private resolveSelectedMedia(mediaList: Media[], jumpToId?: number) {
+        const targetId = jumpToId ?? this.targetMediaId;
+        let finalNextIndex = this.state.currentIndex;
+
+        if (targetId !== null && targetId !== undefined) {
+            const idx = mediaList.findIndex((media) => media.id === targetId);
+            if (idx !== -1) {
+                finalNextIndex = idx;
+            }
+            this.targetMediaId = null;
+        }
+
+        return { targetId, finalNextIndex };
+    }
+
     async loadData(jumpToId?: number) {
         if (this.state.isLoading && jumpToId === undefined) return;
         this.setState({ isLoading: true });
+
         try {
-            let nextGridFilters = this.state.gridFilters;
-            if (!this.state.isInitialized) {
-                const hideArchivedStr = await getSetting(SETTING_KEYS.GRID_HIDE_ARCHIVED);
-                if (hideArchivedStr != null) {
-                    nextGridFilters = {
-                        ...nextGridFilters,
-                        hideArchived: hideArchivedStr === 'true'
-                    };
-                }
-            }
+            const initialPreferences = await this.loadInitialPreferences();
+            let nextFilters = initialPreferences.nextFilters;
+            const nextPreferredLayout = initialPreferences.nextPreferredLayout;
 
             const mediaList = await getAllMedia();
             const availableTypes = new Set(mediaList.map((media) => (media.content_type || 'Unknown').trim() || 'Unknown'));
-            nextGridFilters = {
-                ...nextGridFilters,
-                typeFilters: nextGridFilters.typeFilters.filter((type) => availableTypes.has(type))
+            nextFilters = {
+                ...nextFilters,
+                typeFilters: nextFilters.typeFilters.filter((type) => availableTypes.has(type)),
             };
 
-            const nextIndex = this.state.currentIndex;
-            const targetId = jumpToId ?? this.targetMediaId;
-            let finalNextIndex = nextIndex;
             let currentLogs: ActivitySummary[] = [];
-
-            if (targetId !== null && targetId !== undefined) {
-                const idx = mediaList.findIndex(m => m.id === targetId);
-                if (idx !== -1) {
-                    finalNextIndex = idx;
-                }
-                this.targetMediaId = null;
-            }
+            const { targetId, finalNextIndex } = this.resolveSelectedMedia(mediaList, jumpToId);
 
             const viewMode = targetId !== null && targetId !== undefined ? 'detail' : this.state.viewMode;
             if (viewMode === 'detail' && mediaList[finalNextIndex]) {
@@ -149,22 +302,33 @@ export class MediaView extends Component<MediaViewState> {
                 currentMediaList: mediaList,
                 currentLogs,
                 currentIndex: finalNextIndex,
-                gridFilters: nextGridFilters,
+                libraryFilters: nextFilters,
+                preferredLayout: nextPreferredLayout,
+                isGridSupported: MediaView.isGridLayoutSupported(),
+                listMetricsByMediaId: {},
+                isListMetricsLoaded: false,
+                isListMetricsLoading: false,
                 isLoading: false,
                 isInitialized: true,
-                viewMode
+                viewMode,
             });
         } catch (e) {
-            Logger.error("Failed to load media view content", e);
+            Logger.error('Failed to load media view content', e);
         } finally {
-            this.setState({ isLoading: false });
+            if (!this.isDestroyed) {
+                this.setState({ isLoading: false });
+            }
         }
     }
 
     render() {
         if (!this.state.isInitialized && !this.state.isLoading && !this.targetMediaId) {
-            this.loadData().catch(err => Logger.error("Failed to load data in render", err));
+            this.loadData().catch((err) => Logger.error('Failed to load data in render', err));
             return;
+        }
+
+        if (this.state.viewMode === 'grid' && this.getEffectiveLayout() === 'list' && !this.state.isListMetricsLoaded && !this.state.isListMetricsLoading) {
+            this.runAsync(this.ensureListMetricsLoaded(), 'Failed to load list activity metrics');
         }
 
         this.clear();
@@ -187,32 +351,46 @@ export class MediaView extends Component<MediaViewState> {
         this.activeSubComponent?.destroy?.();
 
         if (this.state.viewMode === 'grid') {
-            this.renderGrid(root);
+            this.renderBrowser(root);
         } else {
             this.renderDetail(root);
         }
     }
 
-    private renderGrid(root: HTMLElement) {
-        this.activeSubComponent = new MediaGrid(
+    private renderBrowser(root: HTMLElement) {
+        this.activeSubComponent = new MediaLibraryBrowser(
             root,
             {
                 mediaList: this.state.currentMediaList,
-                ...this.state.gridFilters
+                ...this.state.libraryFilters,
+                preferredLayout: this.state.preferredLayout,
+                isGridSupported: this.state.isGridSupported,
+                listMetricsByMediaId: this.state.listMetricsByMediaId,
+                isListMetricsLoading: this.state.isListMetricsLoading,
             },
             (id) => {
-                this.loadData(id).catch(err => Logger.error("Failed to load media detail", err));
+                this.loadData(id).catch((err) => Logger.error('Failed to load media detail', err));
             },
             async (jumpToId) => {
-                await this.loadData(jumpToId).catch(err => Logger.error("Failed to jump to media", err));
+                await this.loadData(jumpToId).catch((err) => Logger.error('Failed to jump to media', err));
             },
             (filters) => {
-                const oldHideArchived = this.state.gridFilters.hideArchived;
-                this.state.gridFilters = { ...this.state.gridFilters, ...filters };
+                const oldHideArchived = this.state.libraryFilters.hideArchived;
+                this.state.libraryFilters = { ...this.state.libraryFilters, ...filters };
                 if (filters.hideArchived !== undefined && oldHideArchived !== filters.hideArchived) {
-                    void setSetting(SETTING_KEYS.GRID_HIDE_ARCHIVED, filters.hideArchived.toString());
+                    this.runAsync(
+                        setSetting(SETTING_KEYS.GRID_HIDE_ARCHIVED, filters.hideArchived.toString()),
+                        'Failed to persist hide archived preference',
+                    );
                 }
-            }
+            },
+            (layout) => {
+                this.setState({ preferredLayout: layout });
+                this.runAsync(
+                    setSetting(SETTING_KEYS.LIBRARY_LAYOUT_MODE, layout),
+                    'Failed to persist library layout preference',
+                );
+            },
         );
         this.activeSubComponent.render();
     }
@@ -231,12 +409,12 @@ export class MediaView extends Component<MediaViewState> {
             this.state.currentMediaList,
             this.state.currentIndex,
             {
-                onBack: () => { this.exitDetail().catch(e => Logger.error(e)); },
-                onNext: () => { this.navigateDetail(1).catch(e => Logger.error(e)); },
-                onPrev: () => { this.navigateDetail(-1).catch(e => Logger.error(e)); },
+                onBack: () => { this.runAsync(this.exitDetail(), 'Failed to exit media detail'); },
+                onNext: () => { this.runAsync(this.navigateDetail(1), 'Failed to navigate to next media'); },
+                onPrev: () => { this.runAsync(this.navigateDetail(-1), 'Failed to navigate to previous media'); },
                 onNavigate: (index) => this.setState({ currentIndex: index }),
-                onDelete: () => { this.exitDetail(true).catch(e => Logger.error(e)); }
-            }
+                onDelete: () => { this.runAsync(this.exitDetail(true), 'Failed to refresh library after delete'); },
+            },
         );
         this.activeSubComponent.render();
     }

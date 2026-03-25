@@ -1,17 +1,20 @@
 import { Component } from '../../core/component';
 import { Media } from '../../api';
-import { MediaItem } from './MediaItem';
+import { MediaListItem } from './MediaListItem';
+import type { LibraryActivityMetrics } from './library_types';
 
-interface MediaGridState {
+interface MediaListState {
     mediaList: Media[];
+    metricsByMediaId: Record<number, LibraryActivityMetrics>;
+    isMetricsLoading: boolean;
 }
 
-export class MediaGrid extends Component<MediaGridState> {
+export class MediaList extends Component<MediaListState> {
     private readonly onMediaClick: (mediaId: number) => void;
     private isDestroyed = false;
     private currentRenderId = 0;
 
-    constructor(container: HTMLElement, initialState: MediaGridState, onMediaClick: (mediaId: number) => void) {
+    constructor(container: HTMLElement, initialState: MediaListState, onMediaClick: (mediaId: number) => void) {
         super(container, initialState);
         this.onMediaClick = onMediaClick;
     }
@@ -27,18 +30,18 @@ export class MediaGrid extends Component<MediaGridState> {
         this.clear();
 
         const container = document.createElement('div');
-        container.id = 'media-grid-container';
-        container.className = 'media-grid-scroll-container';
-        container.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); grid-auto-rows: 320px; gap: 1.5rem; overflow-y: auto; flex: 1; padding: 0.5rem 1rem 2rem 1rem; align-content: flex-start;';
+        container.id = 'media-list-container';
+        container.className = 'media-list-scroll-container';
+        container.style.cssText = 'display: flex; flex-direction: column; gap: 1rem; overflow-y: auto; flex: 1; padding: 0.5rem 1rem 2rem 1rem;';
         this.container.appendChild(container);
 
         if (this.state.mediaList.length === 0) {
-            container.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: var(--text-secondary); padding: 4rem;">No media matches your filters.</div>';
+            container.innerHTML = '<div style="text-align: center; color: var(--text-secondary); padding: 4rem;">No media matches your filters.</div>';
             return;
         }
 
-        const batchSize = 10;
-        const initialBatch = 15;
+        const batchSize = 12;
+        const initialBatch = 18;
         let currentIndex = 0;
 
         const renderBatch = (isFirst = false) => {
@@ -50,13 +53,20 @@ export class MediaGrid extends Component<MediaGridState> {
             for (let i = currentIndex; i < end; i += 1) {
                 const media = this.state.mediaList[i];
                 const itemWrapper = document.createElement('div');
-                itemWrapper.className = 'media-item-wrapper animate-page-fade-in';
+                itemWrapper.className = 'media-list-item-wrapper animate-page-fade-in';
                 itemWrapper.style.opacity = '0';
                 itemWrapper.style.animation = `fadeIn 0.25s ease-out ${isFirst ? (i * 0.02) : 0}s forwards`;
                 itemWrapper.style.contentVisibility = 'auto';
-                itemWrapper.style.containIntrinsicSize = '180px 320px';
+                itemWrapper.style.containIntrinsicSize = '1000px 168px';
 
-                const item = new MediaItem(itemWrapper, media, () => this.onMediaClick(media.id!));
+                const metrics = media.id == null ? null : (this.state.metricsByMediaId[media.id] ?? null);
+                const item = new MediaListItem(
+                    itemWrapper,
+                    media,
+                    metrics,
+                    this.state.isMetricsLoading,
+                    () => this.onMediaClick(media.id!),
+                );
                 item.render();
 
                 fragment.appendChild(itemWrapper);
@@ -70,7 +80,7 @@ export class MediaGrid extends Component<MediaGridState> {
                     if (!this.isDestroyed && renderId === this.currentRenderId) {
                         requestAnimationFrame(() => renderBatch());
                     }
-                }, isFirst ? 50 : 20);
+                }, isFirst ? 40 : 20);
             }
         };
 

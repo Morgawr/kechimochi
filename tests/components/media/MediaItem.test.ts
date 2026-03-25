@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MediaItem } from '../../../src/components/media/MediaItem';
 import * as api from '../../../src/api';
 import { Media } from '../../../src/api';
+import { MediaCoverLoader } from '../../../src/components/media/cover_loader';
 
 vi.mock('../../../src/api', () => ({
     readFileBytes: vi.fn(),
@@ -32,8 +33,7 @@ describe('MediaItem', () => {
         vi.clearAllMocks();
         mockServices.isDesktop.mockReturnValue(true);
         mockServices.loadCoverImage.mockResolvedValue('https://covers.example/test.jpg');
-        // @ts-expect-error - accessing private static cache for test isolation
-        MediaItem.imageCache.clear();
+        MediaCoverLoader.clear();
     });
 
     it('should render title and placeholder initially', () => {

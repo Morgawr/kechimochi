@@ -1,8 +1,8 @@
 import { Logger } from '../../core/logger';
 import { Component } from '../../core/component';
 import { html } from '../../core/html';
-import { Media, readFileBytes } from '../../api';
-import { getServices } from '../../services';
+import { Media } from '../../api';
+import { MediaCoverLoader } from './cover_loader';
 
 interface MediaItemState {
     media: Media;
@@ -10,8 +10,6 @@ interface MediaItemState {
 }
 
 export class MediaItem extends Component<MediaItemState> {
-    private static readonly imageCache: Map<string, string> = new Map();
-
     constructor(container: HTMLElement, media: Media, onClick: () => void) {
         super(container, { media, imgSrc: null });
         this.container.addEventListener('click', onClick);
@@ -30,22 +28,9 @@ export class MediaItem extends Component<MediaItemState> {
         const { cover_image } = this.state.media;
         if (!cover_image || cover_image.trim() === '') return;
 
-        if (MediaItem.imageCache.has(cover_image)) {
-            this.setState({ imgSrc: MediaItem.imageCache.get(cover_image)! });
-            return;
-        }
-
         try {
-            let src: string | null = null;
-            if (getServices().isDesktop()) {
-                const bytes = await readFileBytes(cover_image);
-                const blob = new Blob([new Uint8Array(bytes)]);
-                src = URL.createObjectURL(blob);
-            } else {
-                src = await getServices().loadCoverImage(cover_image);
-            }
+            const src = await MediaCoverLoader.load(cover_image);
             if (!src) return;
-            MediaItem.imageCache.set(cover_image, src);
             this.setState({ imgSrc: src });
         } catch (e) {
             Logger.error("Failed to load image", e);
