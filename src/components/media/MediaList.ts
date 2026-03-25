@@ -54,7 +54,12 @@ export class MediaList extends Component<MediaListState> {
                     media,
                     metrics,
                     this.state.isMetricsLoading,
-                    () => this.onMediaClick(media.id!),
+                    () => {
+                        if (media.id == null) {
+                            return;
+                        }
+                        this.onMediaClick(media.id);
+                    },
                 );
                 item.render();
                 return itemWrapper;

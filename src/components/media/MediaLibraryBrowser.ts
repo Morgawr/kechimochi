@@ -150,9 +150,9 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         const panelStyle = this.state.filtersExpanded
             ? 'style="height: auto; opacity: 1; transform: translateY(0); pointer-events: auto;"'
             : 'style="height: 0; opacity: 0; transform: translateY(-8px); pointer-events: none;"';
-        const compactHint = !this.state.isGridSupported
-            ? '<span class="media-layout-hint">Grid re-enables when the window is wider.</span>'
-            : '';
+        const compactHint = this.state.isGridSupported
+            ? ''
+            : '<span class="media-layout-hint">Grid re-enables when the window is wider.</span>';
 
         const header = html`
             <div class="media-grid-toolbar-shell">
@@ -179,7 +179,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
                                     class="media-layout-toggle-option ${activeLayout === 'grid' ? 'is-active' : ''}"
                                     id="btn-layout-grid"
                                     aria-pressed="${activeLayout === 'grid'}"
-                                    ${!this.state.isGridSupported ? 'disabled' : ''}
+                                    ${this.state.isGridSupported ? '' : 'disabled'}
                                 >
                                     Grid
                                 </button>
@@ -422,7 +422,11 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
             nextValues = [...currentValues, value].sort((a, b) => availableValues.indexOf(a) - availableValues.indexOf(b));
         }
 
-        this.state[key] = nextValues as MediaLibraryBrowserState[typeof key];
+        if (key === 'statusFilters') {
+            this.state.statusFilters = nextValues;
+        } else {
+            this.state.typeFilters = nextValues;
+        }
         this.renderHeader(this.container.querySelector<HTMLElement>('#media-library-header')!);
         this.renderContent(this.container.querySelector<HTMLElement>('#media-library-content')!);
         this.notifyFilterChange();

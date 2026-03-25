@@ -45,7 +45,13 @@ export class MediaGrid extends Component<MediaGridState> {
                     isFirstBatch ? index * 0.02 : 0,
                     '180px 320px',
                 );
-                const item = new MediaItem(itemWrapper, media, () => this.onMediaClick(media.id!));
+                const mediaId = media.id;
+                const item = new MediaItem(itemWrapper, media, () => {
+                    if (mediaId == null) {
+                        return;
+                    }
+                    this.onMediaClick(mediaId);
+                });
                 item.render();
                 return itemWrapper;
             },

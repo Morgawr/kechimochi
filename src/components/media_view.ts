@@ -27,6 +27,11 @@ interface MediaViewState {
     isInitialized: boolean;
 }
 
+interface LegacyMediaQueryListCompat {
+    addListener?: (listener: (event: MediaQueryListEvent) => void) => void;
+    removeListener?: (listener: (event: MediaQueryListEvent) => void) => void;
+}
+
 export class MediaView extends Component<MediaViewState> {
     private activeSubComponent: Component | null = null;
     private targetMediaId: number | null = null;
@@ -91,7 +96,8 @@ export class MediaView extends Component<MediaViewState> {
             return;
         }
 
-        this.gridSupportQuery.addListener?.(this.onGridSupportChange);
+        const legacyQuery = this.gridSupportQuery as unknown as LegacyMediaQueryListCompat;
+        legacyQuery.addListener?.(this.onGridSupportChange);
     }
 
     private unbindGridSupportListener() {
@@ -105,7 +111,8 @@ export class MediaView extends Component<MediaViewState> {
             return;
         }
 
-        this.gridSupportQuery.removeListener?.(this.onGridSupportChange);
+        const legacyQuery = this.gridSupportQuery as unknown as LegacyMediaQueryListCompat;
+        legacyQuery.removeListener?.(this.onGridSupportChange);
         this.gridSupportQuery = null;
     }
 

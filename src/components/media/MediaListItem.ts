@@ -79,9 +79,9 @@ export class MediaListItem extends Component<MediaListItemState> {
         const firstActivity = this.getMetricValue(metrics?.firstActivityDate ?? null, '--');
         const lastActivity = this.getMetricValue(metrics?.lastActivityDate ?? null, '--');
         const duration = this.getDurationValue();
-        const contentTypeBadge = contentType !== 'Unknown'
-            ? `<span class="media-list-pill media-list-pill-type">${escapeHTML(contentType)}</span>`
-            : '';
+        const contentTypeBadge = contentType === 'Unknown'
+            ? ''
+            : `<span class="media-list-pill media-list-pill-type">${escapeHTML(contentType)}</span>`;
         const archivedBadge = isArchived
             ? '<span class="media-list-pill media-list-pill-archived">Archived</span>'
             : '';
