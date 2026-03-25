@@ -1,6 +1,7 @@
 import { Component } from '../../core/component';
 import { Media } from '../../api';
 import { MediaItem } from './MediaItem';
+import { createAnimatedCollectionItemWrapper, renderIncrementalMediaCollection } from './render_incremental_collection';
 
 interface MediaGridState {
     mediaList: Media[];
@@ -26,54 +27,28 @@ export class MediaGrid extends Component<MediaGridState> {
 
         this.clear();
 
-        const container = document.createElement('div');
-        container.id = 'media-grid-container';
-        container.className = 'media-grid-scroll-container';
-        container.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); grid-auto-rows: 320px; gap: 1.5rem; overflow-y: auto; flex: 1; padding: 0.5rem 1rem 2rem 1rem; align-content: flex-start;';
-        this.container.appendChild(container);
-
-        if (this.state.mediaList.length === 0) {
-            container.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: var(--text-secondary); padding: 4rem;">No media matches your filters.</div>';
-            return;
-        }
-
-        const batchSize = 10;
-        const initialBatch = 15;
-        let currentIndex = 0;
-
-        const renderBatch = (isFirst = false) => {
-            if (this.isDestroyed || renderId !== this.currentRenderId) return;
-            const currentLimit = isFirst ? initialBatch : batchSize;
-            const end = Math.min(currentIndex + currentLimit, this.state.mediaList.length);
-
-            const fragment = document.createDocumentFragment();
-            for (let i = currentIndex; i < end; i += 1) {
-                const media = this.state.mediaList[i];
-                const itemWrapper = document.createElement('div');
-                itemWrapper.className = 'media-item-wrapper animate-page-fade-in';
-                itemWrapper.style.opacity = '0';
-                itemWrapper.style.animation = `fadeIn 0.25s ease-out ${isFirst ? (i * 0.02) : 0}s forwards`;
-                itemWrapper.style.contentVisibility = 'auto';
-                itemWrapper.style.containIntrinsicSize = '180px 320px';
-
+        renderIncrementalMediaCollection({
+            host: this.container,
+            items: this.state.mediaList,
+            containerId: 'media-grid-container',
+            containerClassName: 'media-grid-scroll-container',
+            containerStyle: 'display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); grid-auto-rows: 320px; gap: 1.5rem; overflow-y: auto; flex: 1; padding: 0.5rem 1rem 2rem 1rem; align-content: flex-start;',
+            emptyStateMarkup: '<div style="grid-column: 1 / -1; text-align: center; color: var(--text-secondary); padding: 4rem;">No media matches your filters.</div>',
+            initialBatchSize: 15,
+            batchSize: 10,
+            firstBatchDelayMs: 50,
+            subsequentBatchDelayMs: 20,
+            shouldContinue: () => !this.isDestroyed && renderId === this.currentRenderId,
+            createItemWrapper: (media, index, isFirstBatch) => {
+                const itemWrapper = createAnimatedCollectionItemWrapper(
+                    'media-item-wrapper',
+                    isFirstBatch ? index * 0.02 : 0,
+                    '180px 320px',
+                );
                 const item = new MediaItem(itemWrapper, media, () => this.onMediaClick(media.id!));
                 item.render();
-
-                fragment.appendChild(itemWrapper);
-            }
-
-            container.appendChild(fragment);
-            currentIndex = end;
-
-            if (currentIndex < this.state.mediaList.length && !this.isDestroyed && renderId === this.currentRenderId) {
-                setTimeout(() => {
-                    if (!this.isDestroyed && renderId === this.currentRenderId) {
-                        requestAnimationFrame(() => renderBatch());
-                    }
-                }, isFirst ? 50 : 20);
-            }
-        };
-
-        renderBatch(true);
+                return itemWrapper;
+            },
+        });
     }
 }

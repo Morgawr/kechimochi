@@ -78,6 +78,21 @@ function stubMatchMedia(initialMatches: boolean, mode: 'modern' | 'legacy' = 'mo
     };
 }
 
+async function renderAndWaitForBrowser(component: MediaView) {
+    await vi.waitFor(() => {
+        component.render();
+        expect(MediaLibraryBrowser).toHaveBeenCalled();
+    });
+}
+
+async function renderAndWaitForInitialization(component: MediaView) {
+    await vi.waitFor(() => {
+        component.render();
+        // @ts-expect-error - accessing private state for assertions
+        if (!component.state.isInitialized) throw new Error('Not initialized');
+    });
+}
+
 describe('MediaView', () => {
     let container: HTMLElement;
     let matchMediaStub: MatchMediaStub;
@@ -105,10 +120,7 @@ describe('MediaView', () => {
         });
 
         const component = new MediaView(container);
-        await vi.waitFor(() => {
-            component.render();
-            expect(MediaLibraryBrowser).toHaveBeenCalled();
-        });
+        await renderAndWaitForBrowser(component);
 
         expect(vi.mocked(MediaLibraryBrowser).mock.calls[0][1]).toEqual(expect.objectContaining({
             searchQuery: '',
@@ -125,10 +137,7 @@ describe('MediaView', () => {
         vi.mocked(api.getAllMedia).mockResolvedValue([]);
 
         const component = new MediaView(container);
-        await vi.waitFor(() => {
-            component.render();
-            expect(MediaLibraryBrowser).toHaveBeenCalled();
-        });
+        await renderAndWaitForBrowser(component);
 
         const browserProps = vi.mocked(MediaLibraryBrowser).mock.calls.at(-1)?.[1];
         expect(browserProps).toEqual(expect.objectContaining({ isGridSupported: true }));
@@ -143,10 +152,7 @@ describe('MediaView', () => {
         const removeSpy = vi.spyOn(globalThis, 'removeEventListener');
 
         const component = new MediaView(container);
-        await vi.waitFor(() => {
-            component.render();
-            expect(MediaLibraryBrowser).toHaveBeenCalled();
-        });
+        await renderAndWaitForBrowser(component);
 
         expect(matchMediaStub.addEventListenerMock).toHaveBeenCalledWith('change', expect.any(Function));
 
@@ -162,10 +168,7 @@ describe('MediaView', () => {
         vi.mocked(api.getAllMedia).mockResolvedValue([]);
 
         const component = new MediaView(container);
-        await vi.waitFor(() => {
-            component.render();
-            expect(MediaLibraryBrowser).toHaveBeenCalled();
-        });
+        await renderAndWaitForBrowser(component);
 
         expect(matchMediaStub.addListenerMock).toHaveBeenCalledWith(expect.any(Function));
 
@@ -180,10 +183,7 @@ describe('MediaView', () => {
         vi.mocked(api.getLogsForMedia).mockResolvedValue([]);
 
         const component = new MediaView(container);
-        await vi.waitFor(() => {
-            component.render();
-            expect(MediaLibraryBrowser).toHaveBeenCalled();
-        });
+        await renderAndWaitForBrowser(component);
 
         const onSelect = vi.mocked(MediaLibraryBrowser).mock.calls[0][2];
         onSelect(2);
@@ -203,10 +203,7 @@ describe('MediaView', () => {
         vi.mocked(api.getLogsForMedia).mockResolvedValue([]);
 
         const component = new MediaView(container);
-        await vi.waitFor(() => {
-            component.render();
-            expect(MediaLibraryBrowser).toHaveBeenCalled();
-        });
+        await renderAndWaitForBrowser(component);
 
         const onDataChange = vi.mocked(MediaLibraryBrowser).mock.calls[0][3];
         await onDataChange(20);
@@ -250,11 +247,7 @@ describe('MediaView', () => {
         vi.mocked(api.getLogsForMedia).mockResolvedValue([]);
 
         const component = new MediaView(container);
-        await vi.waitFor(() => {
-            component.render();
-            // @ts-expect-error - accessing private state for assertions
-            if (!component.state.isInitialized) throw new Error('Not initialized');
-        });
+        await renderAndWaitForInitialization(component);
 
         // @ts-expect-error - accessing private state for assertions
         component.state.viewMode = 'detail';
@@ -287,11 +280,7 @@ describe('MediaView', () => {
         vi.mocked(api.getAllMedia).mockResolvedValue([{ id: 1, title: 'Mouse' }] as unknown as Media[]);
 
         const component = new MediaView(container);
-        await vi.waitFor(() => {
-            component.render();
-            // @ts-expect-error - accessing private state for assertions
-            if (!component.state.isInitialized) throw new Error('Not initialized');
-        });
+        await renderAndWaitForInitialization(component);
 
         // @ts-expect-error - accessing private state for assertions
         component.state.viewMode = 'detail';
@@ -309,10 +298,7 @@ describe('MediaView', () => {
     it('persists hide archived changes without reworking other filters', async () => {
         vi.mocked(api.getAllMedia).mockResolvedValue([]);
         const component = new MediaView(container);
-        await vi.waitFor(() => {
-            component.render();
-            expect(MediaLibraryBrowser).toHaveBeenCalled();
-        });
+        await renderAndWaitForBrowser(component);
 
         const onFilterChange = vi.mocked(MediaLibraryBrowser).mock.calls[0][4];
         onFilterChange({
@@ -334,10 +320,7 @@ describe('MediaView', () => {
     it('stores the preferred layout when the user changes it', async () => {
         vi.mocked(api.getAllMedia).mockResolvedValue([]);
         const component = new MediaView(container);
-        await vi.waitFor(() => {
-            component.render();
-            expect(MediaLibraryBrowser).toHaveBeenCalled();
-        });
+        await renderAndWaitForBrowser(component);
 
         const onLayoutChange = vi.mocked(MediaLibraryBrowser).mock.calls[0][5];
         onLayoutChange('list');
@@ -383,10 +366,7 @@ describe('MediaView', () => {
         ]);
 
         const component = new MediaView(container);
-        await vi.waitFor(() => {
-            component.render();
-            expect(MediaLibraryBrowser).toHaveBeenCalled();
-        });
+        await renderAndWaitForBrowser(component);
 
         const onLayoutChange = vi.mocked(MediaLibraryBrowser).mock.calls[0][5];
         onLayoutChange('list');
@@ -418,10 +398,7 @@ describe('MediaView', () => {
         vi.mocked(api.getLogs).mockRejectedValue(new Error('metrics failed'));
 
         const component = new MediaView(container);
-        await vi.waitFor(() => {
-            component.render();
-            expect(MediaLibraryBrowser).toHaveBeenCalled();
-        });
+        await renderAndWaitForBrowser(component);
 
         await vi.waitFor(() => {
             const browserProps = vi.mocked(MediaLibraryBrowser).mock.calls.at(-1)?.[1];
@@ -479,10 +456,7 @@ describe('MediaView', () => {
         });
 
         const component = new MediaView(container);
-        await vi.waitFor(() => {
-            component.render();
-            expect(MediaLibraryBrowser).toHaveBeenCalled();
-        });
+        await renderAndWaitForBrowser(component);
 
         matchMediaStub.setMatches(true);
 
@@ -502,11 +476,7 @@ describe('MediaView', () => {
         vi.mocked(api.getLogsForMedia).mockResolvedValue([]);
 
         const component = new MediaView(container);
-        await vi.waitFor(() => {
-            component.render();
-            // @ts-expect-error - accessing private state for assertions
-            if (!component.state.isInitialized) throw new Error('Not initialized');
-        });
+        await renderAndWaitForInitialization(component);
 
         // @ts-expect-error - accessing private state for assertions
         component.state.viewMode = 'detail';

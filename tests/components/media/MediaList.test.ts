@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { Media } from '../../../src/api';
 import { MediaList } from '../../../src/components/media/MediaList';
 import { MediaListItem } from '../../../src/components/media/MediaListItem';
+import { createCollectionMediaList, useCollectionRenderTestEnv } from './collection_test_utils';
 
 vi.mock('../../../src/components/media/MediaListItem', () => ({
     MediaListItem: vi.fn().mockImplementation(() => ({
@@ -10,34 +11,18 @@ vi.mock('../../../src/components/media/MediaListItem', () => ({
 }));
 
 describe('MediaList', () => {
-    let container: HTMLElement;
-    let requestAnimationFrameSpy: ReturnType<typeof vi.fn>;
-
-    beforeEach(() => {
-        container = document.createElement('div');
-        vi.clearAllMocks();
-        vi.useFakeTimers();
-        requestAnimationFrameSpy = vi.fn((callback: FrameRequestCallback) => {
-            callback(0);
-            return 1;
-        });
-        vi.stubGlobal('requestAnimationFrame', requestAnimationFrameSpy);
-    });
-
-    afterEach(() => {
-        vi.useRealTimers();
-    });
+    const env = useCollectionRenderTestEnv();
 
     it('shows an empty state when no list items match', () => {
         const component = new MediaList(
-            container,
+            env.container,
             { mediaList: [], metricsByMediaId: {}, isMetricsLoading: false },
             vi.fn(),
         );
 
         component.render();
 
-        expect(container.textContent).toContain('No media matches your filters.');
+        expect(env.container.textContent).toContain('No media matches your filters.');
         expect(MediaListItem).not.toHaveBeenCalled();
     });
 
@@ -56,7 +41,7 @@ describe('MediaList', () => {
         };
 
         const component = new MediaList(
-            container,
+            env.container,
             { mediaList: mediaList as Media[], metricsByMediaId: metrics, isMetricsLoading: true },
             onMediaClick,
         );
@@ -87,17 +72,11 @@ describe('MediaList', () => {
     });
 
     it('renders additional batches for long lists', () => {
-        const mediaList = Array.from({ length: 25 }, (_, index) => ({
-            id: index + 1,
-            title: `Item ${index + 1}`,
-            status: 'Active',
-            content_type: 'Anime',
-            tracking_status: 'Ongoing',
-        }));
+        const mediaList = createCollectionMediaList(25);
 
         const component = new MediaList(
-            container,
-            { mediaList: mediaList as Media[], metricsByMediaId: {}, isMetricsLoading: false },
+            env.container,
+            { mediaList, metricsByMediaId: {}, isMetricsLoading: false },
             vi.fn(),
         );
 
@@ -107,21 +86,15 @@ describe('MediaList', () => {
         vi.runAllTimers();
 
         expect(MediaListItem).toHaveBeenCalledTimes(25);
-        expect(requestAnimationFrameSpy).toHaveBeenCalled();
+        expect(env.requestAnimationFrameSpy).toHaveBeenCalled();
     });
 
     it('stops queued batch rendering after destroy', () => {
-        const mediaList = Array.from({ length: 25 }, (_, index) => ({
-            id: index + 1,
-            title: `Item ${index + 1}`,
-            status: 'Active',
-            content_type: 'Anime',
-            tracking_status: 'Ongoing',
-        }));
+        const mediaList = createCollectionMediaList(25);
 
         const component = new MediaList(
-            container,
-            { mediaList: mediaList as Media[], metricsByMediaId: {}, isMetricsLoading: false },
+            env.container,
+            { mediaList, metricsByMediaId: {}, isMetricsLoading: false },
             vi.fn(),
         );
 

@@ -1,39 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import {
+    disconnect,
+    mockServices,
+    resetCoverLoaderTestState,
+    triggerLatestIntersection,
+} from './media_cover_test_utils';
 import { MediaItem } from '../../../src/components/media/MediaItem';
 import * as api from '../../../src/api';
 import { Media } from '../../../src/api';
-import { MediaCoverLoader } from '../../../src/components/media/cover_loader';
-
-vi.mock('../../../src/api', () => ({
-    readFileBytes: vi.fn(),
-}));
-
-const mockServices = {
-    isDesktop: vi.fn(() => true),
-    loadCoverImage: vi.fn(),
-};
-
-vi.mock('../../../src/services', () => ({
-    getServices: vi.fn(() => mockServices),
-}));
-
-// Mock IntersectionObserver
-const observe = vi.fn();
-const disconnect = vi.fn();
-vi.stubGlobal('IntersectionObserver', vi.fn(() => ({
-    observe,
-    disconnect,
-})));
 
 describe('MediaItem', () => {
     let container: HTMLElement;
 
     beforeEach(() => {
         container = document.createElement('div');
-        vi.clearAllMocks();
-        mockServices.isDesktop.mockReturnValue(true);
-        mockServices.loadCoverImage.mockResolvedValue('https://covers.example/test.jpg');
-        MediaCoverLoader.clear();
+        return resetCoverLoaderTestState('https://covers.example/test.jpg');
     });
 
     it('should render title and placeholder initially', () => {
@@ -65,8 +46,7 @@ describe('MediaItem', () => {
         const component = new MediaItem(container, media as unknown as Media, vi.fn());
         
         // Simulate intersection
-        const observerCallback = (vi.mocked(IntersectionObserver)).mock.calls[0][0];
-        observerCallback([{ isIntersecting: true }] as unknown as IntersectionObserverEntry[], {} as IntersectionObserver);
+        triggerLatestIntersection();
         
         // @ts-expect-error - accessing private state
         await vi.waitUntil(() => component.state.imgSrc === 'blob:abc');
@@ -84,8 +64,7 @@ describe('MediaItem', () => {
         const media = { title: 'Web Item', cover_image: '/path/to/web.jpg', status: 'Active' };
         const component = new MediaItem(container, media as unknown as Media, vi.fn());
 
-        const observerCallback = (vi.mocked(IntersectionObserver)).mock.calls[0][0];
-        observerCallback([{ isIntersecting: true }] as unknown as IntersectionObserverEntry[], {} as IntersectionObserver);
+        triggerLatestIntersection();
 
         // @ts-expect-error - accessing private state
         await vi.waitUntil(() => component.state.imgSrc === 'https://covers.example/test.jpg');
@@ -99,14 +78,12 @@ describe('MediaItem', () => {
 
         const media = { title: 'Cached', cover_image: '/path/to/cached.jpg', status: 'Active' };
         const first = new MediaItem(document.createElement('div'), media as unknown as Media, vi.fn());
-        let observerCallback = (vi.mocked(IntersectionObserver)).mock.calls.at(-1)?.[0];
-        observerCallback?.([{ isIntersecting: true }] as unknown as IntersectionObserverEntry[], {} as IntersectionObserver);
+        triggerLatestIntersection();
         // @ts-expect-error - accessing private state
         await vi.waitUntil(() => first.state.imgSrc === 'blob:cached');
 
         const second = new MediaItem(container, media as unknown as Media, vi.fn());
-        observerCallback = (vi.mocked(IntersectionObserver)).mock.calls.at(-1)?.[0];
-        observerCallback?.([{ isIntersecting: true }] as unknown as IntersectionObserverEntry[], {} as IntersectionObserver);
+        triggerLatestIntersection();
         // @ts-expect-error - accessing private state
         await vi.waitUntil(() => second.state.imgSrc === 'blob:cached');
 
@@ -121,8 +98,7 @@ describe('MediaItem', () => {
         const media = { title: 'T', cover_image: '/bad/path.jpg', status: 'Active' };
         const component = new MediaItem(container, media as unknown as Media, vi.fn());
         
-        const observerCallback = (vi.mocked(IntersectionObserver)).mock.calls[0][0];
-        observerCallback([{ isIntersecting: true }] as unknown as IntersectionObserverEntry[], {} as IntersectionObserver);
+        triggerLatestIntersection();
         
         // Wait a bit for the async image loading to "fail"
         await new Promise(r => setTimeout(r, 10));

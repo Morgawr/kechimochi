@@ -1,38 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import {
+    disconnect,
+    resetCoverLoaderTestState,
+    triggerLatestIntersection,
+} from './media_cover_test_utils';
 import { Media } from '../../../src/api';
 import * as api from '../../../src/api';
 import { MediaListItem } from '../../../src/components/media/MediaListItem';
-import { MediaCoverLoader } from '../../../src/components/media/cover_loader';
-
-vi.mock('../../../src/api', () => ({
-    readFileBytes: vi.fn(),
-}));
-
-const mockServices = {
-    isDesktop: vi.fn(() => true),
-    loadCoverImage: vi.fn(),
-};
-
-vi.mock('../../../src/services', () => ({
-    getServices: vi.fn(() => mockServices),
-}));
-
-const observe = vi.fn();
-const disconnect = vi.fn();
-vi.stubGlobal('IntersectionObserver', vi.fn(() => ({
-    observe,
-    disconnect,
-})));
 
 describe('MediaListItem', () => {
     let container: HTMLElement;
 
     beforeEach(() => {
         container = document.createElement('div');
-        vi.clearAllMocks();
-        mockServices.isDesktop.mockReturnValue(true);
-        mockServices.loadCoverImage.mockResolvedValue('https://covers.example/list.jpg');
-        MediaCoverLoader.clear();
+        return resetCoverLoaderTestState('https://covers.example/list.jpg');
     });
 
     it('renders description and aggregated activity fields', () => {
@@ -107,8 +88,7 @@ describe('MediaListItem', () => {
             vi.fn(),
         );
 
-        const observerCallback = (vi.mocked(IntersectionObserver)).mock.calls[0][0];
-        observerCallback([{ isIntersecting: true }] as unknown as IntersectionObserverEntry[], {} as IntersectionObserver);
+        triggerLatestIntersection();
 
         // @ts-expect-error - accessing private component state for verification
         await vi.waitUntil(() => component.state.imgSrc === 'blob:list-item');
