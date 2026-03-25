@@ -31,7 +31,7 @@ describe('ActivityCharts', () => {
         expect(container.querySelector('#barChart')).toBeDefined();
         expect(container.querySelector('#toggle-chart-type')).toBeDefined();
         expect(container.querySelector('#toggle-group-by')).toBeDefined();
-        expect(container.querySelector('#activity-charts-grid')?.getAttribute('data-time-range-days')).toBe('7');
+        expect((container.querySelector('#activity-charts-grid') as HTMLElement | null)?.dataset.timeRangeDays).toBe('7');
         expect(Chart).toHaveBeenCalledTimes(2);
     });
 
