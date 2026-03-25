@@ -44,8 +44,8 @@ const DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
 const SMALL_TIMELINE_MEDIA_QUERY = '(max-width: 1024px)';
 
 export class TimelineView extends Component<TimelineState> {
-    private static coverCache = new Map<string, string | null>();
-    private static coverRequestCache = new Map<string, Promise<string | null>>();
+    private static readonly coverCache = new Map<string, string | null>();
+    private static readonly coverRequestCache = new Map<string, Promise<string | null>>();
     private coverObserver: IntersectionObserver | null = null;
     private coverLoadToken = 0;
     private waveFrame: number | null = null;
@@ -106,7 +106,7 @@ export class TimelineView extends Component<TimelineState> {
         this.coverObserver?.disconnect();
         this.coverObserver = null;
         if (this.waveFrame !== null) {
-            window.cancelAnimationFrame(this.waveFrame);
+            globalThis.cancelAnimationFrame(this.waveFrame);
             this.waveFrame = null;
         }
 
@@ -168,11 +168,12 @@ export class TimelineView extends Component<TimelineState> {
 
     private groupEventsByMonth(events: TimelineEvent[]): TimelineGroup[] {
         const groups: TimelineGroup[] = [];
-        let currentGroup: TimelineGroup | null = null;
+        let currentGroup: TimelineGroup | undefined;
 
         for (const event of events) {
             const key = event.date.slice(0, 7);
-            if (!currentGroup || currentGroup.key !== key) {
+            const currentGroupKey: string | undefined = currentGroup?.key;
+            if (currentGroupKey !== key) {
                 currentGroup = {
                     key,
                     label: MONTH_FORMATTER.format(this.toUtcDate(event.date)),
@@ -180,6 +181,11 @@ export class TimelineView extends Component<TimelineState> {
                 };
                 groups.push(currentGroup);
             }
+
+            if (!currentGroup) {
+                continue;
+            }
+
             currentGroup.events.push(event);
         }
 
@@ -509,7 +515,7 @@ export class TimelineView extends Component<TimelineState> {
         const yearFilter = root.querySelector('#timeline-year-filter') as HTMLSelectElement | null;
         yearFilter?.addEventListener('change', event => {
             const selectedYear = (event.target as HTMLSelectElement).value;
-            window.setTimeout(() => {
+            globalThis.setTimeout(() => {
                 this.setState({ selectedYear });
             }, 0);
         });
@@ -517,7 +523,7 @@ export class TimelineView extends Component<TimelineState> {
         const kindFilter = root.querySelector('#timeline-kind-filter') as HTMLSelectElement | null;
         kindFilter?.addEventListener('change', event => {
             const selectedKind = (event.target as HTMLSelectElement).value as TimelineState['selectedKind'];
-            window.setTimeout(() => {
+            globalThis.setTimeout(() => {
                 this.setState({ selectedKind });
             }, 0);
         });
@@ -709,7 +715,7 @@ export class TimelineView extends Component<TimelineState> {
             return;
         }
 
-        this.waveFrame = window.requestAnimationFrame(() => {
+        this.waveFrame = globalThis.requestAnimationFrame(() => {
             this.waveFrame = null;
 
             if (!root.isConnected || this.isSmallTimelineLayout()) {
@@ -767,11 +773,11 @@ export class TimelineView extends Component<TimelineState> {
     }
 
     private isSmallTimelineLayout(): boolean {
-        if (typeof window.matchMedia !== 'function') {
+        if (typeof globalThis.matchMedia !== 'function') {
             return false;
         }
 
-        return window.matchMedia(SMALL_TIMELINE_MEDIA_QUERY).matches;
+        return globalThis.matchMedia(SMALL_TIMELINE_MEDIA_QUERY).matches;
     }
 
     private buildWaveSamples(
@@ -944,7 +950,7 @@ export class TimelineView extends Component<TimelineState> {
     public override destroy(): void {
         this.coverObserver?.disconnect();
         if (this.waveFrame !== null) {
-            window.cancelAnimationFrame(this.waveFrame);
+            globalThis.cancelAnimationFrame(this.waveFrame);
             this.waveFrame = null;
         }
     }

@@ -53,9 +53,9 @@ describe('TimelineView', () => {
 
     let container: HTMLElement;
     let loadCoverImageMock: ReturnType<typeof vi.fn>;
-    const originalMatchMedia = window.matchMedia;
+    const originalMatchMedia = globalThis.matchMedia;
     const originalIntersectionObserver = globalThis.IntersectionObserver;
-    const normalizedText = () => container.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+    const normalizedText = () => container.textContent?.replaceAll(/\s+/g, ' ').trim() ?? '';
     const createEvent = (overrides: Partial<TimelineEvent> = {}): TimelineEvent => ({
         kind: 'finished',
         date: '2024-03-15',
@@ -168,7 +168,7 @@ describe('TimelineView', () => {
         } as unknown as AppServices);
         (TimelineView as unknown as { coverCache: Map<string, string | null> }).coverCache.clear();
         (TimelineView as unknown as { coverRequestCache: Map<string, Promise<string | null>> }).coverRequestCache.clear();
-        Object.defineProperty(window, 'matchMedia', {
+        Object.defineProperty(globalThis, 'matchMedia', {
             writable: true,
             value: createMatchMedia(false),
         });
@@ -180,7 +180,7 @@ describe('TimelineView', () => {
 
     afterEach(() => {
         document.body.innerHTML = '';
-        Object.defineProperty(window, 'matchMedia', {
+        Object.defineProperty(globalThis, 'matchMedia', {
             writable: true,
             value: originalMatchMedia,
         });
@@ -479,9 +479,20 @@ describe('TimelineView', () => {
         };
 
         class MockIntersectionObserver {
+            public readonly root = null;
+            public readonly rootMargin = '';
+            public readonly thresholds: number[] = [];
+
             constructor(callback: IntersectionObserverCallback) {
                 observerCallback = callback;
-                return observerInstance as unknown as IntersectionObserver;
+            }
+
+            observe = observerInstance.observe;
+            unobserve = observerInstance.unobserve;
+            disconnect = observerInstance.disconnect;
+
+            takeRecords(): IntersectionObserverEntry[] {
+                return [];
             }
         }
 
@@ -537,7 +548,7 @@ describe('TimelineView', () => {
         nodes[0].getBoundingClientRect = () => createRect(588, 120, 24, 24);
         nodes[1].getBoundingClientRect = () => createRect(588, 280, 24, 24);
 
-        const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+        const rafSpy = vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
             callback(0);
             return 77;
         });
@@ -552,7 +563,7 @@ describe('TimelineView', () => {
         expect(wave.innerHTML).toContain('timeline-wave-body-left');
         expect(wave.innerHTML).toContain('timeline-wave-haze-right');
 
-        const cancelSpy = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => undefined);
+        const cancelSpy = vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(() => undefined);
         view.coverObserver = observerInstance;
         view.waveFrame = 55;
         view.destroy();
@@ -562,7 +573,7 @@ describe('TimelineView', () => {
 
     it('does not render the timeline wave in the compact layout', async () => {
         vi.mocked(api.getTimelineEvents).mockResolvedValue(sampleEvents);
-        Object.defineProperty(window, 'matchMedia', {
+        Object.defineProperty(globalThis, 'matchMedia', {
             writable: true,
             value: createMatchMedia(true),
         });

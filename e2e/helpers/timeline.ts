@@ -90,7 +90,7 @@ export async function getTimelineEntrySnapshots(limit?: number): Promise<Timelin
             .map(entry => ({
                 kind: entry.querySelector('.timeline-kind-pill')?.textContent?.trim() ?? '',
                 date: entry.querySelector('.timeline-date-pill')?.textContent?.trim() ?? '',
-                text: entry.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+                text: entry.textContent?.replaceAll(/\s+/g, ' ').trim() ?? '',
             }));
     }, limit);
 }
