@@ -174,6 +174,57 @@ jobs:
           name: release-web-windows
           path: release-web/kechimochi-web-windows-${{ needs.validate-release.outputs.version }}.zip
 
+  build-release-web-macos:
+    runs-on: macos-latest
+    needs: validate-release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: install node dependencies
+        run: npm ci
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+        with:
+          toolchain: stable
+
+      - name: cache rust dependencies
+        uses: swatinem/rust-cache@aa7c1c80a07a27a84c0aa76d0cef0aad3830e330 # v2.7.8
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: build web release artifacts
+        env:
+          VITE_APP_VERSION: ${{ needs.validate-release.outputs.version }}
+          VITE_APP_CHANNEL: release
+          VITE_RELEASE_STAGE: ${{ needs.validate-release.outputs.release_stage }}
+        run: npm run web:release
+
+      - name: package release asset
+        shell: bash
+        run: |
+          VERSION="${{ needs.validate-release.outputs.version }}"
+          DEST="release-web/kechimochi-web-macos-${VERSION}"
+          mkdir -p "$DEST"
+          cp -R dist "$DEST/dist"
+          cp src-tauri/target/release/web_server "$DEST/web_server"
+          cp README.md "$DEST/README.md"
+          ditto -c -k --keepParent "$DEST" "release-web/kechimochi-web-macos-${VERSION}.zip"
+
+      - name: upload release asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-web-macos
+          path: release-web/kechimochi-web-macos-${{ needs.validate-release.outputs.version }}.zip
+
   build-release-linux:
     runs-on: ubuntu-latest
     needs: validate-release
@@ -282,14 +333,64 @@ jobs:
           name: release-windows
           path: release-desktop/kechimochi-windows-${{ needs.validate-release.outputs.version }}.msi
 
+  build-release-macos:
+    runs-on: macos-latest
+    needs: validate-release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: install node dependencies
+        run: npm ci
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: stable
+
+      - name: cache rust dependencies
+        uses: swatinem/rust-cache@aa7c1c80a07a27a84c0aa76d0cef0aad3830e330 # v2.7.8
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: build tauri app
+        env:
+          VITE_APP_VERSION: ${{ needs.validate-release.outputs.version }}
+          VITE_APP_CHANNEL: release
+          VITE_RELEASE_STAGE: ${{ needs.validate-release.outputs.release_stage }}
+        run: npm run tauri build -- --bundles dmg --verbose
+
+      - name: rename DMG asset
+        shell: bash
+        run: |
+          VERSION="${{ needs.validate-release.outputs.version }}"
+          mkdir -p release-desktop
+          DMG=$(find src-tauri/target/release/bundle/dmg -type f -name '*.dmg' | head -n 1)
+          cp "$DMG" "release-desktop/kechimochi-macos-${VERSION}.dmg"
+
+      - name: upload release asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: release-desktop/kechimochi-macos-${{ needs.validate-release.outputs.version }}.dmg
+
   publish-release:
     runs-on: ubuntu-latest
     needs:
       - validate-release
       - build-release-web-linux
       - build-release-web-windows
+      - build-release-web-macos
       - build-release-linux
       - build-release-windows
+      - build-release-macos
     permissions:
       contents: write
     steps:
@@ -319,6 +420,12 @@ jobs:
           name: release-windows
           path: release-assets/release-windows
 
+      - name: download macOS desktop asset
+        uses: actions/download-artifact@v4
+        with:
+          name: release-macos
+          path: release-assets/release-macos
+
       - name: download linux web asset
         uses: actions/download-artifact@v4
         with:
@@ -331,6 +438,12 @@ jobs:
           name: release-web-windows
           path: release-assets/release-web-windows
 
+      - name: download macOS web asset
+        uses: actions/download-artifact@v4
+        with:
+          name: release-web-macos
+          path: release-assets/release-web-macos
+
       - name: publish GitHub release
         uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
         with:
@@ -340,5 +453,7 @@ jobs:
           files: |
             release-assets/release-linux/kechimochi-linux-${{ needs.validate-release.outputs.version }}.AppImage
             release-assets/release-windows/kechimochi-windows-${{ needs.validate-release.outputs.version }}.msi
+            release-assets/release-macos/kechimochi-macos-${{ needs.validate-release.outputs.version }}.dmg
             release-assets/release-web-linux/kechimochi-web-linux-${{ needs.validate-release.outputs.version }}.zip
             release-assets/release-web-windows/kechimochi-web-windows-${{ needs.validate-release.outputs.version }}.zip
+            release-assets/release-web-macos/kechimochi-web-macos-${{ needs.validate-release.outputs.version }}.zip

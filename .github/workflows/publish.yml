@@ -142,6 +142,59 @@ jobs:
           name: kechimochi-web-windows-${{ needs.prepare.outputs.display_version }}
           path: release-web/kechimochi-web-windows-${{ needs.prepare.outputs.display_version }}/
 
+  publish-web-macos:
+    runs-on: macos-latest
+    needs: prepare
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.head_sha }}
+          persist-credentials: false
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: install node dependencies
+        run: npm ci
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+        with:
+          toolchain: stable
+
+      - name: cache rust dependencies
+        uses: swatinem/rust-cache@aa7c1c80a07a27a84c0aa76d0cef0aad3830e330 # v2.7.8
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: build web release artifacts
+        env:
+          VITE_APP_VERSION: ${{ needs.prepare.outputs.display_version }}
+          VITE_APP_CHANNEL: dev
+          VITE_RELEASE_STAGE: beta
+        run: npm run web:release
+
+      - name: package web artifact payload
+        shell: bash
+        run: |
+          VERSION="${{ needs.prepare.outputs.display_version }}"
+          DEST="release-web/kechimochi-web-macos-${VERSION}"
+          mkdir -p "$DEST"
+          cp -R dist "$DEST/dist"
+          cp src-tauri/target/release/web_server "$DEST/web_server"
+          cp README.md "$DEST/README.md"
+
+      - name: upload web artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kechimochi-web-macos-${{ needs.prepare.outputs.display_version }}
+          path: release-web/kechimochi-web-macos-${{ needs.prepare.outputs.display_version }}/
+
   publish-linux:
     runs-on: ubuntu-latest
     needs: prepare
@@ -239,3 +292,54 @@ jobs:
         with:
           name: kechimochi-windows-${{ needs.prepare.outputs.display_version }}
           path: src-tauri/target/release/bundle/msi/*.msi
+
+  publish-macos:
+    runs-on: macos-latest
+    needs: prepare
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.head_sha }}
+          persist-credentials: false
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: install node dependencies
+        run: npm ci
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: stable
+
+      - name: cache rust dependencies
+        uses: swatinem/rust-cache@aa7c1c80a07a27a84c0aa76d0cef0aad3830e330 # v2.7.8
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: build tauri app
+        env:
+          VITE_APP_VERSION: ${{ needs.prepare.outputs.display_version }}
+          VITE_APP_CHANNEL: dev
+          VITE_RELEASE_STAGE: beta
+        run: npm run tauri build -- --bundles dmg --verbose
+
+      - name: rename DMG artifact
+        shell: bash
+        run: |
+          VERSION="${{ needs.prepare.outputs.display_version }}"
+          mkdir -p release-desktop
+          DMG=$(find src-tauri/target/release/bundle/dmg -type f -name '*.dmg' | head -n 1)
+          cp "$DMG" "release-desktop/kechimochi-macos-${VERSION}.dmg"
+
+      - name: upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kechimochi-macos-${{ needs.prepare.outputs.display_version }}
+          path: release-desktop/kechimochi-macos-${{ needs.prepare.outputs.display_version }}.dmg

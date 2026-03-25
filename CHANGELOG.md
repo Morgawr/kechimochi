@@ -9,6 +9,7 @@ The format is based on Keep a Changelog, with one section per released version.
 ### Added
 - A timeline view for reverse-chronological media events, including started, completed, paused, dropped, and dated milestone entries.
 - A library list layout with persistent `grid`/`list` selection and per-entry activity summary fields.
+- macOS release builds for the desktop app and self-hosted web package.
 
 ### Changed
 - Library search, filters, hide-archived handling, refresh, and detail navigation now use shared behavior in both library layouts.

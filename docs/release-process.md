@@ -26,6 +26,7 @@ Release builds are created only from Git tags that match `vX.Y.Z`.
 
 - The checked-in version files must already be set to the release version.
 - The release workflow publishes assets to the GitHub Releases tab.
+- Tagged releases currently publish desktop bundles for Linux, Windows, and macOS, plus self-hosted web packages for Linux, Windows, and macOS.
 - While the app is in beta, release builds display `BETA VERSION X.Y.Z` in the UI.
 - GitHub Releases are marked as prereleases until beta is over.
 
@@ -34,6 +35,7 @@ Release builds are created only from Git tags that match `vX.Y.Z`.
 Development builds continue to come from regular pushes to `main`.
 
 - They are published as workflow artifacts, not GitHub Releases.
+- Development artifacts are produced for Linux, Windows, and macOS on both the desktop and self-hosted web tracks.
 - The displayed version is derived from the checked-in base version plus the current commit hash.
 - Example: if `package.json` is `0.1.0`, a development build from `main` shows `DEV BUILD 0.1.0-dev.abc1234`.
 
