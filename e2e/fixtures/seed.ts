@@ -178,6 +178,32 @@ function generateActivityLogs(mediaIds: Map<string, number>) {
   return logs;
 }
 
+function getSeedMilestones() {
+  return [
+    {
+      media_title: 'ペルソナ5',
+      name: 'カモシダ・パレス攻略',
+      duration: 90,
+      characters: 0,
+      date: '2024-03-08',
+    },
+    {
+      media_title: '薬屋のひとりごと',
+      name: '後宮の謎',
+      duration: 0,
+      characters: 2500,
+      date: '2024-03-07',
+    },
+    {
+      media_title: 'ある魔女が死ぬまで',
+      name: '最終章',
+      duration: 40,
+      characters: 0,
+      date: '2024-03-03',
+    },
+  ];
+}
+
 // ---------- Create placeholder cover images (1x1 PNG) ----------
 function createPlaceholderImage(filepath: string) {
   // Minimal valid PNG (1x1 red pixel)
@@ -272,10 +298,24 @@ function main() {
       value TEXT NOT NULL
     )
   `);
+  userDb.exec(`
+    CREATE TABLE IF NOT EXISTS milestones (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      media_title TEXT NOT NULL,
+      name TEXT NOT NULL,
+      duration INTEGER NOT NULL DEFAULT 0,
+      characters INTEGER NOT NULL DEFAULT 0,
+      date TEXT
+    )
+  `);
 
   const insertLog = userDb.prepare(`
     INSERT INTO activity_logs (media_id, duration_minutes, characters, date, activity_type)
     VALUES (@media_id, @duration_minutes, @characters, @date, @activity_type)
+  `);
+  const insertMilestone = userDb.prepare(`
+    INSERT INTO milestones (media_title, name, duration, characters, date)
+    VALUES (@media_title, @name, @duration, @characters, @date)
   `);
 
   const logs = generateActivityLogs(mediaIds);
@@ -283,6 +323,12 @@ function main() {
     insertLog.run(log);
   }
   Logger.info(`  Created ${logs.length} activity log entries in user DB`);
+
+  const milestones = getSeedMilestones();
+  for (const milestone of milestones) {
+    insertMilestone.run(milestone);
+  }
+  Logger.info(`  Created ${milestones.length} milestone entries in user DB`);
 
   // Insert default settings
   const insertSetting = userDb.prepare(`

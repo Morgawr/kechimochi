@@ -3,11 +3,12 @@
  */
 /// <reference types="@wdio/globals/types" />
 
-export type ViewName = 'dashboard' | 'media' | 'profile';
+export type ViewName = 'dashboard' | 'media' | 'timeline' | 'profile';
 
 function getRootSelector(view: ViewName): string {
   if (view === 'dashboard') return '.dashboard-root';
   if (view === 'media') return '#media-root';
+  if (view === 'timeline') return '#timeline-root';
   return '#profile-root';
 }
 

@@ -5,7 +5,7 @@ import {
   verifyViewNotBroken,
 } from '../helpers/navigation.js';
 
-type ViewName = 'dashboard' | 'media' | 'profile';
+type ViewName = 'dashboard' | 'media' | 'timeline' | 'profile';
 
 describe('Navigation CUJ', () => {
   before(async () => {
@@ -16,9 +16,9 @@ describe('Navigation CUJ', () => {
   const sequence: ViewName[] = [
     'dashboard',  // Starting view (verified, not navigated to)
     'media',
+    'timeline',
     'profile',
-    'dashboard',
-    'profile',
+    'timeline',
     'media',
     'dashboard',
   ];
