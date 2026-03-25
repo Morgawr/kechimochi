@@ -8,6 +8,11 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ### Added
 - A timeline view for reverse-chronological media events, including started, completed, paused, dropped, and dated milestone entries.
+- A library list layout with persistent `grid`/`list` selection and per-entry activity summary fields.
+
+### Changed
+- Library search, filters, hide-archived handling, refresh, and detail navigation now use shared behavior in both library layouts.
+- Viewports below the grid breakpoint now force `list` layout without overwriting the saved layout preference.
 
 ## [0.1.2] - 2026-03-25
 
