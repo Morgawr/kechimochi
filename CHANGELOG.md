@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-03-26
+
 ### Added
 - A timeline view for reverse-chronological media events, including started, completed, paused, dropped, and dated milestone entries.
 - A library list layout with persistent `grid`/`list` selection and per-entry activity summary fields.
