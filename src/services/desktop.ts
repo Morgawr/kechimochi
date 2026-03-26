@@ -7,7 +7,7 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open as tauriOpen, save as tauriSave } from '@tauri-apps/plugin-dialog';
 
-import type { AppServices } from './types';
+import type { AppServices, ImportedThemePackFile } from './types';
 import type {
     Media,
     ActivityLog,
@@ -26,6 +26,7 @@ import type {
     SyncConflictResolution,
     SyncProgressUpdate,
     SyncStatus,
+    ManagedThemePackSummary,
 } from '../types';
 import { getBuildVersion } from '../app_version';
 import { getMockExternalJsonResponse } from './external_mocks';
@@ -164,6 +165,46 @@ export class DesktopServices implements AppServices {
         const selected = this.getMockOpenPath() ?? await tauriOpen({ multiple: false, filters: [{ name: 'ZIP', extensions: ['zip'] }] });
         if (!selected || typeof selected !== 'string') return null;
         return invoke('import_full_backup', { filePath: selected });
+    }
+
+    async pickAndImportThemePack(): Promise<ImportedThemePackFile | null> {
+        const selected = this.getMockOpenPath() ?? await tauriOpen({ multiple: false, filters: [{ name: 'JSON', extensions: ['json'] }] });
+        if (!selected || typeof selected !== 'string') return null;
+        const content = await invoke<string>('read_text_file', { path: selected });
+        return {
+            content,
+            fileName: selected.split(/[\\/]/).pop() || null,
+        };
+    }
+
+    listManagedThemePackSummaries(): Promise<ManagedThemePackSummary[]> {
+        return invoke('list_theme_pack_summaries');
+    }
+
+    getManagedThemePack(themeId: string): Promise<string | null> {
+        return invoke('read_theme_pack', { themeId });
+    }
+
+    listManagedThemePacks(): Promise<string[]> {
+        return invoke('list_theme_packs');
+    }
+
+    saveManagedThemePack(themeId: string, content: string, preferredFileName?: string | null): Promise<void> {
+        return invoke('save_theme_pack', { themeId, content, preferredFileName });
+    }
+
+    deleteManagedThemePack(themeId: string): Promise<void> {
+        return invoke('delete_theme_pack', { themeId });
+    }
+
+    async exportThemePack(defaultFileName: string, content: string): Promise<boolean> {
+        const savePath = this.getMockSavePath() ?? await tauriSave({
+            filters: [{ name: 'JSON', extensions: ['json'] }],
+            defaultPath: defaultFileName,
+        });
+        if (!savePath) return false;
+        await invoke('write_text_file', { path: savePath, contents: content });
+        return true;
     }
 
     // ── Milestone operations ─────────────────────────────────────────────────

@@ -24,6 +24,12 @@ export function createMainApiMock() {
         getSetting: vi.fn((key: string) => Promise.resolve(getDefaultSettingValue(key))),
         setSetting: vi.fn(() => Promise.resolve()),
         getProfilePicture: vi.fn(() => Promise.resolve(null)),
+        pickAndImportThemePack: vi.fn(() => Promise.resolve(null)),
+        exportThemePack: vi.fn(() => Promise.resolve(true)),
+        listManagedThemePackSummaries: vi.fn(() => Promise.resolve([])),
+        getManagedThemePack: vi.fn(() => Promise.resolve(null)),
+        saveManagedThemePack: vi.fn(() => Promise.resolve()),
+        deleteManagedThemePack: vi.fn(() => Promise.resolve()),
         getLogs: vi.fn(() => Promise.resolve([defaultActivitySummary])),
         getLogsForMedia: vi.fn(() => Promise.resolve([])),
         getAllMedia: vi.fn(() => Promise.resolve([])),
@@ -105,6 +111,12 @@ export function resetMainApiMocks(mockedApi: ApiModule) {
     vi.mocked(mockedApi.getSetting).mockImplementation(async (key) => getDefaultSettingValue(key));
     vi.mocked(mockedApi.setSetting).mockResolvedValue();
     vi.mocked(mockedApi.getProfilePicture).mockResolvedValue(null);
+    vi.mocked(mockedApi.pickAndImportThemePack).mockResolvedValue(null);
+    vi.mocked(mockedApi.exportThemePack).mockResolvedValue(true);
+    vi.mocked(mockedApi.listManagedThemePackSummaries).mockResolvedValue([]);
+    vi.mocked(mockedApi.getManagedThemePack).mockResolvedValue(null);
+    vi.mocked(mockedApi.saveManagedThemePack).mockResolvedValue();
+    vi.mocked(mockedApi.deleteManagedThemePack).mockResolvedValue();
     vi.mocked(mockedApi.getLogs).mockResolvedValue([defaultActivitySummary]);
     vi.mocked(mockedApi.getLogsForMedia).mockResolvedValue([]);
     vi.mocked(mockedApi.getAllMedia).mockResolvedValue([]);

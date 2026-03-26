@@ -44,6 +44,17 @@ vi.mock('../../src/api', () => ({
     importFullBackup: vi.fn(),
     clearSyncBackups: vi.fn(),
     isDesktop: vi.fn(() => true),
+    pickAndImportThemePack: vi.fn(),
+    listManagedThemePackSummaries: vi.fn(),
+    getManagedThemePack: vi.fn(),
+    listManagedThemePacks: vi.fn(),
+    saveManagedThemePack: vi.fn(),
+    deleteManagedThemePack: vi.fn(),
+    exportThemePack: vi.fn(),
+    applyMediaImport: vi.fn(),
+    wipeEverything: vi.fn(),
+    importMilestonesCsv: vi.fn(),
+    exportMilestonesCsv: vi.fn(),
 }));
 
 const mockServices = {
@@ -132,7 +143,9 @@ describe('ProfileView', () => {
         mockStandardProfileLoad();
         vi.mocked(api.getSyncStatus).mockResolvedValue(buildSyncStatus());
         vi.mocked(api.getSyncConflicts).mockResolvedValue([]);
-
+        vi.mocked(api.listManagedThemePackSummaries).mockResolvedValue([]);
+        vi.mocked(api.getManagedThemePack).mockResolvedValue(null);
+        vi.mocked(api.pickAndImportThemePack).mockResolvedValue(null);
         // Mock localStorage
         const store: Record<string, string> = { [STORAGE_KEYS.CURRENT_PROFILE]: 'test-user' };
         vi.stubGlobal('localStorage', {
@@ -227,6 +240,104 @@ describe('ProfileView', () => {
         select.dispatchEvent(new Event('change'));
 
         expect(api.setSetting).toHaveBeenCalledWith(SETTING_KEYS.THEME, 'molokai');
+    });
+
+    it('should import a custom theme pack and select it', async () => {
+        const importedThemeContent = JSON.stringify({
+            version: 1,
+            id: 'custom:test-theme',
+            name: 'Test Theme',
+            variables: {
+                'bg-dark': '#101010',
+                'bg-card': '#202020',
+                'bg-card-hover': '#303030',
+                'text-primary': '#ffffff',
+                'text-secondary': '#cccccc',
+                'accent-green': '#00ff88',
+                'accent-green-hover': '#22ffaa',
+                'accent-red': '#ff4466',
+                'accent-blue': '#4488ff',
+                'accent-yellow': '#ffdd44',
+                'accent-purple': '#aa66ff',
+                'border-color': '#444444',
+                'shadow-sm': '0 2px 4px rgba(0,0,0,0.2)',
+                'shadow-md': '0 4px 12px rgba(0,0,0,0.4)',
+                'heatmap-hue': '180',
+                'heatmap-sat-base': '40',
+                'heatmap-sat-range': '50',
+                'heatmap-light-base': '45',
+                'heatmap-light-range': '35',
+                'accent-text': '#000000',
+                'chart-1': '#111111',
+                'chart-2': '#222222',
+                'chart-3': '#333333',
+                'chart-4': '#444444',
+                'chart-5': '#555555',
+            },
+            cssOverrides: '.btn { border-radius: 999px; }'
+        });
+
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === SETTING_KEYS.THEME) return 'dark';
+            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
+            return '0';
+        });
+        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+        vi.mocked(api.pickAndImportThemePack).mockResolvedValue({
+            content: importedThemeContent,
+            fileName: 'midnight-current.json',
+        });
+        vi.mocked(api.listManagedThemePackSummaries)
+            .mockResolvedValueOnce([])
+            .mockResolvedValueOnce([{ id: 'custom:test-theme', name: 'Test Theme' }]);
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-import-theme')).not.toBeNull());
+
+        const importBtn = container.querySelector('#profile-btn-import-theme') as HTMLElement;
+        importBtn.click();
+
+        await vi.waitFor(() => {
+            expect(api.pickAndImportThemePack).toHaveBeenCalled();
+            expect(api.saveManagedThemePack).toHaveBeenCalledWith(
+                'custom:test-theme',
+                expect.any(String),
+                'midnight-current.json'
+            );
+            expect(api.setSetting).toHaveBeenCalledWith(SETTING_KEYS.THEME, 'custom:test-theme');
+            expect(api.setSetting).not.toHaveBeenCalledWith(SETTING_KEYS.CUSTOM_THEMES, expect.anything());
+        });
+    });
+
+    it('should export the selected theme pack', async () => {
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === SETTING_KEYS.THEME) return 'light';
+            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
+            return '0';
+        });
+        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+        vi.mocked(api.exportThemePack).mockResolvedValue(true);
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-export-theme')).not.toBeNull());
+
+        const exportBtn = container.querySelector('#profile-btn-export-theme') as HTMLElement;
+        exportBtn.click();
+
+        await vi.waitFor(() => {
+            expect(api.exportThemePack).toHaveBeenCalledWith(
+                'kechimochi_theme_light-theme-custom.json',
+                expect.stringContaining('"id": "custom:light"')
+            );
+            expect(api.exportThemePack).toHaveBeenCalledWith(
+                'kechimochi_theme_light-theme-custom.json',
+                expect.stringContaining('"cssOverrides": ""')
+            );
+        });
     });
 
     it('should render update controls and forward update actions', async () => {
@@ -645,6 +756,29 @@ describe('ProfileView', () => {
 
         await vi.waitFor(() => expect(api.setSetting).toHaveBeenCalledWith(SETTING_KEYS.STATS_MANGA_SPEED, '100'));
         expect(api.setSetting).toHaveBeenCalledWith(SETTING_KEYS.STATS_VN_SPEED, '5000');
+    });
+
+    it('should load custom theme options from summaries without reading full theme payloads', async () => {
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === 'profile_name') return 'test-user';
+            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
+            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
+            return '0';
+        });
+        vi.mocked(api.getAppVersion).mockResolvedValue('1.2.3');
+        vi.mocked(api.listManagedThemePackSummaries).mockResolvedValue([
+            { id: 'custom:alpha', name: 'Alpha' },
+            { id: 'custom:beta', name: 'Beta' },
+        ]);
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-select-theme')).not.toBeNull());
+        expect(container.textContent).toContain('Alpha');
+        expect(container.textContent).toContain('Beta');
+        expect(api.getManagedThemePack).not.toHaveBeenCalled();
+        expect(api.getSetting).not.toHaveBeenCalledWith(SETTING_KEYS.CUSTOM_THEMES);
     });
 
     it('should clear activities on confirm', async () => {

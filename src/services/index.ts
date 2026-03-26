@@ -14,6 +14,8 @@ import { DesktopServices } from './desktop';
 import { WebServices } from './web';
 
 export type { AppServices } from './types';
+export type { ImportedThemePackFile } from './types';
+export type { ManagedThemePackSummary } from './types';
 
 let _services: AppServices | null = null;
 

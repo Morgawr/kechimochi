@@ -1,6 +1,6 @@
 import { Logger } from '../core/logger';
 import { Component } from '../core/component';
-import { html } from '../core/html';
+import { escapeHTML, html, rawHtml } from '../core/html';
 import {
     getAllMedia,
     getLogsForMedia,
@@ -26,6 +26,12 @@ import {
     resolveSyncConflict,
     clearSyncBackups,
     isDesktop,
+    pickAndImportThemePack,
+    exportThemePack,
+    listManagedThemePackSummaries,
+    getManagedThemePack,
+    saveManagedThemePack,
+    deleteManagedThemePack,
 } from '../api';
 import {
     customPrompt,
@@ -38,6 +44,7 @@ import {
 import { getServices } from '../services';
 import { formatProductVersionLabel, getAppVersionInfo } from '../app_version';
 import type {
+    ManagedThemePackSummary,
     MergeSide,
     ProfilePicture,
     SyncActionResult,
@@ -62,11 +69,26 @@ import {
     runBlockingStatus,
     runSyncProgressBlockingStatus,
 } from '../sync_enablement';
+import {
+    applyTheme,
+    createExportableThemePack,
+    getThemeDefinition,
+    getThemeOptions,
+    getThemePackFilename,
+    isBuiltInTheme,
+    parseThemePackText,
+    removeCustomTheme,
+    upsertCustomTheme,
+    writeThemeCache,
+    type ThemePackV1,
+} from '../themes';
 
 interface ProfileState {
     currentProfile: string;
     theme: string;
     profilePicture: ProfilePicture | null;
+    customThemes: ThemePackV1[];
+    customThemeSummaries: ManagedThemePackSummary[];
     report: {
         novelSpeed: string;
         novelCount: string;
@@ -232,6 +254,8 @@ export class ProfileView extends Component<ProfileState> {
             currentProfile: localStorage.getItem(STORAGE_KEYS.CURRENT_PROFILE) || DEFAULTS.PROFILE,
             theme: localStorage.getItem(STORAGE_KEYS.THEME_CACHE) || DEFAULTS.THEME,
             profilePicture: null,
+            customThemes: [],
+            customThemeSummaries: [],
             report: {
                 novelSpeed: '0',
                 novelCount: '0',
@@ -275,7 +299,8 @@ export class ProfileView extends Component<ProfileState> {
         const syncStatePromise = this.loadSyncState(syncSupported);
 
         const [
-            theme,
+            themeSetting,
+            managedThemeSummaries,
             novelSpeed,
             novelCount,
             mangaSpeed,
@@ -285,10 +310,14 @@ export class ProfileView extends Component<ProfileState> {
             timestamp,
             appVersion,
             profilePicture,
-            currentProfile,
+            currentProfileSetting,
             syncState,
         ] = await Promise.all([
             getSetting(SETTING_KEYS.THEME),
+            listManagedThemePackSummaries().catch(error => {
+                Logger.warn('[kechimochi] Failed to load managed theme pack summaries for profile view', error);
+                return [] as ManagedThemePackSummary[];
+            }),
             getSetting(SETTING_KEYS.STATS_NOVEL_SPEED),
             getSetting(SETTING_KEYS.STATS_NOVEL_COUNT),
             getSetting(SETTING_KEYS.STATS_MANGA_SPEED),
@@ -302,14 +331,25 @@ export class ProfileView extends Component<ProfileState> {
             syncStatePromise,
         ]);
 
-        const resolvedTheme = theme || DEFAULTS.THEME;
-        const resolvedProfileName = currentProfile || DEFAULTS.PROFILE;
+        const requestedTheme = themeSetting || DEFAULTS.THEME;
+        const selectedCustomTheme = isBuiltInTheme(requestedTheme)
+            ? null
+            : await this.loadManagedThemePack(requestedTheme);
+        const customThemes = selectedCustomTheme ? [selectedCustomTheme] : [];
+        const resolvedTheme = applyTheme(requestedTheme, customThemes);
+        writeThemeCache(resolvedTheme, customThemes);
 
-        localStorage.setItem(STORAGE_KEYS.THEME_CACHE, resolvedTheme);
+        if (requestedTheme !== resolvedTheme) {
+            await setSetting(SETTING_KEYS.THEME, resolvedTheme);
+        }
+
+        const currentProfile = currentProfileSetting || DEFAULTS.PROFILE;
         this.setState({
-            currentProfile: resolvedProfileName,
+            currentProfile,
             theme: resolvedTheme,
             profilePicture,
+            customThemes,
+            customThemeSummaries: this.mergeThemeSummary(managedThemeSummaries, selectedCustomTheme),
             report: {
                 novelSpeed: novelSpeed || '0',
                 novelCount: novelCount || '0',
@@ -378,6 +418,49 @@ export class ProfileView extends Component<ProfileState> {
         }
     }
 
+    private mergeThemeSummary(summaries: ManagedThemePackSummary[], theme: ThemePackV1 | null): ManagedThemePackSummary[] {
+        if (!theme) {
+            return [...summaries].sort((left, right) => left.name.localeCompare(right.name));
+        }
+
+        const summaryMap = new Map(summaries.map(summary => [summary.id, summary]));
+        summaryMap.set(theme.id, { id: theme.id, name: theme.name });
+        return [...summaryMap.values()].sort((left, right) => left.name.localeCompare(right.name));
+    }
+
+    private getSelectedThemeSummary() {
+        const builtInTheme = getThemeDefinition(this.state.theme, []);
+        if (builtInTheme) {
+            return builtInTheme;
+        }
+
+        const summary = this.state.customThemeSummaries.find(theme => theme.id === this.state.theme);
+        if (summary) {
+            return { ...summary, builtIn: false };
+        }
+
+        return getThemeDefinition(this.state.theme, this.state.customThemes);
+    }
+
+    private async loadManagedThemePack(themeId: string, fallbackTheme: ThemePackV1 | null = null): Promise<ThemePackV1 | null> {
+        const cached = this.state.customThemes.find(theme => theme.id === themeId);
+        if (cached) {
+            return cached;
+        }
+
+        try {
+            const content = await getManagedThemePack(themeId);
+            if (!content) {
+                return fallbackTheme;
+            }
+
+            return parseThemePackText(content);
+        } catch (error) {
+            Logger.warn('[kechimochi] Failed to load managed custom theme pack', error);
+            return fallbackTheme;
+        }
+    }
+
     render() {
         const needsLoad = !this.state.isInitialized;
         if (!this.isRefreshing && needsLoad) {
@@ -389,9 +472,12 @@ export class ProfileView extends Component<ProfileState> {
         }
 
         this.clear();
-        const { currentProfile, theme, profilePicture, appVersion } = this.state;
+    const { currentProfile, theme, profilePicture, customThemeSummaries, appVersion } = this.state;
         const profilePictureSrc = profilePictureToDataUrl(profilePicture);
         const initials = getProfileInitials(currentProfile);
+        const themeOptions = getThemeOptions(customThemeSummaries);
+        const selectedTheme = this.getSelectedThemeSummary();
+        const canDeleteTheme = Boolean(selectedTheme && !selectedTheme.builtIn);
 
         const content = html`
             <div id="profile-root" class="animate-fade-in" style="display: flex; flex-direction: column; gap: 2rem; max-width: 600px; margin: 0 auto; padding-top: 1rem; padding-bottom: 2rem;">
@@ -424,24 +510,26 @@ export class ProfileView extends Component<ProfileState> {
 
                 <div class="card" style="display: flex; flex-direction: column; gap: 1rem;">
                     <h3>Appearance</h3>
-                    <p style="color: var(--text-secondary); font-size: 0.9rem;">Choose your preferred theme for this profile. Double click the profile picture above to change it.</p>
+                    <p style="color: var(--text-secondary); font-size: 0.9rem;">Choose, import, or export a theme pack for this profile. Double click the profile picture above to change it.</p>
 
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">
                         <label for="profile-select-theme" style="font-size: 0.85rem; font-weight: 500;">Theme</label>
                         <select id="profile-select-theme" style="width: 100%;">
-                            <option value="pastel-pink" ${theme === 'pastel-pink' ? 'selected' : ''}>Pastel Pink (Default)</option>
-                            <option value="light" ${theme === 'light' ? 'selected' : ''}>Light Theme</option>
-                            <option value="dark" ${theme === 'dark' ? 'selected' : ''}>Dark Theme</option>
-                            <option value="light-greyscale" ${theme === 'light-greyscale' ? 'selected' : ''}>Light Greyscale</option>
-                            <option value="dark-greyscale" ${theme === 'dark-greyscale' ? 'selected' : ''}>Dark Greyscale</option>
-                            <option value="molokai" ${theme === 'molokai' ? 'selected' : ''}>Molokai</option>
-                            <option value="green-olive" ${theme === 'green-olive' ? 'selected' : ''}>Green Olive</option>
-                            <option value="deep-blue" ${theme === 'deep-blue' ? 'selected' : ''}>Deep Blue</option>
-                            <option value="purple" ${theme === 'purple' ? 'selected' : ''}>Purple</option>
-                            <option value="fire-red" ${theme === 'fire-red' ? 'selected' : ''}>Fire Red</option>
-                            <option value="yellow-lime" ${theme === 'yellow-lime' ? 'selected' : ''}>Yellow Lime</option>
-                            <option value="noctua-brown" ${theme === 'noctua-brown' ? 'selected' : ''}>Noctua Brown</option>
+                            ${rawHtml(this.renderThemeOptions(theme, themeOptions))}
                         </select>
+                    </div>
+
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-color); background: color-mix(in srgb, var(--bg-dark) 70%, transparent);">
+                        <div>
+                            <div style="font-size: 0.9rem; font-weight: 600; color: var(--text-primary);">${selectedTheme?.name || 'Unknown Theme'}</div>
+                            <div id="profile-theme-kind" style="font-size: 0.8rem; color: var(--text-secondary);">${canDeleteTheme ? 'Custom theme pack' : 'Built-in theme'}</div>
+                        </div>
+                        <button class="btn btn-ghost" id="profile-btn-delete-theme" ${canDeleteTheme ? '' : 'disabled'}>Delete Theme</button>
+                    </div>
+
+                    <div style="display: flex; gap: 1rem; margin-top: 0.25rem;">
+                        <button class="btn btn-primary" id="profile-btn-import-theme" style="flex: 1;">Import Theme Pack</button>
+                        <button class="btn btn-primary" id="profile-btn-export-theme" style="flex: 1;">Export Theme Pack</button>
                     </div>
                 </div>
 
@@ -575,6 +663,37 @@ export class ProfileView extends Component<ProfileState> {
                 Since ${new Date(timestamp).toISOString().split('T')[0]}
             </div>
         `;
+    }
+
+    private renderThemeOptions(selectedThemeId: string, options: ReturnType<typeof getThemeOptions>): string {
+        const builtInOptions = options.builtIn
+            .map(theme => `<option value="${theme.id}" ${theme.id === selectedThemeId ? 'selected' : ''}>${escapeHTML(theme.name)}</option>`)
+            .join('');
+        const customOptions = options.custom
+            .map(theme => `<option value="${theme.id}" ${theme.id === selectedThemeId ? 'selected' : ''}>${escapeHTML(theme.name)}</option>`)
+            .join('');
+
+        if (!customOptions) {
+            return builtInOptions;
+        }
+
+        return `
+            <optgroup label="Built-in Themes">${builtInOptions}</optgroup>
+            <optgroup label="Custom Theme Packs">${customOptions}</optgroup>
+        `;
+    }
+
+    private async applySelectedTheme(theme: string, fallbackTheme: ThemePackV1 | null = null) {
+        const selectedCustomTheme = isBuiltInTheme(theme)
+            ? null
+            : await this.loadManagedThemePack(theme, fallbackTheme);
+        const customThemes = selectedCustomTheme
+            ? upsertCustomTheme(this.state.customThemes, selectedCustomTheme)
+            : this.state.customThemes;
+        const resolvedTheme = applyTheme(theme, selectedCustomTheme ? [selectedCustomTheme] : []);
+        await setSetting(SETTING_KEYS.THEME, resolvedTheme);
+        writeThemeCache(resolvedTheme, customThemes);
+        this.setState({ theme: resolvedTheme, customThemes });
     }
 
     private renderUpdatesCard() {
@@ -1030,10 +1149,70 @@ export class ProfileView extends Component<ProfileState> {
 
         root.querySelector('#profile-select-theme')?.addEventListener('change', async (e) => {
             const theme = (e.target as HTMLSelectElement).value;
-            await setSetting(SETTING_KEYS.THEME, theme);
-            document.body.dataset.theme = theme;
-            localStorage.setItem(STORAGE_KEYS.THEME_CACHE, theme);
-            this.setState({ theme });
+            await this.applySelectedTheme(theme);
+            this.render();
+        });
+
+        root.querySelector('#profile-btn-import-theme')?.addEventListener('click', async () => {
+            try {
+                const importedFile = await pickAndImportThemePack();
+                if (!importedFile) return;
+
+                const importedTheme = parseThemePackText(importedFile.content);
+                const serializedTheme = JSON.stringify(importedTheme, null, 2);
+                await saveManagedThemePack(importedTheme.id, serializedTheme, importedFile.fileName);
+                const customThemes = upsertCustomTheme(this.state.customThemes, importedTheme);
+                this.setState({
+                    customThemes,
+                    customThemeSummaries: this.mergeThemeSummary(this.state.customThemeSummaries, importedTheme),
+                });
+                await this.applySelectedTheme(importedTheme.id, importedTheme);
+                this.render();
+                await customAlert('Success', `Imported theme pack "${importedTheme.name}".`);
+            } catch (e) {
+                await customAlert('Error', `Theme import failed: ${e}`);
+            }
+        });
+
+        root.querySelector('#profile-btn-export-theme')?.addEventListener('click', async () => {
+            try {
+                const selectedCustomTheme = isBuiltInTheme(this.state.theme)
+                    ? null
+                    : await this.loadManagedThemePack(this.state.theme);
+                const themePack = createExportableThemePack(this.state.theme, selectedCustomTheme ? [selectedCustomTheme] : []);
+                const exported = await exportThemePack(
+                    getThemePackFilename(themePack),
+                    JSON.stringify(themePack, null, 2),
+                );
+                if (exported) {
+                    await customAlert('Success', `Exported theme pack "${themePack.name}".`);
+                }
+            } catch (e) {
+                await customAlert('Error', `Theme export failed: ${e}`);
+            }
+        });
+
+        root.querySelector('#profile-btn-delete-theme')?.addEventListener('click', async () => {
+            if (isBuiltInTheme(this.state.theme)) {
+                return;
+            }
+
+            const selectedTheme = this.getSelectedThemeSummary();
+            if (!selectedTheme || selectedTheme.builtIn) {
+                return;
+            }
+
+            if (!(await customConfirm('Delete Theme Pack', `Delete "${selectedTheme.name}" from this profile?`, 'btn-danger', 'Delete'))) {
+                return;
+            }
+
+            await deleteManagedThemePack(selectedTheme.id);
+            const customThemes = removeCustomTheme(this.state.customThemes, selectedTheme.id);
+            const customThemeSummaries = this.state.customThemeSummaries.filter(theme => theme.id !== selectedTheme.id);
+            this.setState({ customThemes, customThemeSummaries });
+            await this.applySelectedTheme(DEFAULTS.THEME);
+            this.render();
+            await customAlert('Success', `Deleted theme pack "${selectedTheme.name}".`);
         });
 
         root.querySelector('#profile-updates-auto-check')?.addEventListener('change', async (e) => {

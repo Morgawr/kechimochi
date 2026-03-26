@@ -33,6 +33,7 @@ import {
     showNoCloudProfilesFoundAlert,
     stringifySyncEnablementError,
 } from './sync_enablement';
+import { applyTheme, parseManagedThemePacks, writeThemeCache } from './themes';
 
 // Support global date mocking for E2E tests
 let mockDateStr: string | null = null;
@@ -391,9 +392,27 @@ export class App {
     }
 
     private async loadTheme() {
-        const theme = await getSetting(SETTING_KEYS.THEME) || DEFAULTS.THEME;
-        document.body.dataset.theme = theme;
-        localStorage.setItem(STORAGE_KEYS.THEME_CACHE, theme);
+        const services = getServices();
+        const managedThemeContentsPromise = typeof services.listManagedThemePacks === 'function'
+            ? Promise.resolve(services.listManagedThemePacks()).catch(error => {
+                Logger.warn('[kechimochi] Failed to load managed theme packs', error);
+                return null;
+            })
+            : Promise.resolve<string[] | null>(null);
+
+        const [storedTheme, managedThemeContents] = await Promise.all([
+            getSetting(SETTING_KEYS.THEME),
+            managedThemeContentsPromise,
+        ]);
+        const customThemes = managedThemeContents ? parseManagedThemePacks(managedThemeContents) : [];
+        const requestedTheme = storedTheme || DEFAULTS.THEME;
+        const effectiveTheme = applyTheme(requestedTheme, customThemes);
+
+        writeThemeCache(effectiveTheme, customThemes);
+
+        if (requestedTheme !== effectiveTheme) {
+            await setSetting(SETTING_KEYS.THEME, effectiveTheme);
+        }
     }
 
     private async refreshProfileChrome() {
@@ -439,11 +458,15 @@ export class App {
             n.classList.toggle('active', dataView === view);
         });
 
-        // Always reload data when switching views to ensure freshness
-        if (view === 'dashboard') await this.dashboard.loadData();
-        else if (view === 'media') await this.mediaView.resetView();
-        else if (view === 'timeline') await this.timelineView.loadData();
-        else if (view === 'profile') await this.profileView.loadData();
+        try {
+            // Render still proceeds even if a view load fails so navigation remains usable.
+            if (view === 'dashboard') await this.dashboard.loadData();
+            else if (view === 'media') await this.mediaView.resetView();
+            else if (view === 'timeline') await this.timelineView.loadData();
+            else if (view === 'profile') await this.profileView.loadData();
+        } catch (error) {
+            Logger.error(`[kechimochi] Failed to load ${view} view`, error);
+        }
 
         this.renderCurrentView();
     }

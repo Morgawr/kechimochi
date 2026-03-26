@@ -16,6 +16,7 @@ import type {
     SyncConflictResolution,
     SyncProgressUpdate,
     SyncStatus,
+    ManagedThemePackSummary,
 } from '../types';
 
 export type {
@@ -36,7 +37,13 @@ export type {
     SyncConflictResolution,
     SyncProgressUpdate,
     SyncStatus,
+    ManagedThemePackSummary,
 } from '../types';
+
+export interface ImportedThemePackFile {
+    content: string;
+    fileName: string | null;
+}
 
 /**
  * The single capability contract every part of the application uses.
@@ -108,6 +115,13 @@ export interface AppServices {
     // ── Full Backup operations ──────────────────────────────────────────────
     pickAndExportFullBackup(localStorageData: string, version: string): Promise<boolean>;
     pickAndImportFullBackup(): Promise<string | null>;
+    pickAndImportThemePack(): Promise<ImportedThemePackFile | null>;
+    listManagedThemePackSummaries(): Promise<ManagedThemePackSummary[]>;
+    getManagedThemePack(themeId: string): Promise<string | null>;
+    listManagedThemePacks(): Promise<string[]>;
+    saveManagedThemePack(themeId: string, content: string, preferredFileName?: string | null): Promise<void>;
+    deleteManagedThemePack(themeId: string): Promise<void>;
+    exportThemePack(defaultFileName: string, content: string): Promise<boolean>;
 
     // ── Milestone operations ────────────────────────────────────────────────
     getMilestones(mediaTitle: string): Promise<Milestone[]>;

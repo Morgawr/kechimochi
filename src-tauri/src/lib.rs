@@ -12,10 +12,10 @@ pub mod sync_orchestrator;
 pub mod sync_snapshot;
 pub mod sync_state;
 
-use rusqlite::Connection;
-#[cfg(target_os = "android")]
 use serde::{Deserialize, Serialize};
+use rusqlite::Connection;
 use std::future::Future;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{Emitter, Manager, State};
@@ -492,6 +492,264 @@ fn upload_cover_image(
 #[tauri::command]
 fn read_file_bytes(app_handle: tauri::AppHandle, path: String) -> Result<Vec<u8>, String> {
     app_file_io::read_input_bytes(&app_handle, &path)
+}
+
+fn read_text_file_logic(path: &str) -> Result<String, String> {
+    std::fs::read_to_string(path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn read_text_file(path: String) -> Result<String, String> {
+    read_text_file_logic(&path)
+}
+
+fn write_text_file_logic(path: &str, contents: &str) -> Result<(), String> {
+    std::fs::write(path, contents).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn write_text_file(path: String, contents: String) -> Result<(), String> {
+    write_text_file_logic(&path, &contents)
+}
+
+pub fn theme_packs_dir<P: AsRef<Path>>(app_dir: P) -> PathBuf {
+    app_dir.as_ref().join("theme-packs")
+}
+
+pub fn theme_pack_file_name(theme_id: &str) -> Result<String, String> {
+    let trimmed = theme_id.trim();
+    if trimmed.is_empty() {
+        return Err("Theme id is required".to_string());
+    }
+
+    let mut encoded = String::with_capacity(trimmed.len() * 2);
+    for byte in trimmed.as_bytes() {
+        encoded.push_str(&format!("{:02x}", byte));
+    }
+
+    Ok(format!("{}.json", encoded))
+}
+
+#[derive(Deserialize)]
+struct ThemePackIdentity {
+    id: String,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
+pub struct ThemePackSummary {
+    pub id: String,
+    pub name: String,
+}
+
+fn parse_theme_pack_id(content: &str) -> Option<String> {
+    serde_json::from_str::<ThemePackIdentity>(content)
+        .ok()
+        .map(|theme| theme.id.trim().to_string())
+        .filter(|theme_id| !theme_id.is_empty())
+}
+
+fn parse_theme_pack_summary(content: &str) -> Option<ThemePackSummary> {
+    serde_json::from_str::<ThemePackSummary>(content)
+        .ok()
+        .map(|theme| ThemePackSummary {
+            id: theme.id.trim().to_string(),
+            name: theme.name.trim().to_string(),
+        })
+        .filter(|theme| !theme.id.is_empty() && !theme.name.is_empty())
+}
+
+fn list_theme_pack_paths_logic(themes_dir: &Path) -> Result<Vec<PathBuf>, String> {
+    if !themes_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut file_paths = Vec::new();
+    for entry in std::fs::read_dir(themes_dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) == Some("json") {
+            file_paths.push(path);
+        }
+    }
+    file_paths.sort();
+    Ok(file_paths)
+}
+
+fn sanitize_theme_pack_file_name(preferred_file_name: &str) -> Option<String> {
+    let base_name = Path::new(preferred_file_name).file_name()?.to_str()?.trim();
+    if base_name.is_empty() {
+        return None;
+    }
+
+    let sanitized = base_name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_' | ' ' | '(' | ')' | '[' | ']') {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    let sanitized = sanitized.trim_matches(|ch| ch == ' ' || ch == '.' || ch == '-');
+    if sanitized.is_empty() {
+        return None;
+    }
+
+    let stem = Path::new(sanitized).file_stem()?.to_str()?.trim_matches(|ch| ch == ' ' || ch == '.' || ch == '-');
+    if stem.is_empty() {
+        return None;
+    }
+
+    Some(format!("{}.json", stem))
+}
+
+fn find_theme_pack_paths_for_id(themes_dir: &Path, theme_id: &str) -> Result<Vec<PathBuf>, String> {
+    let trimmed_theme_id = theme_id.trim();
+    let mut matches = Vec::new();
+
+    for path in list_theme_pack_paths_logic(themes_dir)? {
+        match std::fs::read_to_string(&path) {
+            Ok(content) => {
+                if parse_theme_pack_id(&content).as_deref() == Some(trimmed_theme_id) {
+                    matches.push(path);
+                }
+            }
+            Err(error) => {
+                eprintln!("[kechimochi] Failed to inspect theme pack {}: {}", path.display(), error);
+            }
+        }
+    }
+
+    let legacy_path = themes_dir.join(theme_pack_file_name(trimmed_theme_id)?);
+    if legacy_path.exists() && !matches.iter().any(|path| path == &legacy_path) {
+        matches.push(legacy_path);
+    }
+
+    matches.sort();
+    Ok(matches)
+}
+
+fn build_unique_theme_pack_path(themes_dir: &Path, file_name: &str, existing_paths: &[PathBuf]) -> PathBuf {
+    let preferred_path = themes_dir.join(file_name);
+    if !preferred_path.exists() || existing_paths.iter().any(|path| path == &preferred_path) {
+        return preferred_path;
+    }
+
+    let template = Path::new(file_name);
+    let stem = template.file_stem().and_then(|value| value.to_str()).unwrap_or("theme");
+    let extension = template.extension().and_then(|value| value.to_str()).unwrap_or("json");
+
+    let mut counter = 2;
+    loop {
+        let candidate = themes_dir.join(format!("{}-{}.{}", stem, counter, extension));
+        if !candidate.exists() || existing_paths.iter().any(|path| path == &candidate) {
+            return candidate;
+        }
+        counter += 1;
+    }
+}
+
+pub fn list_theme_pack_contents_logic(themes_dir: &Path) -> Result<Vec<String>, String> {
+    let mut contents = Vec::new();
+    for path in list_theme_pack_paths_logic(themes_dir)? {
+        match std::fs::read_to_string(&path) {
+            Ok(content) => contents.push(content),
+            Err(error) => {
+                eprintln!("[kechimochi] Failed to read theme pack {}: {}", path.display(), error);
+            }
+        }
+    }
+
+    Ok(contents)
+}
+
+pub fn list_theme_pack_summaries_logic(themes_dir: &Path) -> Result<Vec<ThemePackSummary>, String> {
+    let mut summaries = Vec::new();
+    for path in list_theme_pack_paths_logic(themes_dir)? {
+        match std::fs::read_to_string(&path) {
+            Ok(content) => {
+                if let Some(summary) = parse_theme_pack_summary(&content) {
+                    summaries.push(summary);
+                }
+            }
+            Err(error) => {
+                eprintln!("[kechimochi] Failed to read theme pack {}: {}", path.display(), error);
+            }
+        }
+    }
+
+    summaries.sort_by(|left, right| left.name.cmp(&right.name).then_with(|| left.id.cmp(&right.id)));
+    Ok(summaries)
+}
+
+pub fn read_theme_pack_logic(themes_dir: &Path, theme_id: &str) -> Result<Option<String>, String> {
+    let Some(path) = find_theme_pack_paths_for_id(themes_dir, theme_id)?.into_iter().next() else {
+        return Ok(None);
+    };
+
+    std::fs::read_to_string(path).map(Some).map_err(|e| e.to_string())
+}
+
+pub fn save_theme_pack_logic(themes_dir: &Path, theme_id: &str, content: &str, preferred_file_name: Option<&str>) -> Result<(), String> {
+    let existing_paths = find_theme_pack_paths_for_id(themes_dir, theme_id)?;
+    let target_path = if let Some(file_name) = preferred_file_name.and_then(sanitize_theme_pack_file_name) {
+        build_unique_theme_pack_path(themes_dir, &file_name, &existing_paths)
+    } else if let Some(existing_path) = existing_paths.first() {
+        existing_path.clone()
+    } else {
+        themes_dir.join(theme_pack_file_name(theme_id)?)
+    };
+
+    std::fs::create_dir_all(themes_dir).map_err(|e| e.to_string())?;
+    std::fs::write(&target_path, content).map_err(|e| e.to_string())?;
+
+    for existing_path in existing_paths {
+        if existing_path != target_path && existing_path.exists() {
+            std::fs::remove_file(existing_path).map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(())
+}
+
+pub fn delete_theme_pack_logic(themes_dir: &Path, theme_id: &str) -> Result<(), String> {
+    for path in find_theme_pack_paths_for_id(themes_dir, theme_id)? {
+        if path.exists() {
+            std::fs::remove_file(path).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn list_theme_packs(app_handle: tauri::AppHandle) -> Result<Vec<String>, String> {
+    let app_dir = db::get_data_dir(&app_handle);
+    list_theme_pack_contents_logic(&theme_packs_dir(&app_dir))
+}
+
+#[tauri::command]
+fn list_theme_pack_summaries(app_handle: tauri::AppHandle) -> Result<Vec<ThemePackSummary>, String> {
+    let app_dir = db::get_data_dir(&app_handle);
+    list_theme_pack_summaries_logic(&theme_packs_dir(&app_dir))
+}
+
+#[tauri::command]
+fn read_theme_pack(app_handle: tauri::AppHandle, theme_id: String) -> Result<Option<String>, String> {
+    let app_dir = db::get_data_dir(&app_handle);
+    read_theme_pack_logic(&theme_packs_dir(&app_dir), &theme_id)
+}
+
+#[tauri::command]
+fn save_theme_pack(app_handle: tauri::AppHandle, theme_id: String, content: String, preferred_file_name: Option<String>) -> Result<(), String> {
+    let app_dir = db::get_data_dir(&app_handle);
+    save_theme_pack_logic(&theme_packs_dir(&app_dir), &theme_id, &content, preferred_file_name.as_deref())
+}
+
+#[tauri::command]
+fn delete_theme_pack(app_handle: tauri::AppHandle, theme_id: String) -> Result<(), String> {
+    let app_dir = db::get_data_dir(&app_handle);
+    delete_theme_pack_logic(&theme_packs_dir(&app_dir), &theme_id)
 }
 
 #[tauri::command]
@@ -1125,6 +1383,13 @@ pub fn run() {
             delete_milestones_for_media,
             upload_cover_image,
             read_file_bytes,
+            read_text_file,
+            write_text_file,
+            list_theme_packs,
+            list_theme_pack_summaries,
+            read_theme_pack,
+            save_theme_pack,
+            delete_theme_pack,
             fetch_remote_bytes,
             fetch_external_json,
             download_and_save_image,
@@ -1171,4 +1436,111 @@ fn init_google_auth_mobile_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
             Ok(())
         })
         .build()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        delete_theme_pack_logic,
+        get_username_logic,
+        list_theme_pack_contents_logic,
+        list_theme_pack_summaries_logic,
+        read_theme_pack_logic,
+        read_text_file_logic,
+        save_theme_pack_logic,
+        theme_packs_dir,
+        ThemePackSummary,
+        write_text_file_logic,
+    };
+
+    #[test]
+    fn test_theme_pack_text_file_roundtrip() {
+        let temp_dir = std::env::temp_dir().join(format!("kechimochi_theme_pack_{}", std::process::id()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let file_path = temp_dir.join("theme.json");
+        let content = "{\"name\":\"Theme\"}";
+
+        write_text_file_logic(file_path.to_str().unwrap(), content).unwrap();
+        let read_back = read_text_file_logic(file_path.to_str().unwrap()).unwrap();
+
+        assert_eq!(read_back, content);
+
+        std::fs::remove_dir_all(temp_dir).ok();
+    }
+
+    #[test]
+    fn test_read_text_file_logic_errors_for_missing_file() {
+        let missing = std::env::temp_dir().join(format!("missing_theme_pack_{}.json", std::process::id()));
+        let result = read_text_file_logic(missing.to_str().unwrap());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_managed_theme_pack_roundtrip() {
+        let temp_dir = std::env::temp_dir().join(format!("kechimochi_managed_theme_pack_{}", std::process::id()));
+        let themes_dir = theme_packs_dir(&temp_dir);
+        let content = r#"{"version":1,"id":"custom:test-theme","name":"Test Theme","variables":{}}"#;
+
+        save_theme_pack_logic(&themes_dir, "custom:test-theme", content, None).unwrap();
+
+        let listed = list_theme_pack_contents_logic(&themes_dir).unwrap();
+        assert_eq!(listed, vec![content.to_string()]);
+
+        delete_theme_pack_logic(&themes_dir, "custom:test-theme").unwrap();
+        assert!(list_theme_pack_contents_logic(&themes_dir).unwrap().is_empty());
+
+        std::fs::remove_dir_all(temp_dir).ok();
+    }
+
+    #[test]
+    fn test_managed_theme_pack_preserves_preferred_file_name_and_handles_collisions() {
+        let temp_dir = std::env::temp_dir().join(format!("kechimochi_managed_theme_pack_names_{}", std::process::id()));
+        let themes_dir = theme_packs_dir(&temp_dir);
+        let first_content = r#"{"version":1,"id":"custom:first-theme","name":"First Theme","variables":{}}"#;
+        let second_content = r#"{"version":1,"id":"custom:second-theme","name":"Second Theme","variables":{}}"#;
+
+        save_theme_pack_logic(&themes_dir, "custom:first-theme", first_content, Some("midnight-current.json")).unwrap();
+        save_theme_pack_logic(&themes_dir, "custom:second-theme", second_content, Some("midnight-current.json")).unwrap();
+
+        let mut file_names = std::fs::read_dir(&themes_dir)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .filter_map(|entry| entry.file_name().to_str().map(|value| value.to_string()))
+            .collect::<Vec<_>>();
+        file_names.sort();
+
+        assert!(file_names.contains(&"midnight-current.json".to_string()));
+        assert!(file_names.contains(&"midnight-current-2.json".to_string()));
+
+        std::fs::remove_dir_all(temp_dir).ok();
+    }
+
+    #[test]
+    fn test_managed_theme_pack_summaries_and_single_read() {
+        let temp_dir = std::env::temp_dir().join(format!("kechimochi_managed_theme_pack_summaries_{}", std::process::id()));
+        let themes_dir = theme_packs_dir(&temp_dir);
+        let content = r#"{"version":1,"id":"custom:test-theme","name":"Test Theme","variables":{}}"#;
+
+        save_theme_pack_logic(&themes_dir, "custom:test-theme", content, Some("test-theme.json")).unwrap();
+
+        let summaries = list_theme_pack_summaries_logic(&themes_dir).unwrap();
+        assert_eq!(summaries, vec![ThemePackSummary {
+            id: "custom:test-theme".to_string(),
+            name: "Test Theme".to_string(),
+        }]);
+        assert_eq!(read_theme_pack_logic(&themes_dir, "custom:test-theme").unwrap(), Some(content.to_string()));
+        assert_eq!(read_theme_pack_logic(&themes_dir, "custom:missing-theme").unwrap(), None);
+
+        std::fs::remove_dir_all(temp_dir).ok();
+    }
+
+    #[test]
+    fn test_get_username_logic() {
+        std::env::set_var("USER", "testuser");
+        assert_eq!(get_username_logic(), "testuser");
+
+        std::env::remove_var("USER");
+        std::env::set_var("USERNAME", "winuser");
+        assert_eq!(get_username_logic(), "winuser");
+    }
 }

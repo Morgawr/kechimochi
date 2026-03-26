@@ -298,3 +298,47 @@ export type SyncConflictResolution =
         kind: 'profile_picture';
         side: MergeSide;
     };
+
+export const THEME_VARIABLE_KEYS = [
+    'bg-dark',
+    'bg-card',
+    'bg-card-hover',
+    'text-primary',
+    'text-secondary',
+    'accent-green',
+    'accent-green-hover',
+    'accent-red',
+    'accent-blue',
+    'accent-yellow',
+    'accent-purple',
+    'border-color',
+    'shadow-sm',
+    'shadow-md',
+    'heatmap-hue',
+    'heatmap-sat-base',
+    'heatmap-sat-range',
+    'heatmap-light-base',
+    'heatmap-light-range',
+    'accent-text',
+    'chart-1',
+    'chart-2',
+    'chart-3',
+    'chart-4',
+    'chart-5',
+] as const;
+
+export type ThemeVariableKey = typeof THEME_VARIABLE_KEYS[number];
+export type ThemeVariables = Record<ThemeVariableKey, string>;
+
+export interface ThemePackV1 {
+    version: 1;
+    id: string;
+    name: string;
+    variables: ThemeVariables;
+    cssOverrides?: string;
+}
+
+export interface ManagedThemePackSummary {
+    id: string;
+    name: string;
+}

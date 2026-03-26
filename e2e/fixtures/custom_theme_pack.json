@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "id": "custom:e2e-theme",
+  "name": "E2E Theme",
+  "variables": {
+    "bg-dark": "#101010",
+    "bg-card": "#202020",
+    "bg-card-hover": "#303030",
+    "text-primary": "#ffffff",
+    "text-secondary": "#cccccc",
+    "accent-green": "#00ff88",
+    "accent-green-hover": "#22ffaa",
+    "accent-red": "#ff4466",
+    "accent-blue": "#4488ff",
+    "accent-yellow": "#ffdd44",
+    "accent-purple": "#aa66ff",
+    "border-color": "#444444",
+    "shadow-sm": "0 2px 4px rgba(0,0,0,0.2)",
+    "shadow-md": "0 4px 12px rgba(0,0,0,0.4)",
+    "heatmap-hue": "180",
+    "heatmap-sat-base": "40",
+    "heatmap-sat-range": "50",
+    "heatmap-light-base": "45",
+    "heatmap-light-range": "35",
+    "accent-text": "#000000",
+    "chart-1": "#111111",
+    "chart-2": "#222222",
+    "chart-3": "#333333",
+    "chart-4": "#444444",
+    "chart-5": "#555555"
+  },
+  "cssOverrides": ".btn { border-radius: 999px; }"
+}

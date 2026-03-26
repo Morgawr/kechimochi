@@ -12,6 +12,7 @@ export type {
   ActivitySummary,
   DailyHeatmap,
   GoogleDriveAuthSession,
+  ManagedThemePackSummary,
   TimelineEventKind,
   TimelineEvent,
   MediaCsvRow,
@@ -27,12 +28,15 @@ export type {
   SyncStatus,
 } from './types';
 
+export type { ImportedThemePackFile } from './services';
+
 import type {
   Media,
   ActivityLog,
   ActivitySummary,
   DailyHeatmap,
   GoogleDriveAuthSession,
+  ManagedThemePackSummary,
   TimelineEvent,
   MediaCsvRow,
   MediaConflict,
@@ -164,4 +168,32 @@ export function exportFullBackup(localStorageData: string, version: string): Pro
 
 export function importFullBackup(): Promise<string | null> {
   return getServices().pickAndImportFullBackup();
+}
+
+export function pickAndImportThemePack(): Promise<import('./services').ImportedThemePackFile | null> {
+  return getServices().pickAndImportThemePack();
+}
+
+export function listManagedThemePackSummaries(): Promise<ManagedThemePackSummary[]> {
+  return getServices().listManagedThemePackSummaries();
+}
+
+export function getManagedThemePack(themeId: string): Promise<string | null> {
+  return getServices().getManagedThemePack(themeId);
+}
+
+export function listManagedThemePacks(): Promise<string[]> {
+  return getServices().listManagedThemePacks();
+}
+
+export function saveManagedThemePack(themeId: string, content: string, preferredFileName?: string | null): Promise<void> {
+  return getServices().saveManagedThemePack(themeId, content, preferredFileName);
+}
+
+export function deleteManagedThemePack(themeId: string): Promise<void> {
+  return getServices().deleteManagedThemePack(themeId);
+}
+
+export function exportThemePack(defaultFileName: string, content: string): Promise<boolean> {
+  return getServices().exportThemePack(defaultFileName, content);
 }

@@ -94,11 +94,13 @@ describe('DesktopServices', () => {
     it('exports media and full backups through invoke', async () => {
         vi.mocked(tauriSave)
             .mockResolvedValueOnce(`${SAFE_DIR}/library.csv`)
-            .mockResolvedValueOnce(`${SAFE_DIR}/backup.zip`);
-        vi.mocked(invoke).mockResolvedValueOnce(12).mockResolvedValueOnce(undefined);
+            .mockResolvedValueOnce(`${SAFE_DIR}/backup.zip`)
+            .mockResolvedValueOnce(`${SAFE_DIR}/theme.json`);
+        vi.mocked(invoke).mockResolvedValueOnce(12).mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined);
 
         await expect(services.exportMediaLibrary('TESTUSER')).resolves.toBe(12);
         await expect(services.pickAndExportFullBackup('{"theme":"molokai"}', '1.0.0')).resolves.toBe(true);
+        await expect(services.exportThemePack('theme.json', '{"name":"Test"}')).resolves.toBe(true);
 
         expect(invoke).toHaveBeenNthCalledWith(1, 'export_media_csv', { filePath: `${SAFE_DIR}/library.csv` });
         expect(invoke).toHaveBeenNthCalledWith(2, 'export_full_backup', {
@@ -106,6 +108,53 @@ describe('DesktopServices', () => {
             localStorage: '{"theme":"molokai"}',
             version: '1.0.0',
         });
+        expect(invoke).toHaveBeenNthCalledWith(3, 'write_text_file', {
+            path: `${SAFE_DIR}/theme.json`,
+            contents: '{"name":"Test"}',
+        });
+    });
+
+    it('imports theme packs from mock and dialog-selected paths', async () => {
+        (globalThis as Record<string, unknown>).mockOpenPath = `${SAFE_DIR}/theme.json`;
+        vi.mocked(invoke).mockResolvedValueOnce('{"name":"Mock"}').mockResolvedValueOnce('{"name":"Dialog"}');
+        vi.mocked(tauriOpen).mockResolvedValue(`${SAFE_DIR}/from-dialog.json`);
+
+        await expect(services.pickAndImportThemePack()).resolves.toEqual({
+            content: '{"name":"Mock"}',
+            fileName: 'theme.json',
+        });
+        delete (globalThis as Record<string, unknown>).mockOpenPath;
+        await expect(services.pickAndImportThemePack()).resolves.toEqual({
+            content: '{"name":"Dialog"}',
+            fileName: 'from-dialog.json',
+        });
+
+        expect(invoke).toHaveBeenNthCalledWith(1, 'read_text_file', { path: `${SAFE_DIR}/theme.json` });
+        expect(invoke).toHaveBeenNthCalledWith(2, 'read_text_file', { path: `${SAFE_DIR}/from-dialog.json` });
+    });
+
+    it('passes preferred theme filenames to managed theme storage', async () => {
+        vi.mocked(invoke).mockResolvedValue(undefined);
+
+        await expect(services.saveManagedThemePack('custom:test-theme', '{"name":"Theme"}', 'midnight-current.json')).resolves.toBeUndefined();
+
+        expect(invoke).toHaveBeenCalledWith('save_theme_pack', {
+            themeId: 'custom:test-theme',
+            content: '{"name":"Theme"}',
+            preferredFileName: 'midnight-current.json',
+        });
+    });
+
+    it('lists lightweight theme summaries and fetches managed theme packs on demand', async () => {
+        vi.mocked(invoke)
+            .mockResolvedValueOnce([{ id: 'custom:test-theme', name: 'Test Theme' }])
+            .mockResolvedValueOnce('{"version":1,"id":"custom:test-theme","name":"Test Theme","variables":{}}');
+
+        await expect(services.listManagedThemePackSummaries()).resolves.toEqual([{ id: 'custom:test-theme', name: 'Test Theme' }]);
+        await expect(services.getManagedThemePack('custom:test-theme')).resolves.toBe('{"version":1,"id":"custom:test-theme","name":"Test Theme","variables":{}}');
+
+        expect(invoke).toHaveBeenNthCalledWith(1, 'list_theme_pack_summaries');
+        expect(invoke).toHaveBeenNthCalledWith(2, 'read_theme_pack', { themeId: 'custom:test-theme' });
     });
 
     it('uses direct file paths or picker fallbacks for milestone import/export', async () => {

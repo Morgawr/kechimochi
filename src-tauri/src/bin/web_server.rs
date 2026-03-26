@@ -23,7 +23,20 @@ use serde::Deserialize;
 use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
 
-use kechimochi_lib::{csv_import, db, get_username_logic, models, profile_picture};
+use kechimochi_lib::{
+    csv_import,
+    db,
+    delete_theme_pack_logic,
+    get_username_logic,
+    list_theme_pack_contents_logic,
+    list_theme_pack_summaries_logic,
+    models,
+    read_theme_pack_logic,
+    save_theme_pack_logic,
+    theme_packs_dir,
+    ThemePackSummary,
+    profile_picture,
+};
 
 // ── Error handling ────────────────────────────────────────────────────────────
 
@@ -124,7 +137,10 @@ async fn main() {
                 .delete(delete_profile_picture_handler),
         )
         // Settings
-        .route("/api/settings/:key", get(get_setting).put(set_setting))
+    .route("/api/settings/:key", get(get_setting).put(set_setting))
+        .route("/api/themes",               get(list_theme_packs_handler).post(save_theme_pack_handler))
+        .route("/api/themes/summaries",     get(list_theme_pack_summaries_handler))
+        .route("/api/themes/:theme_id",     get(get_theme_pack_handler).delete(delete_theme_pack_handler))
         // Utility
         .route("/api/username", get(get_username))
         .route("/api/version", get(get_version))
@@ -425,6 +441,47 @@ async fn set_setting(
 ) -> HandlerResult<Json<()>> {
     let conn = s.conn.lock().await;
     db::set_setting(&conn, &key, &body.value)
+        .ae()
+        .map(|_| Json(()))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveThemePackBody {
+    theme_id: String,
+    content: String,
+    preferred_file_name: Option<String>,
+}
+
+async fn list_theme_packs_handler(State(s): State<Shared>) -> HandlerResult<Json<Vec<String>>> {
+    list_theme_pack_contents_logic(&theme_packs_dir(&s.data_dir)).ae().map(Json)
+}
+
+async fn list_theme_pack_summaries_handler(State(s): State<Shared>) -> HandlerResult<Json<Vec<ThemePackSummary>>> {
+    list_theme_pack_summaries_logic(&theme_packs_dir(&s.data_dir)).ae().map(Json)
+}
+
+async fn get_theme_pack_handler(
+    State(s): State<Shared>,
+    Path(theme_id): Path<String>,
+) -> HandlerResult<Json<Option<String>>> {
+    read_theme_pack_logic(&theme_packs_dir(&s.data_dir), &theme_id).ae().map(Json)
+}
+
+async fn save_theme_pack_handler(
+    State(s): State<Shared>,
+    Json(body): Json<SaveThemePackBody>,
+) -> HandlerResult<Json<()>> {
+    save_theme_pack_logic(&theme_packs_dir(&s.data_dir), &body.theme_id, &body.content, body.preferred_file_name.as_deref())
+        .ae()
+        .map(|_| Json(()))
+}
+
+async fn delete_theme_pack_handler(
+    State(s): State<Shared>,
+    Path(theme_id): Path<String>,
+) -> HandlerResult<Json<()>> {
+    delete_theme_pack_logic(&theme_packs_dir(&s.data_dir), &theme_id)
         .ae()
         .map(|_| Json(()))
 }
@@ -940,6 +997,39 @@ mod tests {
             .unwrap()
             .0;
         assert_eq!(value, Some("molokai".to_string()));
+
+        let _ = std::fs::remove_dir_all(state_dir);
+    }
+
+    #[tokio::test]
+    async fn test_theme_pack_handlers_roundtrip() {
+        let state = setup_state();
+        let state_dir = state.data_dir.clone();
+
+        let body = SaveThemePackBody {
+            theme_id: "custom:web-theme".to_string(),
+            content: r#"{"version":1,"id":"custom:web-theme","name":"Web Theme","variables":{}}"#.to_string(),
+            preferred_file_name: Some("web-theme.json".to_string()),
+        };
+
+        let _ = save_theme_pack_handler(State(state.clone()), Json(body)).await.unwrap();
+
+        let listed = list_theme_packs_handler(State(state.clone())).await.unwrap().0;
+        assert_eq!(listed.len(), 1);
+        assert!(listed[0].contains("custom:web-theme"));
+
+        let summaries = list_theme_pack_summaries_handler(State(state.clone())).await.unwrap().0;
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].id, "custom:web-theme");
+        assert_eq!(summaries[0].name, "Web Theme");
+
+        let fetched = get_theme_pack_handler(State(state.clone()), Path("custom:web-theme".to_string())).await.unwrap().0;
+        assert!(fetched.as_deref().is_some_and(|value| value.contains("custom:web-theme")));
+
+        let _ = delete_theme_pack_handler(State(state.clone()), Path("custom:web-theme".to_string())).await.unwrap();
+
+        let listed_after_delete = list_theme_packs_handler(State(state)).await.unwrap().0;
+        assert!(listed_after_delete.is_empty());
 
         let _ = std::fs::remove_dir_all(state_dir);
     }

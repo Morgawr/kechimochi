@@ -6,7 +6,7 @@
  * The server base URL is set at build time via VITE_API_BASE_URL, defaulting
  * to the same origin (so the Vite dev proxy or a bundled server both work).
  */
-import type { AppServices } from './types';
+import type { AppServices, ImportedThemePackFile } from './types';
 import type {
     Media,
     ActivityLog,
@@ -25,6 +25,7 @@ import type {
     SyncConflictResolution,
     SyncProgressUpdate,
     SyncStatus,
+    ManagedThemePackSummary,
 } from '../types';
 import { getBuildVersion } from '../app_version';
 import { getMockExternalJsonResponse } from './external_mocks';
@@ -218,6 +219,40 @@ export class WebServices implements AppServices {
         if (!res.ok) throw new Error(await res.text());
         const { localStorage: ls } = await res.json();
         return ls as string;
+    }
+
+    async pickAndImportThemePack(): Promise<ImportedThemePackFile | null> {
+        const file = await pickFile('.json,application/json');
+        if (!file) return null;
+        return {
+            content: await file.text(),
+            fileName: file.name || null,
+        };
+    }
+
+    listManagedThemePackSummaries(): Promise<ManagedThemePackSummary[]> {
+        return get('/themes/summaries');
+    }
+
+    getManagedThemePack(themeId: string): Promise<string | null> {
+        return get(`/themes/${encodeURIComponent(themeId)}`);
+    }
+
+    listManagedThemePacks(): Promise<string[]> {
+        return get('/themes');
+    }
+
+    saveManagedThemePack(themeId: string, content: string, preferredFileName?: string | null): Promise<void> {
+        return post('/themes', { themeId, content, preferredFileName });
+    }
+
+    deleteManagedThemePack(themeId: string): Promise<void> {
+        return del(`/themes/${encodeURIComponent(themeId)}`);
+    }
+
+    async exportThemePack(defaultFileName: string, content: string): Promise<boolean> {
+        triggerDownload(new Blob([content], { type: 'application/json' }), defaultFileName);
+        return true;
     }
 
     // ── Milestone operations ─────────────────────────────────────────────────
