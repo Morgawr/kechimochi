@@ -30,6 +30,7 @@ tauri-plugin-dialog = "2.6.0"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 base64 = { version = "0.22.1", features = ["alloc"] }
 image = { version = "0.25.6", default-features = false, features = ["jpeg", "png", "webp"] }
+uuid = { version = "1.18.1", features = ["v4", "v5"] }
 
 # Web server (used only by the web-server binary)
 axum = { version = "0.7", features = ["multipart"] }

@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Media {
     pub id: Option<i64>,
+    #[serde(default)]
+    pub uid: Option<String>,
     pub title: String,
     pub media_type: String, // "Reading", "Watching", "Playing", "None", "Listening"
     pub status: String,     // "Active", "Paused", "Complete", "Dropped", "Planned"
@@ -78,6 +80,8 @@ pub struct TimelineEvent {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Milestone {
     pub id: Option<i64>,
+    #[serde(default)]
+    pub media_uid: Option<String>,
     pub media_title: String,
     pub name: String,
     pub duration: i64,

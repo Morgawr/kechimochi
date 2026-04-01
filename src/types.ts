@@ -21,6 +21,7 @@ export interface MediaConflict {
 
 export interface Media {
     id?: number;
+    uid?: string;
     title: string;
     media_type: string;
     status: string;
@@ -86,6 +87,7 @@ export interface TimelineEvent {
 
 export interface Milestone {
     id?: number;
+    media_uid?: string | null;
     media_title: string;
     name: string;
     duration: number;

@@ -1,16 +1,18 @@
-use rusqlite::{params, Connection, Result};
+use chrono::{SecondsFormat, Utc};
+use rusqlite::{params, Connection, OptionalExtension, Result};
 use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
 use tauri::Manager;
+use uuid::Uuid;
 
 use crate::models::{
     ActivityLog, ActivitySummary, DailyHeatmap, Media, Milestone, ProfilePicture, TimelineEvent,
     TimelineEventKind,
 };
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 1;
+pub const CURRENT_SCHEMA_VERSION: i64 = 2;
 
 type MigrationFn = fn(&Connection) -> Result<()>;
 
@@ -20,10 +22,17 @@ struct Migration {
     apply: MigrationFn,
 }
 
-const VERSIONED_MIGRATIONS: &[Migration] = &[];
+const VERSIONED_MIGRATIONS: &[Migration] = &[Migration {
+    from: 1,
+    to: 2,
+    apply: migrate_v1_to_v2_add_sync_foundation,
+}];
+
+const KECHIMOCHI_SYNC_NAMESPACE: &str = "0718e147-943f-4f0a-977d-5447bb2342f2";
 
 const SHARED_MEDIA_COLUMNS: &[&str] = &[
     "id",
+    "uid",
     "title",
     "media_type",
     "status",
@@ -46,6 +55,7 @@ const ACTIVITY_LOG_COLUMNS: &[&str] = &[
 
 const MILESTONE_COLUMNS: &[&str] = &[
     "id",
+    "media_uid",
     "media_title",
     "name",
     "duration",
@@ -53,7 +63,7 @@ const MILESTONE_COLUMNS: &[&str] = &[
     "date",
 ];
 
-const SETTINGS_COLUMNS: &[&str] = &["key", "value"];
+const SETTINGS_COLUMNS: &[&str] = &["key", "value", "updated_at"];
 const PROFILE_PICTURE_COLUMNS: &[&str] = &[
     "id",
     "mime_type",
@@ -74,6 +84,48 @@ enum SchemaState {
 
 fn migration_error(message: impl Into<String>) -> rusqlite::Error {
     rusqlite::Error::ToSqlConversionFailure(Box::new(io::Error::other(message.into())))
+}
+
+#[derive(Debug, Clone)]
+struct SharedMediaRow {
+    id: i64,
+    title: String,
+    media_type: String,
+    status: String,
+    language: String,
+    description: String,
+    cover_image: String,
+    extra_data: String,
+    content_type: String,
+    tracking_status: String,
+}
+
+fn sync_namespace_uuid() -> Result<Uuid> {
+    Uuid::parse_str(KECHIMOCHI_SYNC_NAMESPACE)
+        .map_err(|e| migration_error(format!("Invalid sync namespace UUID: {}", e)))
+}
+
+fn utc_now_rfc3339() -> String {
+    Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true)
+}
+
+fn generate_deterministic_media_uid(title: &str) -> Result<String> {
+    Ok(Uuid::new_v5(&sync_namespace_uuid()?, title.as_bytes()).to_string())
+}
+
+fn generate_random_media_uid() -> String {
+    Uuid::new_v4().to_string()
+}
+
+fn normalize_optional_string(value: Option<String>) -> Option<String> {
+    value.and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
 }
 
 pub trait DataDirProvider {
@@ -165,6 +217,17 @@ fn table_exists(conn: &Connection, schema: &str, table: &str) -> Result<bool> {
         |row| row.get(0),
     )?;
     Ok(count > 0)
+}
+
+fn schema_is_attached(conn: &Connection, schema: &str) -> Result<bool> {
+    let mut stmt = conn.prepare("PRAGMA database_list")?;
+    let schemas = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    for existing in schemas {
+        if existing? == schema {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn schema_has_user_tables(conn: &Connection, schema: &str) -> Result<bool> {
@@ -402,54 +465,231 @@ fn migrate_shared_media_columns(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn create_shared_media_table_named(conn: &Connection, table_name: &str) -> Result<()> {
+    conn.execute(
+        &format!(
+            "CREATE TABLE IF NOT EXISTS {} (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                uid TEXT NOT NULL UNIQUE,
+                title TEXT NOT NULL UNIQUE,
+                media_type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                language TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                cover_image TEXT DEFAULT '',
+                extra_data TEXT DEFAULT '{{}}',
+                content_type TEXT DEFAULT 'Unknown',
+                tracking_status TEXT DEFAULT 'Untracked'
+            )",
+            table_name
+        ),
+        [],
+    )?;
+    Ok(())
+}
+
+fn read_shared_media_rows(conn: &Connection) -> Result<Vec<SharedMediaRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, title, media_type, status, language,
+                COALESCE(description, ''),
+                COALESCE(cover_image, ''),
+                COALESCE(extra_data, '{}'),
+                COALESCE(content_type, 'Unknown'),
+                COALESCE(tracking_status, 'Untracked')
+         FROM shared.media
+         ORDER BY id ASC",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(SharedMediaRow {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            media_type: row.get(2)?,
+            status: row.get(3)?,
+            language: row.get(4)?,
+            description: row.get(5)?,
+            cover_image: row.get(6)?,
+            extra_data: row.get(7)?,
+            content_type: row.get(8)?,
+            tracking_status: row.get(9)?,
+        })
+    })?;
+
+    let mut collected = Vec::new();
+    for row in rows {
+        collected.push(row?);
+    }
+    Ok(collected)
+}
+
+fn recreate_shared_media_table_with_uids(conn: &Connection) -> Result<()> {
+    if !table_exists(conn, "shared", "media")? || table_has_column(conn, "shared", "media", "uid")? {
+        return Ok(());
+    }
+
+    let rows = read_shared_media_rows(conn)?;
+    create_shared_media_table_named(conn, "shared.media_new")?;
+
+    for row in &rows {
+        conn.execute(
+            "INSERT INTO shared.media_new (
+                id, uid, title, media_type, status, language,
+                description, cover_image, extra_data, content_type, tracking_status
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                row.id,
+                generate_deterministic_media_uid(&row.title)?,
+                row.title,
+                row.media_type,
+                row.status,
+                row.language,
+                row.description,
+                row.cover_image,
+                row.extra_data,
+                row.content_type,
+                row.tracking_status,
+            ],
+        )?;
+    }
+
+    conn.execute("DROP TABLE shared.media", [])?;
+    conn.execute("ALTER TABLE shared.media_new RENAME TO media", [])?;
+    Ok(())
+}
+
+fn migrate_shared_media_uid_foundation(conn: &Connection) -> Result<()> {
+    migrate_shared_media_columns(conn)?;
+    recreate_shared_media_table_with_uids(conn)?;
+    Ok(())
+}
+
+fn backfill_milestone_media_uid(conn: &Connection) -> Result<()> {
+    if !schema_is_attached(conn, "shared")? {
+        return Ok(());
+    }
+
+    if !table_exists(conn, "main", "milestones")?
+        || !table_has_column(conn, "main", "milestones", "media_uid")?
+        || !table_exists(conn, "shared", "media")?
+        || !table_has_column(conn, "shared", "media", "uid")?
+    {
+        return Ok(());
+    }
+
+    conn.execute(
+        "UPDATE main.milestones
+         SET media_uid = (
+             SELECT uid FROM shared.media
+             WHERE title = main.milestones.media_title
+         )
+         WHERE media_uid IS NULL OR media_uid = ''",
+        [],
+    )?;
+    Ok(())
+}
+
+fn migrate_settings_updated_at(conn: &Connection) -> Result<()> {
+    if !table_exists(conn, "main", "settings")? {
+        return Ok(());
+    }
+
+    let added = add_column_if_missing(
+        conn,
+        "main",
+        "settings",
+        "updated_at",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
+    if added || table_has_column(conn, "main", "settings", "updated_at")? {
+        let timestamp = utc_now_rfc3339();
+        conn.execute(
+            "UPDATE main.settings
+             SET updated_at = ?1
+             WHERE updated_at IS NULL OR updated_at = ''",
+            params![timestamp],
+        )?;
+    }
+    Ok(())
+}
+
+fn migrate_v1_to_v2_add_sync_foundation(conn: &Connection) -> Result<()> {
+    migrate_shared_media_uid_foundation(conn)?;
+    let _ = add_column_if_missing(conn, "main", "milestones", "media_uid", "TEXT")?;
+    backfill_milestone_media_uid(conn)?;
+    migrate_settings_updated_at(conn)?;
+    Ok(())
+}
+
 fn migrate_to_shared(conn: &Connection) -> Result<()> {
     // Check if `main.media` exists
     if table_exists(conn, "main", "media")? {
         create_shared_media_table(conn)?;
-        migrate_shared_media_columns(conn)?;
 
         let legacy_has_description = table_has_column(conn, "main", "media", "description")?;
         let legacy_has_cover_image = table_has_column(conn, "main", "media", "cover_image")?;
         let legacy_has_extra_data = table_has_column(conn, "main", "media", "extra_data")?;
         let legacy_has_content_type = table_has_column(conn, "main", "media", "content_type")?;
-        let description_expr = if legacy_has_description {
-            "description"
-        } else {
-            "''"
-        };
-        let cover_image_expr = if legacy_has_cover_image {
-            "cover_image"
-        } else {
-            "''"
-        };
-        let extra_data_expr = if legacy_has_extra_data {
-            "extra_data"
-        } else {
-            "'{}'"
-        };
-        let content_type_expr = if legacy_has_content_type {
-            "content_type"
-        } else {
-            "'Unknown'"
-        };
+        let mut stmt = conn.prepare(&format!(
+            "SELECT id, title, media_type, status, language,
+                    COALESCE({}, ''),
+                    COALESCE({}, ''),
+                    COALESCE({}, '{{}}'),
+                    COALESCE({}, 'Unknown')
+             FROM main.media
+             ORDER BY id ASC",
+            if legacy_has_description { "description" } else { "''" },
+            if legacy_has_cover_image {
+                "cover_image"
+            } else {
+                "''"
+            },
+            if legacy_has_extra_data { "extra_data" } else { "'{}'" },
+            if legacy_has_content_type {
+                "content_type"
+            } else {
+                "'Unknown'"
+            }
+        ))?;
+        let legacy_media = stmt.query_map([], |row| {
+            Ok(SharedMediaRow {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                media_type: row.get(2)?,
+                status: row.get(3)?,
+                language: row.get(4)?,
+                description: row.get(5)?,
+                cover_image: row.get(6)?,
+                extra_data: row.get(7)?,
+                content_type: row.get(8)?,
+                tracking_status: "Untracked".to_string(),
+            })
+        })?;
 
-        conn.execute(
-            &format!(
-                "INSERT INTO shared.media (id, title, media_type, status, language, description, cover_image, extra_data, content_type, tracking_status)
-                 SELECT id, title, media_type, status, language,
-                        COALESCE({}, ''),
-                        COALESCE({}, ''),
-                        COALESCE({}, '{{}}'),
-                        COALESCE({}, 'Unknown'),
-                        'Untracked'
-                 FROM main.media
-                 WHERE NOT EXISTS (
-                     SELECT 1 FROM shared.media s WHERE s.id = main.media.id
-                 )",
-                description_expr, cover_image_expr, extra_data_expr, content_type_expr
-            ),
-            [],
-        )?;
+        let mut collected_legacy_media = Vec::new();
+        for media in legacy_media {
+            collected_legacy_media.push(media?);
+        }
+
+        for media in &collected_legacy_media {
+            conn.execute(
+                "INSERT OR IGNORE INTO shared.media (
+                    id, uid, title, media_type, status, language,
+                    description, cover_image, extra_data, content_type, tracking_status
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                params![
+                    media.id,
+                    generate_deterministic_media_uid(&media.title)?,
+                    media.title,
+                    media.media_type,
+                    media.status,
+                    media.language,
+                    media.description,
+                    media.cover_image,
+                    media.extra_data,
+                    media.content_type,
+                    media.tracking_status,
+                ],
+            )?;
+        }
 
         let missing_media_rows: i64 = conn.query_row(
             "SELECT COUNT(*)
@@ -501,22 +741,7 @@ fn migrate_to_shared(conn: &Connection) -> Result<()> {
 }
 
 fn create_shared_media_table(conn: &Connection) -> Result<()> {
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS shared.media (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL UNIQUE,
-            media_type TEXT NOT NULL,
-            status TEXT NOT NULL,
-            language TEXT NOT NULL,
-            description TEXT DEFAULT '',
-            cover_image TEXT DEFAULT '',
-            extra_data TEXT DEFAULT '{}',
-            content_type TEXT DEFAULT 'Unknown',
-            tracking_status TEXT DEFAULT 'Untracked'
-        )",
-        [],
-    )?;
-    Ok(())
+    create_shared_media_table_named(conn, "shared.media")
 }
 
 fn create_activity_logs_table(conn: &Connection) -> Result<()> {
@@ -538,6 +763,7 @@ fn create_milestones_table(conn: &Connection) -> Result<()> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS main.milestones (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            media_uid TEXT,
             media_title TEXT NOT NULL,
             name TEXT NOT NULL,
             duration INTEGER NOT NULL,
@@ -550,6 +776,7 @@ fn create_milestones_table(conn: &Connection) -> Result<()> {
 }
 
 fn migrate_milestones(conn: &Connection) -> Result<()> {
+    let _ = add_column_if_missing(conn, "main", "milestones", "media_uid", "TEXT")?;
     let _ = add_column_if_missing(
         conn,
         "main",
@@ -579,6 +806,7 @@ fn migrate_milestones(conn: &Connection) -> Result<()> {
         "INTEGER NOT NULL DEFAULT 0",
     )?;
     let _ = add_column_if_missing(conn, "main", "milestones", "date", "TEXT")?;
+    backfill_milestone_media_uid(conn)?;
     Ok(())
 }
 
@@ -616,7 +844,8 @@ fn create_settings_table(conn: &Connection) -> Result<()> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS main.settings (
             key TEXT PRIMARY KEY,
-            value TEXT NOT NULL
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL
         )",
         [],
     )?;
@@ -670,6 +899,11 @@ fn create_indexes(conn: &Connection) -> Result<()> {
         [],
     )?;
     conn.execute(
+        "CREATE INDEX IF NOT EXISTS main.idx_milestones_media_uid_id
+         ON milestones(media_uid, id ASC)",
+        [],
+    )?;
+    conn.execute(
         "CREATE INDEX IF NOT EXISTS shared.idx_shared_media_status_tracking_id
          ON media(status, tracking_status, id DESC)",
         [],
@@ -692,13 +926,14 @@ fn create_latest_schema(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-fn migrate_legacy_pre_release_to_v1(conn: &Connection) -> Result<()> {
+fn migrate_legacy_pre_release_to_current_schema(conn: &Connection) -> Result<()> {
     create_tables(conn)?;
     migrate_to_shared(conn)?;
-    migrate_shared_media_columns(conn)?;
+    migrate_v1_to_v2_add_sync_foundation(conn)?;
     migrate_milestones(conn)?;
     migrate_to_character_tracking(conn)?;
     migrate_activity_type_to_logs(conn)?;
+    migrate_settings_updated_at(conn)?;
     create_indexes(conn)?;
     Ok(())
 }
@@ -745,7 +980,7 @@ fn migrate_schema(conn: &Connection) -> Result<()> {
         }
         SchemaState::LegacyUnversioned => {
             with_migration_transaction(conn, |conn| {
-                migrate_legacy_pre_release_to_v1(conn)?;
+                migrate_legacy_pre_release_to_current_schema(conn)?;
                 set_bundle_schema_version(conn, CURRENT_SCHEMA_VERSION)
             })?;
         }
@@ -768,7 +1003,7 @@ fn migrate_schema(conn: &Connection) -> Result<()> {
 
             if legacy_schema_markers_present(conn)? {
                 with_migration_transaction(conn, |conn| {
-                    migrate_legacy_pre_release_to_v1(conn)?;
+                    migrate_legacy_pre_release_to_current_schema(conn)?;
                     set_bundle_schema_version(conn, CURRENT_SCHEMA_VERSION)
                 })?;
             } else if latest_schema_is_present(conn)? {
@@ -853,10 +1088,54 @@ pub fn wipe_everything(app_dir: std::path::PathBuf) -> std::result::Result<(), S
     Ok(())
 }
 
+fn get_media_uid_by_title(conn: &Connection, title: &str) -> Result<Option<String>> {
+    if !schema_is_attached(conn, "shared")? || !table_exists(conn, "shared", "media")? {
+        return Ok(None);
+    }
+    conn.query_row(
+        "SELECT uid FROM shared.media WHERE title = ?1",
+        params![title],
+        |row| row.get(0),
+    )
+    .optional()
+}
+
+fn get_media_title_by_uid(conn: &Connection, uid: &str) -> Result<Option<String>> {
+    if !schema_is_attached(conn, "shared")? || !table_exists(conn, "shared", "media")? {
+        return Ok(None);
+    }
+    conn.query_row(
+        "SELECT title FROM shared.media WHERE uid = ?1",
+        params![uid],
+        |row| row.get(0),
+    )
+    .optional()
+}
+
+fn resolve_milestone_media_identity(
+    conn: &Connection,
+    milestone: &Milestone,
+) -> Result<(String, Option<String>)> {
+    if let Some(media_uid) = normalize_optional_string(milestone.media_uid.clone()) {
+        if let Some(media_title) = get_media_title_by_uid(conn, &media_uid)? {
+            return Ok((media_title, Some(media_uid)));
+        }
+    }
+
+    let media_title = milestone.media_title.trim().to_string();
+    let media_uid = if media_title.is_empty() {
+        None
+    } else {
+        get_media_uid_by_title(conn, &media_title)?
+    };
+
+    Ok((media_title, media_uid))
+}
+
 // Media Operations
 pub fn get_all_media(conn: &Connection) -> Result<Vec<Media>> {
     let mut stmt = conn.prepare(
-        "SELECT id, title, media_type, status, language, description, cover_image, extra_data, content_type, tracking_status 
+        "SELECT id, uid, title, media_type, status, language, description, cover_image, extra_data, content_type, tracking_status 
          FROM shared.media m
          ORDER BY 
             CASE 
@@ -870,15 +1149,16 @@ pub fn get_all_media(conn: &Connection) -> Result<Vec<Media>> {
     let media_iter = stmt.query_map([], |row| {
         Ok(Media {
             id: row.get(0)?,
-            title: row.get(1)?,
-            media_type: row.get(2)?,
-            status: row.get(3)?,
-            language: row.get(4)?,
-            description: row.get(5).unwrap_or_default(),
-            cover_image: row.get(6).unwrap_or_default(),
-            extra_data: row.get(7).unwrap_or_else(|_| "{}".to_string()),
-            content_type: row.get(8).unwrap_or_else(|_| "Unknown".to_string()),
-            tracking_status: row.get(9).unwrap_or_else(|_| "Untracked".to_string()),
+            uid: row.get(1)?,
+            title: row.get(2)?,
+            media_type: row.get(3)?,
+            status: row.get(4)?,
+            language: row.get(5)?,
+            description: row.get(6).unwrap_or_default(),
+            cover_image: row.get(7).unwrap_or_default(),
+            extra_data: row.get(8).unwrap_or_else(|_| "{}".to_string()),
+            content_type: row.get(9).unwrap_or_else(|_| "Unknown".to_string()),
+            tracking_status: row.get(10).unwrap_or_else(|_| "Untracked".to_string()),
         })
     })?;
 
@@ -890,17 +1170,35 @@ pub fn get_all_media(conn: &Connection) -> Result<Vec<Media>> {
 }
 
 pub fn add_media_with_id(conn: &Connection, media: &Media) -> Result<i64> {
+    let uid = normalize_optional_string(media.uid.clone()).unwrap_or_else(generate_random_media_uid);
     conn.execute(
-        "INSERT INTO shared.media (title, media_type, status, language, description, cover_image, extra_data, content_type, tracking_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        params![media.title, media.media_type, media.status, media.language, media.description, media.cover_image, media.extra_data, media.content_type, media.tracking_status],
+        "INSERT INTO shared.media (uid, title, media_type, status, language, description, cover_image, extra_data, content_type, tracking_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![uid, media.title, media.media_type, media.status, media.language, media.description, media.cover_image, media.extra_data, media.content_type, media.tracking_status],
     )?;
     Ok(conn.last_insert_rowid())
 }
 
 pub fn update_media(conn: &Connection, media: &Media) -> Result<()> {
+    let media_id = media.id.unwrap();
+    let existing = conn
+        .query_row(
+            "SELECT title, uid FROM shared.media WHERE id = ?1",
+            params![media_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()?
+        .ok_or_else(|| migration_error(format!("Media {} not found", media_id)))?;
+    let previous_title = existing.0;
+    let uid = normalize_optional_string(media.uid.clone()).unwrap_or(existing.1);
+
     conn.execute(
-        "UPDATE shared.media SET title = ?1, media_type = ?2, status = ?3, language = ?4, description = ?5, cover_image = ?6, extra_data = ?7, content_type = ?8, tracking_status = ?9 WHERE id = ?10",
+        "UPDATE shared.media
+         SET uid = ?1, title = ?2, media_type = ?3, status = ?4, language = ?5,
+             description = ?6, cover_image = ?7, extra_data = ?8, content_type = ?9,
+             tracking_status = ?10
+         WHERE id = ?11",
         params![
+            uid,
             media.title,
             media.media_type,
             media.status,
@@ -910,23 +1208,45 @@ pub fn update_media(conn: &Connection, media: &Media) -> Result<()> {
             media.extra_data,
             media.content_type,
             media.tracking_status,
-            media.id.unwrap() // Must have an ID
+            media_id
         ],
+    )?;
+
+    conn.execute(
+        "UPDATE main.milestones
+         SET media_title = ?1, media_uid = ?2
+         WHERE media_uid = ?2 OR media_title = ?3",
+        params![media.title, uid, previous_title],
     )?;
     Ok(())
 }
 
 pub fn delete_media(conn: &Connection, id: i64) -> Result<()> {
-    // Delete cover image from file system
-    if let Ok(cover_image) = conn.query_row(
-        "SELECT cover_image FROM shared.media WHERE id = ?1 AND cover_image IS NOT NULL AND cover_image != ''",
-        params![id],
-        |row| row.get::<_, String>(0),
-    ) {
-        let path = std::path::Path::new(&cover_image);
-        if path.exists() {
-            let _ = fs::remove_file(path);
+    if let Some((cover_image, title, uid)) = conn
+        .query_row(
+            "SELECT cover_image, title, uid FROM shared.media WHERE id = ?1",
+            params![id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .optional()?
+    {
+        if !cover_image.is_empty() {
+            let path = std::path::Path::new(&cover_image);
+            if path.exists() {
+                let _ = fs::remove_file(path);
+            }
         }
+
+        conn.execute(
+            "DELETE FROM main.milestones WHERE media_uid = ?1 OR media_title = ?2",
+            params![uid, title],
+        )?;
     }
 
     // Also delete associated logs in the local main DB
@@ -1059,10 +1379,13 @@ pub fn get_heatmap(conn: &Connection) -> Result<Vec<DailyHeatmap>> {
 }
 
 pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {
+    let updated_at = utc_now_rfc3339();
     conn.execute(
-        "INSERT INTO main.settings (key, value) VALUES (?1, ?2)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        params![key, value],
+        "INSERT INTO main.settings (key, value, updated_at) VALUES (?1, ?2, ?3)
+         ON CONFLICT(key) DO UPDATE SET
+            value = excluded.value,
+            updated_at = excluded.updated_at",
+        params![key, value, updated_at],
     )?;
     Ok(())
 }
@@ -1128,17 +1451,29 @@ pub fn delete_profile_picture(conn: &Connection) -> Result<()> {
 
 // Milestone Operations
 pub fn get_milestones_for_media(conn: &Connection, media_title: &str) -> Result<Vec<Milestone>> {
+    let media_uid = get_media_uid_by_title(conn, media_title)?;
     let mut stmt = conn.prepare(
-        "SELECT id, media_title, name, duration, characters, date FROM main.milestones WHERE media_title = ?1 ORDER BY id ASC",
+        "SELECT ms.id,
+                ms.media_uid,
+                COALESCE(m.title, ms.media_title),
+                ms.name,
+                ms.duration,
+                ms.characters,
+                ms.date
+         FROM main.milestones ms
+         LEFT JOIN shared.media m ON ms.media_uid = m.uid
+         WHERE ms.media_title = ?1 OR ms.media_uid = ?2
+         ORDER BY ms.id ASC",
     )?;
-    let milestone_iter = stmt.query_map(params![media_title], |row| {
+    let milestone_iter = stmt.query_map(params![media_title, media_uid], |row| {
         Ok(Milestone {
             id: row.get(0)?,
-            media_title: row.get(1)?,
-            name: row.get(2)?,
-            duration: row.get(3)?,
-            characters: row.get(4)?,
-            date: row.get(5)?,
+            media_uid: row.get(1)?,
+            media_title: row.get(2)?,
+            name: row.get(3)?,
+            duration: row.get(4)?,
+            characters: row.get(5)?,
+            date: row.get(6)?,
         })
     })?;
 
@@ -1151,18 +1486,26 @@ pub fn get_milestones_for_media(conn: &Connection, media_title: &str) -> Result<
 
 pub fn get_all_milestones(conn: &Connection) -> Result<Vec<Milestone>> {
     let mut stmt = conn.prepare(
-        "SELECT id, media_title, name, duration, characters, date
-         FROM main.milestones
-         ORDER BY date DESC, id ASC",
+        "SELECT ms.id,
+                ms.media_uid,
+                COALESCE(m.title, ms.media_title),
+                ms.name,
+                ms.duration,
+                ms.characters,
+                ms.date
+         FROM main.milestones ms
+         LEFT JOIN shared.media m ON ms.media_uid = m.uid
+         ORDER BY ms.date DESC, ms.id ASC",
     )?;
     let milestone_iter = stmt.query_map([], |row| {
         Ok(Milestone {
             id: row.get(0)?,
-            media_title: row.get(1)?,
-            name: row.get(2)?,
-            duration: row.get(3)?,
-            characters: row.get(4)?,
-            date: row.get(5)?,
+            media_uid: row.get(1)?,
+            media_title: row.get(2)?,
+            name: row.get(3)?,
+            duration: row.get(4)?,
+            characters: row.get(5)?,
+            date: row.get(6)?,
         })
     })?;
 
@@ -1278,6 +1621,7 @@ pub fn get_timeline_events(conn: &Connection) -> Result<Vec<TimelineEvent>> {
     }
 
     let mut media_contexts_by_id: HashMap<i64, TimelineMediaContext> = HashMap::new();
+    let mut media_ids_by_uid: HashMap<String, i64> = HashMap::new();
     let mut media_ids_by_title: HashMap<String, i64> = HashMap::new();
     let mut timeline_events = Vec::new();
 
@@ -1286,6 +1630,9 @@ pub fn get_timeline_events(conn: &Connection) -> Result<Vec<TimelineEvent>> {
             continue;
         };
 
+        if let Some(media_uid) = normalize_optional_string(media.uid.clone()) {
+            media_ids_by_uid.insert(media_uid, media_id);
+        }
         media_ids_by_title.insert(media.title.clone(), media_id);
 
         let fallback_context = TimelineMediaContext {
@@ -1376,7 +1723,13 @@ pub fn get_timeline_events(conn: &Connection) -> Result<Vec<TimelineEvent>> {
         let Some(date) = milestone.date.clone() else {
             continue;
         };
-        let Some(media_id) = media_ids_by_title.get(&milestone.media_title).copied() else {
+        let media_id = milestone
+            .media_uid
+            .as_deref()
+            .and_then(|media_uid| media_ids_by_uid.get(media_uid))
+            .copied()
+            .or_else(|| media_ids_by_title.get(&milestone.media_title).copied());
+        let Some(media_id) = media_id else {
             continue;
         };
         let Some(context) = media_contexts_by_id.get(&media_id).cloned() else {
@@ -1420,9 +1773,10 @@ pub fn add_milestone(conn: &Connection, milestone: &Milestone) -> Result<i64> {
             ),
         )));
     }
+    let (media_title, media_uid) = resolve_milestone_media_identity(conn, milestone)?;
     conn.execute(
-        "INSERT INTO main.milestones (media_title, name, duration, characters, date) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![milestone.media_title, milestone.name, milestone.duration, milestone.characters, milestone.date],
+        "INSERT INTO main.milestones (media_uid, media_title, name, duration, characters, date) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![media_uid, media_title, milestone.name, milestone.duration, milestone.characters, milestone.date],
     )?;
     Ok(conn.last_insert_rowid())
 }
@@ -1433,18 +1787,23 @@ pub fn delete_milestone(conn: &Connection, id: i64) -> Result<()> {
 }
 
 pub fn delete_milestones_for_media(conn: &Connection, media_title: &str) -> Result<()> {
+    let media_uid = get_media_uid_by_title(conn, media_title)?;
     conn.execute(
-        "DELETE FROM main.milestones WHERE media_title = ?1",
-        params![media_title],
+        "DELETE FROM main.milestones WHERE media_title = ?1 OR media_uid = ?2",
+        params![media_title, media_uid],
     )?;
     Ok(())
 }
 
 pub fn update_milestone(conn: &Connection, milestone: &Milestone) -> Result<()> {
+    let (media_title, media_uid) = resolve_milestone_media_identity(conn, milestone)?;
     conn.execute(
-        "UPDATE main.milestones SET media_title = ?1, name = ?2, duration = ?3, characters = ?4, date = ?5 WHERE id = ?6",
+        "UPDATE main.milestones
+         SET media_uid = ?1, media_title = ?2, name = ?3, duration = ?4, characters = ?5, date = ?6
+         WHERE id = ?7",
         params![
-            milestone.media_title,
+            media_uid,
+            media_title,
             milestone.name,
             milestone.duration,
             milestone.characters,
@@ -1574,6 +1933,7 @@ mod tests {
     fn sample_media(title: &str) -> Media {
         Media {
             id: None,
+            uid: None,
             title: title.to_string(),
             media_type: "Reading".to_string(),
             status: "Active".to_string(),
@@ -1738,6 +2098,8 @@ mod tests {
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].title, "ある魔女が死ぬまで");
         assert_eq!(all[0].id, Some(id));
+        assert!(all[0].uid.as_deref().is_some());
+        assert!(uuid::Uuid::parse_str(all[0].uid.as_deref().unwrap()).is_ok());
     }
 
     #[test]
@@ -1757,6 +2119,7 @@ mod tests {
 
         let updated = Media {
             id: Some(id),
+            uid: None,
             title: "呪術廻戦".to_string(),
             media_type: "Watching".to_string(),
             status: "Complete".to_string(),
@@ -1772,6 +2135,42 @@ mod tests {
         let all = get_all_media(&conn).unwrap();
         assert_eq!(all[0].media_type, "Watching");
         assert_eq!(all[0].status, "Complete");
+    }
+
+    #[test]
+    fn test_update_media_renames_linked_milestones() {
+        let conn = setup_test_db();
+        let media_id = add_media_with_id(&conn, &sample_media("Before Rename")).unwrap();
+        let original_media = get_all_media(&conn)
+            .unwrap()
+            .into_iter()
+            .find(|media| media.id == Some(media_id))
+            .unwrap();
+
+        add_milestone(
+            &conn,
+            &Milestone {
+                id: None,
+                media_uid: None,
+                media_title: "Before Rename".to_string(),
+                name: "Checkpoint".to_string(),
+                duration: 90,
+                characters: 0,
+                date: Some("2024-05-01".to_string()),
+            },
+        )
+        .unwrap();
+
+        let mut renamed_media = original_media.clone();
+        renamed_media.title = "After Rename".to_string();
+        update_media(&conn, &renamed_media).unwrap();
+
+        assert_eq!(get_milestones_for_media(&conn, "Before Rename").unwrap().len(), 0);
+
+        let renamed_milestones = get_milestones_for_media(&conn, "After Rename").unwrap();
+        assert_eq!(renamed_milestones.len(), 1);
+        assert_eq!(renamed_milestones[0].media_title, "After Rename");
+        assert_eq!(renamed_milestones[0].media_uid, original_media.uid);
     }
 
     #[test]
@@ -1798,6 +2197,19 @@ mod tests {
             activity_type: String::new(),
         };
         add_log(&conn, &log).unwrap();
+        add_milestone(
+            &conn,
+            &Milestone {
+                id: None,
+                media_uid: None,
+                media_title: "Cleanup Test".to_string(),
+                name: "Delete Me".to_string(),
+                duration: 30,
+                characters: 0,
+                date: Some("2024-01-15".to_string()),
+            },
+        )
+        .unwrap();
 
         assert!(cover_path.exists());
 
@@ -1809,6 +2221,7 @@ mod tests {
 
         let logs = get_logs(&conn).unwrap();
         assert_eq!(logs.len(), 0);
+        assert_eq!(get_all_milestones(&conn).unwrap().len(), 0);
 
         // Verify disk cleanup
         assert!(!cover_path.exists());
@@ -1985,6 +2398,7 @@ mod tests {
             &conn,
             &Milestone {
                 id: None,
+                media_uid: None,
                 media_title: "Alpha".to_string(),
                 name: "Older".to_string(),
                 duration: 10,
@@ -1997,6 +2411,7 @@ mod tests {
             &conn,
             &Milestone {
                 id: None,
+                media_uid: None,
                 media_title: "Beta".to_string(),
                 name: "Newer".to_string(),
                 duration: 20,
@@ -2079,6 +2494,7 @@ mod tests {
             &conn,
             &Milestone {
                 id: None,
+                media_uid: None,
                 media_title: "Complete Title".to_string(),
                 name: "Halfway".to_string(),
                 duration: 60,
@@ -2091,6 +2507,7 @@ mod tests {
             &conn,
             &Milestone {
                 id: None,
+                media_uid: None,
                 media_title: "Ongoing Title".to_string(),
                 name: "Undated".to_string(),
                 duration: 30,
@@ -2224,6 +2641,7 @@ mod tests {
             &conn,
             &Milestone {
                 id: None,
+                media_uid: None,
                 media_title: "Complete Title".to_string(),
                 name: "Final Stretch".to_string(),
                 duration: 25,
@@ -2236,6 +2654,7 @@ mod tests {
             &conn,
             &Milestone {
                 id: None,
+                media_uid: None,
                 media_title: "Ongoing Title".to_string(),
                 name: "Checkpoint".to_string(),
                 duration: 15,
@@ -2284,6 +2703,14 @@ mod tests {
             get_setting(&conn, "theme").unwrap(),
             Some("dark".to_string())
         );
+        let first_updated_at: String = conn
+            .query_row(
+                "SELECT updated_at FROM main.settings WHERE key = 'theme'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!first_updated_at.is_empty());
 
         // Update
         set_setting(&conn, "theme", "light").unwrap();
@@ -2685,12 +3112,123 @@ mod tests {
     }
 
     #[test]
+    fn test_v1_to_v2_migration_backfills_sync_foundation() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute("ATTACH DATABASE ':memory:' AS shared", [])
+            .unwrap();
+
+        conn.execute(
+            "CREATE TABLE shared.media (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL UNIQUE,
+                media_type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                language TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                cover_image TEXT DEFAULT '',
+                extra_data TEXT DEFAULT '{}',
+                content_type TEXT DEFAULT 'Unknown',
+                tracking_status TEXT DEFAULT 'Untracked'
+            )",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO shared.media (
+                id, title, media_type, status, language, description,
+                cover_image, extra_data, content_type, tracking_status
+            ) VALUES (1, 'Migrated Media', 'Reading', 'Active', 'Japanese', '', '', '{}', 'Novel', 'Ongoing')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "CREATE TABLE main.milestones (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                media_title TEXT NOT NULL,
+                name TEXT NOT NULL,
+                duration INTEGER NOT NULL,
+                characters INTEGER NOT NULL DEFAULT 0,
+                date TEXT
+            )",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO main.milestones (media_title, name, duration, characters, date)
+             VALUES ('Migrated Media', 'Arc 1', 120, 0, '2024-01-01')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "CREATE TABLE main.settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "CREATE TABLE main.activity_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                media_id INTEGER NOT NULL,
+                duration_minutes INTEGER NOT NULL,
+                characters INTEGER NOT NULL DEFAULT 0,
+                date TEXT NOT NULL,
+                activity_type TEXT NOT NULL DEFAULT ''
+            )",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "CREATE TABLE main.profile_picture (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                mime_type TEXT NOT NULL,
+                base64_data TEXT NOT NULL,
+                byte_size INTEGER NOT NULL,
+                width INTEGER NOT NULL,
+                height INTEGER NOT NULL,
+                updated_at TEXT NOT NULL
+            )",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO main.settings (key, value) VALUES ('theme', 'molokai')",
+            [],
+        )
+        .unwrap();
+        set_bundle_schema_version(&conn, 1).unwrap();
+
+        migrate_schema(&conn).unwrap();
+
+        let media = get_all_media(&conn).unwrap();
+        let expected_uid = generate_deterministic_media_uid("Migrated Media").unwrap();
+        assert_eq!(media.len(), 1);
+        assert_eq!(media[0].uid.as_deref(), Some(expected_uid.as_str()));
+
+        let milestones = get_milestones_for_media(&conn, "Migrated Media").unwrap();
+        assert_eq!(milestones.len(), 1);
+        assert_eq!(milestones[0].media_uid, media[0].uid);
+
+        let updated_at: String = conn
+            .query_row(
+                "SELECT updated_at FROM main.settings WHERE key = 'theme'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!updated_at.is_empty());
+        assert_eq!(get_bundle_schema_version(&conn).unwrap(), CURRENT_SCHEMA_VERSION);
+    }
+
+    #[test]
     fn test_milestone_operations() {
         let conn = setup_test_db();
         let media_title = "Milestone Media";
 
         let milestone = Milestone {
             id: None,
+            media_uid: None,
             media_title: media_title.to_string(),
             name: "First Quarter".to_string(),
             duration: 120,
@@ -2729,6 +3267,7 @@ mod tests {
         let conn = setup_test_db();
         let milestone = Milestone {
             id: None,
+            media_uid: None,
             media_title: "Validation".to_string(),
             name: "Zero".to_string(),
             duration: 0,
@@ -2753,6 +3292,7 @@ mod tests {
             &conn,
             &Milestone {
                 id: None,
+                media_uid: None,
                 media_title: title1.to_string(),
                 name: "M1".to_string(),
                 duration: 10,
@@ -2765,6 +3305,7 @@ mod tests {
             &conn,
             &Milestone {
                 id: None,
+                media_uid: None,
                 media_title: title2.to_string(),
                 name: "M2".to_string(),
                 duration: 20,
@@ -2798,6 +3339,7 @@ mod tests {
         // Verify we can insert
         let milestone = Milestone {
             id: None,
+            media_uid: None,
             media_title: "Migrated".to_string(),
             name: "Test".to_string(),
             duration: 50,

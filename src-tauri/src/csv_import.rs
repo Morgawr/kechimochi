@@ -102,6 +102,7 @@ pub fn import_csv(conn: &mut Connection, file_path: &str) -> Result<usize, Strin
                 // Create new media
                 let new_media = Media {
                     id: None,
+                    uid: None,
                     title: record.log_name.clone(),
                     media_type: record.media_type.clone(),
                     status: "Complete".into(), // Default to Complete for historical data
@@ -290,6 +291,7 @@ pub fn import_milestones_csv(conn: &mut Connection, file_path: &str) -> Result<u
 
         let milestone = Milestone {
             id: None,
+            media_uid: None,
             media_title: record.media_title,
             name: record.name,
             duration: record.duration,
@@ -331,19 +333,20 @@ pub fn analyze_media_csv(conn: &Connection, file_path: &str) -> Result<Vec<Media
         };
 
         let existing: Option<Media> = conn.query_row(
-            "SELECT id, title, media_type, status, language, description, cover_image, extra_data, content_type, tracking_status FROM shared.media WHERE title = ?1",
+            "SELECT id, uid, title, media_type, status, language, description, cover_image, extra_data, content_type, tracking_status FROM shared.media WHERE title = ?1",
             [&record.title],
             |row| Ok(Media {
                 id: row.get(0)?,
-                title: row.get(1)?,
-                media_type: row.get(2)?,
-                status: row.get(3)?,
-                language: row.get(4)?,
-                description: row.get(5).unwrap_or_default(),
-                cover_image: row.get(6).unwrap_or_default(),
-                extra_data: row.get(7).unwrap_or_else(|_| "{}".to_string()),
-                content_type: row.get(8).unwrap_or_else(|_| "Unknown".to_string()),
-                tracking_status: row.get(9).unwrap_or_else(|_| "Untracked".to_string()),
+                uid: row.get(1)?,
+                title: row.get(2)?,
+                media_type: row.get(3)?,
+                status: row.get(4)?,
+                language: row.get(5)?,
+                description: row.get(6).unwrap_or_default(),
+                cover_image: row.get(7).unwrap_or_default(),
+                extra_data: row.get(8).unwrap_or_else(|_| "{}".to_string()),
+                content_type: row.get(9).unwrap_or_else(|_| "Unknown".to_string()),
+                tracking_status: row.get(10).unwrap_or_else(|_| "Untracked".to_string()),
             })
         ).optional().map_err(|e| e.to_string())?;
 
@@ -409,6 +412,7 @@ pub fn apply_media_import(
 
             let m = Media {
                 id: Some(id),
+                uid: None,
                 title: req.title,
                 media_type: req.media_type,
                 status: req.status,
@@ -423,6 +427,7 @@ pub fn apply_media_import(
         } else {
             let m = Media {
                 id: None,
+                uid: None,
                 title: req.title,
                 media_type: req.media_type,
                 status: req.status,
@@ -473,6 +478,7 @@ mod tests {
     fn sample_media(title: &str) -> Media {
         Media {
             id: None,
+            uid: None,
             title: title.to_string(),
             media_type: "Reading".to_string(),
             status: "Active".to_string(),
@@ -551,6 +557,7 @@ mod tests {
         let conn = setup_test_db();
         let m = Media {
             id: None,
+            uid: None,
             title: "Export Test".to_string(),
             media_type: "Reading".to_string(),
             status: "Ongoing".to_string(),
@@ -589,6 +596,7 @@ mod tests {
         // Add one existing media
         let m = Media {
             id: None,
+            uid: None,
             title: "Existing".to_string(),
             media_type: "Reading".to_string(),
             status: "Complete".to_string(),
@@ -767,6 +775,7 @@ mod tests {
             &conn,
             &Milestone {
                 id: None,
+                media_uid: None,
                 media_title: "Export M".into(),
                 name: "M1".into(),
                 duration: 120,

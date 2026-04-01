@@ -856,6 +856,7 @@ mod tests {
     fn sample_media(title: &str) -> models::Media {
         models::Media {
             id: None,
+            uid: None,
             title: title.to_string(),
             media_type: "Reading".to_string(),
             status: "Active".to_string(),
@@ -871,6 +872,7 @@ mod tests {
     fn sample_milestone(media_title: &str, name: &str, duration: i64) -> models::Milestone {
         models::Milestone {
             id: None,
+            media_uid: None,
             media_title: media_title.to_string(),
             name: name.to_string(),
             duration,
@@ -1030,6 +1032,7 @@ mod tests {
                 &conn,
                 &models::Milestone {
                     id: None,
+                    media_uid: None,
                     media_title: "Timeline Handler".to_string(),
                     name: "Checkpoint".to_string(),
                     duration: 45,
