@@ -1246,17 +1246,12 @@ pub fn delete_media(conn: &Connection, id: i64) -> Result<()> {
         )
         .optional()?
     {
-        if !cover_image.is_empty() {
-            let path = std::path::Path::new(&cover_image);
-            if path.exists() {
-                let _ = fs::remove_file(path);
-            }
-        }
-
         conn.execute(
             "DELETE FROM main.milestones WHERE media_uid = ?1 OR media_title = ?2",
             params![uid, title],
         )?;
+
+        remove_cover_file_if_unreferenced(conn, std::path::Path::new(&cover_image), Some(id))?;
     }
 
     // Also delete associated logs in the local main DB
@@ -1847,7 +1842,6 @@ pub fn save_cover_image(
     );
     let dest = covers_dir.join(&dest_file);
 
-    // Delete old cover
     let old_cover: String = conn
         .query_row(
             "SELECT cover_image FROM shared.media WHERE id = ?1",
@@ -1857,13 +1851,6 @@ pub fn save_cover_image(
         .unwrap_or_default();
 
     let dest_str = dest.to_string_lossy().to_string();
-    if !old_cover.is_empty() {
-        let old_path = std::path::Path::new(&old_cover);
-        if old_path.exists() && old_cover != dest_str {
-            let _ = std::fs::remove_file(old_path);
-        }
-    }
-
     std::fs::copy(src_path, &dest).map_err(|e| e.to_string())?;
 
     conn.execute(
@@ -1871,6 +1858,11 @@ pub fn save_cover_image(
         rusqlite::params![dest_str, media_id],
     )
     .map_err(|e| e.to_string())?;
+
+    if old_cover != dest_str {
+        remove_cover_file_if_unreferenced(conn, std::path::Path::new(&old_cover), Some(media_id))
+            .map_err(|e| e.to_string())?;
+    }
 
     Ok(dest_str)
 }
@@ -1895,7 +1887,6 @@ pub fn save_cover_bytes(
     );
     let dest = covers_dir.join(&dest_file);
 
-    // Delete old cover
     let old_cover: String = conn
         .query_row(
             "SELECT cover_image FROM shared.media WHERE id = ?1",
@@ -1905,13 +1896,6 @@ pub fn save_cover_bytes(
         .unwrap_or_default();
 
     let dest_str = dest.to_string_lossy().to_string();
-    if !old_cover.is_empty() {
-        let old_path = std::path::Path::new(&old_cover);
-        if old_path.exists() && old_cover != dest_str {
-            let _ = std::fs::remove_file(old_path);
-        }
-    }
-
     std::fs::write(&dest, bytes).map_err(|e| e.to_string())?;
 
     conn.execute(
@@ -1920,7 +1904,75 @@ pub fn save_cover_bytes(
     )
     .map_err(|e| e.to_string())?;
 
+    if old_cover != dest_str {
+        remove_cover_file_if_unreferenced(conn, std::path::Path::new(&old_cover), Some(media_id))
+            .map_err(|e| e.to_string())?;
+    }
+
     Ok(dest_str)
+}
+
+pub fn update_media_cover_image_by_uid(
+    conn: &Connection,
+    media_uid: &str,
+    cover_image: &str,
+) -> std::result::Result<(), String> {
+    let existing = conn
+        .query_row(
+            "SELECT id, cover_image FROM shared.media WHERE uid = ?1",
+            params![media_uid],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+
+    let Some((media_id, old_cover)) = existing else {
+        return Err(format!("Media with uid '{media_uid}' was not found"));
+    };
+
+    conn.execute(
+        "UPDATE shared.media SET cover_image = ?1 WHERE uid = ?2",
+        params![cover_image, media_uid],
+    )
+    .map_err(|e| e.to_string())?;
+
+    if old_cover != cover_image {
+        remove_cover_file_if_unreferenced(conn, std::path::Path::new(&old_cover), Some(media_id))
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+fn remove_cover_file_if_unreferenced(
+    conn: &Connection,
+    path: &std::path::Path,
+    excluding_media_id: Option<i64>,
+) -> Result<()> {
+    if path.as_os_str().is_empty() {
+        return Ok(());
+    }
+
+    let path_str = path.to_string_lossy().to_string();
+    let reference_count: i64 = if let Some(media_id) = excluding_media_id {
+        conn.query_row(
+            "SELECT COUNT(*) FROM shared.media WHERE cover_image = ?1 AND id != ?2",
+            params![path_str, media_id],
+            |row| row.get(0),
+        )?
+    } else {
+        conn.query_row(
+            "SELECT COUNT(*) FROM shared.media WHERE cover_image = ?1",
+            params![path_str],
+            |row| row.get(0),
+        )?
+    };
+
+    if reference_count == 0 && path.exists() {
+        let _ = fs::remove_file(path);
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
