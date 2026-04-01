@@ -522,7 +522,8 @@ fn read_shared_media_rows(conn: &Connection) -> Result<Vec<SharedMediaRow>> {
 }
 
 fn recreate_shared_media_table_with_uids(conn: &Connection) -> Result<()> {
-    if !table_exists(conn, "shared", "media")? || table_has_column(conn, "shared", "media", "uid")? {
+    if !table_exists(conn, "shared", "media")? || table_has_column(conn, "shared", "media", "uid")?
+    {
         return Ok(());
     }
 
@@ -636,13 +637,21 @@ fn migrate_to_shared(conn: &Connection) -> Result<()> {
                     COALESCE({}, 'Unknown')
              FROM main.media
              ORDER BY id ASC",
-            if legacy_has_description { "description" } else { "''" },
+            if legacy_has_description {
+                "description"
+            } else {
+                "''"
+            },
             if legacy_has_cover_image {
                 "cover_image"
             } else {
                 "''"
             },
-            if legacy_has_extra_data { "extra_data" } else { "'{}'" },
+            if legacy_has_extra_data {
+                "extra_data"
+            } else {
+                "'{}'"
+            },
             if legacy_has_content_type {
                 "content_type"
             } else {
@@ -1170,7 +1179,8 @@ pub fn get_all_media(conn: &Connection) -> Result<Vec<Media>> {
 }
 
 pub fn add_media_with_id(conn: &Connection, media: &Media) -> Result<i64> {
-    let uid = normalize_optional_string(media.uid.clone()).unwrap_or_else(generate_random_media_uid);
+    let uid =
+        normalize_optional_string(media.uid.clone()).unwrap_or_else(generate_random_media_uid);
     conn.execute(
         "INSERT INTO shared.media (uid, title, media_type, status, language, description, cover_image, extra_data, content_type, tracking_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![uid, media.title, media.media_type, media.status, media.language, media.description, media.cover_image, media.extra_data, media.content_type, media.tracking_status],
@@ -2165,7 +2175,12 @@ mod tests {
         renamed_media.title = "After Rename".to_string();
         update_media(&conn, &renamed_media).unwrap();
 
-        assert_eq!(get_milestones_for_media(&conn, "Before Rename").unwrap().len(), 0);
+        assert_eq!(
+            get_milestones_for_media(&conn, "Before Rename")
+                .unwrap()
+                .len(),
+            0
+        );
 
         let renamed_milestones = get_milestones_for_media(&conn, "After Rename").unwrap();
         assert_eq!(renamed_milestones.len(), 1);
@@ -3218,7 +3233,10 @@ mod tests {
             )
             .unwrap();
         assert!(!updated_at.is_empty());
-        assert_eq!(get_bundle_schema_version(&conn).unwrap(), CURRENT_SCHEMA_VERSION);
+        assert_eq!(
+            get_bundle_schema_version(&conn).unwrap(),
+            CURRENT_SCHEMA_VERSION
+        );
     }
 
     #[test]
