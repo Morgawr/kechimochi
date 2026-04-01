@@ -3,6 +3,7 @@ pub mod csv_import;
 pub mod db;
 pub mod models;
 pub mod profile_picture;
+pub mod sync_merge;
 pub mod sync_snapshot;
 
 use rusqlite::Connection;
