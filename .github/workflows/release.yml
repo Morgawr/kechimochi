@@ -354,6 +354,7 @@ jobs:
         uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: stable
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
 
       - name: cache rust dependencies
         uses: swatinem/rust-cache@aa7c1c80a07a27a84c0aa76d0cef0aad3830e330 # v2.7.8
@@ -365,14 +366,14 @@ jobs:
           VITE_APP_VERSION: ${{ needs.validate-release.outputs.version }}
           VITE_APP_CHANNEL: release
           VITE_RELEASE_STAGE: ${{ needs.validate-release.outputs.release_stage }}
-        run: npm run tauri build -- --bundles dmg --verbose
+        run: npm run tauri build -- --target universal-apple-darwin --bundles dmg --verbose
 
       - name: rename DMG asset
         shell: bash
         run: |
           VERSION="${{ needs.validate-release.outputs.version }}"
           mkdir -p release-desktop
-          DMG=$(find src-tauri/target/release/bundle/dmg -type f -name '*.dmg' | head -n 1)
+          DMG=$(find src-tauri/target/universal-apple-darwin/release/bundle/dmg -type f -name '*.dmg' | head -n 1)
           cp "$DMG" "release-desktop/kechimochi-macos-${VERSION}.dmg"
 
       - name: upload release asset

@@ -6,6 +6,9 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+### Fixed
+- macOS DMG builds are now packaged as universal binaries to support both Intel and Apple Silicon architectures natively.
+
 ## [0.1.3] - 2026-03-26
 
 ### Added
