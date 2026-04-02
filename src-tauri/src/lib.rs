@@ -5,6 +5,7 @@ pub mod models;
 pub mod profile_picture;
 pub mod sync_auth;
 pub mod sync_cover_blobs;
+pub mod sync_drive;
 pub mod sync_merge;
 pub mod sync_snapshot;
 pub mod sync_state;
