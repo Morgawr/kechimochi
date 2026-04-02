@@ -29,6 +29,7 @@ vi.mock('chart.js/auto', () => {
 vi.mock('../src/api', () => ({
     initializeUserDb: vi.fn(() => Promise.resolve()),
     getUsername: vi.fn(() => Promise.resolve('os-user')),
+    getStartupError: vi.fn(() => Promise.resolve(null)),
     getSetting: vi.fn((key) => {
         if (key === SETTING_KEYS.THEME) return Promise.resolve('dark');
         if (key === SETTING_KEYS.PROFILE_NAME) return Promise.resolve('test-user');
@@ -171,6 +172,21 @@ describe('main.ts initialization', () => {
         addActivityBtn?.dispatchEvent(new Event('click'));
         
         await vi.waitFor(() => expect(modals.showLogActivityModal).toHaveBeenCalled());
+    });
+
+    it('should block startup and show a user-facing error when the database is unsupported', async () => {
+        vi.mocked(api.getStartupError).mockResolvedValue(
+            'Kechimochi could not open this database safely.\n\nDatabase schema version 3 is newer than this app supports (2)'
+        );
+
+        await import('../src/main');
+        document.dispatchEvent(new Event('DOMContentLoaded'));
+
+        expect(api.initializeUserDb).not.toHaveBeenCalled();
+        await vi.waitFor(() => expect(document.getElementById('alert-body')?.textContent).toContain(
+            'Database schema version 3 is newer than this app supports (2)'
+        ));
+        expect(document.getElementById('alert-ok')).not.toBeNull();
     });
 
     it('should refresh timeline data after logging activity from the timeline view', async () => {

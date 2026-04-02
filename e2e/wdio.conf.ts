@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
+import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
 import { prepareTestDir, cleanupTestDir, E2E_PACKAGE_VERSION } from './helpers/setup.js';
@@ -35,6 +36,40 @@ let tauriDriverExitCode: number | null | undefined;
 
 function delay(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function waitForPort(port: number, host = '127.0.0.1', timeoutMs = 3000): Promise<void> {
+  const start = Date.now();
+
+  while (Date.now() - start < timeoutMs) {
+    const isOpen = await new Promise<boolean>((resolve) => {
+      const socket = new net.Socket();
+
+      socket.setTimeout(250);
+      socket.once('connect', () => {
+        socket.destroy();
+        resolve(true);
+      });
+      socket.once('timeout', () => {
+        socket.destroy();
+        resolve(false);
+      });
+      socket.once('error', () => {
+        socket.destroy();
+        resolve(false);
+      });
+
+      socket.connect(port, host);
+    });
+
+    if (isOpen) {
+      return;
+    }
+
+    await delay(100);
+  }
+
+  throw new Error(`tauri-driver did not open port ${port} within ${timeoutMs}ms`);
 }
 
 function resolveTauriDriverCommand(): string {
@@ -198,6 +233,7 @@ export const config: WebdriverIO.Config = {
     const specName = path.basename(specFile, '.spec.ts');
     const isUpdateSpec = specName === 'update-notifications';
     const isSyncSpec = specName === 'cloud-sync';
+    const isStartupSchemaMismatchSpec = specName === 'startup-schema-mismatch';
     
     // 1. Isolated Data Directory for this session
     const testDir = prepareTestDir({
@@ -208,6 +244,7 @@ export const config: WebdriverIO.Config = {
             updates_e2e_release_version: E2E_PACKAGE_VERSION,
           }
         : undefined,
+      overrideSchemaVersion: isStartupSchemaMismatchSpec ? 999 : undefined,
     });
     process.env.KECHIMOCHI_DATA_DIR = testDir;
 
@@ -302,8 +339,8 @@ export const config: WebdriverIO.Config = {
     tauriDriver.stderr?.on('data', log);
 
     // Wait for driver
-    Logger.info(`[e2e] [${specName}] Initializing tauri-driver (3s)...`);
-    await delay(3000);
+    Logger.info(`[e2e] [${specName}] Waiting for tauri-driver on port ${tauriDriverPort}...`);
+    await waitForPort(tauriDriverPort, '127.0.0.1', 3000);
 
     tauriDriver.on('error', (error: Error) => {
       Logger.error(`[e2e] [${specName}] tauri-driver error:`, error);

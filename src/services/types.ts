@@ -72,6 +72,7 @@ export interface AppServices {
 
     getUsername(): Promise<string>;
     getAppVersion(): Promise<string>;
+    getStartupError(): Promise<string | null>;
     getProfilePicture(): Promise<ProfilePicture | null>;
     deleteProfilePicture(): Promise<void>;
 

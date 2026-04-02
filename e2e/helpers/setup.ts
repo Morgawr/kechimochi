@@ -14,6 +14,7 @@ export const E2E_PACKAGE_VERSION = PACKAGE_VERSION.version;
 
 interface PrepareTestDirOptions {
   extraSettings?: Record<string, string>;
+  overrideSchemaVersion?: number;
 }
 
 function seedSettings(dbPath: string, settings: Record<string, string>): void {
@@ -64,6 +65,18 @@ export function prepareTestDir(options: PrepareTestDirOptions = {}): string {
     fs.copyFileSync(srcShared, destShared);
   } else {
     throw new Error(`Fixture file not found: ${srcShared}`);
+  }
+
+  if (typeof options.overrideSchemaVersion === 'number') {
+    const dbPaths = [destUser, destShared];
+    for (const dbPath of dbPaths) {
+      const db = new Database(dbPath);
+      try {
+        db.pragma(`user_version = ${options.overrideSchemaVersion}`);
+      } finally {
+        db.close();
+      }
+    }
   }
 
   // Copy covers directory

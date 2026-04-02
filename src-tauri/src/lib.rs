@@ -27,6 +27,10 @@ pub struct DbState {
     pub conn: Arc<Mutex<Connection>>,
 }
 
+pub struct StartupState {
+    pub error: Option<String>,
+}
+
 const SYNC_COMMAND_TIMEOUT_SECS: u64 = 120;
 const CREATE_SYNC_PROFILE_TIMEOUT_SECS: u64 = 900;
 const RECOVERY_SYNC_TIMEOUT_SECS: u64 = 900;
@@ -888,6 +892,11 @@ fn disconnect_google_drive(app_handle: tauri::AppHandle) -> Result<(), String> {
     sync_auth::disconnect_google_drive_data(&app_dir, token_store.as_ref())
 }
 
+#[tauri::command]
+fn get_startup_error(state: State<'_, StartupState>) -> Option<String> {
+    state.error.clone()
+}
+
 pub fn get_username_logic() -> String {
     std::env::var("USER")
         .or_else(|_| std::env::var("USERNAME"))
@@ -902,15 +911,31 @@ pub fn run() {
         .setup(|app| {
             let app_dir = db::get_data_dir(app.handle());
             let user_db_path = app_dir.join("kechimochi_user.db");
-            let conn = if user_db_path.exists() {
-                db::init_db(app_dir, None).expect("Failed to initialize database")
+            let (conn, startup_error) = if user_db_path.exists() {
+                match db::init_db(app_dir, None) {
+                    Ok(conn) => (conn, None),
+                    Err(err) => {
+                        let error_message = format!(
+                            "Kechimochi could not open this database safely.\n\n{}\n\nUse a newer version of the app that supports this database schema.",
+                            err
+                        );
+
+                        (
+                            rusqlite::Connection::open_in_memory().unwrap(),
+                            Some(error_message),
+                        )
+                    }
+                }
             } else {
                 // If no user DB exists, start with a temporary in-memory db.
                 // The frontend will force the user to create an initial profile and call initialize_user_db.
-                rusqlite::Connection::open_in_memory().unwrap()
+                (rusqlite::Connection::open_in_memory().unwrap(), None)
             };
             app.manage(DbState {
                 conn: Arc::new(Mutex::new(conn)),
+            });
+            app.manage(StartupState {
+                error: startup_error,
             });
             Ok(())
         })
@@ -962,6 +987,7 @@ pub fn run() {
             get_sync_conflicts,
             resolve_sync_conflict,
             disconnect_google_drive,
+            get_startup_error,
             set_setting,
             get_setting,
             backup::export_full_backup,

@@ -74,6 +74,7 @@ export class DesktopServices implements AppServices {
     setSetting(key: string, value: string):  Promise<void>            { return invoke('set_setting', { key, value }); }
 
     getUsername():                           Promise<string>          { return invoke('get_username'); }
+    getStartupError():                       Promise<string | null>   { return invoke('get_startup_error'); }
     getProfilePicture():                     Promise<ProfilePicture | null> { return invoke('get_profile_picture'); }
     deleteProfilePicture():                  Promise<void>            { return invoke('delete_profile_picture'); }
     getSyncStatus():                         Promise<SyncStatus>      { return invoke('get_sync_status'); }
