@@ -196,7 +196,7 @@ async function safeClick(element: WebdriverIO.Element): Promise<void> {
         try {
             const selector = (element as unknown as { selector?: unknown }).selector;
             if (typeof selector !== 'string') {
-                throw new Error('Library click fallback requires a selector');
+                throw new TypeError('Library click fallback requires a selector');
             }
 
             await browser.execute((resolvedSelector) => {
@@ -215,7 +215,7 @@ async function safeClick(element: WebdriverIO.Element): Promise<void> {
                 });
 
                 if (!(node instanceof HTMLElement)) {
-                    throw new Error(`Could not resolve clickable element for selector ${resolvedSelector}`);
+                    throw new TypeError(`Could not resolve clickable element for selector ${resolvedSelector}`);
                 }
                 node.click();
             }, selector);

@@ -741,9 +741,9 @@ export class ProfileView extends Component<ProfileState> {
     private renderSyncRecoveryPanel(syncStatus: SyncStatus) {
         const disabled = !syncStatus.google_authenticated || syncStatus.state === 'syncing';
         const disabledAttr = disabled ? 'disabled' : '';
-        const hint = !syncStatus.google_authenticated
-            ? 'Re-authenticate before using these recovery tools.'
-            : 'An emergency local backup ZIP will be created first.';
+        const hint = syncStatus.google_authenticated
+            ? 'An emergency local backup ZIP will be created first.'
+            : 'Re-authenticate before using these recovery tools.';
         const toggleLabel = this.state.showSyncRecoveryTools ? 'Hide tools' : 'Show tools';
 
         return html`

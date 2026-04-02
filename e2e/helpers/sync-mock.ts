@@ -112,11 +112,11 @@ function fileToJson(file: StoredFile) {
 }
 
 function normalizeNameQueryValue(rawQuery: string, operator: 'contains' | '='): string | null {
-    const match = rawQuery.match(
+    const match = (
         operator === 'contains'
             ? /name contains '([^']+)'/
             : /name = '([^']+)'/
-    );
+    ).exec(rawQuery);
     return match?.[1] ?? null;
 }
 
@@ -150,7 +150,7 @@ function parseMultipartRelated(contentType: string, body: Buffer): {
     metadata: { name: string; mimeType: string; parents: string[] };
     bytes: Buffer;
 } {
-    const boundaryMatch = contentType.match(/boundary="?([^";]+)"?/i);
+    const boundaryMatch = /boundary="?([^";]+)"?/i.exec(contentType);
     if (!boundaryMatch) {
         throw new Error(`Missing multipart boundary in ${contentType}`);
     }

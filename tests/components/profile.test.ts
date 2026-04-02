@@ -97,6 +97,23 @@ function mockStandardProfileLoad(options?: {
     vi.mocked(api.getAppVersion).mockResolvedValue(appVersion);
 }
 
+async function renderAndClickEnableSync(container: HTMLElement) {
+    const view = new ProfileView(container);
+    view.render();
+
+    await vi.waitFor(() => expect(container.querySelector('#profile-btn-enable-sync')).not.toBeNull());
+    (container.querySelector('#profile-btn-enable-sync') as HTMLButtonElement).click();
+
+    return view;
+}
+
+async function expectLatestAlert(title: string, message: string) {
+    await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
+        title,
+        expect.stringContaining(message)
+    ));
+}
+
 describe('ProfileView', () => {
     let container: HTMLElement;
     const SAFE_BACKUP_PATH = resolve(process.cwd(), 'e2e', 'fixtures', 'recovery.zip');
@@ -440,16 +457,8 @@ describe('ProfileView', () => {
             new Error('Google Drive sync is not configured for this build. Provide KECHIMOCHI_GOOGLE_CLIENT_ID and KECHIMOCHI_GOOGLE_CLIENT_SECRET in a private .env.local or release build environment before building the desktop app.')
         );
 
-        const view = new ProfileView(container);
-        view.render();
-
-        await vi.waitFor(() => expect(container.querySelector('#profile-btn-enable-sync')).not.toBeNull());
-        (container.querySelector('#profile-btn-enable-sync') as HTMLButtonElement).click();
-
-        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
-            'Cloud Sync Setup Needed',
-            expect.stringContaining('KECHIMOCHI_GOOGLE_CLIENT_SECRET')
-        ));
+        await renderAndClickEnableSync(container);
+        await expectLatestAlert('Cloud Sync Setup Needed', 'KECHIMOCHI_GOOGLE_CLIENT_SECRET');
     });
 
     it('should show a specific message when the configured Google OAuth client requires a secret', async () => {
@@ -457,16 +466,8 @@ describe('ProfileView', () => {
             new Error('Server returned error response: invalid_request: client_secret is missing.')
         );
 
-        const view = new ProfileView(container);
-        view.render();
-
-        await vi.waitFor(() => expect(container.querySelector('#profile-btn-enable-sync')).not.toBeNull());
-        (container.querySelector('#profile-btn-enable-sync') as HTMLButtonElement).click();
-
-        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
-            'Cloud Sync OAuth Config Error',
-            expect.stringContaining('KECHIMOCHI_GOOGLE_CLIENT_SECRET')
-        ));
+        await renderAndClickEnableSync(container);
+        await expectLatestAlert('Cloud Sync OAuth Config Error', 'KECHIMOCHI_GOOGLE_CLIENT_SECRET');
     });
 
     it('should time out the enable sync browser handoff and close the blocking modal', async () => {
@@ -477,18 +478,11 @@ describe('ProfileView', () => {
             () => new Promise(() => undefined)
         );
 
-        const view = new ProfileView(container);
-        view.render();
-
-        await vi.waitFor(() => expect(container.querySelector('#profile-btn-enable-sync')).not.toBeNull());
-        (container.querySelector('#profile-btn-enable-sync') as HTMLButtonElement).click();
+        await renderAndClickEnableSync(container);
 
         await vi.advanceTimersByTimeAsync(60_000);
 
-        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
-            'Google Sign-In Timed Out',
-            expect.stringContaining('try Enable Sync again')
-        ));
+        await expectLatestAlert('Google Sign-In Timed Out', 'try Enable Sync again');
         expect(close).toHaveBeenCalled();
         vi.useRealTimers();
     });
@@ -501,16 +495,8 @@ describe('ProfileView', () => {
             new Error('Google Drive request timed out. Please try again.')
         );
 
-        const view = new ProfileView(container);
-        view.render();
-
-        await vi.waitFor(() => expect(container.querySelector('#profile-btn-enable-sync')).not.toBeNull());
-        (container.querySelector('#profile-btn-enable-sync') as HTMLButtonElement).click();
-
-        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
-            'Cloud Sync Timed Out',
-            expect.stringContaining('took too long to respond')
-        ));
+        await renderAndClickEnableSync(container);
+        await expectLatestAlert('Cloud Sync Timed Out', 'took too long to respond');
     });
 
     it('should show a busy message when a previous sync attempt still holds the lock', async () => {
@@ -518,16 +504,8 @@ describe('ProfileView', () => {
             new Error('Another sync operation is already in progress')
         );
 
-        const view = new ProfileView(container);
-        view.render();
-
-        await vi.waitFor(() => expect(container.querySelector('#profile-btn-enable-sync')).not.toBeNull());
-        (container.querySelector('#profile-btn-enable-sync') as HTMLButtonElement).click();
-
-        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
-            'Cloud Sync Busy',
-            expect.stringContaining('previous sync attempt')
-        ));
+        await renderAndClickEnableSync(container);
+        await expectLatestAlert('Cloud Sync Busy', 'previous sync attempt');
     });
 
     it('should show sync conflicts and resolve them from the profile card', async () => {

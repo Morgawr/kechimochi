@@ -46,7 +46,7 @@ function clickLastVisibleMatch(selector: string): Promise<void> {
         });
 
         if (!(target instanceof HTMLElement)) {
-            throw new Error(`Could not resolve clickable element for selector ${resolvedSelector}`);
+            throw new TypeError(`Could not resolve clickable element for selector ${resolvedSelector}`);
         }
 
         target.click();
