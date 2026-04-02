@@ -20,13 +20,11 @@ import { type LibraryLayoutMode, waitForLibraryLayout } from './library.js';
 export async function clickMarkAsComplete(): Promise<void> {
     const btn = $('#btn-mark-complete');
     await btn.waitForDisplayed({ timeout: 5000 });
-    await btn.waitForClickable({ timeout: 2000 });
-    await btn.click();
+    await safeClick(btn);
 
     // Wait for the tracking status badge to update to Complete
-    const trackingStatus = $('#media-tracking-status');
     await browser.waitUntil(async () => {
-        return (await trackingStatus.getValue()) === 'Complete';
+        return (await $('#media-tracking-status').getValue()) === 'Complete';
     }, { timeout: 3000, timeoutMsg: 'Tracking status did not update to Complete' });
 }
 

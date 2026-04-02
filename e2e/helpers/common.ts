@@ -100,21 +100,46 @@ export async function getTopmostVisibleOverlay(selector?: string) {
 }
 
 export async function findTopmostVisibleOverlay(selector?: string): Promise<WebdriverIO.Element | null> {
-    const overlays = Array.from(await $$('.modal-overlay')).reverse();
-    for (const overlay of overlays) {
-        if (!(await isOverlayActive(overlay))) continue;
+    const modalId = await browser.execute((targetSelector) => {
+        const overlays = Array.from(document.querySelectorAll('.modal-overlay')).reverse();
+        const isVisible = (node: Element | null): boolean => {
+            if (!(node instanceof HTMLElement)) {
+                return false;
+            }
 
-        if (selector) {
-            const child = overlay.$(selector);
-            if (!(await child.isDisplayed().catch(() => false))) {
+            const style = globalThis.getComputedStyle(node);
+            const rect = node.getBoundingClientRect();
+            return node.classList.contains('active')
+                && style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && rect.width > 0
+                && rect.height > 0;
+        };
+
+        for (const overlay of overlays) {
+            if (!isVisible(overlay)) {
                 continue;
             }
+
+            if (typeof targetSelector === 'string' && targetSelector.length > 0) {
+                const child = overlay.querySelector(targetSelector);
+                if (!(child instanceof HTMLElement)) {
+                    continue;
+                }
+            }
+
+            return (overlay as HTMLElement).dataset.modalId ?? null;
         }
 
-        return overlay;
+        return null;
+    }, selector ?? '');
+
+    if (!modalId) {
+        return null;
     }
 
-    return null;
+    const overlay = $(`.modal-overlay[data-modal-id="${modalId}"]`);
+    return await overlay.isExisting().catch(() => false) ? overlay : null;
 }
 
 export async function waitForOverlayToDisappear(overlay: WebdriverIO.Element, timeout = 5000) {
@@ -165,7 +190,13 @@ export async function safeClick(target: ElementTarget, timeout = 5000): Promise<
                 if (selector) {
                     await clickLastVisibleMatch(selector);
                 } else {
-                    throw new Error('Element click fallback requires a selector');
+                    await browser.execute((el) => {
+                        if (!(el instanceof HTMLElement)) {
+                            throw new TypeError('Resolved click target is not an HTMLElement');
+                        }
+
+                        el.click();
+                    }, element);
                 }
             }
 

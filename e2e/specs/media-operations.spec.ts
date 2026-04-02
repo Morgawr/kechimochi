@@ -1,6 +1,6 @@
 import { waitForAppReady } from '../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../helpers/navigation.js';
-import { submitPrompt, confirmAction } from '../helpers/common.js';
+import { submitPrompt, confirmAction, safeClick } from '../helpers/common.js';
 
 describe('CUJ: Media Extra Fields and Metadata Management', () => {
   before(async () => {
@@ -15,9 +15,7 @@ describe('CUJ: Media Extra Fields and Metadata Management', () => {
     await navigateTo('media');
     expect(await verifyActiveView('media')).toBe(true);
 
-    const mediaItem = $(`.media-grid-item[data-title="${targetMediaTitle}"]`);
-    await mediaItem.waitForDisplayed({ timeout: 5000 });
-    await mediaItem.click();
+    await safeClick(`.media-grid-item[data-title="${targetMediaTitle}"]`);
 
     const detailTitle = $('#media-title');
     await browser.waitUntil(async () => {
@@ -26,8 +24,7 @@ describe('CUJ: Media Extra Fields and Metadata Management', () => {
   });
 
   it('should add a new extra field tag with data', async () => {
-    const addExtraBtn = $('#btn-add-extra');
-    await addExtraBtn.click();
+    await safeClick('#btn-add-extra');
 
     await submitPrompt(extraFieldKey);
     await submitPrompt(extraFieldValue);
@@ -45,14 +42,11 @@ describe('CUJ: Media Extra Fields and Metadata Management', () => {
 
   it('should verify the tag persists after navigating away and back', async () => {
     // Navigate back to grid
-    const backBtn = $('#btn-back-grid');
-    await backBtn.click();
+    await safeClick('#btn-back-grid');
     expect(await verifyActiveView('media')).toBe(true);
 
     // Re-open the same item
-    const mediaItem = $(`.media-grid-item[data-title="${targetMediaTitle}"]`);
-    await mediaItem.waitForDisplayed({ timeout: 5000 });
-    await mediaItem.click();
+    await safeClick(`.media-grid-item[data-title="${targetMediaTitle}"]`);
 
     // Verify tag is still there
     const extraField = $(`//div[@data-ekey="${extraFieldKey}"]`);
@@ -67,8 +61,7 @@ describe('CUJ: Media Extra Fields and Metadata Management', () => {
   });
 
   it('should clear metadata and verify the tag is removed', async () => {
-    const clearMetaBtn = $('#btn-clear-meta');
-    await clearMetaBtn.click();
+    await safeClick('#btn-clear-meta');
 
     // Handle confirmation modal
     await confirmAction(true);
