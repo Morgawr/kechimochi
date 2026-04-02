@@ -498,11 +498,17 @@ export async function logActivityFromDetail(expectedTitle: string, duration: str
     // Wait for modal to disappear
     await modal.waitForDisplayed({ reverse: true, timeout: 5000 });
     await browser.waitUntil(async () => {
-        const items = await $$('.media-detail-log-item');
-        return items.length > 0;
+        const entries = await $$('.media-detail-log-item');
+        for (const entry of entries) {
+            const text = await entry.getText().catch(() => '');
+            if (text.includes(`${duration} Minutes`)) {
+                return await entry.isDisplayed().catch(() => false);
+            }
+        }
+        return false;
     }, {
         timeout: 5_000,
-        timeoutMsg: 'Activity log list did not re-render after creating an entry'
+        timeoutMsg: `Activity log entry for ${duration} Minutes did not appear after creating an entry`
     });
 }
 
