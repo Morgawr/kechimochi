@@ -26,21 +26,18 @@ async function expectProfileName(name: string): Promise<void> {
 }
 
 async function expectTheme(theme: string): Promise<void> {
-  const themeSelect = $('#profile-select-theme');
-  const body = $('body');
-
-  await browser.waitUntil(async () => (await body.getAttribute('data-theme')) === theme, {
+  await browser.waitUntil(async () => (await $('body').getAttribute('data-theme')) === theme, {
     timeout: 5000,
     timeoutMsg: `Theme did not become ${theme}`,
   });
 
-  await browser.waitUntil(async () => (await themeSelect.getValue()) === theme, {
+  await browser.waitUntil(async () => (await $('#profile-select-theme').getValue()) === theme, {
     timeout: 5000,
     timeoutMsg: `Theme selector did not become ${theme}`,
   });
 
-  expect(await body.getAttribute('data-theme')).toBe(theme);
-  expect(await themeSelect.getValue()).toBe(theme);
+  expect(await $('body').getAttribute('data-theme')).toBe(theme);
+  expect(await $('#profile-select-theme').getValue()).toBe(theme);
 }
 
 async function expectSeededActivitiesPresent(): Promise<void> {
