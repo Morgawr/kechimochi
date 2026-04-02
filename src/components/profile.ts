@@ -734,7 +734,7 @@ export class ProfileView extends Component<ProfileState> {
         if (!syncStatus.google_authenticated) {
             return html`
                 <div style="display: flex; gap: 0.65rem; flex-wrap: wrap; justify-content: flex-end;">
-                    <button class="btn btn-primary" id="profile-btn-reconnect-sync">Reconnect Google</button>
+                    <button class="btn btn-primary" id="profile-btn-reconnect-sync">Re-authenticate</button>
                     <button class="btn btn-ghost" id="profile-btn-disconnect-sync">Disconnect</button>
                 </div>
             `;
@@ -1357,7 +1357,7 @@ export class ProfileView extends Component<ProfileState> {
             if (isGoogleDriveNotAuthenticatedError(message)) {
                 await customAlert(
                     'Google Drive Reconnect Needed',
-                    'This device is no longer authenticated with Google Drive. Use Reconnect Google in the Cloud Sync card, then try syncing again.'
+                    'This device is no longer authenticated with Google Drive. Use Re-authenticate in the Cloud Sync card, then try syncing again.'
                 );
                 await this.refreshSyncData(this.state.showSyncConflicts);
                 return;
