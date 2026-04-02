@@ -7,7 +7,25 @@
  * to the same origin (so the Vite dev proxy or a bundled server both work).
  */
 import type { AppServices } from './types';
-import type { Media, ActivityLog, ActivitySummary, DailyHeatmap, TimelineEvent, MediaCsvRow, MediaConflict, Milestone, ProfilePicture } from '../types';
+import type {
+    Media,
+    ActivityLog,
+    ActivitySummary,
+    DailyHeatmap,
+    TimelineEvent,
+    MediaCsvRow,
+    MediaConflict,
+    Milestone,
+    ProfilePicture,
+    GoogleDriveAuthSession,
+    RemoteSyncProfileSummary,
+    SyncActionResult,
+    SyncAttachPreview,
+    SyncConflict,
+    SyncConflictResolution,
+    SyncProgressUpdate,
+    SyncStatus,
+} from '../types';
 import { getBuildVersion } from '../app_version';
 import { getMockExternalJsonResponse } from './external_mocks';
 
@@ -81,6 +99,10 @@ function triggerDownload(blob: Blob, filename: string): void {
     URL.revokeObjectURL(url);
 }
 
+function syncUnavailableError(): Error {
+    return new Error('Cloud Sync is only available in the desktop app.');
+}
+
 export class WebServices implements AppServices {
     // ── Data operations ───────────────────────────────────────────────────────
     getAllMedia():                           Promise<Media[]>          { return get('/media'); }
@@ -107,6 +129,21 @@ export class WebServices implements AppServices {
     getAppVersion():                         Promise<string>            { return Promise.resolve(getBuildVersion()); }
     getProfilePicture():                     Promise<ProfilePicture | null> { return get('/profile-picture'); }
     deleteProfilePicture():                  Promise<void>              { return del('/profile-picture'); }
+    getSyncStatus():                         Promise<SyncStatus>        { return Promise.reject(syncUnavailableError()); }
+    connectGoogleDrive():                    Promise<GoogleDriveAuthSession> { return Promise.reject(syncUnavailableError()); }
+    disconnectGoogleDrive():                 Promise<void>              { return Promise.reject(syncUnavailableError()); }
+    listRemoteSyncProfiles():                Promise<RemoteSyncProfileSummary[]> { return Promise.reject(syncUnavailableError()); }
+    previewAttachRemoteSyncProfile(_profileId: string): Promise<SyncAttachPreview> { return Promise.reject(syncUnavailableError()); }
+    createRemoteSyncProfile():               Promise<SyncActionResult>  { return Promise.reject(syncUnavailableError()); }
+    attachRemoteSyncProfile(_profileId: string): Promise<SyncActionResult> { return Promise.reject(syncUnavailableError()); }
+    runSync():                              Promise<SyncActionResult>  { return Promise.reject(syncUnavailableError()); }
+    getSyncConflicts():                      Promise<SyncConflict[]>    { return Promise.reject(syncUnavailableError()); }
+    resolveSyncConflict(_conflictIndex: number, _resolution: SyncConflictResolution): Promise<SyncActionResult> {
+        return Promise.reject(syncUnavailableError());
+    }
+    subscribeSyncProgress(_listener: (update: SyncProgressUpdate) => void): Promise<() => void> {
+        return Promise.resolve(() => undefined);
+    }
 
     // ── File-based operations ─────────────────────────────────────────────────
     async pickAndImportActivities(): Promise<number | null> {

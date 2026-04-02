@@ -10,6 +10,17 @@ vi.mock('../../src/api', () => ({
     getAppVersion: vi.fn(),
     getProfilePicture: vi.fn(() => Promise.resolve(null)),
     uploadProfilePicture: vi.fn(),
+    getSyncStatus: vi.fn(),
+    connectGoogleDrive: vi.fn(),
+    disconnectGoogleDrive: vi.fn(),
+    listRemoteSyncProfiles: vi.fn(),
+    previewAttachRemoteSyncProfile: vi.fn(),
+    createRemoteSyncProfile: vi.fn(),
+    attachRemoteSyncProfile: vi.fn(),
+    runSync: vi.fn(),
+    getSyncConflicts: vi.fn(),
+    resolveSyncConflict: vi.fn(),
+    subscribeSyncProgress: vi.fn(() => Promise.resolve(() => undefined)),
     getAllMedia: vi.fn(),
     listProfiles: vi.fn(),
     setSetting: vi.fn(),
@@ -45,6 +56,8 @@ vi.mock('../../src/modals', () => ({
     customPrompt: vi.fn(),
     showExportCsvModal: vi.fn(),
     showBlockingStatus: vi.fn(() => ({ close: vi.fn() })),
+    showSyncEnablementWizard: vi.fn(),
+    showSyncAttachPreview: vi.fn(),
     showInstalledUpdateModal: vi.fn(() => Promise.resolve()),
     showAvailableUpdateModal: vi.fn(() => Promise.resolve()),
 }));
@@ -57,11 +70,23 @@ describe('ProfileView', () => {
     beforeEach(() => {
         container = document.createElement('div');
         vi.clearAllMocks();
+        mockServices.isDesktop.mockReturnValue(true);
         vi.spyOn(Logger, 'warn').mockImplementation(() => {});
         const globals = globalThis as Record<string, unknown>;
         globals.__APP_BUILD_CHANNEL__ = 'release';
         globals.__APP_RELEASE_STAGE__ = 'beta';
-        
+        vi.mocked(api.getSyncStatus).mockResolvedValue({
+            state: 'disconnected',
+            google_authenticated: false,
+            sync_profile_id: null,
+            profile_name: null,
+            google_account_email: null,
+            last_sync_at: null,
+            device_name: null,
+            conflict_count: 0,
+        });
+        vi.mocked(api.getSyncConflicts).mockResolvedValue([]);
+
         // Mock localStorage
         const store: Record<string, string> = { [STORAGE_KEYS.CURRENT_PROFILE]: 'test-user' };
         vi.stubGlobal('localStorage', {
@@ -232,6 +257,509 @@ describe('ProfileView', () => {
 
         (container.querySelector('#profile-btn-check-updates') as HTMLButtonElement).click();
         await vi.waitFor(() => expect(updateManager.checkForUpdates).toHaveBeenCalledWith({ manual: true }));
+    });
+
+    it('should render the Cloud Sync card when disconnected', async () => {
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
+            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
+            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
+            return '0';
+        });
+        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-sync-card')).not.toBeNull());
+        expect(container.textContent).toContain('Cloud Sync');
+        expect(container.querySelector('#profile-btn-enable-sync')).not.toBeNull();
+    });
+
+    it('should enable sync by creating a new remote profile', async () => {
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
+            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
+            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
+            return '0';
+        });
+        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+        vi.mocked(api.getSyncStatus)
+            .mockResolvedValueOnce({
+                state: 'disconnected',
+                google_authenticated: false,
+                sync_profile_id: null,
+                profile_name: null,
+                google_account_email: null,
+                last_sync_at: null,
+                device_name: null,
+                conflict_count: 0,
+            })
+            .mockResolvedValueOnce({
+                state: 'connected_clean',
+                google_authenticated: true,
+                sync_profile_id: 'prof_1',
+                profile_name: 'test-user',
+                google_account_email: 'sync@example.com',
+                last_sync_at: '2026-04-02T00:00:00Z',
+                device_name: 'Desk',
+                conflict_count: 0,
+            });
+        vi.mocked(api.connectGoogleDrive).mockResolvedValue({
+            device_id: 'dev_1',
+            google_account_email: 'sync@example.com',
+            access_token_expires_at: null,
+        });
+        vi.mocked(api.listRemoteSyncProfiles).mockResolvedValue([]);
+        vi.mocked(modals.showSyncEnablementWizard).mockResolvedValue({ action: 'create_new' });
+        vi.mocked(api.createRemoteSyncProfile).mockResolvedValue({
+            sync_status: {
+                state: 'connected_clean',
+                google_authenticated: true,
+                sync_profile_id: 'prof_1',
+                profile_name: 'test-user',
+                google_account_email: 'sync@example.com',
+                last_sync_at: '2026-04-02T00:00:00Z',
+                device_name: 'Desk',
+                conflict_count: 0,
+            },
+            safety_backup_path: '/home/testuser/pre_sync_backup.zip',
+            published_snapshot_id: 'snap_1',
+            lost_race: false,
+            remote_changed: false,
+        });
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-enable-sync')).not.toBeNull());
+        (container.querySelector('#profile-btn-enable-sync') as HTMLButtonElement).click();
+
+        await vi.waitFor(() => expect(api.createRemoteSyncProfile).toHaveBeenCalled());
+        expect(api.connectGoogleDrive).toHaveBeenCalled();
+        expect(api.listRemoteSyncProfiles).toHaveBeenCalled();
+        expect(api.subscribeSyncProgress).toHaveBeenCalled();
+        expect(modals.showSyncEnablementWizard).toHaveBeenCalledWith([], 'sync@example.com');
+        expect(modals.customAlert).toHaveBeenCalledWith('Cloud Sync Enabled', expect.stringContaining('Cloud Sync is now enabled'));
+    });
+
+    it('should offer reconnect when a sync profile is attached but Google auth is missing', async () => {
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
+            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
+            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
+            return '0';
+        });
+        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+        vi.mocked(api.getSyncStatus)
+            .mockResolvedValueOnce({
+                state: 'connected_clean',
+                google_authenticated: false,
+                sync_profile_id: 'prof_1',
+                profile_name: 'test-user',
+                google_account_email: 'sync@example.com',
+                last_sync_at: '2026-04-02T00:00:00Z',
+                device_name: 'Desk',
+                conflict_count: 0,
+            })
+            .mockResolvedValueOnce({
+                state: 'connected_clean',
+                google_authenticated: true,
+                sync_profile_id: 'prof_1',
+                profile_name: 'test-user',
+                google_account_email: 'sync@example.com',
+                last_sync_at: '2026-04-02T00:00:00Z',
+                device_name: 'Desk',
+                conflict_count: 0,
+            });
+        vi.mocked(api.connectGoogleDrive).mockResolvedValue({
+            device_id: 'dev_1',
+            google_account_email: 'sync@example.com',
+            access_token_expires_at: null,
+        });
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-reconnect-sync')).not.toBeNull());
+        expect(container.textContent).toContain('Reconnect Needed');
+        expect(container.textContent).toContain('needs to be reconnected');
+
+        (container.querySelector('#profile-btn-reconnect-sync') as HTMLButtonElement).click();
+
+        await vi.waitFor(() => expect(api.connectGoogleDrive).toHaveBeenCalled());
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
+            'Google Drive Reconnected',
+            expect.stringContaining('sync again now')
+        ));
+    });
+
+    it('should subscribe to sync progress while attaching an existing cloud profile', async () => {
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
+            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
+            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
+            return '0';
+        });
+        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+        vi.mocked(api.getSyncStatus)
+            .mockResolvedValueOnce({
+                state: 'disconnected',
+                google_authenticated: true,
+                sync_profile_id: null,
+                profile_name: null,
+                google_account_email: 'sync@example.com',
+                last_sync_at: null,
+                device_name: null,
+                conflict_count: 0,
+            })
+            .mockResolvedValueOnce({
+                state: 'connected_clean',
+                google_authenticated: true,
+                sync_profile_id: 'prof_1',
+                profile_name: 'test-user',
+                google_account_email: 'sync@example.com',
+                last_sync_at: '2026-04-02T00:00:00Z',
+                device_name: 'Desk',
+                conflict_count: 0,
+            });
+        vi.mocked(api.listRemoteSyncProfiles).mockResolvedValue([{
+            profile_id: 'prof_1',
+            profile_name: 'test-user',
+            snapshot_id: 'snap_1',
+            remote_generation: 1,
+            updated_at: '2026-04-02T00:00:00Z',
+            last_writer_device_id: 'Desk',
+        }]);
+        vi.mocked(modals.showSyncEnablementWizard).mockResolvedValue({
+            action: 'attach',
+            profileId: 'prof_1',
+        });
+        vi.mocked(api.previewAttachRemoteSyncProfile).mockResolvedValue({
+            profile_id: 'prof_1',
+            profile_name: 'test-user',
+            local_only_media_count: 0,
+            remote_only_media_count: 0,
+            matched_media_count: 3,
+            potential_duplicate_titles: [],
+            conflict_count: 0,
+        });
+        vi.mocked(modals.showSyncAttachPreview).mockResolvedValue(true);
+        vi.mocked(api.attachRemoteSyncProfile).mockResolvedValue({
+            sync_status: {
+                state: 'connected_clean',
+                google_authenticated: true,
+                sync_profile_id: 'prof_1',
+                profile_name: 'test-user',
+                google_account_email: 'sync@example.com',
+                last_sync_at: '2026-04-02T00:00:00Z',
+                device_name: 'Desk',
+                conflict_count: 0,
+            },
+            safety_backup_path: '/home/testuser/pre_sync_backup.zip',
+            published_snapshot_id: 'snap_2',
+            lost_race: false,
+            remote_changed: true,
+        });
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-enable-sync')).not.toBeNull());
+        (container.querySelector('#profile-btn-enable-sync') as HTMLButtonElement).click();
+
+        await vi.waitFor(() => expect(api.attachRemoteSyncProfile).toHaveBeenCalledWith('prof_1'));
+        expect(api.subscribeSyncProgress).toHaveBeenCalled();
+        expect(modals.customAlert).toHaveBeenCalledWith(
+            'Cloud Sync Attached',
+            expect.stringContaining('The profile was attached successfully')
+        );
+    });
+
+    it('should subscribe to sync progress while running sync', async () => {
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
+            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
+            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
+            return '0';
+        });
+        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+        vi.mocked(api.getSyncStatus).mockResolvedValue({
+            state: 'connected_clean',
+            google_authenticated: true,
+            sync_profile_id: 'prof_1',
+            profile_name: 'test-user',
+            google_account_email: 'sync@example.com',
+            last_sync_at: '2026-04-02T00:00:00Z',
+            device_name: 'Desk',
+            conflict_count: 0,
+        });
+        vi.mocked(api.runSync).mockResolvedValue({
+            sync_status: {
+                state: 'connected_clean',
+                google_authenticated: true,
+                sync_profile_id: 'prof_1',
+                profile_name: 'test-user',
+                google_account_email: 'sync@example.com',
+                last_sync_at: '2026-04-02T00:10:00Z',
+                device_name: 'Desk',
+                conflict_count: 0,
+            },
+            safety_backup_path: null,
+            published_snapshot_id: 'snap_2',
+            lost_race: false,
+            remote_changed: true,
+        });
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-run-sync')).not.toBeNull());
+        (container.querySelector('#profile-btn-run-sync') as HTMLButtonElement).click();
+
+        await vi.waitFor(() => expect(api.runSync).toHaveBeenCalled());
+        expect(api.subscribeSyncProgress).toHaveBeenCalled();
+        expect(modals.customAlert).toHaveBeenCalledWith(
+            'Sync Complete',
+            expect.stringContaining('Cloud Sync completed successfully')
+        );
+    });
+
+    it('should show a setup message when Google OAuth is not configured', async () => {
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
+            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
+            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
+            return '0';
+        });
+        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+        vi.mocked(api.connectGoogleDrive).mockRejectedValue(
+            new Error('Google Drive sync is not configured. Set `plugins.kechimochiSync.clientId` in src-tauri/tauri.conf.json or export KECHIMOCHI_GOOGLE_CLIENT_ID before launching the app.')
+        );
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-enable-sync')).not.toBeNull());
+        (container.querySelector('#profile-btn-enable-sync') as HTMLButtonElement).click();
+
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
+            'Cloud Sync Setup Needed',
+            expect.stringContaining('plugins.kechimochiSync.clientId')
+        ));
+    });
+
+    it('should show a specific message when the configured Google OAuth client requires a secret', async () => {
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
+            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
+            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
+            return '0';
+        });
+        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+        vi.mocked(api.connectGoogleDrive).mockRejectedValue(
+            new Error('Server returned error response: invalid_request: client_secret is missing.')
+        );
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-enable-sync')).not.toBeNull());
+        (container.querySelector('#profile-btn-enable-sync') as HTMLButtonElement).click();
+
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
+            'Cloud Sync OAuth Config Error',
+            expect.stringContaining('plugins.kechimochiSync.clientSecret')
+        ));
+    });
+
+    it('should time out the enable sync browser handoff and close the blocking modal', async () => {
+        vi.useFakeTimers();
+        const close = vi.fn();
+        vi.mocked(modals.showBlockingStatus).mockReturnValue({ close });
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
+            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
+            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
+            return '0';
+        });
+        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+        vi.mocked(api.connectGoogleDrive).mockImplementation(
+            () => new Promise(() => undefined)
+        );
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-enable-sync')).not.toBeNull());
+        (container.querySelector('#profile-btn-enable-sync') as HTMLButtonElement).click();
+
+        await vi.advanceTimersByTimeAsync(60_000);
+
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
+            'Google Sign-In Timed Out',
+            expect.stringContaining('try Enable Sync again')
+        ));
+        expect(close).toHaveBeenCalled();
+        vi.useRealTimers();
+    });
+
+    it('should show a specific timeout message when creating a cloud profile stalls', async () => {
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
+            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
+            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
+            return '0';
+        });
+        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+        vi.mocked(api.connectGoogleDrive).mockResolvedValue({
+            device_id: 'dev_1',
+            google_account_email: 'sync@example.com',
+            access_token_expires_at: null,
+        });
+        vi.mocked(api.listRemoteSyncProfiles).mockResolvedValue([]);
+        vi.mocked(modals.showSyncEnablementWizard).mockResolvedValue({ action: 'create_new' });
+        vi.mocked(api.createRemoteSyncProfile).mockRejectedValue(
+            new Error('Google Drive request timed out. Please try again.')
+        );
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-enable-sync')).not.toBeNull());
+        (container.querySelector('#profile-btn-enable-sync') as HTMLButtonElement).click();
+
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
+            'Cloud Sync Timed Out',
+            expect.stringContaining('took too long to respond')
+        ));
+    });
+
+    it('should show a busy message when a previous sync attempt still holds the lock', async () => {
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
+            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
+            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
+            return '0';
+        });
+        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+        vi.mocked(api.connectGoogleDrive).mockRejectedValue(
+            new Error('Another sync operation is already in progress')
+        );
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-enable-sync')).not.toBeNull());
+        (container.querySelector('#profile-btn-enable-sync') as HTMLButtonElement).click();
+
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
+            'Cloud Sync Busy',
+            expect.stringContaining('previous sync attempt')
+        ));
+    });
+
+    it('should show sync conflicts and resolve them from the profile card', async () => {
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
+            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
+            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
+            return '0';
+        });
+        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+        vi.mocked(api.getSyncStatus)
+            .mockResolvedValueOnce({
+                state: 'conflict_pending',
+                google_authenticated: true,
+                sync_profile_id: 'prof_1',
+                profile_name: 'test-user',
+                google_account_email: 'sync@example.com',
+                last_sync_at: '2026-04-02T00:00:00Z',
+                device_name: 'Desk',
+                conflict_count: 1,
+            })
+            .mockResolvedValueOnce({
+                state: 'dirty',
+                google_authenticated: true,
+                sync_profile_id: 'prof_1',
+                profile_name: 'test-user',
+                google_account_email: 'sync@example.com',
+                last_sync_at: '2026-04-02T00:00:00Z',
+                device_name: 'Desk',
+                conflict_count: 0,
+            });
+        vi.mocked(api.getSyncConflicts).mockResolvedValue([{
+            kind: 'media_field_conflict',
+            media_uid: 'uid_1',
+            field_name: 'title',
+            base_value: null,
+            local_value: 'Local Title',
+            remote_value: 'Remote Title',
+        }]);
+        vi.mocked(api.resolveSyncConflict).mockResolvedValue({
+            sync_status: {
+                state: 'dirty',
+                google_authenticated: true,
+                sync_profile_id: 'prof_1',
+                profile_name: 'test-user',
+                google_account_email: 'sync@example.com',
+                last_sync_at: '2026-04-02T00:00:00Z',
+                device_name: 'Desk',
+                conflict_count: 0,
+            },
+            safety_backup_path: null,
+            published_snapshot_id: null,
+            lost_race: false,
+            remote_changed: false,
+        });
+
+        const view = new ProfileView(container);
+        await view.loadData();
+        view.setState({ showSyncConflicts: true });
+
+        await vi.waitFor(() => expect(container.querySelector('[data-sync-resolution-kind="media_field"]')).not.toBeNull());
+        (container.querySelector('[data-sync-resolution-kind="media_field"][data-sync-resolution-side="remote"]') as HTMLButtonElement).click();
+
+        await vi.waitFor(() => expect(api.resolveSyncConflict).toHaveBeenCalledWith(0, { kind: 'media_field', side: 'remote' }));
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
+            'All Conflicts Resolved',
+            expect.stringContaining('Run Sync Now')
+        ));
+    });
+
+    it('should warn before renaming a synced profile', async () => {
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
+            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
+            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
+            return '0';
+        });
+        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+        vi.mocked(api.getSyncStatus).mockResolvedValue({
+            state: 'connected_clean',
+            google_authenticated: true,
+            sync_profile_id: 'prof_1',
+            profile_name: 'test-user',
+            google_account_email: 'sync@example.com',
+            last_sync_at: '2026-04-02T00:00:00Z',
+            device_name: 'Desk',
+            conflict_count: 0,
+        });
+        vi.mocked(modals.customConfirm).mockResolvedValue(true);
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-name')).not.toBeNull());
+        container.querySelector('#profile-name')?.dispatchEvent(new MouseEvent('dblclick'));
+
+        await vi.waitFor(() => expect(modals.customConfirm).toHaveBeenCalledWith(
+            'Rename Synced Profile',
+            expect.stringContaining('synced display name'),
+            'btn-primary',
+            'Continue'
+        ));
+        expect(container.querySelector('input[type="text"]')).not.toBeNull();
     });
 
     it('should calculate report', async () => {

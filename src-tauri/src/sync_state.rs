@@ -2,6 +2,7 @@ use std::fs;
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use serde::{Deserialize, Serialize};
@@ -16,6 +17,7 @@ const SYNC_DEVICE_ID_FILE: &str = "sync_device_id.txt";
 const BASE_SNAPSHOT_FILE: &str = "base_snapshot.json.gz";
 const PENDING_CONFLICTS_FILE: &str = "pending_conflicts.json";
 const SYNC_LOCK_FILE: &str = "sync.lock";
+const SYNC_LOCK_STALE_SECS: u64 = 180;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -65,6 +67,8 @@ pub struct SyncStatus {
     pub google_account_email: Option<String>,
     #[serde(default)]
     pub last_sync_at: Option<String>,
+    #[serde(default)]
+    pub device_name: Option<String>,
     pub conflict_count: usize,
 }
 
@@ -222,20 +226,62 @@ impl Drop for SyncLockGuard {
 pub fn acquire_sync_lock(app_dir: &Path) -> Result<SyncLockGuard, String> {
     ensure_sync_dir(app_dir)?;
     let path = sync_lock_path(app_dir);
-    let mut file = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(&path)
-        .map_err(|err| {
-            if err.kind() == std::io::ErrorKind::AlreadyExists {
-                "Another sync operation is already in progress".to_string()
-            } else {
-                err.to_string()
+    loop {
+        match OpenOptions::new().create_new(true).write(true).open(&path) {
+            Ok(mut file) => {
+                file.write_all(sync_lock_contents()?.as_bytes())
+                    .map_err(|e| e.to_string())?;
+                return Ok(SyncLockGuard { path });
             }
-        })?;
-    file.write_all(format!("pid={}\n", std::process::id()).as_bytes())
-        .map_err(|e| e.to_string())?;
-    Ok(SyncLockGuard { path })
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                if reclaim_stale_sync_lock(&path)? {
+                    continue;
+                }
+                return Err("Another sync operation is already in progress".to_string());
+            }
+            Err(err) => return Err(err.to_string()),
+        }
+    }
+}
+
+fn sync_lock_contents() -> Result<String, String> {
+    Ok(format!(
+        "pid={}\ncreated_at_unix={}\n",
+        std::process::id(),
+        current_unix_timestamp_secs()?
+    ))
+}
+
+fn reclaim_stale_sync_lock(path: &Path) -> Result<bool, String> {
+    let Ok(raw) = fs::read_to_string(path) else {
+        return Ok(true);
+    };
+
+    let Some(created_at_unix) = parse_sync_lock_created_at_unix(&raw) else {
+        fs::remove_file(path).map_err(|e| e.to_string())?;
+        return Ok(true);
+    };
+
+    let now = current_unix_timestamp_secs()?;
+    if now.saturating_sub(created_at_unix) < SYNC_LOCK_STALE_SECS {
+        return Ok(false);
+    }
+
+    fs::remove_file(path).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+fn parse_sync_lock_created_at_unix(raw: &str) -> Option<u64> {
+    raw.lines()
+        .find_map(|line| line.strip_prefix("created_at_unix="))
+        .and_then(|value| value.trim().parse::<u64>().ok())
+}
+
+fn current_unix_timestamp_secs() -> Result<u64, String> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .map_err(|e| e.to_string())
 }
 
 pub fn clear_sync_runtime_files(app_dir: &Path) -> Result<(), String> {
@@ -282,6 +328,7 @@ pub fn get_sync_status(
             profile_name: Some(config.profile_name),
             google_account_email: config.google_account_email.or(google_account_email),
             last_sync_at: config.last_sync_at,
+            device_name: Some(config.device_name),
             conflict_count,
         });
     }
@@ -293,6 +340,7 @@ pub fn get_sync_status(
         profile_name: None,
         google_account_email,
         last_sync_at: None,
+        device_name: None,
         conflict_count,
     })
 }
@@ -391,5 +439,32 @@ mod tests {
         let _guard = acquire_sync_lock(temp_dir.path()).unwrap();
         let err = acquire_sync_lock(temp_dir.path()).unwrap_err();
         assert!(err.contains("already in progress"));
+    }
+
+    #[test]
+    fn acquire_sync_lock_reclaims_legacy_lock_file_without_timestamp() {
+        let temp_dir = TempDir::new().unwrap();
+        ensure_sync_dir(temp_dir.path()).unwrap();
+        fs::write(sync_lock_path(temp_dir.path()), "pid=123\n").unwrap();
+
+        let _guard = acquire_sync_lock(temp_dir.path()).unwrap();
+
+        assert!(sync_lock_path(temp_dir.path()).exists());
+    }
+
+    #[test]
+    fn acquire_sync_lock_reclaims_stale_lock_file() {
+        let temp_dir = TempDir::new().unwrap();
+        ensure_sync_dir(temp_dir.path()).unwrap();
+        let stale_created_at = current_unix_timestamp_secs().unwrap() - (SYNC_LOCK_STALE_SECS + 1);
+        fs::write(
+            sync_lock_path(temp_dir.path()),
+            format!("pid=123\ncreated_at_unix={stale_created_at}\n"),
+        )
+        .unwrap();
+
+        let _guard = acquire_sync_lock(temp_dir.path()).unwrap();
+
+        assert!(sync_lock_path(temp_dir.path()).exists());
     }
 }

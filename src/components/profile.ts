@@ -2,20 +2,57 @@ import { Logger } from '../core/logger';
 import { Component } from '../core/component';
 import { html } from '../core/html';
 import {
-    getAllMedia, getLogsForMedia,
-    clearActivities, wipeEverything,
-    applyMediaImport, getSetting, setSetting,
-    getAppVersion, importMilestonesCsv, exportMilestonesCsv,
-    exportFullBackup, importFullBackup,
-    getProfilePicture, uploadProfilePicture
+    getAllMedia,
+    getLogsForMedia,
+    clearActivities,
+    wipeEverything,
+    applyMediaImport,
+    getSetting,
+    setSetting,
+    getAppVersion,
+    importMilestonesCsv,
+    exportMilestonesCsv,
+    exportFullBackup,
+    importFullBackup,
+    getProfilePicture,
+    uploadProfilePicture,
+    getSyncStatus,
+    connectGoogleDrive,
+    disconnectGoogleDrive,
+    listRemoteSyncProfiles,
+    previewAttachRemoteSyncProfile,
+    createRemoteSyncProfile,
+    attachRemoteSyncProfile,
+    runSync,
+    getSyncConflicts,
+    resolveSyncConflict,
+    subscribeSyncProgress,
 } from '../api';
 import {
-    customPrompt, showExportCsvModal, customAlert, customConfirm,
-    showMediaCsvConflictModal, showBlockingStatus
+    customPrompt,
+    showExportCsvModal,
+    customAlert,
+    customConfirm,
+    showMediaCsvConflictModal,
+    showBlockingStatus,
+    showSyncEnablementWizard,
+    showSyncAttachPreview,
 } from '../modals';
 import { getServices } from '../services';
 import { formatProductVersionLabel, getAppVersionInfo } from '../app_version';
-import type { ProfilePicture, UpdateState } from '../types';
+import type {
+    MergeSide,
+    ProfilePicture,
+    SyncActionResult,
+    SyncAttachPreview,
+    SyncConflict,
+    SyncConflictProfilePicture,
+    SyncConflictResolution,
+    SyncConnectionState,
+    SyncProgressUpdate,
+    SyncStatus,
+    UpdateState,
+} from '../types';
 import { getProfileInitials, profilePictureToDataUrl } from '../utils/profile_picture';
 import { getCharacterCountFromExtraData } from '../utils/extra_data';
 import { STORAGE_KEYS, SETTING_KEYS, DEFAULTS, EVENTS } from '../constants';
@@ -37,7 +74,137 @@ interface ProfileState {
     appVersion: string;
     isInitialized: boolean;
     updateState: UpdateState;
+    syncSupported: boolean;
+    syncStatus: SyncStatus | null;
+    syncConflicts: SyncConflict[];
+    syncError: string | null;
+    showSyncConflicts: boolean;
 }
+
+function stringifyError(error: unknown): string {
+    if (error instanceof Error) {
+        return error.message;
+    }
+    return String(error);
+}
+
+function formatSyncTimestamp(value: string | null): string {
+    if (!value) return 'Never';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+        return value;
+    }
+    return parsed.toLocaleString();
+}
+
+function formatSyncStateLabel(state: SyncConnectionState): string {
+    switch (state) {
+        case 'connected_clean':
+            return 'Connected';
+        case 'dirty':
+            return 'Dirty';
+        case 'syncing':
+            return 'Syncing';
+        case 'conflict_pending':
+            return 'Conflict';
+        case 'error':
+            return 'Error';
+        case 'disconnected':
+        default:
+            return 'Disconnected';
+    }
+}
+
+function formatSyncStatusLabel(syncStatus: SyncStatus): string {
+    if (syncStatus.sync_profile_id && !syncStatus.google_authenticated) {
+        return 'Reconnect Needed';
+    }
+    return formatSyncStateLabel(syncStatus.state);
+}
+
+function syncStateColor(state: SyncConnectionState): string {
+    switch (state) {
+        case 'connected_clean':
+            return '#2ed573';
+        case 'dirty':
+            return '#f59e0b';
+        case 'syncing':
+            return 'var(--accent-blue)';
+        case 'conflict_pending':
+            return '#ff7f50';
+        case 'error':
+            return '#ff4757';
+        case 'disconnected':
+        default:
+            return 'var(--text-secondary)';
+    }
+}
+
+function syncStatusColor(syncStatus: SyncStatus): string {
+    if (syncStatus.sync_profile_id && !syncStatus.google_authenticated) {
+        return '#ff4757';
+    }
+    return syncStateColor(syncStatus.state);
+}
+
+function formatFieldLabel(fieldName: string): string {
+    return fieldName
+        .split('_')
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' ');
+}
+
+function formatConflictValue(value: unknown): string {
+    if (value === null || value === undefined) {
+        return 'None';
+    }
+    if (typeof value === 'string') {
+        return value === '' ? '(empty)' : value;
+    }
+    return JSON.stringify(value, null, 2);
+}
+
+function profilePictureLabel(picture: SyncConflictProfilePicture | null): string {
+    if (!picture) {
+        return 'No picture';
+    }
+    return `${picture.width}x${picture.height} ${picture.mime_type}`;
+}
+
+function syncCardBorderColor(state: SyncConnectionState): string {
+    if (state === 'error') {
+        return 'rgba(255, 71, 87, 0.25)';
+    }
+    if (state === 'conflict_pending') {
+        return 'rgba(255, 127, 80, 0.25)';
+    }
+    return 'var(--border-color)';
+}
+
+function isMissingGoogleOAuthConfigError(message: string): boolean {
+    return message.includes('KECHIMOCHI_GOOGLE_CLIENT_ID')
+        || message.includes('Google Drive sync is not configured');
+}
+
+function isMissingGoogleOAuthClientSecretError(message: string): boolean {
+    return message.includes('client_secret is missing');
+}
+
+function isSyncTimeoutError(message: string): boolean {
+    return message.toLowerCase().includes('timed out');
+}
+
+function isSyncAlreadyInProgressError(message: string): boolean {
+    return message.includes('Another sync operation is already in progress');
+}
+
+function isGoogleDriveNotAuthenticatedError(message: string): boolean {
+    return message.includes('Google Drive is not authenticated');
+}
+
+const ENABLE_SYNC_AUTH_TIMEOUT_MS = 60_000;
+const ENABLE_SYNC_AUTH_TIMEOUT_ERROR =
+    'Google sign-in timed out before the app received the browser callback.';
 
 export class ProfileView extends Component<ProfileState> {
     private isRefreshing = false;
@@ -66,6 +233,11 @@ export class ProfileView extends Component<ProfileState> {
                 installedVersion: getAppVersionInfo().version,
                 isSupported: false,
             },
+            syncSupported: getServices().isDesktop(),
+            syncStatus: null,
+            syncConflicts: [],
+            syncError: null,
+            showSyncConflicts: false,
         });
     }
 
@@ -81,34 +253,61 @@ export class ProfileView extends Component<ProfileState> {
     }
 
     async loadData() {
-        const theme = await getSetting(SETTING_KEYS.THEME) || DEFAULTS.THEME;
-        const novelSpeed = await getSetting(SETTING_KEYS.STATS_NOVEL_SPEED) || '0';
-        const novelCount = await getSetting(SETTING_KEYS.STATS_NOVEL_COUNT) || '0';
-        const mangaSpeed = await getSetting(SETTING_KEYS.STATS_MANGA_SPEED) || '0';
-        const mangaCount = await getSetting(SETTING_KEYS.STATS_MANGA_COUNT) || '0';
-        const vnSpeed = await getSetting(SETTING_KEYS.STATS_VN_SPEED) || '0';
-        const vnCount = await getSetting(SETTING_KEYS.STATS_VN_COUNT) || '0';
-        const timestamp = await getSetting(SETTING_KEYS.STATS_REPORT_TIMESTAMP) || '';
-        const appVersion = await getAppVersion();
-        const profilePicture = await this.loadProfilePicture();
+        const syncSupported = getServices().isDesktop();
+        const syncStatePromise = this.loadSyncState(syncSupported);
 
-        const currentProfile = await getSetting(SETTING_KEYS.PROFILE_NAME) || DEFAULTS.PROFILE;
-        localStorage.setItem(STORAGE_KEYS.THEME_CACHE, theme);
-        this.setState({
-            currentProfile,
+        const [
             theme,
+            novelSpeed,
+            novelCount,
+            mangaSpeed,
+            mangaCount,
+            vnSpeed,
+            vnCount,
+            timestamp,
+            appVersion,
+            profilePicture,
+            currentProfile,
+            syncState,
+        ] = await Promise.all([
+            getSetting(SETTING_KEYS.THEME),
+            getSetting(SETTING_KEYS.STATS_NOVEL_SPEED),
+            getSetting(SETTING_KEYS.STATS_NOVEL_COUNT),
+            getSetting(SETTING_KEYS.STATS_MANGA_SPEED),
+            getSetting(SETTING_KEYS.STATS_MANGA_COUNT),
+            getSetting(SETTING_KEYS.STATS_VN_SPEED),
+            getSetting(SETTING_KEYS.STATS_VN_COUNT),
+            getSetting(SETTING_KEYS.STATS_REPORT_TIMESTAMP),
+            getAppVersion(),
+            this.loadProfilePicture(),
+            getSetting(SETTING_KEYS.PROFILE_NAME),
+            syncStatePromise,
+        ]);
+
+        const resolvedTheme = theme || DEFAULTS.THEME;
+        const resolvedProfileName = currentProfile || DEFAULTS.PROFILE;
+
+        localStorage.setItem(STORAGE_KEYS.THEME_CACHE, resolvedTheme);
+        this.setState({
+            currentProfile: resolvedProfileName,
+            theme: resolvedTheme,
             profilePicture,
             report: {
-                novelSpeed,
-                novelCount,
-                mangaSpeed,
-                mangaCount,
-                vnSpeed,
-                vnCount,
-                timestamp
+                novelSpeed: novelSpeed || '0',
+                novelCount: novelCount || '0',
+                mangaSpeed: mangaSpeed || '0',
+                mangaCount: mangaCount || '0',
+                vnSpeed: vnSpeed || '0',
+                vnCount: vnCount || '0',
+                timestamp: timestamp || '',
             },
             appVersion,
-            isInitialized: true
+            isInitialized: true,
+            syncSupported,
+            syncStatus: syncState.syncStatus,
+            syncConflicts: syncState.syncConflicts,
+            syncError: syncState.syncError,
+            showSyncConflicts: syncState.syncConflicts.length > 0 && this.state.showSyncConflicts,
         });
     }
 
@@ -118,6 +317,46 @@ export class ProfileView extends Component<ProfileState> {
         } catch (e) {
             Logger.warn('Failed to load profile picture, falling back to initials.', e);
             return null;
+        }
+    }
+
+    private async loadSyncState(syncSupported: boolean): Promise<{
+        syncStatus: SyncStatus | null;
+        syncConflicts: SyncConflict[];
+        syncError: string | null;
+    }> {
+        if (!syncSupported) {
+            return {
+                syncStatus: null,
+                syncConflicts: [],
+                syncError: null,
+            };
+        }
+
+        try {
+            const syncStatus = await getSyncStatus();
+            let syncConflicts: SyncConflict[] = [];
+            let syncError: string | null = null;
+
+            if (syncStatus.conflict_count > 0) {
+                try {
+                    syncConflicts = await getSyncConflicts();
+                } catch (error) {
+                    syncError = `Failed to load pending conflicts: ${stringifyError(error)}`;
+                }
+            }
+
+            return {
+                syncStatus,
+                syncConflicts,
+                syncError,
+            };
+        } catch (error) {
+            return {
+                syncStatus: null,
+                syncConflicts: [],
+                syncError: stringifyError(error),
+            };
         }
     }
 
@@ -138,7 +377,6 @@ export class ProfileView extends Component<ProfileState> {
 
         const content = html`
             <div id="profile-root" class="animate-fade-in" style="display: flex; flex-direction: column; gap: 2rem; max-width: 600px; margin: 0 auto; padding-top: 1rem; padding-bottom: 2rem;">
-                
                 <div style="text-align: center; margin-bottom: 2rem;">
                     ${this.renderAvatar(
                         profilePictureSrc,
@@ -153,25 +391,23 @@ export class ProfileView extends Component<ProfileState> {
                     <p style="color: var(--text-secondary); margin-top: 0.5rem;">Manage your profile and data</p>
                 </div>
 
-                <!-- Reading Report Card -->
                 <div class="card" id="profile-report-card" style="display: flex; flex-direction: column; gap: 1rem;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <h3 style="margin: 0;">Reading Report Card</h3>
                         <button class="btn btn-primary" id="profile-btn-calculate-report" style="font-size: 0.8rem; padding: 0.3rem 0.6rem;">Calculate Report</button>
                     </div>
                     <p style="color: var(--text-secondary); font-size: 0.9rem;">Aggregated reading speed for the last 12 months based on complete entries.</p>
-                    
+
                     <div id="profile-report-card-content" style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.5rem; font-size: 0.95rem;">
                         ${this.renderReportContent()}
                     </div>
                     ${this.renderReportTimestamp()}
                 </div>
 
-                <!-- Appearance -->
                 <div class="card" style="display: flex; flex-direction: column; gap: 1rem;">
                     <h3>Appearance</h3>
                     <p style="color: var(--text-secondary); font-size: 0.9rem;">Choose your preferred theme for this profile. Double click the profile picture above to change it.</p>
-                    
+
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">
                         <label for="profile-select-theme" style="font-size: 0.85rem; font-weight: 500;">Theme</label>
                         <select id="profile-select-theme" style="width: 100%;">
@@ -192,55 +428,51 @@ export class ProfileView extends Component<ProfileState> {
                 </div>
 
                 ${this.renderUpdatesCard()}
+                ${this.renderSyncCard()}
 
-                <!-- Activity Logs -->
                 <div class="card" style="display: flex; flex-direction: column; gap: 1rem;">
                     <h3>Activity Logs</h3>
                     <p style="color: var(--text-secondary); font-size: 0.9rem;">Import or export chronological activity logs for the current user in CSV format.</p>
-                    
+
                     <div style="display: flex; gap: 1rem; margin-top: 0.5rem;">
                         <button class="btn btn-primary" id="profile-btn-import-csv" style="flex: 1;">Import Activities (CSV)</button>
                         <button class="btn btn-primary" id="profile-btn-export-csv" style="flex: 1;">Export Activities (CSV)</button>
                     </div>
                 </div>
 
-                <!-- Media Library -->
                 <div class="card" style="display: flex; flex-direction: column; gap: 1rem;">
                     <h3>Media Library</h3>
                     <p style="color: var(--text-secondary); font-size: 0.9rem;">Import or export the global media library. This dataset is shared across all profiles and includes embedded cover images.</p>
-                    
+
                     <div style="display: flex; gap: 1rem; margin-top: 0.5rem;">
                         <button class="btn btn-primary" id="profile-btn-import-media" style="flex: 1;">Import Media Library (CSV)</button>
                         <button class="btn btn-primary" id="profile-btn-export-media" style="flex: 1;">Export Media Library (CSV)</button>
                     </div>
                 </div>
 
-                <!-- Milestones -->
                 <div class="card" style="display: flex; flex-direction: column; gap: 1rem;">
                     <h3>Milestones</h3>
                     <p style="color: var(--text-secondary); font-size: 0.9rem;">Import or export user-specific milestones for the current profile.</p>
-                    
+
                     <div style="display: flex; gap: 1rem; margin-top: 0.5rem;">
                         <button class="btn btn-primary" id="profile-btn-import-milestones" style="flex: 1;">Import Milestones (CSV)</button>
                         <button class="btn btn-primary" id="profile-btn-export-milestones" style="flex: 1;">Export Milestones (CSV)</button>
                     </div>
                 </div>
 
-                <!-- Full Backup -->
                 <div class="card" style="display: flex; flex-direction: column; gap: 1rem;">
                     <h3>Full Backup</h3>
                     <p style="color: var(--text-secondary); font-size: 0.9rem;">Import or export a full backup of your entire application state, including databases and local settings.</p>
-                    
+
                     <div style="display: flex; gap: 1rem; margin-top: 0.5rem;">
                         <button class="btn btn-primary" id="profile-btn-import-full-backup" style="flex: 1;">Import Full Backup</button>
                         <button class="btn btn-primary" id="profile-btn-export-full-backup" style="flex: 1;">Export Full Backup</button>
                     </div>
                 </div>
 
-                <!-- Danger Zone -->
                 <div class="card" style="display: flex; flex-direction: column; gap: 1rem; border: 1px solid #ff4757;">
                     <h3 style="color: #ff4757;">Danger Zone</h3>
-                    
+
                     <div style="display: flex; flex-direction: column; gap: 1rem; margin-top: 0.5rem;">
                         <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
                             <div>
@@ -249,7 +481,6 @@ export class ProfileView extends Component<ProfileState> {
                             </div>
                             <button class="btn btn-danger" id="profile-btn-clear-activities" style="background-color: transparent !important; border: 1px solid #ff4757; color: #ff4757 !important; min-width: 140px;">Clear Activities</button>
                         </div>
-
 
                         <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem;">
                             <div>
@@ -267,7 +498,6 @@ export class ProfileView extends Component<ProfileState> {
                         Found a bug? File an issue on <a href="https://github.com/Morgawr/kechimochi/issues" target="_blank" style="color: var(--text-secondary); text-decoration: underline;">github</a>
                     </div>
                 </div>
-
             </div>
         `;
 
@@ -355,50 +585,379 @@ export class ProfileView extends Component<ProfileState> {
         `;
     }
 
+    private renderSyncCard() {
+        if (!this.state.syncSupported) {
+            return this.renderSyncDesktopOnlyCard();
+        }
+
+        const syncStatus = this.state.syncStatus;
+        if (!syncStatus) {
+            return this.renderSyncUnavailableCard(
+                this.state.syncError || 'Cloud Sync status could not be loaded right now.'
+            );
+        }
+
+        return this.renderLoadedSyncCard(syncStatus);
+    }
+
+    private renderSyncDesktopOnlyCard() {
+        return html`
+            <div class="card" id="profile-sync-card" style="display: flex; flex-direction: column; gap: 1rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
+                    <h3 style="margin: 0;">Cloud Sync</h3>
+                    <span style="font-size: 0.8rem; color: var(--text-secondary); border: 1px solid var(--border-color); border-radius: 999px; padding: 0.2rem 0.65rem;">Desktop Only</span>
+                </div>
+                <p style="color: var(--text-secondary); font-size: 0.9rem; margin: 0;">Cloud Sync is only available in the desktop app.</p>
+            </div>
+        `;
+    }
+
+    private renderSyncUnavailableCard(message: string) {
+        return html`
+            <div class="card" id="profile-sync-card" style="display: flex; flex-direction: column; gap: 1rem; border: 1px solid rgba(255, 71, 87, 0.25);">
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
+                    <h3 style="margin: 0;">Cloud Sync</h3>
+                    <span style="font-size: 0.8rem; color: #ff4757; border: 1px solid rgba(255, 71, 87, 0.35); border-radius: 999px; padding: 0.2rem 0.65rem;">Unavailable</span>
+                </div>
+                <p style="color: var(--text-secondary); font-size: 0.9rem; margin: 0;">${message}</p>
+                <div style="display: flex; justify-content: flex-end;">
+                    <button class="btn btn-primary" id="profile-btn-refresh-sync-status">Retry</button>
+                </div>
+            </div>
+        `;
+    }
+
+    private renderLoadedSyncCard(syncStatus: SyncStatus) {
+        const hasConflicts = syncStatus.conflict_count > 0;
+        const isConfigured = syncStatus.sync_profile_id !== null;
+        const statusColor = syncStatusColor(syncStatus);
+        const chips = this.renderSyncChips(syncStatus, hasConflicts);
+
+        return html`
+            <div class="card" id="profile-sync-card" style="display: flex; flex-direction: column; gap: 1rem; border: 1px solid ${syncCardBorderColor(syncStatus.state)};">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap;">
+                    <div style="display: flex; flex-direction: column; gap: 0.45rem;">
+                        <h3 style="margin: 0;">Cloud Sync</h3>
+                        <div style="display: flex; flex-wrap: wrap; gap: 0.55rem; align-items: center;">
+                            <span style="font-size: 0.8rem; color: ${statusColor}; border: 1px solid ${statusColor}; border-radius: 999px; padding: 0.22rem 0.65rem;">
+                                ${formatSyncStatusLabel(syncStatus)}
+                            </span>
+                            ${chips}
+                        </div>
+                    </div>
+                    ${this.renderSyncActions(syncStatus, hasConflicts)}
+                </div>
+
+                <p style="color: var(--text-secondary); font-size: 0.9rem; margin: 0;">
+                    ${this.syncDescription(syncStatus)}
+                </p>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.9rem;">
+                    ${this.renderSyncInfoTile('Google account', this.googleAccountLabel(syncStatus))}
+                    ${this.renderSyncInfoTile('Sync profile', syncStatus.profile_name || 'Not attached')}
+                    ${this.renderSyncInfoTile('Device name', syncStatus.device_name || 'Not assigned')}
+                    ${this.renderSyncInfoTile('Last sync', formatSyncTimestamp(syncStatus.last_sync_at))}
+                </div>
+
+                ${this.state.syncError
+                    ? html`
+                        <div style="padding: 0.9rem 1rem; border-radius: var(--radius-md); border: 1px solid rgba(255, 71, 87, 0.35); background: rgba(255, 71, 87, 0.08); color: var(--text-primary);">
+                            ${this.state.syncError}
+                        </div>
+                    `
+                    : ''
+                }
+
+                ${isConfigured
+                    ? html`
+                        <div style="font-size: 0.82rem; color: var(--text-secondary);">
+                            Renaming this profile updates the synced display name. If you want a separate cloud lineage, disconnect first and enable sync again to create a new profile.
+                        </div>
+                    `
+                    : ''
+                }
+
+                ${this.state.showSyncConflicts && hasConflicts ? this.renderSyncConflictPanel() : ''}
+            </div>
+        `;
+    }
+
+    private renderSyncChips(syncStatus: SyncStatus, hasConflicts: boolean): HTMLElement[] {
+        const chips: HTMLElement[] = [];
+        const dirtyLabel = this.syncDirtyLabel(syncStatus.state);
+        if (dirtyLabel) {
+            chips.push(html`
+                <span style="font-size: 0.76rem; color: var(--text-primary); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 999px; padding: 0.22rem 0.65rem; background: rgba(245, 158, 11, 0.08);">
+                    ${dirtyLabel}
+                </span>
+            `);
+        }
+        if (hasConflicts) {
+            chips.push(html`
+                <span style="font-size: 0.76rem; color: var(--text-primary); border: 1px solid rgba(255, 127, 80, 0.35); border-radius: 999px; padding: 0.22rem 0.65rem; background: rgba(255, 127, 80, 0.08);">
+                    ${syncStatus.conflict_count} pending conflict${syncStatus.conflict_count === 1 ? '' : 's'}
+                </span>
+            `);
+        }
+        return chips;
+    }
+
+    private syncDirtyLabel(state: SyncConnectionState): string | null {
+        if (state === 'dirty') {
+            return 'Unsynced local changes';
+        }
+        if (state === 'conflict_pending') {
+            return 'Conflict review required';
+        }
+        return null;
+    }
+
+    private renderSyncActions(syncStatus: SyncStatus, hasConflicts: boolean) {
+        if (syncStatus.state === 'disconnected') {
+            return this.renderDisconnectedSyncActions(syncStatus);
+        }
+        return this.renderConfiguredSyncActions(syncStatus, hasConflicts);
+    }
+
+    private renderDisconnectedSyncActions(syncStatus: SyncStatus) {
+        return html`
+            <div style="display: flex; gap: 0.65rem; flex-wrap: wrap; justify-content: flex-end;">
+                <button class="btn btn-primary" id="profile-btn-enable-sync">Enable Sync</button>
+                ${syncStatus.google_authenticated
+                    ? html`<button class="btn btn-ghost" id="profile-btn-disconnect-sync">Disconnect Google</button>`
+                    : ''}
+            </div>
+        `;
+    }
+
+    private renderConfiguredSyncActions(syncStatus: SyncStatus, hasConflicts: boolean) {
+        if (!syncStatus.google_authenticated) {
+            return html`
+                <div style="display: flex; gap: 0.65rem; flex-wrap: wrap; justify-content: flex-end;">
+                    <button class="btn btn-primary" id="profile-btn-reconnect-sync">Reconnect Google</button>
+                    <button class="btn btn-ghost" id="profile-btn-disconnect-sync">Disconnect</button>
+                </div>
+            `;
+        }
+
+        const runButtonText = this.syncRunButtonText(syncStatus.state);
+        const syncButton = hasConflicts
+            ? this.renderResolveConflictsButton(syncStatus.conflict_count)
+            : this.renderRunSyncButton(syncStatus.state, runButtonText);
+
+        return html`
+            <div style="display: flex; gap: 0.65rem; flex-wrap: wrap; justify-content: flex-end;">
+                ${syncButton}
+                <button class="btn btn-ghost" id="profile-btn-disconnect-sync">Disconnect</button>
+            </div>
+        `;
+    }
+
+    private renderResolveConflictsButton(conflictCount: number) {
+        const label = this.state.showSyncConflicts
+            ? 'Hide Conflicts'
+            : `Resolve Conflicts (${conflictCount})`;
+        return html`<button class="btn btn-primary" id="profile-btn-toggle-sync-conflicts">${label}</button>`;
+    }
+
+    private renderRunSyncButton(state: SyncConnectionState, label: string) {
+        const disabled = state === 'syncing' ? 'disabled' : '';
+        return html`<button class="btn btn-primary" id="profile-btn-run-sync" ${disabled}>${label}</button>`;
+    }
+
+    private syncRunButtonText(state: SyncConnectionState): string {
+        if (state === 'error') {
+            return 'Retry Sync';
+        }
+        if (state === 'syncing') {
+            return 'Syncing...';
+        }
+        return 'Sync Now';
+    }
+
+    private syncDescription(syncStatus: SyncStatus): string {
+        if (syncStatus.sync_profile_id && !syncStatus.google_authenticated) {
+            return 'This device is still attached to a cloud sync profile, but Google Drive needs to be reconnected before syncing can continue.';
+        }
+        if (syncStatus.state !== 'disconnected') {
+            return 'Cloud Sync keeps your media library, logs, milestones, profile name, selected settings, and profile picture aligned through Google Drive.';
+        }
+        if (syncStatus.google_authenticated) {
+            return 'Your Google account is connected, but this device is not attached to a cloud sync profile yet.';
+        }
+        return 'Connect this device to Google Drive to keep your library and progress in sync across installations.';
+    }
+
+    private googleAccountLabel(syncStatus: SyncStatus): string {
+        if (syncStatus.google_account_email) {
+            return syncStatus.google_account_email;
+        }
+        return syncStatus.google_authenticated ? 'Connected' : 'Not connected';
+    }
+
+    private renderSyncInfoTile(label: string, value: string) {
+        return html`
+            <div style="display: flex; flex-direction: column; gap: 0.25rem; padding: 0.9rem 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: rgba(255,255,255,0.02);">
+                <span style="font-size: 0.78rem; color: var(--text-secondary);">${label}</span>
+                <strong style="font-size: 0.96rem; color: var(--text-primary);">${value}</strong>
+            </div>
+        `;
+    }
+
+    private renderSyncConflictPanel() {
+        return html`
+            <div id="profile-sync-conflicts" style="display: flex; flex-direction: column; gap: 0.9rem; margin-top: 0.25rem;">
+                <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                    <strong style="color: var(--text-primary);">Resolve pending conflicts</strong>
+                    <span style="color: var(--text-secondary); font-size: 0.85rem;">Choose the winning value for each conflict. Once the queue is empty, run Sync Now to publish the merged result.</span>
+                </div>
+                ${this.state.syncConflicts.map((conflict, index) => this.renderSyncConflictCard(conflict, index))}
+            </div>
+        `;
+    }
+
+    private renderSyncConflictCard(conflict: SyncConflict, index: number) {
+        switch (conflict.kind) {
+            case 'media_field_conflict':
+                return this.renderMediaFieldConflict(conflict, index);
+            case 'extra_data_entry_conflict':
+                return this.renderExtraDataConflict(conflict, index);
+            case 'delete_vs_update':
+                return this.renderDeleteVsUpdateConflict(conflict, index);
+            case 'profile_picture_conflict':
+                return this.renderProfilePictureConflict(conflict, index);
+        }
+    }
+
+    private renderMediaFieldConflict(conflict: Extract<SyncConflict, { kind: 'media_field_conflict' }>, index: number) {
+        const mediaLabel = conflict.field_name === 'title'
+            ? conflict.local_value || conflict.remote_value || conflict.media_uid
+            : conflict.media_uid;
+
+        return html`
+            <div style="display: flex; flex-direction: column; gap: 0.8rem; padding: 1rem; border: 1px solid rgba(255, 127, 80, 0.24); border-radius: var(--radius-md); background: rgba(255, 127, 80, 0.05);">
+                <div style="display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
+                    <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                        <strong>${formatFieldLabel(conflict.field_name)} conflict</strong>
+                        <span style="color: var(--text-secondary); font-size: 0.85rem;">Media: ${mediaLabel}</span>
+                    </div>
+                    <span style="font-size: 0.76rem; color: var(--text-secondary);">UID ${conflict.media_uid}</span>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem;">
+                    ${this.renderSyncValueChoice('Local value', formatConflictValue(conflict.local_value))}
+                    ${this.renderSyncValueChoice('Remote value', formatConflictValue(conflict.remote_value))}
+                </div>
+                <div style="display: flex; gap: 0.65rem; flex-wrap: wrap; justify-content: flex-end;">
+                    <button class="btn btn-secondary" data-sync-conflict-index="${index}" data-sync-resolution-kind="media_field" data-sync-resolution-side="local">Keep Local</button>
+                    <button class="btn btn-primary" data-sync-conflict-index="${index}" data-sync-resolution-kind="media_field" data-sync-resolution-side="remote">Use Remote</button>
+                </div>
+            </div>
+        `;
+    }
+
+    private renderExtraDataConflict(conflict: Extract<SyncConflict, { kind: 'extra_data_entry_conflict' }>, index: number) {
+        const remoteLabel = conflict.remote_value === null ? 'Discard entry' : 'Use Remote Entry';
+
+        return html`
+            <div style="display: flex; flex-direction: column; gap: 0.8rem; padding: 1rem; border: 1px solid rgba(255, 127, 80, 0.24); border-radius: var(--radius-md); background: rgba(255, 127, 80, 0.05);">
+                <div style="display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
+                    <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                        <strong>Extra data entry conflict</strong>
+                        <span style="color: var(--text-secondary); font-size: 0.85rem;">Key: ${conflict.entry_key}</span>
+                    </div>
+                    <span style="font-size: 0.76rem; color: var(--text-secondary);">UID ${conflict.media_uid}</span>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem;">
+                    ${this.renderSyncValueChoice('Local entry', formatConflictValue(conflict.local_value), true)}
+                    ${this.renderSyncValueChoice('Remote entry', formatConflictValue(conflict.remote_value), true)}
+                </div>
+                <div style="display: flex; gap: 0.65rem; flex-wrap: wrap; justify-content: flex-end;">
+                    <button class="btn btn-secondary" data-sync-conflict-index="${index}" data-sync-resolution-kind="extra_data_entry" data-sync-resolution-side="local">Keep Local Entry</button>
+                    <button class="btn btn-primary" data-sync-conflict-index="${index}" data-sync-resolution-kind="extra_data_entry" data-sync-resolution-side="remote">${remoteLabel}</button>
+                </div>
+            </div>
+        `;
+    }
+
+    private renderDeleteVsUpdateConflict(conflict: Extract<SyncConflict, { kind: 'delete_vs_update' }>, index: number) {
+        const deletedLabel = conflict.deleted_side === 'local' ? 'Local deleted this item' : 'Remote deleted this item';
+        const restoredTitle =
+            conflict.deleted_side === 'local'
+                ? conflict.remote_media?.title || conflict.media_uid
+                : conflict.local_media?.title || conflict.media_uid;
+
+        return html`
+            <div style="display: flex; flex-direction: column; gap: 0.8rem; padding: 1rem; border: 1px solid rgba(255, 127, 80, 0.24); border-radius: var(--radius-md); background: rgba(255, 127, 80, 0.05);">
+                <div style="display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
+                    <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                        <strong>Delete vs update conflict</strong>
+                        <span style="color: var(--text-secondary); font-size: 0.85rem;">${deletedLabel}</span>
+                    </div>
+                    <span style="font-size: 0.76rem; color: var(--text-secondary);">UID ${conflict.media_uid}</span>
+                </div>
+                <div style="padding: 0.9rem 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: rgba(255,255,255,0.02);">
+                    <div style="font-size: 0.8rem; color: var(--text-secondary);">Restore candidate</div>
+                    <div style="font-weight: 600; color: var(--text-primary);">${restoredTitle}</div>
+                    <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.35rem;">Deleted at ${formatSyncTimestamp(conflict.tombstone.deleted_at)}</div>
+                </div>
+                <div style="display: flex; gap: 0.65rem; flex-wrap: wrap; justify-content: flex-end;">
+                    <button class="btn btn-secondary" data-sync-conflict-index="${index}" data-sync-resolution-kind="delete_vs_update" data-sync-resolution-choice="respect_delete">Respect Delete</button>
+                    <button class="btn btn-primary" data-sync-conflict-index="${index}" data-sync-resolution-kind="delete_vs_update" data-sync-resolution-choice="restore">Restore Item</button>
+                </div>
+            </div>
+        `;
+    }
+
+    private renderProfilePictureConflict(conflict: Extract<SyncConflict, { kind: 'profile_picture_conflict' }>, index: number) {
+        return html`
+            <div style="display: flex; flex-direction: column; gap: 0.8rem; padding: 1rem; border: 1px solid rgba(255, 127, 80, 0.24); border-radius: var(--radius-md); background: rgba(255, 127, 80, 0.05);">
+                <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                    <strong>Profile picture conflict</strong>
+                    <span style="color: var(--text-secondary); font-size: 0.85rem;">Choose which picture should become the synced version.</span>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem;">
+                    ${this.renderProfilePictureChoice('Local picture', conflict.local_picture)}
+                    ${this.renderProfilePictureChoice('Remote picture', conflict.remote_picture)}
+                </div>
+                <div style="display: flex; gap: 0.65rem; flex-wrap: wrap; justify-content: flex-end;">
+                    <button class="btn btn-secondary" data-sync-conflict-index="${index}" data-sync-resolution-kind="profile_picture" data-sync-resolution-side="local">Keep Local</button>
+                    <button class="btn btn-primary" data-sync-conflict-index="${index}" data-sync-resolution-kind="profile_picture" data-sync-resolution-side="remote">Use Remote</button>
+                </div>
+            </div>
+        `;
+    }
+
+    private renderSyncValueChoice(label: string, value: string, preformatted = false) {
+        return html`
+            <div style="display: flex; flex-direction: column; gap: 0.4rem; padding: 0.9rem 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: rgba(255,255,255,0.02);">
+                <span style="font-size: 0.8rem; color: var(--text-secondary);">${label}</span>
+                <pre style="margin: 0; white-space: pre-wrap; word-break: break-word; font-family: ${preformatted ? 'monospace' : 'inherit'}; font-size: 0.9rem; color: var(--text-primary);">${value}</pre>
+            </div>
+        `;
+    }
+
+    private renderProfilePictureChoice(label: string, picture: SyncConflictProfilePicture | null) {
+        const pictureSrc = picture ? profilePictureToDataUrl(picture as ProfilePicture) : null;
+        return html`
+            <div style="display: flex; flex-direction: column; gap: 0.6rem; padding: 0.9rem 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: rgba(255,255,255,0.02);">
+                <span style="font-size: 0.8rem; color: var(--text-secondary);">${label}</span>
+                <div style="display: flex; justify-content: center; align-items: center; min-height: 124px; padding: 0.75rem; border-radius: var(--radius-md); background: rgba(255,255,255,0.03);">
+                    ${pictureSrc
+                        ? html`<img src="${pictureSrc}" alt="${label}" style="max-width: 100px; max-height: 100px; border-radius: 999px; object-fit: cover;" />`
+                        : html`<span style="color: var(--text-secondary); font-size: 0.88rem;">No picture</span>`}
+                </div>
+                <span style="font-size: 0.82rem; color: var(--text-secondary);">${profilePictureLabel(picture)}</span>
+            </div>
+        `;
+    }
+
     private setupListeners(root: HTMLElement) {
         const nameEl = root.querySelector('#profile-name') as HTMLElement;
         if (nameEl) {
             nameEl.addEventListener('dblclick', () => {
-                const input = document.createElement('input');
-                input.type = 'text';
-                input.value = this.state.currentProfile;
-                input.style.fontSize = '2rem';
-                input.style.fontWeight = 'bold';
-                input.style.color = 'var(--text-primary)';
-                input.style.background = 'transparent';
-                input.style.border = '1px solid var(--border-color)';
-                input.style.borderRadius = 'var(--radius-sm)';
-                input.style.padding = '0.2rem 0.5rem';
-                input.style.margin = '0';
-                input.style.outline = 'none';
-                input.style.fontFamily = 'inherit';
-                input.style.width = '100%';
-                input.style.maxWidth = '400px';
-                input.style.textAlign = 'center';
-
-                const saveName = async () => {
-                    const newName = input.value.trim();
-                    if (newName && newName !== this.state.currentProfile) {
-                        await setSetting(SETTING_KEYS.PROFILE_NAME, newName);
-                        localStorage.setItem(STORAGE_KEYS.CURRENT_PROFILE, newName);
-                        this.setState({ currentProfile: newName });
-                        globalThis.dispatchEvent(new CustomEvent(EVENTS.PROFILE_UPDATED));
-                    }
-                    this.render();
-                };
-
-                input.addEventListener('blur', saveName);
-                input.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter') {
-                        input.blur();
-                    } else if (e.key === 'Escape') {
-                        this.render(); // Cancel
-                    }
+                this.handleProfileRename(nameEl).catch(error => {
+                    Logger.error('Failed to rename profile', error);
                 });
-
-                nameEl.replaceWith(input);
-                input.focus();
-                input.select();
             });
         }
 
@@ -419,6 +978,40 @@ export class ProfileView extends Component<ProfileState> {
         root.querySelector('#profile-btn-check-updates')?.addEventListener('click', async () => {
             if (!this.updateManager) return;
             await this.updateManager.checkForUpdates({ manual: true });
+        });
+
+        root.querySelector('#profile-btn-enable-sync')?.addEventListener('click', () => {
+            this.handleEnableSync().catch(error => {
+                Logger.error('Failed to enable sync', error);
+            });
+        });
+
+        root.querySelector('#profile-btn-reconnect-sync')?.addEventListener('click', () => {
+            this.handleReconnectSync().catch(error => {
+                Logger.error('Failed to reconnect Google Drive', error);
+            });
+        });
+
+        root.querySelector('#profile-btn-run-sync')?.addEventListener('click', () => {
+            this.handleRunSync().catch(error => {
+                Logger.error('Failed to run sync', error);
+            });
+        });
+
+        root.querySelector('#profile-btn-disconnect-sync')?.addEventListener('click', () => {
+            this.handleDisconnectSync().catch(error => {
+                Logger.error('Failed to disconnect sync', error);
+            });
+        });
+
+        root.querySelector('#profile-btn-toggle-sync-conflicts')?.addEventListener('click', () => {
+            this.setState({ showSyncConflicts: !this.state.showSyncConflicts });
+        });
+
+        root.querySelector('#profile-btn-refresh-sync-status')?.addEventListener('click', () => {
+            this.refreshSyncData().catch(error => {
+                Logger.error('Failed to refresh sync data', error);
+            });
         });
 
         root.querySelector('#profile-btn-import-csv')?.addEventListener('click', async () => {
@@ -484,17 +1077,21 @@ export class ProfileView extends Component<ProfileState> {
             }
         });
 
-        // Listeners for milestones (using delegation for robustness)
         root.addEventListener('click', async (e) => {
             const target = (e.target as HTMLElement).closest('button');
             if (!target) return;
+
+            if (target.dataset.syncConflictIndex !== undefined) {
+                await this.handleResolveConflictAction(target);
+                return;
+            }
 
             if (target.id === 'profile-btn-import-milestones') {
                 try {
                     const count = await importMilestonesCsv('');
                     await customAlert("Success", `Successfully imported ${count} milestones!`);
-                } catch (e) {
-                    await customAlert("Error", `Import failed: ${e}`);
+                } catch (error) {
+                    await customAlert("Error", `Import failed: ${error}`);
                 }
             }
 
@@ -502,8 +1099,8 @@ export class ProfileView extends Component<ProfileState> {
                 try {
                     const count = await exportMilestonesCsv('');
                     await customAlert("Success", `Successfully exported ${count} milestones!`);
-                } catch (e) {
-                    await customAlert("Error", `Export failed: ${e}`);
+                } catch (error) {
+                    await customAlert("Error", `Export failed: ${error}`);
                 }
             }
         });
@@ -538,7 +1135,7 @@ export class ProfileView extends Component<ProfileState> {
                         } catch (e) {
                             Logger.error("Failed to parse or apply local storage from backup", e);
                         }
-                        
+
                         await customAlert("Success", "Backup imported successfully!");
                         globalThis.location.reload();
                     }
@@ -549,14 +1146,14 @@ export class ProfileView extends Component<ProfileState> {
         });
 
         root.querySelector('#profile-btn-clear-activities')?.addEventListener('click', async () => {
-            if (await customConfirm("Clear Activities", `Are you sure you want to delete all activity logs?`, "btn-danger", "Clear")) {
+            if (await customConfirm("Clear Activities", "Are you sure you want to delete all activity logs?", "btn-danger", "Clear")) {
                 await clearActivities();
                 await customAlert("Success", "All activity logs removed.");
             }
         });
 
         root.querySelector('#profile-btn-wipe-everything')?.addEventListener('click', async () => {
-            if (await customPrompt(`DANGER! Type 'WIPE_EVERYTHING' to confirm a total factory reset:`) === 'WIPE_EVERYTHING') {
+            if (await customPrompt("DANGER! Type 'WIPE_EVERYTHING' to confirm a total factory reset:") === 'WIPE_EVERYTHING') {
                 await wipeEverything();
                 localStorage.removeItem(STORAGE_KEYS.CURRENT_PROFILE);
                 globalThis.location.reload();
@@ -580,6 +1177,445 @@ export class ProfileView extends Component<ProfileState> {
                 btn.innerText = originalText;
             }
         });
+    }
+
+    private async handleProfileRename(nameEl: HTMLElement) {
+        if (this.state.syncStatus?.sync_profile_id) {
+            const confirmed = await customConfirm(
+                'Rename Synced Profile',
+                'This updates the synced display name for the current cloud profile. It does not create a new cloud profile.',
+                'btn-primary',
+                'Continue'
+            );
+            if (!confirmed) {
+                return;
+            }
+        }
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = this.state.currentProfile;
+        input.style.fontSize = '2rem';
+        input.style.fontWeight = 'bold';
+        input.style.color = 'var(--text-primary)';
+        input.style.background = 'transparent';
+        input.style.border = '1px solid var(--border-color)';
+        input.style.borderRadius = 'var(--radius-sm)';
+        input.style.padding = '0.2rem 0.5rem';
+        input.style.margin = '0';
+        input.style.outline = 'none';
+        input.style.fontFamily = 'inherit';
+        input.style.width = '100%';
+        input.style.maxWidth = '400px';
+        input.style.textAlign = 'center';
+
+        const saveName = async () => {
+            const newName = input.value.trim();
+            if (newName && newName !== this.state.currentProfile) {
+                await setSetting(SETTING_KEYS.PROFILE_NAME, newName);
+                localStorage.setItem(STORAGE_KEYS.CURRENT_PROFILE, newName);
+                this.setState({ currentProfile: newName });
+                globalThis.dispatchEvent(new CustomEvent(EVENTS.PROFILE_UPDATED));
+            }
+            this.render();
+        };
+
+        input.addEventListener('blur', () => {
+            void saveName();
+        });
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                input.blur();
+            } else if (e.key === 'Escape') {
+                this.render();
+            }
+        });
+
+        nameEl.replaceWith(input);
+        input.focus();
+        input.select();
+    }
+
+    private async handleEnableSync() {
+        if (!this.state.syncSupported) {
+            await customAlert('Cloud Sync', 'Cloud Sync is only available in the desktop app.');
+            return;
+        }
+
+        try {
+            let googleEmail = this.state.syncStatus?.google_account_email || null;
+
+            if (!this.state.syncStatus?.google_authenticated) {
+                const authSession = await this.connectGoogleDriveForSync();
+                googleEmail = authSession.google_account_email;
+            }
+
+            const profiles = await this.withBlockingStatus(
+                'Loading Cloud Profiles',
+                'Checking Google Drive for existing Kechimochi sync profiles...',
+                () => listRemoteSyncProfiles()
+            );
+
+            const choice = await showSyncEnablementWizard(profiles, googleEmail);
+            if (!choice) {
+                await this.refreshSyncData();
+                return;
+            }
+
+            if (choice.action === 'create_new') {
+                const result = await this.withSyncProgressBlockingStatus(
+                    'Creating Cloud Sync Profile',
+                    'Preparing your library snapshot and uploading any cover art. First sync can take longer on large libraries...',
+                    'create_remote_sync_profile',
+                    () => createRemoteSyncProfile()
+                );
+                await this.refreshSyncData();
+                await customAlert('Cloud Sync Enabled', this.describeSyncActionResult(
+                    result,
+                    'Cloud Sync is now enabled for this profile.'
+                ));
+                return;
+            }
+
+            const preview = await this.withBlockingStatus(
+                'Preparing Attach Preview',
+                'Comparing this device with the selected cloud profile...',
+                () => previewAttachRemoteSyncProfile(choice.profileId)
+            );
+
+            const confirmed = await showSyncAttachPreview(preview);
+            if (!confirmed) {
+                await this.refreshSyncData();
+                return;
+            }
+
+            const result = await this.withSyncProgressBlockingStatus(
+                'Attaching Cloud Sync Profile',
+                'Downloading remote data, applying changes on this device, and publishing the merged result...',
+                'attach_remote_sync_profile',
+                () => attachRemoteSyncProfile(choice.profileId)
+            );
+            await this.refreshSyncData(preview.conflict_count > 0);
+            await customAlert('Cloud Sync Attached', this.describeAttachResult(result, preview));
+        } catch (error) {
+            await this.showEnableSyncError(error);
+            await this.refreshSyncData();
+        }
+    }
+
+    private async handleReconnectSync() {
+        try {
+            await this.connectGoogleDriveForSync();
+            await this.refreshSyncData(this.state.showSyncConflicts);
+            await customAlert(
+                'Google Drive Reconnected',
+                'Google Drive authentication was restored for this device. You can sync again now.'
+            );
+        } catch (error) {
+            await this.showEnableSyncError(error);
+            await this.refreshSyncData(this.state.showSyncConflicts);
+        }
+    }
+
+    private async handleRunSync() {
+        try {
+            if (!this.state.syncStatus?.google_authenticated) {
+                await this.connectGoogleDriveForSync();
+                await this.refreshSyncData(this.state.showSyncConflicts);
+            }
+
+            const result = await this.withSyncProgressBlockingStatus(
+                'Syncing to Google Drive',
+                'Checking for local and remote changes, then publishing any merged updates...',
+                'run_sync',
+                () => runSync()
+            );
+            await this.refreshSyncData(result.sync_status.conflict_count > 0);
+
+            if (result.sync_status.state === 'conflict_pending') {
+                await customAlert(
+                    'Conflicts Need Review',
+                    `Sync found ${result.sync_status.conflict_count} conflict${result.sync_status.conflict_count === 1 ? '' : 's'}. Resolve them in the Cloud Sync card, then run Sync Now again to publish the merged state.`
+                );
+                return;
+            }
+
+            if (result.lost_race) {
+                await customAlert(
+                    'Sync Needs Another Pass',
+                    'Another device published a newer snapshot first. Your local changes were kept safely and remain dirty, so you can run sync again.'
+                );
+                return;
+            }
+
+            await customAlert('Sync Complete', this.describeSyncActionResult(
+                result,
+                'Cloud Sync completed successfully.'
+            ));
+        } catch (error) {
+            const message = stringifyError(error);
+            if (isGoogleDriveNotAuthenticatedError(message)) {
+                await customAlert(
+                    'Google Drive Reconnect Needed',
+                    'This device is no longer authenticated with Google Drive. Use Reconnect Google in the Cloud Sync card, then try syncing again.'
+                );
+                await this.refreshSyncData(this.state.showSyncConflicts);
+                return;
+            }
+            await customAlert('Sync Error', `Sync failed: ${stringifyError(error)}`);
+            await this.refreshSyncData();
+        }
+    }
+
+    private async connectGoogleDriveForSync() {
+        return this.withBlockingStatus(
+            'Connecting to Google Drive',
+            'Complete the Google sign-in flow in your browser to keep going.',
+            () => connectGoogleDrive(),
+            {
+                timeoutMs: ENABLE_SYNC_AUTH_TIMEOUT_MS,
+                timeoutMessage: ENABLE_SYNC_AUTH_TIMEOUT_ERROR,
+            }
+        );
+    }
+
+    private async handleDisconnectSync() {
+        const syncStatus = this.state.syncStatus;
+        const message = syncStatus?.sync_profile_id
+            ? 'Disconnecting will remove Google credentials and local sync metadata from this device. Your local media, logs, and milestones will stay on this installation.'
+            : 'Disconnecting will remove the saved Google account from this device.';
+
+        if (!(await customConfirm('Disconnect Cloud Sync', message, 'btn-danger', 'Disconnect'))) {
+            return;
+        }
+
+        try {
+            await this.withBlockingStatus(
+                'Disconnecting Cloud Sync',
+                'Removing local sync metadata and Google credentials from this device...',
+                () => disconnectGoogleDrive()
+            );
+            await this.refreshSyncData(false);
+            await customAlert('Cloud Sync Disconnected', 'Cloud Sync has been disconnected from this device. Your local library data is unchanged.');
+        } catch (error) {
+            await customAlert('Cloud Sync Error', `Failed to disconnect: ${stringifyError(error)}`);
+            await this.refreshSyncData();
+        }
+    }
+
+    private async handleResolveConflictAction(target: HTMLButtonElement) {
+        const conflictIndex = Number.parseInt(target.dataset.syncConflictIndex || '', 10);
+        if (Number.isNaN(conflictIndex)) {
+            return;
+        }
+
+        const resolution = this.buildConflictResolution(target);
+        if (!resolution) {
+            return;
+        }
+
+        try {
+            const result = await this.withBlockingStatus(
+                'Resolving Conflict',
+                'Applying your choice to the local merged snapshot...',
+                () => resolveSyncConflict(conflictIndex, resolution)
+            );
+            const remaining = result.sync_status.conflict_count;
+            await this.refreshSyncData(remaining > 0);
+
+            if (remaining > 0) {
+                await customAlert(
+                    'Conflict Resolved',
+                    `Saved your choice. ${remaining} conflict${remaining === 1 ? '' : 's'} still need review.`
+                );
+                return;
+            }
+
+            await customAlert(
+                'All Conflicts Resolved',
+                'The conflict queue is now empty. Run Sync Now to publish the merged state to Google Drive.'
+            );
+        } catch (error) {
+            await customAlert('Conflict Resolution Failed', `Failed to resolve the conflict: ${stringifyError(error)}`);
+            await this.refreshSyncData(true);
+        }
+    }
+
+    private buildConflictResolution(target: HTMLButtonElement): SyncConflictResolution | null {
+        const kind = target.dataset.syncResolutionKind;
+        if (!kind) {
+            return null;
+        }
+
+        if (kind === 'delete_vs_update') {
+            const choice = target.dataset.syncResolutionChoice;
+            if (choice === 'respect_delete' || choice === 'restore') {
+                return {
+                    kind: 'delete_vs_update',
+                    choice,
+                };
+            }
+            return null;
+        }
+
+        const side = target.dataset.syncResolutionSide;
+        if (side !== 'local' && side !== 'remote') {
+            return null;
+        }
+
+        if (kind === 'media_field' || kind === 'extra_data_entry' || kind === 'profile_picture') {
+            return {
+                kind,
+                side: side as MergeSide,
+            };
+        }
+
+        return null;
+    }
+
+    private async refreshSyncData(showConflictsOverride?: boolean) {
+        try {
+            await this.loadData();
+            if (showConflictsOverride !== undefined) {
+                this.setState({ showSyncConflicts: showConflictsOverride });
+            }
+        } catch (error) {
+            Logger.error('Failed to refresh sync data', error);
+        }
+    }
+
+    private async withBlockingStatus<T>(
+        title: string,
+        text: string,
+        operation: () => Promise<T>,
+        options?: {
+            timeoutMs?: number;
+            timeoutMessage?: string;
+        },
+    ): Promise<T> {
+        const progress = showBlockingStatus(title, text);
+        let timeoutHandle: ReturnType<typeof globalThis.setTimeout> | undefined;
+        try {
+            if (!options?.timeoutMs) {
+                return await operation();
+            }
+
+            const timeoutPromise = new Promise<T>((_, reject) => {
+                timeoutHandle = globalThis.setTimeout(() => {
+                    reject(new Error(options.timeoutMessage || 'Operation timed out.'));
+                }, options.timeoutMs);
+            });
+
+            return await Promise.race([operation(), timeoutPromise]);
+        } finally {
+            if (timeoutHandle !== undefined) {
+                globalThis.clearTimeout(timeoutHandle);
+            }
+            progress.close();
+        }
+    }
+
+    private async withSyncProgressBlockingStatus<T>(
+        title: string,
+        text: string,
+        operationName: SyncProgressUpdate['operation'],
+        operation: () => Promise<T>,
+    ): Promise<T> {
+        const progress = showBlockingStatus(title, text);
+        let unsubscribe: (() => void) | undefined;
+        try {
+            unsubscribe = await subscribeSyncProgress((update) => {
+                if (update.operation !== operationName) {
+                    return;
+                }
+                progress.setText?.(update.message);
+                progress.setProgress?.(
+                    update.current,
+                    update.total,
+                    update.total > 0 ? `${Math.min(update.current, update.total)} / ${update.total}` : undefined
+                );
+            });
+            return await operation();
+        } finally {
+            unsubscribe?.();
+            progress.close();
+        }
+    }
+
+    private describeSyncActionResult(result: SyncActionResult, successMessage: string): string {
+        const notes: string[] = [successMessage];
+
+        if (result.sync_status.state === 'dirty') {
+            notes.push('Local changes remain on this device and are ready for the next publish.');
+        }
+
+        if (result.remote_changed) {
+            notes.push('Remote changes were incorporated into the merged local state.');
+        }
+
+        if (result.safety_backup_path) {
+            notes.push(`Safety backup created at ${result.safety_backup_path}.`);
+        }
+
+        return notes.join(' ');
+    }
+
+    private describeAttachResult(result: SyncActionResult, preview: SyncAttachPreview): string {
+        if (result.sync_status.conflict_count > 0) {
+            return this.describeSyncActionResult(
+                result,
+                `The profile was attached, and ${result.sync_status.conflict_count} conflict${result.sync_status.conflict_count === 1 ? '' : 's'} need review before the merged state can be published.`
+            );
+        }
+
+        const duplicateNote = preview.potential_duplicate_titles.length > 0
+            ? ' Potential duplicate titles were detected, so it is worth skimming the merged library before your next sync.'
+            : '';
+        return this.describeSyncActionResult(
+            result,
+            `The profile was attached successfully.${duplicateNote}`
+        );
+    }
+
+    private async showEnableSyncError(error: unknown) {
+        const message = stringifyError(error);
+        if (isMissingGoogleOAuthConfigError(message)) {
+            await customAlert(
+                'Cloud Sync Setup Needed',
+                'Google Drive sync is not configured for this app build yet. Add `plugins.kechimochiSync.clientId` to `src-tauri/tauri.conf.json` or set `KECHIMOCHI_GOOGLE_CLIENT_ID` before launching the app, then restart it.'
+            );
+            return;
+        }
+        if (isMissingGoogleOAuthClientSecretError(message)) {
+            await customAlert(
+                'Cloud Sync OAuth Config Error',
+                'This Google OAuth credential requires a client secret. For this desktop app, use a Google OAuth client created as `Desktop app`, or add the matching `plugins.kechimochiSync.clientSecret` to `src-tauri/tauri.conf.json`.'
+            );
+            return;
+        }
+        if (message.includes(ENABLE_SYNC_AUTH_TIMEOUT_ERROR)) {
+            await customAlert(
+                'Google Sign-In Timed Out',
+                'The browser sign-in did not return to the app in time. You can close the browser tab and try Enable Sync again.'
+            );
+            return;
+        }
+        if (isSyncTimeoutError(message)) {
+            await customAlert(
+                'Cloud Sync Timed Out',
+                'Google Drive took too long to respond while enabling sync. Please try again.'
+            );
+            return;
+        }
+        if (isSyncAlreadyInProgressError(message)) {
+            await customAlert(
+                'Cloud Sync Busy',
+                'A previous sync attempt is still finishing up. Please wait a moment and try again. If this keeps happening after restarting the app, the stale lock will now clear itself after a short timeout.'
+            );
+            return;
+        }
+
+        await customAlert('Cloud Sync Error', `Failed to enable sync: ${message}`);
     }
 
     private async calculateReport() {

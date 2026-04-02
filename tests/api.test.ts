@@ -186,6 +186,61 @@ describe('api.ts', () => {
     });
   });
 
+  describe('sync functions', () => {
+    it('getSyncStatus should call invoke', async () => {
+      await api.getSyncStatus();
+      expect(invoke).toHaveBeenCalledWith('get_sync_status');
+    });
+
+    it('connectGoogleDrive should call invoke', async () => {
+      await api.connectGoogleDrive();
+      expect(invoke).toHaveBeenCalledWith('connect_google_drive');
+    });
+
+    it('disconnectGoogleDrive should call invoke', async () => {
+      await api.disconnectGoogleDrive();
+      expect(invoke).toHaveBeenCalledWith('disconnect_google_drive');
+    });
+
+    it('listRemoteSyncProfiles should call invoke', async () => {
+      await api.listRemoteSyncProfiles();
+      expect(invoke).toHaveBeenCalledWith('list_remote_sync_profiles');
+    });
+
+    it('previewAttachRemoteSyncProfile should call invoke', async () => {
+      await api.previewAttachRemoteSyncProfile('prof_123');
+      expect(invoke).toHaveBeenCalledWith('preview_attach_remote_sync_profile', { profileId: 'prof_123' });
+    });
+
+    it('createRemoteSyncProfile should call invoke', async () => {
+      await api.createRemoteSyncProfile();
+      expect(invoke).toHaveBeenCalledWith('create_remote_sync_profile');
+    });
+
+    it('attachRemoteSyncProfile should call invoke', async () => {
+      await api.attachRemoteSyncProfile('prof_123');
+      expect(invoke).toHaveBeenCalledWith('attach_remote_sync_profile', { profileId: 'prof_123' });
+    });
+
+    it('runSync should call invoke', async () => {
+      await api.runSync();
+      expect(invoke).toHaveBeenCalledWith('run_sync');
+    });
+
+    it('getSyncConflicts should call invoke', async () => {
+      await api.getSyncConflicts();
+      expect(invoke).toHaveBeenCalledWith('get_sync_conflicts');
+    });
+
+    it('resolveSyncConflict should call invoke', async () => {
+      await api.resolveSyncConflict(2, { kind: 'media_field', side: 'remote' });
+      expect(invoke).toHaveBeenCalledWith('resolve_sync_conflict', {
+        conflictIndex: 2,
+        resolution: { kind: 'media_field', side: 'remote' },
+      });
+    });
+  });
+
   describe('file and image functions', () => {
     it('uploadCoverImage should call invoke', async () => {
       await api.uploadCoverImage(1, 'p');

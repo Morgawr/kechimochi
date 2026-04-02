@@ -2,8 +2,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use chrono::Utc;
+use futures::stream::{self, StreamExt};
 use image::ImageFormat;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -21,6 +23,10 @@ use crate::sync_snapshot::{
     self, SnapshotBuildOptions, SnapshotMediaAggregate, SnapshotTombstone, SyncSnapshot,
 };
 use crate::sync_state::{self, SyncConfig, SyncLifecycleStatus, SyncStatus};
+
+const COVER_UPLOAD_CONCURRENCY: usize = 4;
+const COVER_UPLOAD_MAX_ATTEMPTS: usize = 3;
+const COVER_UPLOAD_RETRY_DELAY_MS: u64 = 1_500;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RemoteSyncProfileSummary {
@@ -41,6 +47,17 @@ pub struct SyncActionResult {
     pub published_snapshot_id: Option<String>,
     pub lost_race: bool,
     pub remote_changed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AttachPreviewResult {
+    pub profile_id: String,
+    pub profile_name: String,
+    pub local_only_media_count: usize,
+    pub remote_only_media_count: usize,
+    pub matched_media_count: usize,
+    pub potential_duplicate_titles: Vec<String>,
+    pub conflict_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -65,6 +82,64 @@ struct BuiltSnapshot {
     device_id: String,
 }
 
+struct PublishSnapshotRequest<'a> {
+    remote_manifest: &'a RemoteSyncManifest,
+    snapshot: &'a SyncSnapshot,
+    synced_at: &'a str,
+    operation: SyncProgressOperation,
+    progress: Option<&'a SyncProgressReporter>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SyncProgressOperation {
+    CreateRemoteSyncProfile,
+    AttachRemoteSyncProfile,
+    RunSync,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SyncProgressStage {
+    LoadingRemote,
+    PreparingSnapshot,
+    ApplyingRemoteChanges,
+    UploadingCovers,
+    UploadingSnapshot,
+    WritingManifest,
+    Complete,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SyncProgressUpdate {
+    pub operation: SyncProgressOperation,
+    pub stage: SyncProgressStage,
+    pub current: usize,
+    pub total: usize,
+    pub message: String,
+}
+
+pub type SyncProgressReporter = dyn Fn(SyncProgressUpdate) + Send + Sync;
+
+fn report_progress(
+    operation: SyncProgressOperation,
+    progress: Option<&SyncProgressReporter>,
+    stage: SyncProgressStage,
+    current: usize,
+    total: usize,
+    message: String,
+) {
+    if let Some(progress) = progress {
+        progress(SyncProgressUpdate {
+            operation,
+            stage,
+            current,
+            total,
+            message,
+        });
+    }
+}
+
 pub async fn list_remote_sync_profiles(
     auth_config: &GoogleOAuthClientConfig,
     token_store: &dyn SecureTokenStore,
@@ -80,6 +155,25 @@ pub async fn create_remote_sync_profile(
     token_store: &dyn SecureTokenStore,
     device_name_override: Option<String>,
 ) -> Result<SyncActionResult, String> {
+    create_remote_sync_profile_with_progress(
+        app_dir,
+        conn,
+        auth_config,
+        token_store,
+        device_name_override,
+        None,
+    )
+    .await
+}
+
+pub async fn create_remote_sync_profile_with_progress(
+    app_dir: &Path,
+    conn: &Arc<Mutex<Connection>>,
+    auth_config: &GoogleOAuthClientConfig,
+    token_store: &dyn SecureTokenStore,
+    device_name_override: Option<String>,
+    progress: Option<&SyncProgressReporter>,
+) -> Result<SyncActionResult, String> {
     let client = GoogleDriveClient::new(auth_config.clone())?;
     create_remote_sync_profile_with_client(
         app_dir,
@@ -87,6 +181,7 @@ pub async fn create_remote_sync_profile(
         &client,
         token_store,
         device_name_override,
+        progress,
     )
     .await
 }
@@ -99,6 +194,27 @@ pub async fn attach_remote_sync_profile(
     profile_id: &str,
     device_name_override: Option<String>,
 ) -> Result<SyncActionResult, String> {
+    attach_remote_sync_profile_with_progress(
+        app_dir,
+        conn,
+        auth_config,
+        token_store,
+        profile_id,
+        device_name_override,
+        None,
+    )
+    .await
+}
+
+pub async fn attach_remote_sync_profile_with_progress(
+    app_dir: &Path,
+    conn: &Arc<Mutex<Connection>>,
+    auth_config: &GoogleOAuthClientConfig,
+    token_store: &dyn SecureTokenStore,
+    profile_id: &str,
+    device_name_override: Option<String>,
+    progress: Option<&SyncProgressReporter>,
+) -> Result<SyncActionResult, String> {
     let client = GoogleDriveClient::new(auth_config.clone())?;
     attach_remote_sync_profile_with_client(
         app_dir,
@@ -107,8 +223,21 @@ pub async fn attach_remote_sync_profile(
         token_store,
         profile_id,
         device_name_override,
+        progress,
     )
     .await
+}
+
+pub async fn preview_attach_remote_sync_profile(
+    app_dir: &Path,
+    conn: &Arc<Mutex<Connection>>,
+    auth_config: &GoogleOAuthClientConfig,
+    token_store: &dyn SecureTokenStore,
+    profile_id: &str,
+) -> Result<AttachPreviewResult, String> {
+    let client = GoogleDriveClient::new(auth_config.clone())?;
+    preview_attach_remote_sync_profile_with_client(app_dir, conn, &client, token_store, profile_id)
+        .await
 }
 
 pub async fn run_sync(
@@ -117,8 +246,18 @@ pub async fn run_sync(
     auth_config: &GoogleOAuthClientConfig,
     token_store: &dyn SecureTokenStore,
 ) -> Result<SyncActionResult, String> {
+    run_sync_with_progress(app_dir, conn, auth_config, token_store, None).await
+}
+
+pub async fn run_sync_with_progress(
+    app_dir: &Path,
+    conn: &Arc<Mutex<Connection>>,
+    auth_config: &GoogleOAuthClientConfig,
+    token_store: &dyn SecureTokenStore,
+    progress: Option<&SyncProgressReporter>,
+) -> Result<SyncActionResult, String> {
     let client = GoogleDriveClient::new(auth_config.clone())?;
-    run_sync_with_client(app_dir, conn, &client, token_store).await
+    run_sync_with_client(app_dir, conn, &client, token_store, progress).await
 }
 
 pub fn get_sync_conflicts(app_dir: &Path) -> Result<Vec<SyncConflict>, String> {
@@ -170,22 +309,52 @@ async fn create_remote_sync_profile_with_client<T: DriveTransport>(
     client: &GoogleDriveClient<T>,
     token_store: &dyn SecureTokenStore,
     device_name_override: Option<String>,
+    progress: Option<&SyncProgressReporter>,
 ) -> Result<SyncActionResult, String> {
     let _lock = sync_state::acquire_sync_lock(app_dir)?;
     if sync_state::load_sync_config(app_dir)?.is_some() {
         return Err("Sync is already configured for this profile".to_string());
     }
 
-    let safety_backup_path = create_local_safety_backup(app_dir, conn)?;
     let google_account_email = sync_auth::load_google_account_email(token_store)?;
     let profile_id = generate_prefixed_id("prof");
-    let built_snapshot = build_local_snapshot(app_dir, conn, &profile_id, None)?;
+    let built_snapshot = build_local_snapshot_with_progress(
+        app_dir,
+        conn,
+        &profile_id,
+        None,
+        SyncProgressOperation::CreateRemoteSyncProfile,
+        progress,
+    )?;
 
-    upload_missing_cover_blobs_with_client(conn, &built_snapshot.snapshot, client, token_store)
-        .await?;
+    upload_missing_cover_blobs_with_client(
+        conn,
+        &built_snapshot.snapshot,
+        client,
+        token_store,
+        SyncProgressOperation::CreateRemoteSyncProfile,
+        progress,
+    )
+    .await?;
+    report_progress(
+        SyncProgressOperation::CreateRemoteSyncProfile,
+        progress,
+        SyncProgressStage::UploadingSnapshot,
+        0,
+        1,
+        "Uploading the initial cloud snapshot...".to_string(),
+    );
     let uploaded_snapshot = client
         .upload_snapshot(token_store, &profile_id, &built_snapshot.snapshot)
         .await?;
+    report_progress(
+        SyncProgressOperation::CreateRemoteSyncProfile,
+        progress,
+        SyncProgressStage::UploadingSnapshot,
+        1,
+        1,
+        "Initial cloud snapshot uploaded.".to_string(),
+    );
 
     let manifest = RemoteSyncManifest::new(
         &profile_id,
@@ -196,12 +365,28 @@ async fn create_remote_sync_profile_with_client<T: DriveTransport>(
         &built_snapshot.created_at,
         &built_snapshot.device_id,
     );
+    report_progress(
+        SyncProgressOperation::CreateRemoteSyncProfile,
+        progress,
+        SyncProgressStage::WritingManifest,
+        0,
+        1,
+        "Saving the cloud sync profile manifest...".to_string(),
+    );
     let manifest_write = client
         .upsert_manifest_and_confirm(token_store, &manifest)
         .await?;
     if !manifest_write.race_won {
         return Err("Remote manifest changed unexpectedly while creating sync profile".to_string());
     }
+    report_progress(
+        SyncProgressOperation::CreateRemoteSyncProfile,
+        progress,
+        SyncProgressStage::WritingManifest,
+        1,
+        1,
+        "Cloud sync profile manifest saved.".to_string(),
+    );
 
     sync_state::save_base_snapshot(app_dir, &built_snapshot.snapshot)?;
     sync_state::clear_pending_conflicts(app_dir)?;
@@ -218,11 +403,19 @@ async fn create_remote_sync_profile_with_client<T: DriveTransport>(
             device_name: device_name_override.unwrap_or_else(default_device_name),
         },
     )?;
+    report_progress(
+        SyncProgressOperation::CreateRemoteSyncProfile,
+        progress,
+        SyncProgressStage::Complete,
+        1,
+        1,
+        "Cloud sync is ready to use.".to_string(),
+    );
 
     build_action_result(
         app_dir,
         token_store,
-        Some(safety_backup_path),
+        None,
         Some(built_snapshot.snapshot.snapshot_id),
         false,
         false,
@@ -236,6 +429,7 @@ async fn attach_remote_sync_profile_with_client<T: DriveTransport>(
     token_store: &dyn SecureTokenStore,
     profile_id: &str,
     device_name_override: Option<String>,
+    progress: Option<&SyncProgressReporter>,
 ) -> Result<SyncActionResult, String> {
     let _lock = sync_state::acquire_sync_lock(app_dir)?;
     if sync_state::load_sync_config(app_dir)?.is_some() {
@@ -244,9 +438,40 @@ async fn attach_remote_sync_profile_with_client<T: DriveTransport>(
 
     let safety_backup_path = create_local_safety_backup(app_dir, conn)?;
     let google_account_email = sync_auth::load_google_account_email(token_store)?;
+    report_progress(
+        SyncProgressOperation::AttachRemoteSyncProfile,
+        progress,
+        SyncProgressStage::LoadingRemote,
+        0,
+        2,
+        "Loading remote sync profile...".to_string(),
+    );
     let remote_manifest = load_remote_manifest(client, token_store, profile_id).await?;
+    report_progress(
+        SyncProgressOperation::AttachRemoteSyncProfile,
+        progress,
+        SyncProgressStage::LoadingRemote,
+        1,
+        2,
+        "Downloading remote snapshot...".to_string(),
+    );
     let remote_snapshot = download_remote_snapshot(client, token_store, &remote_manifest).await?;
-    let local_snapshot = build_local_snapshot(app_dir, conn, profile_id, None)?;
+    report_progress(
+        SyncProgressOperation::AttachRemoteSyncProfile,
+        progress,
+        SyncProgressStage::LoadingRemote,
+        2,
+        2,
+        "Remote snapshot downloaded.".to_string(),
+    );
+    let local_snapshot = build_local_snapshot_with_progress(
+        app_dir,
+        conn,
+        profile_id,
+        None,
+        SyncProgressOperation::AttachRemoteSyncProfile,
+        progress,
+    )?;
     let merge_outcome =
         sync_merge::merge_snapshots(None, &local_snapshot.snapshot, &remote_snapshot)?;
 
@@ -256,6 +481,8 @@ async fn attach_remote_sync_profile_with_client<T: DriveTransport>(
         &merge_outcome.merged_snapshot,
         client,
         token_store,
+        SyncProgressOperation::AttachRemoteSyncProfile,
+        progress,
     )
     .await?;
 
@@ -280,6 +507,22 @@ async fn attach_remote_sync_profile_with_client<T: DriveTransport>(
 
     if !merge_outcome.conflicts.is_empty() {
         sync_state::save_pending_conflicts(app_dir, &merge_outcome.conflicts)?;
+        report_progress(
+            SyncProgressOperation::AttachRemoteSyncProfile,
+            progress,
+            SyncProgressStage::Complete,
+            1,
+            1,
+            format!(
+                "Remote data was attached. {} conflict{} need review before publishing.",
+                merge_outcome.conflicts.len(),
+                if merge_outcome.conflicts.len() == 1 {
+                    ""
+                } else {
+                    "s"
+                }
+            ),
+        );
         return build_action_result(
             app_dir,
             token_store,
@@ -296,9 +539,13 @@ async fn attach_remote_sync_profile_with_client<T: DriveTransport>(
         conn,
         client,
         token_store,
-        &remote_manifest.manifest,
-        &merge_outcome.merged_snapshot,
-        local_snapshot.created_at.as_str(),
+        PublishSnapshotRequest {
+            remote_manifest: &remote_manifest.manifest,
+            snapshot: &merge_outcome.merged_snapshot,
+            synced_at: local_snapshot.created_at.as_str(),
+            operation: SyncProgressOperation::AttachRemoteSyncProfile,
+            progress,
+        },
     )
     .await
     .map(|mut result| {
@@ -308,11 +555,59 @@ async fn attach_remote_sync_profile_with_client<T: DriveTransport>(
     })
 }
 
+async fn preview_attach_remote_sync_profile_with_client<T: DriveTransport>(
+    app_dir: &Path,
+    conn: &Arc<Mutex<Connection>>,
+    client: &GoogleDriveClient<T>,
+    token_store: &dyn SecureTokenStore,
+    profile_id: &str,
+) -> Result<AttachPreviewResult, String> {
+    let _lock = sync_state::acquire_sync_lock(app_dir)?;
+    if sync_state::load_sync_config(app_dir)?.is_some() {
+        return Err("Sync is already configured for this profile".to_string());
+    }
+
+    let remote_manifest = load_remote_manifest(client, token_store, profile_id).await?;
+    let remote_snapshot = download_remote_snapshot(client, token_store, &remote_manifest).await?;
+    let local_snapshot = build_local_snapshot(app_dir, conn, profile_id, None)?;
+    let merge_outcome =
+        sync_merge::merge_snapshots(None, &local_snapshot.snapshot, &remote_snapshot)?;
+
+    let local_uids = local_snapshot
+        .snapshot
+        .library
+        .keys()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let remote_uids = remote_snapshot
+        .library
+        .keys()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let matched_media_count = local_uids.intersection(&remote_uids).count();
+    let local_only_media_count = local_uids.difference(&remote_uids).count();
+    let remote_only_media_count = remote_uids.difference(&local_uids).count();
+
+    Ok(AttachPreviewResult {
+        profile_id: profile_id.to_string(),
+        profile_name: remote_snapshot.profile.profile_name.clone(),
+        local_only_media_count,
+        remote_only_media_count,
+        matched_media_count,
+        potential_duplicate_titles: find_potential_duplicate_titles(
+            &local_snapshot.snapshot,
+            &remote_snapshot,
+        ),
+        conflict_count: merge_outcome.conflicts.len(),
+    })
+}
+
 async fn run_sync_with_client<T: DriveTransport>(
     app_dir: &Path,
     conn: &Arc<Mutex<Connection>>,
     client: &GoogleDriveClient<T>,
     token_store: &dyn SecureTokenStore,
+    progress: Option<&SyncProgressReporter>,
 ) -> Result<SyncActionResult, String> {
     let _lock = sync_state::acquire_sync_lock(app_dir)?;
     let Some(config) = sync_state::load_sync_config(app_dir)? else {
@@ -330,7 +625,7 @@ async fn run_sync_with_client<T: DriveTransport>(
         current.last_sync_status = SyncLifecycleStatus::Syncing;
     })?;
 
-    let result = run_sync_inner(app_dir, conn, client, token_store, &config).await;
+    let result = run_sync_inner(app_dir, conn, client, token_store, &config, progress).await;
     if let Err(err) = &result {
         let _ = sync_state::update_sync_config(app_dir, |current| {
             current.last_sync_status = SyncLifecycleStatus::Error;
@@ -347,15 +642,38 @@ async fn run_sync_inner<T: DriveTransport>(
     client: &GoogleDriveClient<T>,
     token_store: &dyn SecureTokenStore,
     config: &SyncConfig,
+    progress: Option<&SyncProgressReporter>,
 ) -> Result<SyncActionResult, String> {
     let base_snapshot = sync_state::load_base_snapshot(app_dir)?
         .ok_or_else(|| "Missing local base snapshot. Reconnect or recreate sync.".to_string())?;
+    report_progress(
+        SyncProgressOperation::RunSync,
+        progress,
+        SyncProgressStage::LoadingRemote,
+        0,
+        2,
+        "Loading remote sync state...".to_string(),
+    );
     let remote_manifest =
         load_remote_manifest(client, token_store, &config.sync_profile_id).await?;
+    report_progress(
+        SyncProgressOperation::RunSync,
+        progress,
+        SyncProgressStage::LoadingRemote,
+        1,
+        2,
+        "Remote sync state loaded.".to_string(),
+    );
 
     if remote_manifest.manifest.snapshot_id == base_snapshot.snapshot_id {
-        let local_snapshot =
-            build_local_snapshot(app_dir, conn, &config.sync_profile_id, Some(&base_snapshot))?;
+        let local_snapshot = build_local_snapshot_with_progress(
+            app_dir,
+            conn,
+            &config.sync_profile_id,
+            Some(&base_snapshot),
+            SyncProgressOperation::RunSync,
+            progress,
+        )?;
         if snapshots_logically_equal(&local_snapshot.snapshot, &base_snapshot) {
             sync_state::clear_pending_conflicts(app_dir)?;
             sync_state::update_sync_config(app_dir, |current| {
@@ -364,6 +682,14 @@ async fn run_sync_inner<T: DriveTransport>(
                 current.last_sync_at = Some(local_snapshot.created_at.clone());
                 current.last_sync_status = SyncLifecycleStatus::Clean;
             })?;
+            report_progress(
+                SyncProgressOperation::RunSync,
+                progress,
+                SyncProgressStage::Complete,
+                1,
+                1,
+                "Cloud sync is already up to date.".to_string(),
+            );
             return build_action_result(app_dir, token_store, None, None, false, false);
         }
 
@@ -372,16 +698,42 @@ async fn run_sync_inner<T: DriveTransport>(
             conn,
             client,
             token_store,
-            &remote_manifest.manifest,
-            &local_snapshot.snapshot,
-            &local_snapshot.created_at,
+            PublishSnapshotRequest {
+                remote_manifest: &remote_manifest.manifest,
+                snapshot: &local_snapshot.snapshot,
+                synced_at: &local_snapshot.created_at,
+                operation: SyncProgressOperation::RunSync,
+                progress,
+            },
         )
         .await;
     }
 
+    report_progress(
+        SyncProgressOperation::RunSync,
+        progress,
+        SyncProgressStage::LoadingRemote,
+        1,
+        2,
+        "Downloading remote snapshot...".to_string(),
+    );
     let remote_snapshot = download_remote_snapshot(client, token_store, &remote_manifest).await?;
-    let local_snapshot =
-        build_local_snapshot(app_dir, conn, &config.sync_profile_id, Some(&base_snapshot))?;
+    report_progress(
+        SyncProgressOperation::RunSync,
+        progress,
+        SyncProgressStage::LoadingRemote,
+        2,
+        2,
+        "Remote snapshot downloaded.".to_string(),
+    );
+    let local_snapshot = build_local_snapshot_with_progress(
+        app_dir,
+        conn,
+        &config.sync_profile_id,
+        Some(&base_snapshot),
+        SyncProgressOperation::RunSync,
+        progress,
+    )?;
     let merge_outcome = sync_merge::merge_snapshots(
         Some(&base_snapshot),
         &local_snapshot.snapshot,
@@ -395,6 +747,8 @@ async fn run_sync_inner<T: DriveTransport>(
             &merge_outcome.merged_snapshot,
             client,
             token_store,
+            SyncProgressOperation::RunSync,
+            progress,
         )
         .await?;
         sync_state::save_base_snapshot(app_dir, &remote_snapshot)?;
@@ -405,6 +759,22 @@ async fn run_sync_inner<T: DriveTransport>(
             current.last_sync_at = Some(local_snapshot.created_at.clone());
             current.last_sync_status = SyncLifecycleStatus::ConflictPending;
         })?;
+        report_progress(
+            SyncProgressOperation::RunSync,
+            progress,
+            SyncProgressStage::Complete,
+            1,
+            1,
+            format!(
+                "Sync downloaded remote changes. {} conflict{} need review before publishing.",
+                merge_outcome.conflicts.len(),
+                if merge_outcome.conflicts.len() == 1 {
+                    ""
+                } else {
+                    "s"
+                }
+            ),
+        );
         return build_action_result(app_dir, token_store, None, None, false, true);
     }
 
@@ -414,6 +784,8 @@ async fn run_sync_inner<T: DriveTransport>(
         &merge_outcome.merged_snapshot,
         client,
         token_store,
+        SyncProgressOperation::RunSync,
+        progress,
     )
     .await?;
     sync_state::clear_pending_conflicts(app_dir)?;
@@ -423,9 +795,13 @@ async fn run_sync_inner<T: DriveTransport>(
         conn,
         client,
         token_store,
-        &remote_manifest.manifest,
-        &merge_outcome.merged_snapshot,
-        &local_snapshot.created_at,
+        PublishSnapshotRequest {
+            remote_manifest: &remote_manifest.manifest,
+            snapshot: &merge_outcome.merged_snapshot,
+            synced_at: &local_snapshot.created_at,
+            operation: SyncProgressOperation::RunSync,
+            progress,
+        },
     )
     .await
     .map(|mut result| {
@@ -468,6 +844,8 @@ async fn resolve_sync_conflict_with_client<T: DriveTransport>(
         &local_snapshot,
         client,
         token_store,
+        SyncProgressOperation::RunSync,
+        None,
     )
     .await?;
 
@@ -494,14 +872,44 @@ async fn publish_snapshot_with_client<T: DriveTransport>(
     conn: &Arc<Mutex<Connection>>,
     client: &GoogleDriveClient<T>,
     token_store: &dyn SecureTokenStore,
-    remote_manifest: &RemoteSyncManifest,
-    snapshot: &SyncSnapshot,
-    synced_at: &str,
+    request: PublishSnapshotRequest<'_>,
 ) -> Result<SyncActionResult, String> {
-    upload_missing_cover_blobs_with_client(conn, snapshot, client, token_store).await?;
+    let PublishSnapshotRequest {
+        remote_manifest,
+        snapshot,
+        synced_at,
+        operation,
+        progress,
+    } = request;
+
+    upload_missing_cover_blobs_with_client(
+        conn,
+        snapshot,
+        client,
+        token_store,
+        operation.clone(),
+        progress,
+    )
+    .await?;
+    report_progress(
+        operation.clone(),
+        progress,
+        SyncProgressStage::UploadingSnapshot,
+        0,
+        1,
+        "Uploading the merged snapshot to Google Drive...".to_string(),
+    );
     let uploaded_snapshot = client
         .upload_snapshot(token_store, &snapshot.profile.profile_id, snapshot)
         .await?;
+    report_progress(
+        operation.clone(),
+        progress,
+        SyncProgressStage::UploadingSnapshot,
+        1,
+        1,
+        "Merged snapshot uploaded.".to_string(),
+    );
     let google_account_email = sync_auth::load_google_account_email(token_store)?;
     let device_id = sync_state::get_or_create_device_id(app_dir)?;
     let next_manifest = RemoteSyncManifest::new(
@@ -512,6 +920,14 @@ async fn publish_snapshot_with_client<T: DriveTransport>(
         remote_manifest.remote_generation + 1,
         synced_at,
         &device_id,
+    );
+    report_progress(
+        operation.clone(),
+        progress,
+        SyncProgressStage::WritingManifest,
+        0,
+        1,
+        "Updating the cloud sync manifest...".to_string(),
     );
     let manifest_write = client
         .upsert_manifest_and_confirm(token_store, &next_manifest)
@@ -524,6 +940,14 @@ async fn publish_snapshot_with_client<T: DriveTransport>(
         })?;
         return build_action_result(app_dir, token_store, None, None, true, false);
     }
+    report_progress(
+        operation.clone(),
+        progress,
+        SyncProgressStage::WritingManifest,
+        1,
+        1,
+        "Cloud sync manifest updated.".to_string(),
+    );
 
     sync_state::save_base_snapshot(app_dir, snapshot)?;
     sync_state::clear_pending_conflicts(app_dir)?;
@@ -534,6 +958,14 @@ async fn publish_snapshot_with_client<T: DriveTransport>(
         current.last_sync_at = Some(synced_at.to_string());
         current.last_sync_status = SyncLifecycleStatus::Clean;
     })?;
+    report_progress(
+        operation,
+        progress,
+        SyncProgressStage::Complete,
+        1,
+        1,
+        "Cloud sync completed successfully.".to_string(),
+    );
 
     build_action_result(
         app_dir,
@@ -586,6 +1018,24 @@ fn build_local_snapshot(
     profile_id: &str,
     base_snapshot: Option<&SyncSnapshot>,
 ) -> Result<BuiltSnapshot, String> {
+    build_local_snapshot_with_progress(
+        app_dir,
+        conn,
+        profile_id,
+        base_snapshot,
+        SyncProgressOperation::RunSync,
+        None,
+    )
+}
+
+fn build_local_snapshot_with_progress(
+    app_dir: &Path,
+    conn: &Arc<Mutex<Connection>>,
+    profile_id: &str,
+    base_snapshot: Option<&SyncSnapshot>,
+    operation: SyncProgressOperation,
+    progress: Option<&SyncProgressReporter>,
+) -> Result<BuiltSnapshot, String> {
     let created_at = Utc::now().to_rfc3339();
     let device_id = sync_state::get_or_create_device_id(app_dir)?;
     let snapshot_id = generate_prefixed_id("snap");
@@ -597,7 +1047,7 @@ fn build_local_snapshot(
 
     let snapshot = {
         let conn_guard = conn.lock().map_err(|e| e.to_string())?;
-        sync_snapshot::build_snapshot(
+        sync_snapshot::build_snapshot_with_progress(
             &conn_guard,
             SnapshotBuildOptions {
                 snapshot_id: &snapshot_id,
@@ -606,6 +1056,19 @@ fn build_local_snapshot(
                 profile_id,
                 base_snapshot,
                 tombstones: &tombstones,
+            },
+            |snapshot_progress| {
+                report_progress(
+                    operation.clone(),
+                    progress,
+                    SyncProgressStage::PreparingSnapshot,
+                    snapshot_progress.processed_media,
+                    snapshot_progress.total_media,
+                    format!(
+                        "Preparing your library snapshot... {} of {} items processed.",
+                        snapshot_progress.processed_media, snapshot_progress.total_media
+                    ),
+                );
             },
         )?
     };
@@ -676,6 +1139,44 @@ fn snapshots_logically_equal(left: &SyncSnapshot, right: &SyncSnapshot) -> bool 
         && left.settings == right.settings
         && left.profile_picture == right.profile_picture
         && left.tombstones == right.tombstones
+}
+
+fn find_potential_duplicate_titles(local: &SyncSnapshot, remote: &SyncSnapshot) -> Vec<String> {
+    let local_uids = local.library.keys().cloned().collect::<BTreeSet<_>>();
+    let remote_uids = remote.library.keys().cloned().collect::<BTreeSet<_>>();
+    let local_only = local_uids
+        .difference(&remote_uids)
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let remote_only = remote_uids
+        .difference(&local_uids)
+        .cloned()
+        .collect::<BTreeSet<_>>();
+
+    let local_titles = local_only
+        .into_iter()
+        .filter_map(|uid| local.library.get(&uid))
+        .map(|media| (normalize_title(&media.title), media.title.clone()))
+        .collect::<BTreeMap<_, _>>();
+    let remote_titles = remote_only
+        .into_iter()
+        .filter_map(|uid| remote.library.get(&uid))
+        .map(|media| (normalize_title(&media.title), media.title.clone()))
+        .collect::<BTreeMap<_, _>>();
+
+    let mut duplicates = BTreeSet::new();
+    for (normalized, local_title) in local_titles {
+        if let Some(remote_title) = remote_titles.get(&normalized) {
+            duplicates.insert(local_title);
+            duplicates.insert(remote_title.clone());
+        }
+    }
+
+    duplicates.into_iter().collect()
+}
+
+fn normalize_title(title: &str) -> String {
+    title.trim().to_lowercase()
 }
 
 fn create_local_safety_backup(
@@ -926,24 +1427,110 @@ async fn upload_missing_cover_blobs_with_client<T: DriveTransport>(
     snapshot: &SyncSnapshot,
     client: &GoogleDriveClient<T>,
     token_store: &dyn SecureTokenStore,
+    operation: SyncProgressOperation,
+    progress: Option<&SyncProgressReporter>,
 ) -> Result<(), String> {
-    let local_hash_cache = build_local_cover_hash_cache(conn)?;
+    let local_hash_cache = build_local_cover_hash_cache_from_snapshot(conn, snapshot)?;
+    let remote_hashes = client.list_blob_hashes(token_store).await?;
+    let missing_hashes = required_cover_hashes(snapshot)
+        .into_iter()
+        .filter(|hash| !remote_hashes.contains(hash))
+        .collect::<Vec<_>>();
+    let total_missing = missing_hashes.len();
 
-    for hash in required_cover_hashes(snapshot) {
-        if client.blob_exists(token_store, &hash).await? {
-            continue;
-        }
+    report_progress(
+        operation.clone(),
+        progress,
+        SyncProgressStage::UploadingCovers,
+        0,
+        total_missing,
+        if total_missing == 0 {
+            "No cover art uploads were needed.".to_string()
+        } else {
+            format!(
+                "Uploading missing cover art... 0 of {} uploaded.",
+                total_missing
+            )
+        },
+    );
 
+    if total_missing == 0 {
+        return Ok(());
+    }
+
+    let mut uploads = stream::iter(missing_hashes.into_iter().map(|hash| {
+        let client = client.clone();
         let path = local_hash_cache
             .get(&hash)
-            .ok_or_else(|| format!("Local cover blob '{hash}' is missing"))?;
-        let bytes = fs::read(path)
-            .map_err(|e| format!("Failed to read local cover blob '{hash}' from '{path}': {e}"))?;
-        validate_cover_blob_bytes(&hash, &bytes)?;
-        let _ = client.upload_blob(token_store, &hash, &bytes).await?;
+            .cloned()
+            .ok_or_else(|| format!("Local cover blob '{hash}' is missing"));
+        async move {
+            let path = path?;
+            upload_cover_blob_with_retry(client, token_store, hash, path).await
+        }
+    }))
+    .buffer_unordered(COVER_UPLOAD_CONCURRENCY);
+
+    let mut uploaded = 0usize;
+    while let Some(result) = uploads.next().await {
+        result?;
+        uploaded += 1;
+        report_progress(
+            operation.clone(),
+            progress,
+            SyncProgressStage::UploadingCovers,
+            uploaded,
+            total_missing,
+            format!(
+                "Uploading missing cover art... {} of {} uploaded.",
+                uploaded, total_missing
+            ),
+        );
     }
 
     Ok(())
+}
+
+async fn upload_cover_blob_with_retry<T: DriveTransport>(
+    client: GoogleDriveClient<T>,
+    token_store: &dyn SecureTokenStore,
+    hash: String,
+    path: String,
+) -> Result<String, String> {
+    let bytes = tokio::fs::read(&path)
+        .await
+        .map_err(|e| format!("Failed to read local cover blob '{hash}' from '{path}': {e}"))?;
+
+    for attempt in 1..=COVER_UPLOAD_MAX_ATTEMPTS {
+        let result = if attempt == 1 {
+            client
+                .upload_blob_known_missing(token_store, &hash, &bytes)
+                .await
+        } else {
+            client.upload_blob(token_store, &hash, &bytes).await
+        };
+
+        match result {
+            Ok(_) => return Ok(hash),
+            Err(_err) if attempt < COVER_UPLOAD_MAX_ATTEMPTS => {
+                tokio::time::sleep(Duration::from_millis(
+                    COVER_UPLOAD_RETRY_DELAY_MS * attempt as u64,
+                ))
+                .await;
+            }
+            Err(err) => {
+                return Err(format!(
+                    "Failed to upload cover art blob '{hash}' after {} attempts: {err}",
+                    COVER_UPLOAD_MAX_ATTEMPTS
+                ));
+            }
+        }
+    }
+
+    Err(format!(
+        "Failed to upload cover art blob '{hash}' after {} attempts",
+        COVER_UPLOAD_MAX_ATTEMPTS
+    ))
 }
 
 async fn apply_snapshot_and_materialize_with_client<T: DriveTransport>(
@@ -952,14 +1539,41 @@ async fn apply_snapshot_and_materialize_with_client<T: DriveTransport>(
     snapshot: &SyncSnapshot,
     client: &GoogleDriveClient<T>,
     token_store: &dyn SecureTokenStore,
+    operation: SyncProgressOperation,
+    progress: Option<&SyncProgressReporter>,
 ) -> Result<(), String> {
+    report_progress(
+        operation.clone(),
+        progress,
+        SyncProgressStage::ApplyingRemoteChanges,
+        0,
+        1,
+        "Applying remote changes to this device...".to_string(),
+    );
     {
         let conn_guard = conn.lock().map_err(|e| e.to_string())?;
         sync_snapshot::apply_snapshot(&conn_guard, snapshot)?;
     }
 
-    materialize_snapshot_cover_blobs_with_client(conn, covers_dir, snapshot, client, token_store)
-        .await
+    materialize_snapshot_cover_blobs_with_client(
+        conn,
+        covers_dir,
+        snapshot,
+        client,
+        token_store,
+        operation.clone(),
+        progress,
+    )
+    .await?;
+    report_progress(
+        operation,
+        progress,
+        SyncProgressStage::ApplyingRemoteChanges,
+        1,
+        1,
+        "Remote changes applied on this device.".to_string(),
+    );
+    Ok(())
 }
 
 async fn materialize_snapshot_cover_blobs_with_client<T: DriveTransport>(
@@ -968,6 +1582,8 @@ async fn materialize_snapshot_cover_blobs_with_client<T: DriveTransport>(
     snapshot: &SyncSnapshot,
     client: &GoogleDriveClient<T>,
     token_store: &dyn SecureTokenStore,
+    operation: SyncProgressOperation,
+    progress: Option<&SyncProgressReporter>,
 ) -> Result<(), String> {
     let mut local_hash_cache = build_local_cover_hash_cache(conn)?;
     let existing_media = {
@@ -978,6 +1594,41 @@ async fn materialize_snapshot_cover_blobs_with_client<T: DriveTransport>(
         .into_iter()
         .filter_map(|media| media.uid.clone().map(|uid| (uid, media)))
         .collect::<BTreeMap<_, _>>();
+
+    let mut pending_downloads = 0usize;
+    for (uid, aggregate) in &snapshot.library {
+        let Some(expected_hash) = aggregate.cover_blob_sha256.as_ref() else {
+            continue;
+        };
+        let Some(media) = media_by_uid.get(uid) else {
+            continue;
+        };
+        let current_hash =
+            sync_snapshot::compute_cover_blob_sha256_from_path(Path::new(&media.cover_image))?;
+        if current_hash.as_deref() == Some(expected_hash.as_str()) {
+            continue;
+        }
+        if !local_hash_cache.contains_key(expected_hash) {
+            pending_downloads += 1;
+        }
+    }
+
+    report_progress(
+        operation.clone(),
+        progress,
+        SyncProgressStage::ApplyingRemoteChanges,
+        0,
+        pending_downloads.max(1),
+        if pending_downloads == 0 {
+            "No remote cover downloads were needed.".to_string()
+        } else {
+            format!(
+                "Downloading missing remote cover art... 0 of {} downloaded.",
+                pending_downloads
+            )
+        },
+    );
+    let mut downloaded = 0usize;
 
     for (uid, aggregate) in &snapshot.library {
         let Some(expected_hash) = aggregate.cover_blob_sha256.as_ref() else {
@@ -1004,6 +1655,18 @@ async fn materialize_snapshot_cover_blobs_with_client<T: DriveTransport>(
             let materialized = materialize_cover_blob(covers_dir, expected_hash, &bytes)?;
             let materialized = materialized.to_string_lossy().to_string();
             local_hash_cache.insert(expected_hash.clone(), materialized.clone());
+            downloaded += 1;
+            report_progress(
+                operation.clone(),
+                progress,
+                SyncProgressStage::ApplyingRemoteChanges,
+                downloaded,
+                pending_downloads.max(1),
+                format!(
+                    "Downloading missing remote cover art... {} of {} downloaded.",
+                    downloaded, pending_downloads
+                ),
+            );
             materialized
         };
 
@@ -1028,6 +1691,33 @@ fn build_local_cover_hash_cache(
         };
         cache.entry(hash).or_insert(media.cover_image);
     }
+    Ok(cache)
+}
+
+fn build_local_cover_hash_cache_from_snapshot(
+    conn: &Arc<Mutex<Connection>>,
+    snapshot: &SyncSnapshot,
+) -> Result<BTreeMap<String, String>, String> {
+    let conn_guard = conn.lock().map_err(|e| e.to_string())?;
+    let media_by_uid = db::get_all_media(&conn_guard)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter_map(|media| media.uid.map(|uid| (uid, media.cover_image)))
+        .collect::<BTreeMap<_, _>>();
+    let mut cache = BTreeMap::new();
+
+    for (uid, aggregate) in &snapshot.library {
+        let Some(hash) = aggregate.cover_blob_sha256.as_ref() else {
+            continue;
+        };
+        let Some(cover_path) = media_by_uid.get(uid) else {
+            continue;
+        };
+        cache
+            .entry(hash.clone())
+            .or_insert_with(|| cover_path.clone());
+    }
+
     Ok(cache)
 }
 
@@ -1532,6 +2222,7 @@ mod tests {
             &client,
             &token_store,
             Some("Desk".to_string()),
+            None,
         )
         .await
         .unwrap();
@@ -1564,6 +2255,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn create_remote_sync_profile_reports_progress_updates() {
+        let (temp_dir, conn) = setup_app();
+        let transport = MemoryDriveTransport::new();
+        let client = build_client(transport);
+        let token_store = test_token_store();
+        let updates = Arc::new(Mutex::new(Vec::new()));
+        let reporter_updates = updates.clone();
+
+        add_media(&conn, "Base Title");
+        create_remote_sync_profile_with_client(
+            temp_dir.path(),
+            &conn,
+            &client,
+            &token_store,
+            None,
+            Some(&move |update| {
+                reporter_updates.lock().unwrap().push(update);
+            }),
+        )
+        .await
+        .unwrap();
+
+        let recorded = updates.lock().unwrap().clone();
+        assert!(recorded
+            .iter()
+            .any(|update| update.stage == SyncProgressStage::PreparingSnapshot));
+        assert!(recorded
+            .iter()
+            .any(|update| update.stage == SyncProgressStage::UploadingCovers));
+        assert!(recorded
+            .iter()
+            .any(|update| update.stage == SyncProgressStage::UploadingSnapshot));
+        assert!(recorded
+            .iter()
+            .any(|update| update.stage == SyncProgressStage::WritingManifest));
+        assert!(recorded
+            .iter()
+            .any(|update| update.stage == SyncProgressStage::Complete));
+    }
+
+    #[tokio::test]
     async fn run_sync_queues_conflicts_and_resolution_restores_local_choice() {
         let (temp_dir, conn) = setup_app();
         let transport = MemoryDriveTransport::new();
@@ -1571,9 +2303,16 @@ mod tests {
         let token_store = test_token_store();
 
         let media_uid = add_media(&conn, "Base Title");
-        create_remote_sync_profile_with_client(temp_dir.path(), &conn, &client, &token_store, None)
-            .await
-            .unwrap();
+        create_remote_sync_profile_with_client(
+            temp_dir.path(),
+            &conn,
+            &client,
+            &token_store,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
 
         update_media_title(&conn, &media_uid, "Local Title");
         sync_state::mark_sync_dirty_if_configured(temp_dir.path()).unwrap();
@@ -1613,7 +2352,7 @@ mod tests {
             .await
             .unwrap();
 
-        let sync_result = run_sync_with_client(temp_dir.path(), &conn, &client, &token_store)
+        let sync_result = run_sync_with_client(temp_dir.path(), &conn, &client, &token_store, None)
             .await
             .unwrap();
         assert_eq!(
@@ -1660,9 +2399,16 @@ mod tests {
         let token_store = test_token_store();
 
         let media_uid = add_media(&conn, "Base Title");
-        create_remote_sync_profile_with_client(temp_dir.path(), &conn, &client, &token_store, None)
-            .await
-            .unwrap();
+        create_remote_sync_profile_with_client(
+            temp_dir.path(),
+            &conn,
+            &client,
+            &token_store,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
 
         let config = sync_state::load_sync_config(temp_dir.path())
             .unwrap()
@@ -1684,7 +2430,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = run_sync_with_client(temp_dir.path(), &conn, &client, &token_store)
+        let result = run_sync_with_client(temp_dir.path(), &conn, &client, &token_store, None)
             .await
             .unwrap();
 
@@ -1716,9 +2462,16 @@ mod tests {
         let token_store = test_token_store();
 
         let media_uid = add_media(&conn, "Base Title");
-        create_remote_sync_profile_with_client(temp_dir.path(), &conn, &client, &token_store, None)
-            .await
-            .unwrap();
+        create_remote_sync_profile_with_client(
+            temp_dir.path(),
+            &conn,
+            &client,
+            &token_store,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
 
         update_media_title(&conn, &media_uid, "Local Title");
         sync_state::mark_sync_dirty_if_configured(temp_dir.path()).unwrap();
@@ -1739,7 +2492,7 @@ mod tests {
             "dev_rival",
         ));
 
-        let result = run_sync_with_client(temp_dir.path(), &conn, &client, &token_store)
+        let result = run_sync_with_client(temp_dir.path(), &conn, &client, &token_store, None)
             .await
             .unwrap();
 

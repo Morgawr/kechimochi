@@ -1,11 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DesktopServices } from '../../src/services/desktop';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open as tauriOpen, save as tauriSave } from '@tauri-apps/plugin-dialog';
 
 vi.mock('@tauri-apps/api/core', () => ({
     invoke: vi.fn(),
+}));
+
+vi.mock('@tauri-apps/api/event', () => ({
+    listen: vi.fn(() => Promise.resolve(() => undefined)),
 }));
 
 const minimize = vi.fn();
@@ -133,6 +138,58 @@ describe('DesktopServices', () => {
         expect(invoke).toHaveBeenNthCalledWith(1, 'get_profile_picture');
         expect(invoke).toHaveBeenNthCalledWith(2, 'upload_profile_picture', { path: `${SAFE_DIR}/avatar.png` });
         expect(invoke).toHaveBeenNthCalledWith(3, 'delete_profile_picture');
+    });
+
+    it('routes sync actions through invoke', async () => {
+        vi.mocked(invoke)
+            .mockResolvedValueOnce({ state: 'disconnected', google_authenticated: false, sync_profile_id: null, profile_name: null, google_account_email: null, last_sync_at: null, device_name: null, conflict_count: 0 })
+            .mockResolvedValueOnce({ device_id: 'dev_1', google_account_email: 'user@example.com', access_token_expires_at: null })
+            .mockResolvedValueOnce(undefined)
+            .mockResolvedValueOnce([{ profile_id: 'prof_1', profile_name: 'Desk', snapshot_id: 'snap_1', remote_generation: 1, updated_at: '2026-04-02T00:00:00Z', last_writer_device_id: 'dev_1' }])
+            .mockResolvedValueOnce({ profile_id: 'prof_1', profile_name: 'Desk', local_only_media_count: 1, remote_only_media_count: 2, matched_media_count: 3, potential_duplicate_titles: ['Foo'], conflict_count: 1 })
+            .mockResolvedValueOnce({ sync_status: { state: 'connected_clean' }, safety_backup_path: null, published_snapshot_id: 'snap_2', lost_race: false, remote_changed: false })
+            .mockResolvedValueOnce({ sync_status: { state: 'dirty' }, safety_backup_path: null, published_snapshot_id: null, lost_race: false, remote_changed: true })
+            .mockResolvedValueOnce({ sync_status: { state: 'connected_clean' }, safety_backup_path: null, published_snapshot_id: 'snap_3', lost_race: false, remote_changed: true })
+            .mockResolvedValueOnce([{ kind: 'media_field_conflict', media_uid: 'uid_1', field_name: 'title', base_value: null, local_value: 'A', remote_value: 'B' }])
+            .mockResolvedValueOnce({ sync_status: { state: 'dirty', conflict_count: 0 }, safety_backup_path: null, published_snapshot_id: null, lost_race: false, remote_changed: false });
+
+        await expect(services.getSyncStatus()).resolves.toMatchObject({ state: 'disconnected' });
+        await expect(services.connectGoogleDrive()).resolves.toMatchObject({ device_id: 'dev_1' });
+        await expect(services.disconnectGoogleDrive()).resolves.toBeUndefined();
+        await expect(services.listRemoteSyncProfiles()).resolves.toHaveLength(1);
+        await expect(services.previewAttachRemoteSyncProfile('prof_1')).resolves.toMatchObject({ conflict_count: 1 });
+        await expect(services.createRemoteSyncProfile()).resolves.toMatchObject({ published_snapshot_id: 'snap_2' });
+        await expect(services.attachRemoteSyncProfile('prof_1')).resolves.toMatchObject({ remote_changed: true });
+        await expect(services.runSync()).resolves.toMatchObject({ published_snapshot_id: 'snap_3' });
+        await expect(services.getSyncConflicts()).resolves.toHaveLength(1);
+        await expect(services.resolveSyncConflict(0, { kind: 'media_field', side: 'local' })).resolves.toMatchObject({
+            sync_status: { state: 'dirty', conflict_count: 0 },
+        });
+
+        expect(invoke).toHaveBeenNthCalledWith(1, 'get_sync_status');
+        expect(invoke).toHaveBeenNthCalledWith(2, 'connect_google_drive');
+        expect(invoke).toHaveBeenNthCalledWith(3, 'disconnect_google_drive');
+        expect(invoke).toHaveBeenNthCalledWith(4, 'list_remote_sync_profiles');
+        expect(invoke).toHaveBeenNthCalledWith(5, 'preview_attach_remote_sync_profile', { profileId: 'prof_1' });
+        expect(invoke).toHaveBeenNthCalledWith(6, 'create_remote_sync_profile');
+        expect(invoke).toHaveBeenNthCalledWith(7, 'attach_remote_sync_profile', { profileId: 'prof_1' });
+        expect(invoke).toHaveBeenNthCalledWith(8, 'run_sync');
+        expect(invoke).toHaveBeenNthCalledWith(9, 'get_sync_conflicts');
+        expect(invoke).toHaveBeenNthCalledWith(10, 'resolve_sync_conflict', {
+            conflictIndex: 0,
+            resolution: { kind: 'media_field', side: 'local' },
+        });
+    });
+
+    it('subscribes to sync progress events through Tauri listen', async () => {
+        const listener = vi.fn();
+        const unlisten = vi.fn();
+        vi.mocked(listen).mockResolvedValueOnce(unlisten);
+
+        const result = await services.subscribeSyncProgress(listener);
+
+        expect(listen).toHaveBeenCalledWith('sync-progress', expect.any(Function));
+        expect(result).toBe(unlisten);
     });
 
     it('caches the current window for window control methods', () => {

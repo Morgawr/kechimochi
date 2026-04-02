@@ -11,12 +11,20 @@ export type {
   ActivityLog,
   ActivitySummary,
   DailyHeatmap,
+  GoogleDriveAuthSession,
   TimelineEventKind,
   TimelineEvent,
   MediaCsvRow,
   MediaConflict,
   Milestone,
   ProfilePicture,
+  RemoteSyncProfileSummary,
+  SyncActionResult,
+  SyncAttachPreview,
+  SyncConflict,
+  SyncConflictResolution,
+  SyncProgressUpdate,
+  SyncStatus,
 } from './types';
 
 import type {
@@ -24,11 +32,19 @@ import type {
   ActivityLog,
   ActivitySummary,
   DailyHeatmap,
+  GoogleDriveAuthSession,
   TimelineEvent,
   MediaCsvRow,
   MediaConflict,
   Milestone,
   ProfilePicture,
+  RemoteSyncProfileSummary,
+  SyncActionResult,
+  SyncAttachPreview,
+  SyncConflict,
+  SyncConflictResolution,
+  SyncProgressUpdate,
+  SyncStatus,
 } from './types';
 
 declare global {
@@ -70,6 +86,25 @@ export function getAppVersion(): Promise<string> { return getServices().getAppVe
 export function getProfilePicture(): Promise<ProfilePicture | null> { return getServices().getProfilePicture(); }
 export function deleteProfilePicture(): Promise<void> { return getServices().deleteProfilePicture(); }
 export function uploadProfilePicture(): Promise<ProfilePicture | null> { return getServices().pickAndUploadProfilePicture(); }
+export function getSyncStatus(): Promise<SyncStatus> { return getServices().getSyncStatus(); }
+export function connectGoogleDrive(): Promise<GoogleDriveAuthSession> { return getServices().connectGoogleDrive(); }
+export function disconnectGoogleDrive(): Promise<void> { return getServices().disconnectGoogleDrive(); }
+export function listRemoteSyncProfiles(): Promise<RemoteSyncProfileSummary[]> { return getServices().listRemoteSyncProfiles(); }
+export function previewAttachRemoteSyncProfile(profileId: string): Promise<SyncAttachPreview> {
+  return getServices().previewAttachRemoteSyncProfile(profileId);
+}
+export function createRemoteSyncProfile(): Promise<SyncActionResult> { return getServices().createRemoteSyncProfile(); }
+export function attachRemoteSyncProfile(profileId: string): Promise<SyncActionResult> {
+  return getServices().attachRemoteSyncProfile(profileId);
+}
+export function runSync(): Promise<SyncActionResult> { return getServices().runSync(); }
+export function getSyncConflicts(): Promise<SyncConflict[]> { return getServices().getSyncConflicts(); }
+export function resolveSyncConflict(conflictIndex: number, resolution: SyncConflictResolution): Promise<SyncActionResult> {
+  return getServices().resolveSyncConflict(conflictIndex, resolution);
+}
+export function subscribeSyncProgress(listener: (update: SyncProgressUpdate) => void): Promise<() => void> {
+  return getServices().subscribeSyncProgress(listener);
+}
 
 export function applyMediaImport(records: MediaCsvRow[]): Promise<number> { return getServices().applyMediaImport(records); }
 

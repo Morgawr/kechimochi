@@ -2,24 +2,40 @@ import type {
     Media,
     ActivityLog,
     ActivitySummary,
+    GoogleDriveAuthSession,
     DailyHeatmap,
     TimelineEvent,
     MediaCsvRow,
     MediaConflict,
     Milestone,
     ProfilePicture,
+    RemoteSyncProfileSummary,
+    SyncActionResult,
+    SyncAttachPreview,
+    SyncConflict,
+    SyncConflictResolution,
+    SyncProgressUpdate,
+    SyncStatus,
 } from '../types';
 
 export type {
     Media,
     ActivityLog,
     ActivitySummary,
+    GoogleDriveAuthSession,
     DailyHeatmap,
     TimelineEvent,
     MediaCsvRow,
     MediaConflict,
     Milestone,
     ProfilePicture,
+    RemoteSyncProfileSummary,
+    SyncActionResult,
+    SyncAttachPreview,
+    SyncConflict,
+    SyncConflictResolution,
+    SyncProgressUpdate,
+    SyncStatus,
 } from '../types';
 
 /**
@@ -58,6 +74,19 @@ export interface AppServices {
     getAppVersion(): Promise<string>;
     getProfilePicture(): Promise<ProfilePicture | null>;
     deleteProfilePicture(): Promise<void>;
+
+    // ── Cloud sync operations ────────────────────────────────────────────────
+    getSyncStatus(): Promise<SyncStatus>;
+    connectGoogleDrive(): Promise<GoogleDriveAuthSession>;
+    disconnectGoogleDrive(): Promise<void>;
+    listRemoteSyncProfiles(): Promise<RemoteSyncProfileSummary[]>;
+    previewAttachRemoteSyncProfile(profileId: string): Promise<SyncAttachPreview>;
+    createRemoteSyncProfile(): Promise<SyncActionResult>;
+    attachRemoteSyncProfile(profileId: string): Promise<SyncActionResult>;
+    runSync(): Promise<SyncActionResult>;
+    getSyncConflicts(): Promise<SyncConflict[]>;
+    resolveSyncConflict(conflictIndex: number, resolution: SyncConflictResolution): Promise<SyncActionResult>;
+    subscribeSyncProgress(listener: (update: SyncProgressUpdate) => void): Promise<() => void>;
 
     // ── File-based operations (no filesystem paths exposed to callers) ────────
     /** Opens a file picker and imports the selected activities CSV. */

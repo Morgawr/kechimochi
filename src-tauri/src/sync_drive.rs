@@ -1,6 +1,8 @@
+use std::collections::BTreeSet;
 use std::future::Future;
 use std::io::{Read, Write};
 use std::pin::Pin;
+use std::time::Duration;
 
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use reqwest::Method;
@@ -23,6 +25,8 @@ const MANIFEST_FILE_SUFFIX: &str = ".json";
 const SNAPSHOT_FILE_SUFFIX: &str = ".json.gz";
 const DRIVE_FILE_FIELDS: &str = "nextPageToken,files(id,name,mimeType,size,modifiedTime)";
 const LIST_PAGE_SIZE: &str = "100";
+const DRIVE_HTTP_CONNECT_TIMEOUT_SECS: u64 = 15;
+const DRIVE_HTTP_REQUEST_TIMEOUT_SECS: u64 = 300;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DriveFileMetadata {
@@ -149,6 +153,8 @@ impl ReqwestDriveTransport {
         let http_client = reqwest::Client::builder()
             .user_agent(APP_USER_AGENT)
             .redirect(reqwest::redirect::Policy::none())
+            .connect_timeout(Duration::from_secs(DRIVE_HTTP_CONNECT_TIMEOUT_SECS))
+            .timeout(Duration::from_secs(DRIVE_HTTP_REQUEST_TIMEOUT_SECS))
             .build()
             .map_err(|e| e.to_string())?;
         Ok(Self { http_client })
@@ -176,9 +182,9 @@ impl DriveTransport for ReqwestDriveTransport {
                 request = request.body(body);
             }
 
-            let response = request.send().await.map_err(|e| e.to_string())?;
+            let response = request.send().await.map_err(drive_http_error_message)?;
             let response = read_success_response(response).await?;
-            response.json().await.map_err(|e| e.to_string())
+            response.json().await.map_err(drive_http_error_message)
         })
     }
 
@@ -202,9 +208,9 @@ impl DriveTransport for ReqwestDriveTransport {
                 request = request.body(body);
             }
 
-            let response = request.send().await.map_err(|e| e.to_string())?;
+            let response = request.send().await.map_err(drive_http_error_message)?;
             let response = read_success_response(response).await?;
-            let bytes = response.bytes().await.map_err(|e| e.to_string())?;
+            let bytes = response.bytes().await.map_err(drive_http_error_message)?;
             Ok(bytes.to_vec())
         })
     }
@@ -638,6 +644,18 @@ impl<T: DriveTransport> GoogleDriveClient<T> {
             .is_some())
     }
 
+    pub async fn list_blob_hashes(
+        &self,
+        token_store: &dyn SecureTokenStore,
+    ) -> Result<BTreeSet<String>, String> {
+        let query = format!("name contains '{}' and trashed = false", BLOB_FILE_PREFIX);
+        let files = self.list_app_data_files(token_store, Some(&query)).await?;
+        Ok(files
+            .into_iter()
+            .filter_map(|file| file.name.strip_prefix(BLOB_FILE_PREFIX).map(str::to_string))
+            .collect())
+    }
+
     pub async fn upload_blob(
         &self,
         token_store: &dyn SecureTokenStore,
@@ -659,9 +677,19 @@ impl<T: DriveTransport> GoogleDriveClient<T> {
             return Ok(file);
         }
 
+        self.upload_blob_known_missing(token_store, sha256, bytes)
+            .await
+    }
+
+    pub(crate) async fn upload_blob_known_missing(
+        &self,
+        token_store: &dyn SecureTokenStore,
+        sha256: &str,
+        bytes: &[u8],
+    ) -> Result<DriveFileMetadata, String> {
         self.upload_app_data_file(
             token_store,
-            &file_name,
+            &blob_file_name(sha256),
             "application/octet-stream",
             bytes,
             None,
@@ -729,6 +757,14 @@ fn build_multipart_related_body(
     body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
 
     Ok((format!("multipart/related; boundary={boundary}"), body))
+}
+
+fn drive_http_error_message(error: reqwest::Error) -> String {
+    if error.is_timeout() {
+        "Google Drive request timed out. Please try again.".to_string()
+    } else {
+        error.to_string()
+    }
 }
 
 async fn read_success_response(response: reqwest::Response) -> Result<reqwest::Response, String> {
@@ -1384,5 +1420,51 @@ mod tests {
             client.download_blob(&token_store, &sha256).await.unwrap(),
             Some(bytes)
         );
+    }
+
+    #[tokio::test]
+    async fn list_blob_hashes_returns_existing_blob_names() {
+        let transport = build_transport();
+        let client = build_client(transport.clone());
+        let token_store = test_token_store();
+        let blob_a = compute_sha256_hex(&[1, 2, 3]);
+        let blob_b = compute_sha256_hex(&[4, 5, 6]);
+
+        insert_test_file(
+            &transport,
+            &blob_file_name(&blob_a),
+            "application/octet-stream",
+            vec![1, 2, 3],
+        )
+        .await;
+        insert_test_file(
+            &transport,
+            &blob_file_name(&blob_b),
+            "application/octet-stream",
+            vec![4, 5, 6],
+        )
+        .await;
+        insert_test_file(
+            &transport,
+            &manifest_file_name("prof_1"),
+            "application/json",
+            serialize_manifest_bytes(&RemoteSyncManifest::new(
+                "prof_1",
+                "Morg",
+                "snap_1",
+                "sha_1",
+                1,
+                "2026-04-02T12:00:00Z",
+                "dev_1",
+            ))
+            .unwrap(),
+        )
+        .await;
+
+        let hashes = client.list_blob_hashes(&token_store).await.unwrap();
+
+        assert_eq!(hashes.len(), 2);
+        assert!(hashes.contains(&blob_a));
+        assert!(hashes.contains(&blob_b));
     }
 }

@@ -13,7 +13,8 @@ pub mod sync_state;
 
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
-use tauri::{Manager, State};
+use std::time::Duration;
+use tauri::{Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 use models::{
@@ -24,6 +25,10 @@ use models::{
 pub struct DbState {
     pub conn: Arc<Mutex<Connection>>,
 }
+
+const SYNC_COMMAND_TIMEOUT_SECS: u64 = 120;
+const CREATE_SYNC_PROFILE_TIMEOUT_SECS: u64 = 900;
+const SYNC_PROGRESS_EVENT: &str = "sync-progress";
 
 fn with_conn<T, F>(state: &State<DbState>, operation: F) -> Result<T, String>
 where
@@ -54,6 +59,28 @@ where
     let result = operation()?;
     mark_sync_dirty(app_handle)?;
     Ok(result)
+}
+
+fn google_oauth_config(
+    app_handle: &tauri::AppHandle,
+) -> Result<sync_auth::GoogleOAuthClientConfig, String> {
+    sync_auth::GoogleOAuthClientConfig::from_plugin_or_env(
+        app_handle.config().plugins.0.get("kechimochiSync"),
+    )
+}
+
+async fn with_sync_command_timeout<T, F>(
+    operation_name: &str,
+    timeout_secs: u64,
+    operation: F,
+) -> Result<T, String>
+where
+    F: std::future::Future<Output = Result<T, String>>,
+{
+    match tokio::time::timeout(Duration::from_secs(timeout_secs), operation).await {
+        Ok(result) => result,
+        Err(_) => Err(format!("{operation_name} timed out. Please try again.")),
+    }
 }
 
 #[tauri::command]
@@ -525,7 +552,7 @@ async fn connect_google_drive(
     app_handle: tauri::AppHandle,
 ) -> Result<sync_auth::GoogleDriveAuthSession, String> {
     let app_dir = db::get_data_dir(&app_handle);
-    let config = sync_auth::GoogleOAuthClientConfig::from_env()?;
+    let config = google_oauth_config(&app_handle)?;
     let token_store = sync_auth::OsSecureTokenStore::default();
 
     sync_auth::connect_google_drive_with_browser(&app_dir, &config, &token_store, |auth_url| {
@@ -539,11 +566,16 @@ async fn connect_google_drive(
 
 #[tauri::command]
 async fn list_remote_sync_profiles(
-    _app_handle: tauri::AppHandle,
+    app_handle: tauri::AppHandle,
 ) -> Result<Vec<sync_orchestrator::RemoteSyncProfileSummary>, String> {
-    let config = sync_auth::GoogleOAuthClientConfig::from_env()?;
+    let config = google_oauth_config(&app_handle)?;
     let token_store = sync_auth::OsSecureTokenStore::default();
-    sync_orchestrator::list_remote_sync_profiles(&config, &token_store).await
+    with_sync_command_timeout(
+        "Loading cloud profiles",
+        SYNC_COMMAND_TIMEOUT_SECS,
+        sync_orchestrator::list_remote_sync_profiles(&config, &token_store),
+    )
+    .await
 }
 
 #[tauri::command]
@@ -552,11 +584,26 @@ async fn create_remote_sync_profile(
     state: State<'_, DbState>,
 ) -> Result<sync_orchestrator::SyncActionResult, String> {
     let app_dir = db::get_data_dir(&app_handle);
-    let config = sync_auth::GoogleOAuthClientConfig::from_env()?;
+    let config = google_oauth_config(&app_handle)?;
     let token_store = sync_auth::OsSecureTokenStore::default();
     let conn = state.conn.clone();
-    sync_orchestrator::create_remote_sync_profile(&app_dir, &conn, &config, &token_store, None)
-        .await
+    let progress_app_handle = app_handle.clone();
+    let progress_reporter = move |update| {
+        let _ = progress_app_handle.emit(SYNC_PROGRESS_EVENT, update);
+    };
+    with_sync_command_timeout(
+        "Creating the cloud sync profile",
+        CREATE_SYNC_PROFILE_TIMEOUT_SECS,
+        sync_orchestrator::create_remote_sync_profile_with_progress(
+            &app_dir,
+            &conn,
+            &config,
+            &token_store,
+            None,
+            Some(&progress_reporter),
+        ),
+    )
+    .await
 }
 
 #[tauri::command]
@@ -566,16 +613,49 @@ async fn attach_remote_sync_profile(
     profile_id: String,
 ) -> Result<sync_orchestrator::SyncActionResult, String> {
     let app_dir = db::get_data_dir(&app_handle);
-    let config = sync_auth::GoogleOAuthClientConfig::from_env()?;
+    let config = google_oauth_config(&app_handle)?;
     let token_store = sync_auth::OsSecureTokenStore::default();
     let conn = state.conn.clone();
-    sync_orchestrator::attach_remote_sync_profile(
-        &app_dir,
-        &conn,
-        &config,
-        &token_store,
-        &profile_id,
-        None,
+    let progress_app_handle = app_handle.clone();
+    let progress_reporter = move |update| {
+        let _ = progress_app_handle.emit(SYNC_PROGRESS_EVENT, update);
+    };
+    with_sync_command_timeout(
+        "Attaching the cloud sync profile",
+        SYNC_COMMAND_TIMEOUT_SECS,
+        sync_orchestrator::attach_remote_sync_profile_with_progress(
+            &app_dir,
+            &conn,
+            &config,
+            &token_store,
+            &profile_id,
+            None,
+            Some(&progress_reporter),
+        ),
+    )
+    .await
+}
+
+#[tauri::command]
+async fn preview_attach_remote_sync_profile(
+    app_handle: tauri::AppHandle,
+    state: State<'_, DbState>,
+    profile_id: String,
+) -> Result<sync_orchestrator::AttachPreviewResult, String> {
+    let app_dir = db::get_data_dir(&app_handle);
+    let config = google_oauth_config(&app_handle)?;
+    let token_store = sync_auth::OsSecureTokenStore::default();
+    let conn = state.conn.clone();
+    with_sync_command_timeout(
+        "Preparing the cloud profile attach preview",
+        SYNC_COMMAND_TIMEOUT_SECS,
+        sync_orchestrator::preview_attach_remote_sync_profile(
+            &app_dir,
+            &conn,
+            &config,
+            &token_store,
+            &profile_id,
+        ),
     )
     .await
 }
@@ -586,10 +666,25 @@ async fn run_sync(
     state: State<'_, DbState>,
 ) -> Result<sync_orchestrator::SyncActionResult, String> {
     let app_dir = db::get_data_dir(&app_handle);
-    let config = sync_auth::GoogleOAuthClientConfig::from_env()?;
+    let config = google_oauth_config(&app_handle)?;
     let token_store = sync_auth::OsSecureTokenStore::default();
     let conn = state.conn.clone();
-    sync_orchestrator::run_sync(&app_dir, &conn, &config, &token_store).await
+    let progress_app_handle = app_handle.clone();
+    let progress_reporter = move |update| {
+        let _ = progress_app_handle.emit(SYNC_PROGRESS_EVENT, update);
+    };
+    with_sync_command_timeout(
+        "Syncing with Google Drive",
+        SYNC_COMMAND_TIMEOUT_SECS,
+        sync_orchestrator::run_sync_with_progress(
+            &app_dir,
+            &conn,
+            &config,
+            &token_store,
+            Some(&progress_reporter),
+        ),
+    )
+    .await
 }
 
 #[tauri::command]
@@ -608,16 +703,20 @@ async fn resolve_sync_conflict(
     resolution: sync_orchestrator::SyncConflictResolution,
 ) -> Result<sync_orchestrator::SyncActionResult, String> {
     let app_dir = db::get_data_dir(&app_handle);
-    let config = sync_auth::GoogleOAuthClientConfig::from_env()?;
+    let config = google_oauth_config(&app_handle)?;
     let token_store = sync_auth::OsSecureTokenStore::default();
     let conn = state.conn.clone();
-    sync_orchestrator::resolve_sync_conflict(
-        &app_dir,
-        &conn,
-        &config,
-        &token_store,
-        conflict_index,
-        resolution,
+    with_sync_command_timeout(
+        "Resolving the sync conflict",
+        SYNC_COMMAND_TIMEOUT_SECS,
+        sync_orchestrator::resolve_sync_conflict(
+            &app_dir,
+            &conn,
+            &config,
+            &token_store,
+            conflict_index,
+            resolution,
+        ),
     )
     .await
 }
@@ -695,6 +794,7 @@ pub fn run() {
             connect_google_drive,
             list_remote_sync_profiles,
             create_remote_sync_profile,
+            preview_attach_remote_sync_profile,
             attach_remote_sync_profile,
             run_sync,
             get_sync_conflicts,

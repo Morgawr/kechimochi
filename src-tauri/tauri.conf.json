@@ -36,5 +36,11 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "kechimochiSync": {
+      "clientId": "638050154597-bt7fed0tgj96ttqbl2durmulp9e1mfhb.apps.googleusercontent.com",
+      "clientSecret": "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"
+    }
   }
 }

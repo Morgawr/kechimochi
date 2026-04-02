@@ -1,9 +1,11 @@
+use rayon::prelude::*;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::db;
 use crate::models::{ActivityLog, Media, Milestone, ProfilePicture};
@@ -12,6 +14,7 @@ pub const SYNC_PROTOCOL_VERSION: i64 = 1;
 
 const PROFILE_NAME_SETTING_KEY: &str = "profile_name";
 const DEFAULT_PROFILE_NAME: &str = "default";
+const SNAPSHOT_PROGRESS_BATCH_SIZE: usize = 5;
 const SYNCABLE_SETTING_KEYS: &[&str] = &[
     "theme",
     "profile_name",
@@ -117,21 +120,67 @@ struct SettingRow {
     updated_at: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SnapshotBuildProgress {
+    pub processed_media: usize,
+    pub total_media: usize,
+}
+
 pub fn build_snapshot(
     conn: &Connection,
     options: SnapshotBuildOptions<'_>,
 ) -> Result<SyncSnapshot, String> {
+    build_snapshot_with_progress(conn, options, |_| {})
+}
+
+pub fn build_snapshot_with_progress<P>(
+    conn: &Connection,
+    options: SnapshotBuildOptions<'_>,
+    progress: P,
+) -> Result<SyncSnapshot, String>
+where
+    P: Fn(SnapshotBuildProgress) + Send + Sync,
+{
     let media_list = db::get_all_media(conn).map_err(|e| e.to_string())?;
     let all_logs = db::get_logs(conn).map_err(|e| e.to_string())?;
     let all_milestones = db::get_all_milestones(conn).map_err(|e| e.to_string())?;
     let profile_picture = db::get_profile_picture(conn).map_err(|e| e.to_string())?;
     let syncable_settings = load_syncable_settings(conn)?;
 
+    let total_media = media_list.len();
+    if total_media > 0 {
+        progress(SnapshotBuildProgress {
+            processed_media: 0,
+            total_media,
+        });
+    }
+
+    let processed_media = AtomicUsize::new(0);
+    let media_rows = media_list
+        .into_par_iter()
+        .map(|media| {
+            let cover_blob_sha256 =
+                compute_cover_blob_sha256_from_path(Path::new(&media.cover_image))?;
+            let current = processed_media.fetch_add(1, Ordering::Relaxed) + 1;
+            if total_media <= SNAPSHOT_PROGRESS_BATCH_SIZE
+                || current == total_media
+                || current.is_multiple_of(SNAPSHOT_PROGRESS_BATCH_SIZE)
+            {
+                progress(SnapshotBuildProgress {
+                    processed_media: current,
+                    total_media,
+                });
+            }
+            Ok::<_, String>((media, cover_blob_sha256))
+        })
+        .collect::<Vec<_>>();
+
     let mut library = BTreeMap::new();
     let mut media_uid_by_id = HashMap::new();
     let mut media_uid_by_title = HashMap::new();
 
-    for media in media_list {
+    for media_row in media_rows {
+        let (media, cover_blob_sha256) = media_row?;
         let Some(media_id) = media.id else {
             return Err("Media row missing local id".to_string());
         };
@@ -149,7 +198,7 @@ pub fn build_snapshot(
             content_type: media.content_type,
             tracking_status: media.tracking_status,
             extra_data: normalize_extra_data(&media.extra_data),
-            cover_blob_sha256: compute_cover_blob_sha256_from_path(Path::new(&media.cover_image))?,
+            cover_blob_sha256,
             updated_at: String::new(),
             updated_by_device_id: String::new(),
             activities: Vec::new(),

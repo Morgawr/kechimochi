@@ -3,11 +3,30 @@
  * This is the ONLY file that may import from @tauri-apps/*.
  */
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open as tauriOpen, save as tauriSave } from '@tauri-apps/plugin-dialog';
 
 import type { AppServices } from './types';
-import type { Media, ActivityLog, ActivitySummary, DailyHeatmap, TimelineEvent, MediaCsvRow, MediaConflict, Milestone, ProfilePicture } from '../types';
+import type {
+    Media,
+    ActivityLog,
+    ActivitySummary,
+    DailyHeatmap,
+    TimelineEvent,
+    MediaCsvRow,
+    MediaConflict,
+    Milestone,
+    ProfilePicture,
+    GoogleDriveAuthSession,
+    RemoteSyncProfileSummary,
+    SyncActionResult,
+    SyncAttachPreview,
+    SyncConflict,
+    SyncConflictResolution,
+    SyncProgressUpdate,
+    SyncStatus,
+} from '../types';
 import { getBuildVersion } from '../app_version';
 import { getMockExternalJsonResponse } from './external_mocks';
 
@@ -57,6 +76,27 @@ export class DesktopServices implements AppServices {
     getUsername():                           Promise<string>          { return invoke('get_username'); }
     getProfilePicture():                     Promise<ProfilePicture | null> { return invoke('get_profile_picture'); }
     deleteProfilePicture():                  Promise<void>            { return invoke('delete_profile_picture'); }
+    getSyncStatus():                         Promise<SyncStatus>      { return invoke('get_sync_status'); }
+    connectGoogleDrive():                    Promise<GoogleDriveAuthSession> { return invoke('connect_google_drive'); }
+    disconnectGoogleDrive():                 Promise<void>            { return invoke('disconnect_google_drive'); }
+    listRemoteSyncProfiles():                Promise<RemoteSyncProfileSummary[]> { return invoke('list_remote_sync_profiles'); }
+    previewAttachRemoteSyncProfile(profileId: string): Promise<SyncAttachPreview> {
+        return invoke('preview_attach_remote_sync_profile', { profileId });
+    }
+    createRemoteSyncProfile():               Promise<SyncActionResult> { return invoke('create_remote_sync_profile'); }
+    attachRemoteSyncProfile(profileId: string): Promise<SyncActionResult> {
+        return invoke('attach_remote_sync_profile', { profileId });
+    }
+    runSync():                              Promise<SyncActionResult> { return invoke('run_sync'); }
+    getSyncConflicts():                      Promise<SyncConflict[]>   { return invoke('get_sync_conflicts'); }
+    resolveSyncConflict(conflictIndex: number, resolution: SyncConflictResolution): Promise<SyncActionResult> {
+        return invoke('resolve_sync_conflict', { conflictIndex, resolution });
+    }
+    subscribeSyncProgress(listener: (update: SyncProgressUpdate) => void): Promise<() => void> {
+        return listen<SyncProgressUpdate>('sync-progress', (event) => {
+            listener(event.payload);
+        });
+    }
 
     async getAppVersion(): Promise<string> {
         return getBuildVersion();

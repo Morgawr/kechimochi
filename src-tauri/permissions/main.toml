@@ -34,6 +34,7 @@ commands.allow = [
     "connect_google_drive",
     "list_remote_sync_profiles",
     "create_remote_sync_profile",
+    "preview_attach_remote_sync_profile",
     "attach_remote_sync_profile",
     "run_sync",
     "get_sync_conflicts",

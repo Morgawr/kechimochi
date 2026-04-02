@@ -5,3 +5,4 @@ export * from './media';
 export * from './activity';
 export * from './milestone';
 export * from './update';
+export * from './sync';

@@ -28,23 +28,57 @@ export function createOverlay(): { overlay: HTMLDivElement, cleanup: () => void 
     return { overlay, cleanup };
 }
 
-export function showBlockingStatus(title: string, text: string): { close: () => void } {
+export interface BlockingStatusHandle {
+    close: () => void;
+    setText?: (text: string) => void;
+    setProgress?: (current: number, total: number, label?: string) => void;
+}
+
+export function showBlockingStatus(title: string, text: string): BlockingStatusHandle {
     const { overlay, cleanup } = createOverlay();
     const escapedTitle = escapeHTML(title);
     const escapedText = escapeHTML(text);
     let isClosed = false;
 
     overlay.innerHTML = `
-        <div class="modal-content" role="alertdialog" aria-live="assertive" aria-busy="true" style="text-align: center; max-width: 420px;">
+        <div class="modal-content" role="alertdialog" aria-live="assertive" aria-busy="true" style="text-align: center; max-width: 420px; width: min(92vw, 420px); max-height: 80vh; overflow-y: auto;">
             <h3>${escapedTitle}</h3>
-            <p style="margin-top: 1rem; color: var(--text-secondary);">${escapedText}</p>
+            <p id="blocking-status-text" style="margin-top: 1rem; color: var(--text-secondary); white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;">${escapedText}</p>
             <div style="margin-top: 1.5rem; display: flex; justify-content: center;">
                 <div aria-hidden="true" style="width: 28px; height: 28px; border-radius: 999px; border: 3px solid var(--border-color); border-top-color: var(--accent-blue); animation: spin 0.8s linear infinite;"></div>
+            </div>
+            <div id="blocking-status-progress" style="display: none; margin-top: 1.25rem;">
+                <div style="width: 100%; height: 10px; border-radius: 999px; background: rgba(255,255,255,0.08); overflow: hidden;">
+                    <div id="blocking-status-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--accent-blue), #6ee7f9); transition: width 0.18s ease;"></div>
+                </div>
+                <p id="blocking-status-progress-label" style="margin-top: 0.65rem; font-size: 0.84rem; color: var(--text-secondary);">0 / 0</p>
             </div>
         </div>
     `;
 
+    const textNode = overlay.querySelector<HTMLParagraphElement>('#blocking-status-text');
+    const progressWrap = overlay.querySelector<HTMLDivElement>('#blocking-status-progress');
+    const progressBar = overlay.querySelector<HTMLDivElement>('#blocking-status-progress-bar');
+    const progressLabel = overlay.querySelector<HTMLParagraphElement>('#blocking-status-progress-label');
+
     return {
+        setText: (nextText: string) => {
+            if (isClosed || !textNode) return;
+            textNode.textContent = nextText;
+        },
+        setProgress: (current: number, total: number, label?: string) => {
+            if (isClosed || !progressWrap || !progressBar || !progressLabel) return;
+            if (total <= 0) {
+                progressWrap.style.display = 'none';
+                return;
+            }
+
+            const safeCurrent = Math.max(0, Math.min(current, total));
+            const percent = Math.max(0, Math.min((safeCurrent / total) * 100, 100));
+            progressWrap.style.display = 'block';
+            progressBar.style.width = `${percent}%`;
+            progressLabel.textContent = label || `${safeCurrent} / ${total}`;
+        },
         close: () => {
             if (isClosed) return;
             isClosed = true;
@@ -118,9 +152,9 @@ export async function customAlert(title: string, text: string): Promise<void> {
         const escapedText = escapeHTML(text);
         
         overlay.innerHTML = `
-            <div class="modal-content">
+            <div class="modal-content" style="max-width: 520px; width: min(92vw, 520px); max-height: 80vh; overflow-y: auto;">
                 <h3>${escapedTitle}</h3>
-                <p id="alert-body" style="margin-top: 1rem; color: var(--text-secondary);">${escapedText}</p>
+                <p id="alert-body" style="margin-top: 1rem; color: var(--text-secondary); white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;">${escapedText}</p>
                 <div style="display: flex; justify-content: flex-end; margin-top: 1.5rem;">
                     <button class="btn btn-primary" id="alert-ok">OK</button>
                 </div>

@@ -80,6 +80,20 @@ describe('modals/base.ts', () => {
             alertOk!.click();
             await expect(promise).resolves.toBeUndefined();
         });
+
+        it('should constrain alert width and wrap long content safely', async () => {
+            const promise = base.customAlert('Title', '/home/morg/local/share/com.morg.kechimochi/sync/pre_sync_backup_20260402T061548Z.zip');
+            const body = document.getElementById('alert-body') as HTMLParagraphElement;
+            const modal = body.closest('.modal-content') as HTMLDivElement;
+
+            expect(modal.getAttribute('style')).toContain('max-width: 520px');
+            expect(modal.getAttribute('style')).toContain('width: min(92vw, 520px)');
+            expect(body.getAttribute('style')).toContain('overflow-wrap: anywhere');
+            expect(body.getAttribute('style')).toContain('word-break: break-word');
+
+            document.getElementById('alert-ok')!.click();
+            await expect(promise).resolves.toBeUndefined();
+        });
     });
 
     describe('createOverlay', () => {
@@ -112,6 +126,22 @@ describe('modals/base.ts', () => {
 
             vi.runAllTimers();
             expect(document.querySelector('.modal-overlay')).toBeNull();
+        });
+
+        it('should update blocking status text and progress bar', () => {
+            const status = base.showBlockingStatus('Sync', 'Starting...');
+            status.setText?.('Uploading covers...');
+            status.setProgress?.(3, 5, '3 / 5');
+
+            const text = document.querySelector('#blocking-status-text') as HTMLParagraphElement;
+            const progress = document.querySelector('#blocking-status-progress') as HTMLDivElement;
+            const bar = document.querySelector('#blocking-status-progress-bar') as HTMLDivElement;
+            const label = document.querySelector('#blocking-status-progress-label') as HTMLParagraphElement;
+
+            expect(text.textContent).toBe('Uploading covers...');
+            expect(progress.style.display).toBe('block');
+            expect(bar.style.width).toBe('60%');
+            expect(label.textContent).toBe('3 / 5');
         });
     });
 });

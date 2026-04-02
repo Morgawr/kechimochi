@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::Path;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
@@ -13,6 +14,7 @@ use oauth2::{
     RefreshToken, RequestTokenError, Scope, StandardTokenResponse, TokenResponse, TokenUrl,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use url::Url;
 
 use crate::sync_state;
@@ -20,8 +22,10 @@ use crate::sync_state;
 pub const GOOGLE_DRIVE_APPDATA_SCOPE: &str = "https://www.googleapis.com/auth/drive.appdata";
 const DEFAULT_AUTH_ENDPOINT: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const DEFAULT_TOKEN_ENDPOINT: &str = "https://oauth2.googleapis.com/token";
-const DEFAULT_CALLBACK_TIMEOUT_SECS: u64 = 120;
+const DEFAULT_CALLBACK_TIMEOUT_SECS: u64 = 60;
 const ACCESS_TOKEN_EXPIRY_SAFETY_MARGIN_SECS: i64 = 60;
+const OAUTH_HTTP_CONNECT_TIMEOUT_SECS: u64 = 15;
+const OAUTH_HTTP_REQUEST_TIMEOUT_SECS: u64 = 60;
 const APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
 const TOKEN_STORE_SERVICE: &str = "com.morg.kechimochi.google-drive";
 const TOKEN_STORE_ACCOUNT: &str = "oauth_tokens";
@@ -29,6 +33,7 @@ const ENV_CLIENT_ID: &str = "KECHIMOCHI_GOOGLE_CLIENT_ID";
 const ENV_CLIENT_SECRET: &str = "KECHIMOCHI_GOOGLE_CLIENT_SECRET";
 const ENV_AUTH_ENDPOINT: &str = "KECHIMOCHI_GOOGLE_AUTH_ENDPOINT";
 const ENV_TOKEN_ENDPOINT: &str = "KECHIMOCHI_GOOGLE_TOKEN_ENDPOINT";
+const TAURI_PLUGIN_CONFIG_KEY: &str = "kechimochiSync";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GoogleOAuthClientConfig {
@@ -39,6 +44,21 @@ pub struct GoogleOAuthClientConfig {
     pub token_endpoint: String,
     pub scope: String,
     pub callback_timeout_secs: u64,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct GoogleOAuthPluginConfig {
+    #[serde(default)]
+    client_id: Option<String>,
+    #[serde(default)]
+    client_secret: Option<String>,
+    #[serde(default)]
+    auth_endpoint: Option<String>,
+    #[serde(default)]
+    token_endpoint: Option<String>,
+    #[serde(default)]
+    callback_timeout_secs: Option<u64>,
 }
 
 impl GoogleOAuthClientConfig {
@@ -58,6 +78,63 @@ impl GoogleOAuthClientConfig {
             token_endpoint,
             scope: GOOGLE_DRIVE_APPDATA_SCOPE.to_string(),
             callback_timeout_secs: DEFAULT_CALLBACK_TIMEOUT_SECS,
+        })
+    }
+
+    pub fn from_plugin_config(config: Option<&Value>) -> Result<Option<Self>, String> {
+        let Some(config) = config else {
+            return Ok(None);
+        };
+
+        let parsed: GoogleOAuthPluginConfig =
+            serde_json::from_value(config.clone()).map_err(|err| {
+                format!("Invalid Tauri plugin config for {TAURI_PLUGIN_CONFIG_KEY}: {err}")
+            })?;
+
+        let client_id = parsed
+            .client_id
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let Some(client_id) = client_id else {
+            return Ok(None);
+        };
+
+        let client_secret = parsed
+            .client_secret
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let auth_endpoint = parsed
+            .auth_endpoint
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| DEFAULT_AUTH_ENDPOINT.to_string());
+        let token_endpoint = parsed
+            .token_endpoint
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| DEFAULT_TOKEN_ENDPOINT.to_string());
+
+        Ok(Some(Self {
+            client_id,
+            client_secret,
+            auth_endpoint,
+            token_endpoint,
+            scope: GOOGLE_DRIVE_APPDATA_SCOPE.to_string(),
+            callback_timeout_secs: parsed
+                .callback_timeout_secs
+                .unwrap_or(DEFAULT_CALLBACK_TIMEOUT_SECS),
+        }))
+    }
+
+    pub fn from_plugin_or_env(plugin_config: Option<&Value>) -> Result<Self, String> {
+        if let Some(config) = Self::from_plugin_config(plugin_config)? {
+            return Ok(config);
+        }
+
+        Self::from_env().map_err(|_| {
+            format!(
+                "Google Drive sync is not configured. Set `plugins.{TAURI_PLUGIN_CONFIG_KEY}.clientId` in src-tauri/tauri.conf.json or export {ENV_CLIENT_ID} before launching the app."
+            )
         })
     }
 }
@@ -114,21 +191,40 @@ impl Default for OsSecureTokenStore {
     }
 }
 
+fn in_process_token_cache() -> &'static Mutex<Option<StoredGoogleTokens>> {
+    static TOKEN_CACHE: OnceLock<Mutex<Option<StoredGoogleTokens>>> = OnceLock::new();
+    TOKEN_CACHE.get_or_init(|| Mutex::new(None))
+}
+
 impl SecureTokenStore for OsSecureTokenStore {
     fn load_tokens(&self) -> Result<Option<StoredGoogleTokens>, String> {
+        if let Some(tokens) = in_process_token_cache().lock().unwrap().clone() {
+            return Ok(Some(tokens));
+        }
+
         let maybe_secret = load_secret(&self.service, &self.account)?;
-        maybe_secret
+        let parsed = maybe_secret
             .map(|raw| serde_json::from_str(&raw).map_err(|e| e.to_string()))
-            .transpose()
+            .transpose()?;
+
+        if let Some(tokens) = parsed.clone() {
+            *in_process_token_cache().lock().unwrap() = Some(tokens);
+        }
+
+        Ok(parsed)
     }
 
     fn save_tokens(&self, tokens: &StoredGoogleTokens) -> Result<(), String> {
         let secret = serde_json::to_string(tokens).map_err(|e| e.to_string())?;
-        save_secret(&self.service, &self.account, &secret)
+        save_secret(&self.service, &self.account, &secret)?;
+        *in_process_token_cache().lock().unwrap() = Some(tokens.clone());
+        Ok(())
     }
 
     fn clear_tokens(&self) -> Result<(), String> {
-        delete_secret(&self.service, &self.account)
+        delete_secret(&self.service, &self.account)?;
+        *in_process_token_cache().lock().unwrap() = None;
+        Ok(())
     }
 }
 
@@ -522,6 +618,8 @@ fn build_http_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .user_agent(APP_USER_AGENT)
         .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(Duration::from_secs(OAUTH_HTTP_CONNECT_TIMEOUT_SECS))
+        .timeout(Duration::from_secs(OAUTH_HTTP_REQUEST_TIMEOUT_SECS))
         .build()
         .map_err(|e| e.to_string())
 }
@@ -629,6 +727,57 @@ mod tests {
             scope: GOOGLE_DRIVE_APPDATA_SCOPE.to_string(),
             callback_timeout_secs: 5,
         }
+    }
+
+    #[test]
+    fn oauth_config_can_be_loaded_from_tauri_plugin_config() {
+        let config = GoogleOAuthClientConfig::from_plugin_or_env(Some(&serde_json::json!({
+            "clientId": "tauri-client-id",
+            "clientSecret": "tauri-client-secret",
+            "authEndpoint": "https://accounts.example.test/custom-auth",
+            "tokenEndpoint": "https://oauth.example.test/custom-token",
+            "callbackTimeoutSecs": 42
+        })))
+        .unwrap();
+
+        assert_eq!(config.client_id, "tauri-client-id");
+        assert_eq!(config.client_secret.as_deref(), Some("tauri-client-secret"));
+        assert_eq!(
+            config.auth_endpoint,
+            "https://accounts.example.test/custom-auth"
+        );
+        assert_eq!(
+            config.token_endpoint,
+            "https://oauth.example.test/custom-token"
+        );
+        assert_eq!(config.callback_timeout_secs, 42);
+    }
+
+    #[test]
+    fn empty_tauri_plugin_config_is_treated_as_not_configured() {
+        assert_eq!(
+            GoogleOAuthClientConfig::from_plugin_config(Some(&serde_json::json!({}))).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn os_secure_token_store_uses_in_process_cache_before_keyring_lookup() {
+        let expected = StoredGoogleTokens {
+            refresh_token: "refresh-1".to_string(),
+            access_token: Some("access-1".to_string()),
+            access_token_expires_at: Some("2026-04-02T00:00:00Z".to_string()),
+            scope: Some(GOOGLE_DRIVE_APPDATA_SCOPE.to_string()),
+            token_type: Some("Bearer".to_string()),
+            google_account_email: Some("user@example.com".to_string()),
+        };
+
+        *in_process_token_cache().lock().unwrap() = Some(expected.clone());
+
+        let loaded = OsSecureTokenStore::default().load_tokens().unwrap();
+
+        assert_eq!(loaded, Some(expected));
+        *in_process_token_cache().lock().unwrap() = None;
     }
 
     #[tokio::test]
