@@ -1,8 +1,9 @@
 import { vi } from 'vitest';
-import type * as api from '../../src/api';
-import type { ActivitySummary } from '../../src/api';
 import { STORAGE_KEYS, SETTING_KEYS } from '../../src/constants';
-import type * as modals from '../../src/modals';
+
+type ActivitySummary = import('../../src/api').ActivitySummary;
+type ApiModule = typeof import('../../src/api');
+type ModalsModule = typeof import('../../src/modals');
 
 const defaultActivitySummary: ActivitySummary = {
     id: 0,
@@ -55,7 +56,7 @@ export function createChartJsAutoMock() {
     };
 }
 
-export function resetMainApiMocks(mockedApi: typeof api) {
+export function resetMainApiMocks(mockedApi: ApiModule) {
     vi.mocked(mockedApi.initializeUserDb).mockResolvedValue();
     vi.mocked(mockedApi.getUsername).mockResolvedValue('os-user');
     vi.mocked(mockedApi.getStartupError).mockResolvedValue(null);
@@ -73,7 +74,7 @@ export function resetMainApiMocks(mockedApi: typeof api) {
     vi.mocked(mockedApi.deleteMilestone).mockImplementation(() => {});
 }
 
-export function resetMainModalMocks(mockedModals: typeof modals) {
+export function resetMainModalMocks(mockedModals: ModalsModule) {
     vi.mocked(mockedModals.initialProfilePrompt).mockResolvedValue('new-user');
     vi.mocked(mockedModals.customAlert).mockResolvedValue();
     vi.mocked(mockedModals.customConfirm).mockResolvedValue(false);

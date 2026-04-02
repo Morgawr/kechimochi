@@ -49,6 +49,7 @@ describe('main.ts initialization', () => {
         const link = document.querySelector(`[data-view="${view}"]`);
         link?.dispatchEvent(new Event('click'));
         await vi.waitFor(() => expect(link?.classList.contains('active')).toBe(true));
+        return link;
     };
 
     beforeEach(async () => {
@@ -82,10 +83,17 @@ describe('main.ts initialization', () => {
     it('should switch views', async () => {
         await bootApp();
 
-        await clickView('media');
-        await clickView('timeline');
-        await clickView('profile');
-        await clickView('dashboard');
+        const mediaLink = await clickView('media');
+        expect(mediaLink?.classList.contains('active')).toBe(true);
+
+        const timelineLink = await clickView('timeline');
+        expect(timelineLink?.classList.contains('active')).toBe(true);
+
+        const profileLink = await clickView('profile');
+        expect(profileLink?.classList.contains('active')).toBe(true);
+
+        const dashboardLink = await clickView('dashboard');
+        expect(dashboardLink?.classList.contains('active')).toBe(true);
     });
 
     it('should handle app-navigate event', async () => {
