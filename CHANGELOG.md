@@ -18,6 +18,7 @@ The format is based on Keep a Changelog, with one section per released version.
 ### Fixed
 - macOS DMG builds are now packaged as universal binaries to support both Intel and Apple Silicon architectures natively.
 - 'Back to Grid' button text changed to 'Back to Library' on the media detail view to be layout-agnostic.
+- List view now resizes properly on smaller resolutions without cutting borders
 
 ## [0.1.3] - 2026-03-26
 
