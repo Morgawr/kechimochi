@@ -5,6 +5,14 @@ import * as api from '../../src/api';
 import { Media } from '../../src/api';
 import { STORAGE_KEYS, SETTING_KEYS } from '../../src/constants';
 import { Logger } from '../../src/core/logger';
+import {
+    buildConnectedSyncStatus,
+    buildGoogleDriveAuthSession,
+    buildRemoteSyncProfileSummary,
+    buildSyncActionResult,
+    buildSyncAttachPreview,
+    buildSyncStatus,
+} from '../sync-fixtures';
 
 vi.mock('../../src/api', () => ({
     getSetting: vi.fn(),
@@ -67,6 +75,28 @@ vi.mock('../../src/modals', () => ({
 
 import * as modals from '../../src/modals';
 
+function mockStandardProfileLoad(options?: {
+    appVersion?: string;
+    profileName?: string;
+    theme?: string;
+    statsReportTimestamp?: string;
+}) {
+    const {
+        appVersion = '1.0.0',
+        profileName = 'test-user',
+        theme = 'pastel-pink',
+        statsReportTimestamp = '',
+    } = options ?? {};
+
+    vi.mocked(api.getSetting).mockImplementation(async (key) => {
+        if (key === SETTING_KEYS.PROFILE_NAME) return profileName;
+        if (key === SETTING_KEYS.THEME) return theme;
+        if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return statsReportTimestamp;
+        return '0';
+    });
+    vi.mocked(api.getAppVersion).mockResolvedValue(appVersion);
+}
+
 describe('ProfileView', () => {
     let container: HTMLElement;
     const SAFE_BACKUP_PATH = resolve(process.cwd(), 'e2e', 'fixtures', 'recovery.zip');
@@ -79,16 +109,8 @@ describe('ProfileView', () => {
         const globals = globalThis as Record<string, unknown>;
         globals.__APP_BUILD_CHANNEL__ = 'release';
         globals.__APP_RELEASE_STAGE__ = 'beta';
-        vi.mocked(api.getSyncStatus).mockResolvedValue({
-            state: 'disconnected',
-            google_authenticated: false,
-            sync_profile_id: null,
-            profile_name: null,
-            google_account_email: null,
-            last_sync_at: null,
-            device_name: null,
-            conflict_count: 0,
-        });
+        mockStandardProfileLoad();
+        vi.mocked(api.getSyncStatus).mockResolvedValue(buildSyncStatus());
         vi.mocked(api.getSyncConflicts).mockResolvedValue([]);
 
         // Mock localStorage
@@ -106,13 +128,10 @@ describe('ProfileView', () => {
     });
 
     it('should load settings and render profile name', async () => {
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
-            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
-            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '2024-01-01T00:00:00Z';
-            return '0';
+        mockStandardProfileLoad({
+            appVersion: '1.2.3',
+            statsReportTimestamp: '2024-01-01T00:00:00Z',
         });
-        vi.mocked(api.getAppVersion).mockResolvedValue('1.2.3');
 
         const view = new ProfileView(container);
         view.render();
@@ -123,13 +142,7 @@ describe('ProfileView', () => {
     });
 
     it('should render profile picture preview when one exists', async () => {
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
-            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
-            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
-            return '0';
-        });
-        vi.mocked(api.getAppVersion).mockResolvedValue('1.2.3');
+        mockStandardProfileLoad({ appVersion: '1.2.3' });
         vi.mocked(api.getProfilePicture).mockResolvedValue({
             mime_type: 'image/png',
             base64_data: 'YWJj',
@@ -146,13 +159,7 @@ describe('ProfileView', () => {
     });
 
     it('should still render the profile view if profile picture loading fails', async () => {
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
-            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
-            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
-            return '0';
-        });
-        vi.mocked(api.getAppVersion).mockResolvedValue('1.2.3');
+        mockStandardProfileLoad({ appVersion: '1.2.3' });
         vi.mocked(api.getProfilePicture).mockRejectedValue(new Error('missing backend route'));
 
         const view = new ProfileView(container);
@@ -163,13 +170,7 @@ describe('ProfileView', () => {
     });
 
     it('should upload a profile picture by double-clicking the hero avatar', async () => {
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
-            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
-            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
-            return '0';
-        });
-        vi.mocked(api.getAppVersion).mockResolvedValue('1.2.3');
+        mockStandardProfileLoad({ appVersion: '1.2.3' });
         vi.mocked(api.uploadProfilePicture).mockResolvedValue({
             mime_type: 'image/png',
             base64_data: 'YWJj',
@@ -193,17 +194,9 @@ describe('ProfileView', () => {
     });
 
     it('should change theme', async () => {
-        vi.mocked(api.getSetting).mockResolvedValue('dark');
-        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+        mockStandardProfileLoad({ theme: 'dark' });
 
         const view = new ProfileView(container);
-        // We need to wait for loadData to finish which calls getSetting('stats_report_timestamp')
-        // Since we mocked it to return 'dark', we must pass a valid date instead.
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === SETTING_KEYS.THEME) return 'dark';
-            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
-            return '0';
-        });
 
         view.render();
 
@@ -217,14 +210,6 @@ describe('ProfileView', () => {
     });
 
     it('should render update controls and forward update actions', async () => {
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
-            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
-            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
-            return '0';
-        });
-        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
-
         const subscribe = vi.fn((listener: (state: unknown) => void) => {
             listener({
                 checking: false,
@@ -264,14 +249,6 @@ describe('ProfileView', () => {
     });
 
     it('should render the Cloud Sync card when disconnected', async () => {
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
-            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
-            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
-            return '0';
-        });
-        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
-
         const view = new ProfileView(container);
         view.render();
 
@@ -281,57 +258,16 @@ describe('ProfileView', () => {
     });
 
     it('should enable sync by creating a new remote profile', async () => {
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
-            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
-            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
-            return '0';
-        });
-        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
         vi.mocked(api.getSyncStatus)
-            .mockResolvedValueOnce({
-                state: 'disconnected',
-                google_authenticated: false,
-                sync_profile_id: null,
-                profile_name: null,
-                google_account_email: null,
-                last_sync_at: null,
-                device_name: null,
-                conflict_count: 0,
-            })
-            .mockResolvedValueOnce({
-                state: 'connected_clean',
-                google_authenticated: true,
-                sync_profile_id: 'prof_1',
-                profile_name: 'test-user',
-                google_account_email: 'sync@example.com',
-                last_sync_at: '2026-04-02T00:00:00Z',
-                device_name: 'Desk',
-                conflict_count: 0,
-            });
-        vi.mocked(api.connectGoogleDrive).mockResolvedValue({
-            device_id: 'dev_1',
-            google_account_email: 'sync@example.com',
-            access_token_expires_at: null,
-        });
+            .mockResolvedValueOnce(buildSyncStatus())
+            .mockResolvedValueOnce(buildConnectedSyncStatus());
+        vi.mocked(api.connectGoogleDrive).mockResolvedValue(buildGoogleDriveAuthSession());
         vi.mocked(api.listRemoteSyncProfiles).mockResolvedValue([]);
         vi.mocked(modals.showSyncEnablementWizard).mockResolvedValue({ action: 'create_new' });
-        vi.mocked(api.createRemoteSyncProfile).mockResolvedValue({
-            sync_status: {
-                state: 'connected_clean',
-                google_authenticated: true,
-                sync_profile_id: 'prof_1',
-                profile_name: 'test-user',
-                google_account_email: 'sync@example.com',
-                last_sync_at: '2026-04-02T00:00:00Z',
-                device_name: 'Desk',
-                conflict_count: 0,
-            },
+        vi.mocked(api.createRemoteSyncProfile).mockResolvedValue(buildSyncActionResult({
             safety_backup_path: '/home/testuser/pre_sync_backup.zip',
             published_snapshot_id: 'snap_1',
-            lost_race: false,
-            remote_changed: false,
-        });
+        }));
 
         const view = new ProfileView(container);
         view.render();
@@ -348,39 +284,10 @@ describe('ProfileView', () => {
     });
 
     it('should offer reconnect when a sync profile is attached but Google auth is missing', async () => {
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
-            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
-            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
-            return '0';
-        });
-        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
         vi.mocked(api.getSyncStatus)
-            .mockResolvedValueOnce({
-                state: 'connected_clean',
-                google_authenticated: false,
-                sync_profile_id: 'prof_1',
-                profile_name: 'test-user',
-                google_account_email: 'sync@example.com',
-                last_sync_at: '2026-04-02T00:00:00Z',
-                device_name: 'Desk',
-                conflict_count: 0,
-            })
-            .mockResolvedValueOnce({
-                state: 'connected_clean',
-                google_authenticated: true,
-                sync_profile_id: 'prof_1',
-                profile_name: 'test-user',
-                google_account_email: 'sync@example.com',
-                last_sync_at: '2026-04-02T00:00:00Z',
-                device_name: 'Desk',
-                conflict_count: 0,
-            });
-        vi.mocked(api.connectGoogleDrive).mockResolvedValue({
-            device_id: 'dev_1',
-            google_account_email: 'sync@example.com',
-            access_token_expires_at: null,
-        });
+            .mockResolvedValueOnce(buildConnectedSyncStatus({ google_authenticated: false }))
+            .mockResolvedValueOnce(buildConnectedSyncStatus());
+        vi.mocked(api.connectGoogleDrive).mockResolvedValue(buildGoogleDriveAuthSession());
 
         const view = new ProfileView(container);
         view.render();
@@ -399,72 +306,24 @@ describe('ProfileView', () => {
     });
 
     it('should subscribe to sync progress while attaching an existing cloud profile', async () => {
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
-            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
-            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
-            return '0';
-        });
-        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
         vi.mocked(api.getSyncStatus)
-            .mockResolvedValueOnce({
-                state: 'disconnected',
+            .mockResolvedValueOnce(buildSyncStatus({
                 google_authenticated: true,
-                sync_profile_id: null,
-                profile_name: null,
                 google_account_email: 'sync@example.com',
-                last_sync_at: null,
-                device_name: null,
-                conflict_count: 0,
-            })
-            .mockResolvedValueOnce({
-                state: 'connected_clean',
-                google_authenticated: true,
-                sync_profile_id: 'prof_1',
-                profile_name: 'test-user',
-                google_account_email: 'sync@example.com',
-                last_sync_at: '2026-04-02T00:00:00Z',
-                device_name: 'Desk',
-                conflict_count: 0,
-            });
-        vi.mocked(api.listRemoteSyncProfiles).mockResolvedValue([{
-            profile_id: 'prof_1',
-            profile_name: 'test-user',
-            snapshot_id: 'snap_1',
-            remote_generation: 1,
-            updated_at: '2026-04-02T00:00:00Z',
-            last_writer_device_id: 'Desk',
-        }]);
+            }))
+            .mockResolvedValueOnce(buildConnectedSyncStatus());
+        vi.mocked(api.listRemoteSyncProfiles).mockResolvedValue([buildRemoteSyncProfileSummary()]);
         vi.mocked(modals.showSyncEnablementWizard).mockResolvedValue({
             action: 'attach',
             profileId: 'prof_1',
         });
-        vi.mocked(api.previewAttachRemoteSyncProfile).mockResolvedValue({
-            profile_id: 'prof_1',
-            profile_name: 'test-user',
-            local_only_media_count: 0,
-            remote_only_media_count: 0,
-            matched_media_count: 3,
-            potential_duplicate_titles: [],
-            conflict_count: 0,
-        });
+        vi.mocked(api.previewAttachRemoteSyncProfile).mockResolvedValue(buildSyncAttachPreview());
         vi.mocked(modals.showSyncAttachPreview).mockResolvedValue(true);
-        vi.mocked(api.attachRemoteSyncProfile).mockResolvedValue({
-            sync_status: {
-                state: 'connected_clean',
-                google_authenticated: true,
-                sync_profile_id: 'prof_1',
-                profile_name: 'test-user',
-                google_account_email: 'sync@example.com',
-                last_sync_at: '2026-04-02T00:00:00Z',
-                device_name: 'Desk',
-                conflict_count: 0,
-            },
+        vi.mocked(api.attachRemoteSyncProfile).mockResolvedValue(buildSyncActionResult({
             safety_backup_path: '/home/testuser/pre_sync_backup.zip',
             published_snapshot_id: 'snap_2',
-            lost_race: false,
             remote_changed: true,
-        });
+        }));
 
         const view = new ProfileView(container);
         view.render();
@@ -481,39 +340,12 @@ describe('ProfileView', () => {
     });
 
     it('should subscribe to sync progress while running sync', async () => {
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
-            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
-            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
-            return '0';
-        });
-        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
-        vi.mocked(api.getSyncStatus).mockResolvedValue({
-            state: 'connected_clean',
-            google_authenticated: true,
-            sync_profile_id: 'prof_1',
-            profile_name: 'test-user',
-            google_account_email: 'sync@example.com',
-            last_sync_at: '2026-04-02T00:00:00Z',
-            device_name: 'Desk',
-            conflict_count: 0,
-        });
-        vi.mocked(api.runSync).mockResolvedValue({
-            sync_status: {
-                state: 'connected_clean',
-                google_authenticated: true,
-                sync_profile_id: 'prof_1',
-                profile_name: 'test-user',
-                google_account_email: 'sync@example.com',
-                last_sync_at: '2026-04-02T00:10:00Z',
-                device_name: 'Desk',
-                conflict_count: 0,
-            },
-            safety_backup_path: null,
+        vi.mocked(api.getSyncStatus).mockResolvedValue(buildConnectedSyncStatus());
+        vi.mocked(api.runSync).mockResolvedValue(buildSyncActionResult({
+            sync_status: { last_sync_at: '2026-04-02T00:10:00Z' },
             published_snapshot_id: 'snap_2',
-            lost_race: false,
             remote_changed: true,
-        });
+        }));
 
         const view = new ProfileView(container);
         view.render();
@@ -530,23 +362,11 @@ describe('ProfileView', () => {
     });
 
     it('should simplify sync card details and hide generic device placeholders', async () => {
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
-            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
-            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
-            return '0';
-        });
-        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
-        vi.mocked(api.getSyncStatus).mockResolvedValue({
+        vi.mocked(api.getSyncStatus).mockResolvedValue(buildConnectedSyncStatus({
             state: 'dirty',
-            google_authenticated: true,
-            sync_profile_id: 'prof_1',
-            profile_name: 'test-user',
             google_account_email: null,
-            last_sync_at: '2026-04-02T00:00:00Z',
             device_name: 'Device',
-            conflict_count: 0,
-        });
+        }));
 
         const view = new ProfileView(container);
         view.render();
@@ -566,40 +386,13 @@ describe('ProfileView', () => {
     });
 
     it('should replace local data from remote after confirmation', async () => {
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
-            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
-            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
-            return '0';
-        });
-        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
-        vi.mocked(api.getSyncStatus).mockResolvedValue({
-            state: 'connected_clean',
-            google_authenticated: true,
-            sync_profile_id: 'prof_1',
-            profile_name: 'test-user',
-            google_account_email: 'sync@example.com',
-            last_sync_at: '2026-04-02T00:00:00Z',
-            device_name: 'Desk',
-            conflict_count: 0,
-        });
+        vi.mocked(api.getSyncStatus).mockResolvedValue(buildConnectedSyncStatus());
         vi.mocked(modals.customConfirm).mockResolvedValue(true);
-        vi.mocked(api.replaceLocalFromRemote).mockResolvedValue({
-            sync_status: {
-                state: 'connected_clean',
-                google_authenticated: true,
-                sync_profile_id: 'prof_1',
-                profile_name: 'test-user',
-                google_account_email: 'sync@example.com',
-                last_sync_at: '2026-04-02T00:20:00Z',
-                device_name: 'Desk',
-                conflict_count: 0,
-            },
+        vi.mocked(api.replaceLocalFromRemote).mockResolvedValue(buildSyncActionResult({
+            sync_status: { last_sync_at: '2026-04-02T00:20:00Z' },
             safety_backup_path: SAFE_BACKUP_PATH,
-            published_snapshot_id: null,
-            lost_race: false,
             remote_changed: true,
-        });
+        }));
 
         const view = new ProfileView(container);
         view.render();
@@ -618,40 +411,13 @@ describe('ProfileView', () => {
     });
 
     it('should force publish local data after confirmation', async () => {
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
-            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
-            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
-            return '0';
-        });
-        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
-        vi.mocked(api.getSyncStatus).mockResolvedValue({
-            state: 'dirty',
-            google_authenticated: true,
-            sync_profile_id: 'prof_1',
-            profile_name: 'test-user',
-            google_account_email: 'sync@example.com',
-            last_sync_at: '2026-04-02T00:00:00Z',
-            device_name: 'Desk',
-            conflict_count: 0,
-        });
+        vi.mocked(api.getSyncStatus).mockResolvedValue(buildConnectedSyncStatus({ state: 'dirty' }));
         vi.mocked(modals.customConfirm).mockResolvedValue(true);
-        vi.mocked(api.forcePublishLocalAsRemote).mockResolvedValue({
-            sync_status: {
-                state: 'connected_clean',
-                google_authenticated: true,
-                sync_profile_id: 'prof_1',
-                profile_name: 'test-user',
-                google_account_email: 'sync@example.com',
-                last_sync_at: '2026-04-02T00:30:00Z',
-                device_name: 'Desk',
-                conflict_count: 0,
-            },
+        vi.mocked(api.forcePublishLocalAsRemote).mockResolvedValue(buildSyncActionResult({
+            sync_status: { last_sync_at: '2026-04-02T00:30:00Z' },
             safety_backup_path: SAFE_BACKUP_PATH,
             published_snapshot_id: 'snap_force_1',
-            lost_race: false,
-            remote_changed: false,
-        });
+        }));
 
         const view = new ProfileView(container);
         view.render();
@@ -670,13 +436,6 @@ describe('ProfileView', () => {
     });
 
     it('should show a setup message when Google OAuth is not configured', async () => {
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
-            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
-            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
-            return '0';
-        });
-        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
         vi.mocked(api.connectGoogleDrive).mockRejectedValue(
             new Error('Google Drive sync is not configured. Set `plugins.kechimochiSync.clientId` in src-tauri/tauri.conf.json or export KECHIMOCHI_GOOGLE_CLIENT_ID before launching the app.')
         );
@@ -694,13 +453,6 @@ describe('ProfileView', () => {
     });
 
     it('should show a specific message when the configured Google OAuth client requires a secret', async () => {
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
-            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
-            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
-            return '0';
-        });
-        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
         vi.mocked(api.connectGoogleDrive).mockRejectedValue(
             new Error('Server returned error response: invalid_request: client_secret is missing.')
         );
@@ -721,13 +473,6 @@ describe('ProfileView', () => {
         vi.useFakeTimers();
         const close = vi.fn();
         vi.mocked(modals.showBlockingStatus).mockReturnValue({ close });
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
-            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
-            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
-            return '0';
-        });
-        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
         vi.mocked(api.connectGoogleDrive).mockImplementation(
             () => new Promise(() => undefined)
         );
@@ -749,18 +494,7 @@ describe('ProfileView', () => {
     });
 
     it('should show a specific timeout message when creating a cloud profile stalls', async () => {
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
-            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
-            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
-            return '0';
-        });
-        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
-        vi.mocked(api.connectGoogleDrive).mockResolvedValue({
-            device_id: 'dev_1',
-            google_account_email: 'sync@example.com',
-            access_token_expires_at: null,
-        });
+        vi.mocked(api.connectGoogleDrive).mockResolvedValue(buildGoogleDriveAuthSession());
         vi.mocked(api.listRemoteSyncProfiles).mockResolvedValue([]);
         vi.mocked(modals.showSyncEnablementWizard).mockResolvedValue({ action: 'create_new' });
         vi.mocked(api.createRemoteSyncProfile).mockRejectedValue(
@@ -780,13 +514,6 @@ describe('ProfileView', () => {
     });
 
     it('should show a busy message when a previous sync attempt still holds the lock', async () => {
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
-            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
-            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
-            return '0';
-        });
-        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
         vi.mocked(api.connectGoogleDrive).mockRejectedValue(
             new Error('Another sync operation is already in progress')
         );
@@ -804,34 +531,15 @@ describe('ProfileView', () => {
     });
 
     it('should show sync conflicts and resolve them from the profile card', async () => {
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
-            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
-            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
-            return '0';
-        });
-        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
         vi.mocked(api.getSyncStatus)
-            .mockResolvedValueOnce({
+            .mockResolvedValueOnce(buildConnectedSyncStatus({
                 state: 'conflict_pending',
-                google_authenticated: true,
-                sync_profile_id: 'prof_1',
-                profile_name: 'test-user',
-                google_account_email: 'sync@example.com',
-                last_sync_at: '2026-04-02T00:00:00Z',
-                device_name: 'Desk',
                 conflict_count: 1,
-            })
-            .mockResolvedValueOnce({
+            }))
+            .mockResolvedValueOnce(buildConnectedSyncStatus({
                 state: 'dirty',
-                google_authenticated: true,
-                sync_profile_id: 'prof_1',
-                profile_name: 'test-user',
-                google_account_email: 'sync@example.com',
-                last_sync_at: '2026-04-02T00:00:00Z',
-                device_name: 'Desk',
                 conflict_count: 0,
-            });
+            }));
         vi.mocked(api.getSyncConflicts).mockResolvedValue([{
             kind: 'media_field_conflict',
             media_uid: 'uid_1',
@@ -840,22 +548,9 @@ describe('ProfileView', () => {
             local_value: 'Local Title',
             remote_value: 'Remote Title',
         }]);
-        vi.mocked(api.resolveSyncConflict).mockResolvedValue({
-            sync_status: {
-                state: 'dirty',
-                google_authenticated: true,
-                sync_profile_id: 'prof_1',
-                profile_name: 'test-user',
-                google_account_email: 'sync@example.com',
-                last_sync_at: '2026-04-02T00:00:00Z',
-                device_name: 'Desk',
-                conflict_count: 0,
-            },
-            safety_backup_path: null,
-            published_snapshot_id: null,
-            lost_race: false,
-            remote_changed: false,
-        });
+        vi.mocked(api.resolveSyncConflict).mockResolvedValue(buildSyncActionResult({
+            sync_status: { state: 'dirty', conflict_count: 0 },
+        }));
 
         const view = new ProfileView(container);
         await view.loadData();
@@ -872,23 +567,7 @@ describe('ProfileView', () => {
     });
 
     it('should warn before renaming a synced profile', async () => {
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
-            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
-            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
-            return '0';
-        });
-        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
-        vi.mocked(api.getSyncStatus).mockResolvedValue({
-            state: 'connected_clean',
-            google_authenticated: true,
-            sync_profile_id: 'prof_1',
-            profile_name: 'test-user',
-            google_account_email: 'sync@example.com',
-            last_sync_at: '2026-04-02T00:00:00Z',
-            device_name: 'Desk',
-            conflict_count: 0,
-        });
+        vi.mocked(api.getSyncStatus).mockResolvedValue(buildConnectedSyncStatus());
         vi.mocked(modals.customConfirm).mockResolvedValue(true);
 
         const view = new ProfileView(container);

@@ -5,6 +5,14 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open as tauriOpen, save as tauriSave } from '@tauri-apps/plugin-dialog';
+import {
+    buildConnectedSyncStatus,
+    buildGoogleDriveAuthSession,
+    buildRemoteSyncProfileSummary,
+    buildSyncActionResult,
+    buildSyncAttachPreview,
+    buildSyncStatus,
+} from '../sync-fixtures';
 
 vi.mock('@tauri-apps/api/core', () => ({
     invoke: vi.fn(),
@@ -144,18 +152,38 @@ describe('DesktopServices', () => {
 
     it('routes sync actions through invoke', async () => {
         vi.mocked(invoke)
-            .mockResolvedValueOnce({ state: 'disconnected', google_authenticated: false, sync_profile_id: null, profile_name: null, google_account_email: null, last_sync_at: null, device_name: null, conflict_count: 0 })
-            .mockResolvedValueOnce({ device_id: 'dev_1', google_account_email: 'user@example.com', access_token_expires_at: null })
+            .mockResolvedValueOnce(buildSyncStatus())
+            .mockResolvedValueOnce(buildGoogleDriveAuthSession({ google_account_email: 'user@example.com' }))
             .mockResolvedValueOnce(undefined)
-            .mockResolvedValueOnce([{ profile_id: 'prof_1', profile_name: 'Desk', snapshot_id: 'snap_1', remote_generation: 1, updated_at: '2026-04-02T00:00:00Z', last_writer_device_id: 'dev_1' }])
-            .mockResolvedValueOnce({ profile_id: 'prof_1', profile_name: 'Desk', local_only_media_count: 1, remote_only_media_count: 2, matched_media_count: 3, potential_duplicate_titles: ['Foo'], conflict_count: 1 })
-            .mockResolvedValueOnce({ sync_status: { state: 'connected_clean' }, safety_backup_path: null, published_snapshot_id: 'snap_2', lost_race: false, remote_changed: false })
-            .mockResolvedValueOnce({ sync_status: { state: 'dirty' }, safety_backup_path: null, published_snapshot_id: null, lost_race: false, remote_changed: true })
-            .mockResolvedValueOnce({ sync_status: { state: 'connected_clean' }, safety_backup_path: null, published_snapshot_id: 'snap_3', lost_race: false, remote_changed: true })
-            .mockResolvedValueOnce({ sync_status: { state: 'connected_clean' }, safety_backup_path: SAFE_BACKUP_PATH, published_snapshot_id: null, lost_race: false, remote_changed: true })
-            .mockResolvedValueOnce({ sync_status: { state: 'connected_clean' }, safety_backup_path: SAFE_BACKUP_PATH, published_snapshot_id: 'snap_4', lost_race: false, remote_changed: false })
+            .mockResolvedValueOnce([buildRemoteSyncProfileSummary({ profile_name: 'Desk', last_writer_device_id: 'dev_1' })])
+            .mockResolvedValueOnce(buildSyncAttachPreview({
+                profile_name: 'Desk',
+                local_only_media_count: 1,
+                remote_only_media_count: 2,
+                potential_duplicate_titles: ['Foo'],
+                conflict_count: 1,
+            }))
+            .mockResolvedValueOnce(buildSyncActionResult({ published_snapshot_id: 'snap_2' }))
+            .mockResolvedValueOnce(buildSyncActionResult({
+                sync_status: { state: 'dirty' },
+                remote_changed: true,
+            }))
+            .mockResolvedValueOnce(buildSyncActionResult({
+                published_snapshot_id: 'snap_3',
+                remote_changed: true,
+            }))
+            .mockResolvedValueOnce(buildSyncActionResult({
+                safety_backup_path: SAFE_BACKUP_PATH,
+                remote_changed: true,
+            }))
+            .mockResolvedValueOnce(buildSyncActionResult({
+                safety_backup_path: SAFE_BACKUP_PATH,
+                published_snapshot_id: 'snap_4',
+            }))
             .mockResolvedValueOnce([{ kind: 'media_field_conflict', media_uid: 'uid_1', field_name: 'title', base_value: null, local_value: 'A', remote_value: 'B' }])
-            .mockResolvedValueOnce({ sync_status: { state: 'dirty', conflict_count: 0 }, safety_backup_path: null, published_snapshot_id: null, lost_race: false, remote_changed: false });
+            .mockResolvedValueOnce(buildSyncActionResult({
+                sync_status: { state: 'dirty', conflict_count: 0 },
+            }));
 
         await expect(services.getSyncStatus()).resolves.toMatchObject({ state: 'disconnected' });
         await expect(services.connectGoogleDrive()).resolves.toMatchObject({ device_id: 'dev_1' });
@@ -169,7 +197,7 @@ describe('DesktopServices', () => {
         await expect(services.forcePublishLocalAsRemote()).resolves.toMatchObject({ published_snapshot_id: 'snap_4' });
         await expect(services.getSyncConflicts()).resolves.toHaveLength(1);
         await expect(services.resolveSyncConflict(0, { kind: 'media_field', side: 'local' })).resolves.toMatchObject({
-            sync_status: { state: 'dirty', conflict_count: 0 },
+            sync_status: buildConnectedSyncStatus({ state: 'dirty', conflict_count: 0 }),
         });
 
         expect(invoke).toHaveBeenNthCalledWith(1, 'get_sync_status');

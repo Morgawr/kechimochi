@@ -187,59 +187,27 @@ describe('api.ts', () => {
   });
 
   describe('sync functions', () => {
-    it('getSyncStatus should call invoke', async () => {
-      await api.getSyncStatus();
-      expect(invoke).toHaveBeenCalledWith('get_sync_status');
+    it.each([
+      ['getSyncStatus', () => api.getSyncStatus(), 'get_sync_status'],
+      ['connectGoogleDrive', () => api.connectGoogleDrive(), 'connect_google_drive'],
+      ['disconnectGoogleDrive', () => api.disconnectGoogleDrive(), 'disconnect_google_drive'],
+      ['listRemoteSyncProfiles', () => api.listRemoteSyncProfiles(), 'list_remote_sync_profiles'],
+      ['createRemoteSyncProfile', () => api.createRemoteSyncProfile(), 'create_remote_sync_profile'],
+      ['runSync', () => api.runSync(), 'run_sync'],
+      ['replaceLocalFromRemote', () => api.replaceLocalFromRemote(), 'replace_local_from_remote'],
+      ['forcePublishLocalAsRemote', () => api.forcePublishLocalAsRemote(), 'force_publish_local_as_remote'],
+      ['getSyncConflicts', () => api.getSyncConflicts(), 'get_sync_conflicts'],
+    ])('%s should call invoke', async (_label, fn, command) => {
+      await fn();
+      expect(invoke).toHaveBeenCalledWith(command);
     });
 
-    it('connectGoogleDrive should call invoke', async () => {
-      await api.connectGoogleDrive();
-      expect(invoke).toHaveBeenCalledWith('connect_google_drive');
-    });
-
-    it('disconnectGoogleDrive should call invoke', async () => {
-      await api.disconnectGoogleDrive();
-      expect(invoke).toHaveBeenCalledWith('disconnect_google_drive');
-    });
-
-    it('listRemoteSyncProfiles should call invoke', async () => {
-      await api.listRemoteSyncProfiles();
-      expect(invoke).toHaveBeenCalledWith('list_remote_sync_profiles');
-    });
-
-    it('previewAttachRemoteSyncProfile should call invoke', async () => {
-      await api.previewAttachRemoteSyncProfile('prof_123');
-      expect(invoke).toHaveBeenCalledWith('preview_attach_remote_sync_profile', { profileId: 'prof_123' });
-    });
-
-    it('createRemoteSyncProfile should call invoke', async () => {
-      await api.createRemoteSyncProfile();
-      expect(invoke).toHaveBeenCalledWith('create_remote_sync_profile');
-    });
-
-    it('attachRemoteSyncProfile should call invoke', async () => {
-      await api.attachRemoteSyncProfile('prof_123');
-      expect(invoke).toHaveBeenCalledWith('attach_remote_sync_profile', { profileId: 'prof_123' });
-    });
-
-    it('runSync should call invoke', async () => {
-      await api.runSync();
-      expect(invoke).toHaveBeenCalledWith('run_sync');
-    });
-
-    it('replaceLocalFromRemote should call invoke', async () => {
-      await api.replaceLocalFromRemote();
-      expect(invoke).toHaveBeenCalledWith('replace_local_from_remote');
-    });
-
-    it('forcePublishLocalAsRemote should call invoke', async () => {
-      await api.forcePublishLocalAsRemote();
-      expect(invoke).toHaveBeenCalledWith('force_publish_local_as_remote');
-    });
-
-    it('getSyncConflicts should call invoke', async () => {
-      await api.getSyncConflicts();
-      expect(invoke).toHaveBeenCalledWith('get_sync_conflicts');
+    it.each([
+      ['previewAttachRemoteSyncProfile', () => api.previewAttachRemoteSyncProfile('prof_123'), 'preview_attach_remote_sync_profile', { profileId: 'prof_123' }],
+      ['attachRemoteSyncProfile', () => api.attachRemoteSyncProfile('prof_123'), 'attach_remote_sync_profile', { profileId: 'prof_123' }],
+    ])('%s should call invoke with args', async (_label, fn, command, args) => {
+      await fn();
+      expect(invoke).toHaveBeenCalledWith(command, args);
     });
 
     it('resolveSyncConflict should call invoke', async () => {

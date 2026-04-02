@@ -1378,10 +1378,7 @@ export class ProfileView extends Component<ProfileState> {
 
     private async handleRunSync() {
         try {
-            if (!this.state.syncStatus?.google_authenticated) {
-                await this.connectGoogleDriveForSync();
-                await this.refreshSyncData(this.state.showSyncConflicts);
-            }
+            await this.ensureGoogleDriveConnected(this.state.showSyncConflicts);
 
             const result = await this.withSyncProgressBlockingStatus(
                 'Syncing to Google Drive',
@@ -1437,10 +1434,7 @@ export class ProfileView extends Component<ProfileState> {
         }
 
         try {
-            if (!this.state.syncStatus?.google_authenticated) {
-                await this.connectGoogleDriveForSync();
-                await this.refreshSyncData(this.state.showSyncConflicts);
-            }
+            await this.ensureGoogleDriveConnected(this.state.showSyncConflicts);
 
             const result = await this.withSyncProgressBlockingStatus(
                 'Replacing Local Data From Cloud Sync',
@@ -1473,10 +1467,7 @@ export class ProfileView extends Component<ProfileState> {
         }
 
         try {
-            if (!this.state.syncStatus?.google_authenticated) {
-                await this.connectGoogleDriveForSync();
-                await this.refreshSyncData(this.state.showSyncConflicts);
-            }
+            await this.ensureGoogleDriveConnected(this.state.showSyncConflicts);
 
             const result = await this.withSyncProgressBlockingStatus(
                 'Force Publishing Local Data',
@@ -1517,6 +1508,15 @@ export class ProfileView extends Component<ProfileState> {
                 timeoutMessage: ENABLE_SYNC_AUTH_TIMEOUT_ERROR,
             }
         );
+    }
+
+    private async ensureGoogleDriveConnected(showConflictsOnRefresh: boolean) {
+        if (this.state.syncStatus?.google_authenticated) {
+            return;
+        }
+
+        await this.connectGoogleDriveForSync();
+        await this.refreshSyncData(showConflictsOnRefresh);
     }
 
     private async handleDisconnectSync() {
