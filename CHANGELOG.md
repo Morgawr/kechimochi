@@ -6,6 +6,15 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+### Added
+- Google Drive cloud sync for desktop builds, with sign-in, first upload, attach, manual sync, conflict review, and recovery actions.
+- Snapshot-based sync with per-device state, remote cover-art transfer, and sync progress UI.
+- Per-entry conflict resolution for media `extra_data`.
+- End-to-end desktop coverage for the cloud sync flow with mocked OAuth and Drive endpoints.
+
+### Changed
+- Media sync identity now uses stable UIDs instead of title-only matching.
+
 ### Fixed
 - macOS DMG builds are now packaged as universal binaries to support both Intel and Apple Silicon architectures natively.
 - 'Back to Grid' button text changed to 'Back to Library' on the media detail view to be layout-agnostic.
