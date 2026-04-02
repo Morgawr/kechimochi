@@ -1,10 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import * as api from '../src/api';
-import type { ActivitySummary } from '../src/api';
 import * as modals from '../src/modals';
-import { STORAGE_KEYS, SETTING_KEYS } from '../src/constants';
+import { SETTING_KEYS } from '../src/constants';
 import { Logger } from '../src/core/logger';
+import {
+    renderMainAppShell,
+    resetMainApiMocks,
+    resetMainModalMocks,
+    setBuildGlobals,
+    stubMainStorage,
+} from './helpers/main_harness';
 
 const mockWindow = {
     minimize: vi.fn(),
@@ -17,98 +23,20 @@ vi.mock('@tauri-apps/api/window', () => ({
     getCurrentWindow: vi.fn(() => mockWindow),
 }));
 
-vi.mock('chart.js/auto', () => {
-    return {
-        default: vi.fn().mockImplementation(() => ({
-            destroy: vi.fn(),
-            update: vi.fn()
-        }))
-    }
+vi.mock('chart.js/auto', async () => {
+    const { createChartJsAutoMock } = await import('./helpers/main_harness');
+    return createChartJsAutoMock();
 });
 
-vi.mock('../src/api', () => ({
-    initializeUserDb: vi.fn(() => Promise.resolve()),
-    getUsername: vi.fn(() => Promise.resolve('os-user')),
-    getStartupError: vi.fn(() => Promise.resolve(null)),
-    getSetting: vi.fn((key) => {
-        if (key === SETTING_KEYS.THEME) return Promise.resolve('dark');
-        if (key === SETTING_KEYS.PROFILE_NAME) return Promise.resolve('test-user');
-        return Promise.resolve(null);
-    }),
-    getProfilePicture: vi.fn(() => Promise.resolve(null)),
-    getLogs: vi.fn(() => Promise.resolve([{ id: 0, date: '2024-01-01', duration_minutes: 0, title: 'T', media_id: 1, media_type: 'M', language: 'Japanese' } as ActivitySummary])),
-    getAllMedia: vi.fn(() => Promise.resolve([])),
-    getHeatmap: vi.fn(() => Promise.resolve([{ date: '2024-01-01', total_minutes: 10 }])),
-    getTimelineEvents: vi.fn(() => Promise.resolve([])),
-    getMilestones: vi.fn(() => Promise.resolve([])),
-    getAppVersion: vi.fn(() => Promise.resolve('1.0.0')),
-    clearMilestones: vi.fn(),
-    deleteMilestone: vi.fn(),
-    setSetting: vi.fn(),
-}));
+vi.mock('../src/api', async () => {
+    const { createMainApiMock } = await import('./helpers/main_harness');
+    return createMainApiMock();
+});
 
-vi.mock('../src/modals', () => ({
-    initialProfilePrompt: vi.fn(() => Promise.resolve('new-user')),
-    customAlert: vi.fn(),
-    customConfirm: vi.fn(),
-    customPrompt: vi.fn(),
-    showLogActivityModal: vi.fn(),
-    showInstalledUpdateModal: vi.fn(() => Promise.resolve()),
-    showAvailableUpdateModal: vi.fn(() => Promise.resolve()),
-}));
-
-const setDefaultApiMocks = () => {
-    vi.mocked(api.initializeUserDb).mockResolvedValue();
-    vi.mocked(api.getUsername).mockResolvedValue('os-user');
-    vi.mocked(api.getStartupError).mockResolvedValue(null);
-    vi.mocked(api.getSetting).mockImplementation(async (key) => {
-        if (key === SETTING_KEYS.THEME) return 'dark';
-        if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
-        return null;
-    });
-    vi.mocked(api.getProfilePicture).mockResolvedValue(null);
-    vi.mocked(api.getLogs).mockResolvedValue([
-        { id: 0, date: '2024-01-01', duration_minutes: 0, title: 'T', media_id: 1, media_type: 'M', language: 'Japanese' } as ActivitySummary,
-    ]);
-    vi.mocked(api.getAllMedia).mockResolvedValue([]);
-    vi.mocked(api.getHeatmap).mockResolvedValue([{ date: '2024-01-01', total_minutes: 10 }]);
-    vi.mocked(api.getTimelineEvents).mockResolvedValue([]);
-    vi.mocked(api.getMilestones).mockResolvedValue([]);
-    vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
-    vi.mocked(api.clearMilestones).mockImplementation(() => {});
-    vi.mocked(api.deleteMilestone).mockImplementation(() => {});
-    vi.mocked(api.setSetting).mockResolvedValue();
-};
-
-const setDefaultModalMocks = () => {
-    vi.mocked(modals.initialProfilePrompt).mockResolvedValue('new-user');
-    vi.mocked(modals.showLogActivityModal).mockResolvedValue(false);
-};
-
-const renderAppShell = () => {
-    document.body.innerHTML = `
-        <div id="app">
-            <div id="desktop-title-bar"></div>
-            <header>
-                <div id="nav-user-avatar"></div>
-                <img id="nav-user-avatar-image" />
-                <span id="nav-user-avatar-fallback"></span>
-                <span id="nav-user-name"></span>
-                <div id="dev-build-badge"></div>
-                <button id="update-available-badge"></button>
-                <div class="nav-link" data-view="dashboard"></div>
-                <div class="nav-link" data-view="media"></div>
-                <div class="nav-link" data-view="timeline"></div>
-                <div class="nav-link" data-view="profile"></div>
-                <button id="win-min"></button>
-                <button id="win-max"></button>
-                <button id="win-close"></button>
-                <button id="btn-add-activity"></button>
-            </header>
-            <div id="view-container"></div>
-        </div>
-    `;
-};
+vi.mock('../src/modals', async () => {
+    const { createMainModalMock } = await import('./helpers/main_harness');
+    return createMainModalMock();
+});
 
 describe('main.ts initialization', () => {
     const bootApp = async () => {
@@ -117,31 +45,20 @@ describe('main.ts initialization', () => {
         await vi.waitFor(() => expect(api.initializeUserDb).toHaveBeenCalled());
     };
 
+    const clickView = async (view: 'dashboard' | 'media' | 'timeline' | 'profile') => {
+        const link = document.querySelector(`[data-view="${view}"]`);
+        link?.dispatchEvent(new Event('click'));
+        await vi.waitFor(() => expect(link?.classList.contains('active')).toBe(true));
+    };
+
     beforeEach(async () => {
         vi.clearAllMocks();
         vi.spyOn(Logger, 'warn').mockImplementation(() => {});
-        setDefaultApiMocks();
-        setDefaultModalMocks();
-
-        const globals = globalThis as Record<string, unknown>;
-        globals.__APP_VERSION__ = '0.1.0-dev.test';
-        globals.__APP_BUILD_CHANNEL__ = 'dev';
-        globals.__APP_RELEASE_STAGE__ = 'beta';
-
-        renderAppShell();
-        
-        // Mock localStorage
-        const store: Record<string, string> = { [STORAGE_KEYS.CURRENT_PROFILE]: 'test-user' };
-        vi.stubGlobal('localStorage', {
-            getItem: vi.fn(key => store[key] || null),
-            setItem: vi.fn((key, val) => store[key] = val),
-            removeItem: vi.fn((key) => delete store[key]),
-        });
-        
-        vi.stubGlobal('sessionStorage', {
-            getItem: vi.fn(() => null),
-            setItem: vi.fn(() => {}),
-        });
+        resetMainApiMocks(api);
+        resetMainModalMocks(modals);
+        setBuildGlobals('0.1.0-dev.test', 'dev', 'beta');
+        renderMainAppShell();
+        stubMainStorage();
     });
 
     it('should initialize the App', async () => {
@@ -155,10 +72,7 @@ describe('main.ts initialization', () => {
     });
 
     it('should show the beta release badge for release builds', async () => {
-        const globals = globalThis as Record<string, unknown>;
-        globals.__APP_VERSION__ = '0.1.0';
-        globals.__APP_BUILD_CHANNEL__ = 'release';
-        globals.__APP_RELEASE_STAGE__ = 'beta';
+        setBuildGlobals('0.1.0', 'release', 'beta');
 
         await bootApp();
 
@@ -168,21 +82,10 @@ describe('main.ts initialization', () => {
     it('should switch views', async () => {
         await bootApp();
 
-        const mediaLink = document.querySelector('[data-view="media"]');
-        mediaLink?.dispatchEvent(new Event('click'));
-        
-        await vi.waitFor(() => expect(mediaLink?.classList.contains('active')).toBe(true));
-        const timelineLink = document.querySelector('[data-view="timeline"]');
-        timelineLink?.dispatchEvent(new Event('click'));
-        await vi.waitFor(() => expect(timelineLink?.classList.contains('active')).toBe(true));
-
-        const profileLink = document.querySelector('[data-view="profile"]');
-        profileLink?.dispatchEvent(new Event('click'));
-        await vi.waitFor(() => expect(profileLink?.classList.contains('active')).toBe(true));
-
-        const dashboardLink = document.querySelector('[data-view="dashboard"]');
-        dashboardLink?.dispatchEvent(new Event('click'));
-        await vi.waitFor(() => expect(dashboardLink?.classList.contains('active')).toBe(true));
+        await clickView('media');
+        await clickView('timeline');
+        await clickView('profile');
+        await clickView('dashboard');
     });
 
     it('should handle app-navigate event', async () => {
@@ -198,8 +101,7 @@ describe('main.ts initialization', () => {
 
     it('should handle initial profile prompt', async () => {
         vi.mocked(api.getSetting).mockResolvedValue(null);
-        const store: Record<string, string> = {};
-        vi.mocked(localStorage.getItem).mockImplementation((key) => store[key] || null);
+        stubMainStorage(null);
         vi.mocked(modals.initialProfilePrompt).mockResolvedValue('new-user');
         
         await bootApp();
@@ -240,9 +142,7 @@ describe('main.ts initialization', () => {
         await vi.waitFor(() => expect(api.getTimelineEvents).toHaveBeenCalled());
         const initialCalls = vi.mocked(api.getTimelineEvents).mock.calls.length;
 
-        const timelineLink = document.querySelector('[data-view="timeline"]');
-        timelineLink?.dispatchEvent(new Event('click'));
-        await vi.waitFor(() => expect(timelineLink?.classList.contains('active')).toBe(true));
+        await clickView('timeline');
         const callsAfterNavigation = vi.mocked(api.getTimelineEvents).mock.calls.length;
 
         vi.mocked(modals.showLogActivityModal).mockResolvedValue(true);
