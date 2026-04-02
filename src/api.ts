@@ -98,6 +98,8 @@ export function attachRemoteSyncProfile(profileId: string): Promise<SyncActionRe
   return getServices().attachRemoteSyncProfile(profileId);
 }
 export function runSync(): Promise<SyncActionResult> { return getServices().runSync(); }
+export function replaceLocalFromRemote(): Promise<SyncActionResult> { return getServices().replaceLocalFromRemote(); }
+export function forcePublishLocalAsRemote(): Promise<SyncActionResult> { return getServices().forcePublishLocalAsRemote(); }
 export function getSyncConflicts(): Promise<SyncConflict[]> { return getServices().getSyncConflicts(); }
 export function resolveSyncConflict(conflictIndex: number, resolution: SyncConflictResolution): Promise<SyncActionResult> {
   return getServices().resolveSyncConflict(conflictIndex, resolution);

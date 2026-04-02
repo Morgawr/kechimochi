@@ -137,6 +137,8 @@ export class WebServices implements AppServices {
     createRemoteSyncProfile():               Promise<SyncActionResult>  { return Promise.reject(syncUnavailableError()); }
     attachRemoteSyncProfile(_profileId: string): Promise<SyncActionResult> { return Promise.reject(syncUnavailableError()); }
     runSync():                              Promise<SyncActionResult>  { return Promise.reject(syncUnavailableError()); }
+    replaceLocalFromRemote():               Promise<SyncActionResult>  { return Promise.reject(syncUnavailableError()); }
+    forcePublishLocalAsRemote():            Promise<SyncActionResult>  { return Promise.reject(syncUnavailableError()); }
     getSyncConflicts():                      Promise<SyncConflict[]>    { return Promise.reject(syncUnavailableError()); }
     resolveSyncConflict(_conflictIndex: number, _resolution: SyncConflictResolution): Promise<SyncActionResult> {
         return Promise.reject(syncUnavailableError());

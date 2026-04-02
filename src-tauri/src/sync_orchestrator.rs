@@ -83,7 +83,7 @@ struct BuiltSnapshot {
 }
 
 struct PublishSnapshotRequest<'a> {
-    remote_manifest: &'a RemoteSyncManifest,
+    current_remote_generation: i64,
     snapshot: &'a SyncSnapshot,
     synced_at: &'a str,
     operation: SyncProgressOperation,
@@ -96,6 +96,8 @@ pub enum SyncProgressOperation {
     CreateRemoteSyncProfile,
     AttachRemoteSyncProfile,
     RunSync,
+    ReplaceLocalFromRemote,
+    ForcePublishLocalAsRemote,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -258,6 +260,46 @@ pub async fn run_sync_with_progress(
 ) -> Result<SyncActionResult, String> {
     let client = GoogleDriveClient::new(auth_config.clone())?;
     run_sync_with_client(app_dir, conn, &client, token_store, progress).await
+}
+
+pub async fn replace_local_from_remote(
+    app_dir: &Path,
+    conn: &Arc<Mutex<Connection>>,
+    auth_config: &GoogleOAuthClientConfig,
+    token_store: &dyn SecureTokenStore,
+) -> Result<SyncActionResult, String> {
+    replace_local_from_remote_with_progress(app_dir, conn, auth_config, token_store, None).await
+}
+
+pub async fn replace_local_from_remote_with_progress(
+    app_dir: &Path,
+    conn: &Arc<Mutex<Connection>>,
+    auth_config: &GoogleOAuthClientConfig,
+    token_store: &dyn SecureTokenStore,
+    progress: Option<&SyncProgressReporter>,
+) -> Result<SyncActionResult, String> {
+    let client = GoogleDriveClient::new(auth_config.clone())?;
+    replace_local_from_remote_with_client(app_dir, conn, &client, token_store, progress).await
+}
+
+pub async fn force_publish_local_as_remote(
+    app_dir: &Path,
+    conn: &Arc<Mutex<Connection>>,
+    auth_config: &GoogleOAuthClientConfig,
+    token_store: &dyn SecureTokenStore,
+) -> Result<SyncActionResult, String> {
+    force_publish_local_as_remote_with_progress(app_dir, conn, auth_config, token_store, None).await
+}
+
+pub async fn force_publish_local_as_remote_with_progress(
+    app_dir: &Path,
+    conn: &Arc<Mutex<Connection>>,
+    auth_config: &GoogleOAuthClientConfig,
+    token_store: &dyn SecureTokenStore,
+    progress: Option<&SyncProgressReporter>,
+) -> Result<SyncActionResult, String> {
+    let client = GoogleDriveClient::new(auth_config.clone())?;
+    force_publish_local_as_remote_with_client(app_dir, conn, &client, token_store, progress).await
 }
 
 pub fn get_sync_conflicts(app_dir: &Path) -> Result<Vec<SyncConflict>, String> {
@@ -540,7 +582,7 @@ async fn attach_remote_sync_profile_with_client<T: DriveTransport>(
         client,
         token_store,
         PublishSnapshotRequest {
-            remote_manifest: &remote_manifest.manifest,
+            current_remote_generation: remote_manifest.manifest.remote_generation,
             snapshot: &merge_outcome.merged_snapshot,
             synced_at: local_snapshot.created_at.as_str(),
             operation: SyncProgressOperation::AttachRemoteSyncProfile,
@@ -636,6 +678,64 @@ async fn run_sync_with_client<T: DriveTransport>(
     result
 }
 
+async fn replace_local_from_remote_with_client<T: DriveTransport>(
+    app_dir: &Path,
+    conn: &Arc<Mutex<Connection>>,
+    client: &GoogleDriveClient<T>,
+    token_store: &dyn SecureTokenStore,
+    progress: Option<&SyncProgressReporter>,
+) -> Result<SyncActionResult, String> {
+    let _lock = sync_state::acquire_sync_lock(app_dir)?;
+    let Some(config) = sync_state::load_sync_config(app_dir)? else {
+        return Err("Sync is not configured for this profile".to_string());
+    };
+
+    sync_state::update_sync_config(app_dir, |current| {
+        current.last_sync_status = SyncLifecycleStatus::Syncing;
+    })?;
+
+    let result =
+        replace_local_from_remote_inner(app_dir, conn, client, token_store, &config, progress)
+            .await;
+    if let Err(err) = &result {
+        let _ = sync_state::update_sync_config(app_dir, |current| {
+            current.last_sync_status = SyncLifecycleStatus::Error;
+        });
+        return Err(err.clone());
+    }
+
+    result
+}
+
+async fn force_publish_local_as_remote_with_client<T: DriveTransport>(
+    app_dir: &Path,
+    conn: &Arc<Mutex<Connection>>,
+    client: &GoogleDriveClient<T>,
+    token_store: &dyn SecureTokenStore,
+    progress: Option<&SyncProgressReporter>,
+) -> Result<SyncActionResult, String> {
+    let _lock = sync_state::acquire_sync_lock(app_dir)?;
+    let Some(config) = sync_state::load_sync_config(app_dir)? else {
+        return Err("Sync is not configured for this profile".to_string());
+    };
+
+    sync_state::update_sync_config(app_dir, |current| {
+        current.last_sync_status = SyncLifecycleStatus::Syncing;
+    })?;
+
+    let result =
+        force_publish_local_as_remote_inner(app_dir, conn, client, token_store, &config, progress)
+            .await;
+    if let Err(err) = &result {
+        let _ = sync_state::update_sync_config(app_dir, |current| {
+            current.last_sync_status = SyncLifecycleStatus::Error;
+        });
+        return Err(err.clone());
+    }
+
+    result
+}
+
 async fn run_sync_inner<T: DriveTransport>(
     app_dir: &Path,
     conn: &Arc<Mutex<Connection>>,
@@ -699,7 +799,7 @@ async fn run_sync_inner<T: DriveTransport>(
             client,
             token_store,
             PublishSnapshotRequest {
-                remote_manifest: &remote_manifest.manifest,
+                current_remote_generation: remote_manifest.manifest.remote_generation,
                 snapshot: &local_snapshot.snapshot,
                 synced_at: &local_snapshot.created_at,
                 operation: SyncProgressOperation::RunSync,
@@ -796,7 +896,7 @@ async fn run_sync_inner<T: DriveTransport>(
         client,
         token_store,
         PublishSnapshotRequest {
-            remote_manifest: &remote_manifest.manifest,
+            current_remote_generation: remote_manifest.manifest.remote_generation,
             snapshot: &merge_outcome.merged_snapshot,
             synced_at: &local_snapshot.created_at,
             operation: SyncProgressOperation::RunSync,
@@ -808,6 +908,202 @@ async fn run_sync_inner<T: DriveTransport>(
         result.remote_changed = true;
         result
     })
+}
+
+async fn replace_local_from_remote_inner<T: DriveTransport>(
+    app_dir: &Path,
+    conn: &Arc<Mutex<Connection>>,
+    client: &GoogleDriveClient<T>,
+    token_store: &dyn SecureTokenStore,
+    config: &SyncConfig,
+    progress: Option<&SyncProgressReporter>,
+) -> Result<SyncActionResult, String> {
+    let safety_backup_path = create_local_safety_backup(app_dir, conn)?;
+    let operation_result = async {
+        report_progress(
+            SyncProgressOperation::ReplaceLocalFromRemote,
+            progress,
+            SyncProgressStage::LoadingRemote,
+            0,
+            2,
+            "Loading remote sync state...".to_string(),
+        );
+        let remote_manifest =
+            load_remote_manifest(client, token_store, &config.sync_profile_id).await?;
+        report_progress(
+            SyncProgressOperation::ReplaceLocalFromRemote,
+            progress,
+            SyncProgressStage::LoadingRemote,
+            1,
+            2,
+            "Downloading the latest cloud snapshot...".to_string(),
+        );
+        let remote_snapshot =
+            download_remote_snapshot(client, token_store, &remote_manifest).await?;
+        report_progress(
+            SyncProgressOperation::ReplaceLocalFromRemote,
+            progress,
+            SyncProgressStage::LoadingRemote,
+            2,
+            2,
+            "Cloud snapshot downloaded.".to_string(),
+        );
+
+        apply_snapshot_and_materialize_with_client(
+            conn,
+            app_dir.join("covers").as_path(),
+            &remote_snapshot,
+            client,
+            token_store,
+            SyncProgressOperation::ReplaceLocalFromRemote,
+            progress,
+        )
+        .await?;
+
+        let google_account_email = sync_auth::load_google_account_email(token_store)?;
+        let recovered_at = Utc::now().to_rfc3339();
+        sync_state::save_base_snapshot(app_dir, &remote_snapshot)?;
+        sync_state::clear_pending_conflicts(app_dir)?;
+        sync_state::update_sync_config(app_dir, |current| {
+            current.profile_name = remote_snapshot.profile.profile_name.clone();
+            current.google_account_email = google_account_email.clone();
+            current.last_confirmed_snapshot_id = Some(remote_snapshot.snapshot_id.clone());
+            current.last_sync_at = Some(recovered_at.clone());
+            current.last_sync_status = SyncLifecycleStatus::Clean;
+        })?;
+        report_progress(
+            SyncProgressOperation::ReplaceLocalFromRemote,
+            progress,
+            SyncProgressStage::Complete,
+            1,
+            1,
+            "Local state was replaced from the latest cloud snapshot.".to_string(),
+        );
+
+        build_action_result(app_dir, token_store, None, None, false, true)
+    }
+    .await;
+
+    match operation_result {
+        Ok(mut result) => {
+            result.safety_backup_path = Some(safety_backup_path);
+            Ok(result)
+        }
+        Err(err) => Err(format!(
+            "{err} Emergency backup created at {safety_backup_path}."
+        )),
+    }
+}
+
+async fn force_publish_local_as_remote_inner<T: DriveTransport>(
+    app_dir: &Path,
+    conn: &Arc<Mutex<Connection>>,
+    client: &GoogleDriveClient<T>,
+    token_store: &dyn SecureTokenStore,
+    config: &SyncConfig,
+    progress: Option<&SyncProgressReporter>,
+) -> Result<SyncActionResult, String> {
+    let safety_backup_path = create_local_safety_backup(app_dir, conn)?;
+    let operation_result = async {
+        let cached_base_snapshot = sync_state::load_base_snapshot(app_dir)?;
+        let remote_manifest =
+            load_remote_manifest_optional(client, token_store, &config.sync_profile_id).await?;
+
+        let remote_snapshot = if let Some(remote_manifest) = remote_manifest.as_ref() {
+            report_progress(
+                SyncProgressOperation::ForcePublishLocalAsRemote,
+                progress,
+                SyncProgressStage::LoadingRemote,
+                0,
+                2,
+                "Loading the current cloud sync state...".to_string(),
+            );
+            report_progress(
+                SyncProgressOperation::ForcePublishLocalAsRemote,
+                progress,
+                SyncProgressStage::LoadingRemote,
+                1,
+                2,
+                "Downloading the current cloud snapshot before overwrite...".to_string(),
+            );
+
+            match download_remote_snapshot(client, token_store, remote_manifest).await {
+                Ok(snapshot) => {
+                    report_progress(
+                        SyncProgressOperation::ForcePublishLocalAsRemote,
+                        progress,
+                        SyncProgressStage::LoadingRemote,
+                        2,
+                        2,
+                        "Current cloud snapshot downloaded.".to_string(),
+                    );
+                    Some(snapshot)
+                }
+                Err(err) => {
+                    report_progress(
+                        SyncProgressOperation::ForcePublishLocalAsRemote,
+                        progress,
+                        SyncProgressStage::LoadingRemote,
+                        2,
+                        2,
+                        format!(
+                            "Current cloud snapshot could not be read ({err}). Using the last known base snapshot for overwrite."
+                        ),
+                    );
+                    None
+                }
+            }
+        } else {
+            report_progress(
+                SyncProgressOperation::ForcePublishLocalAsRemote,
+                progress,
+                SyncProgressStage::LoadingRemote,
+                1,
+                1,
+                "No remote manifest was found. Recreating cloud state from this device.".to_string(),
+            );
+            None
+        };
+
+        let build_base_snapshot = remote_snapshot.as_ref().or(cached_base_snapshot.as_ref());
+        let built_snapshot = build_local_snapshot_with_progress(
+            app_dir,
+            conn,
+            &config.sync_profile_id,
+            build_base_snapshot,
+            SyncProgressOperation::ForcePublishLocalAsRemote,
+            progress,
+        )?;
+
+        publish_snapshot_with_client(
+            app_dir,
+            conn,
+            client,
+            token_store,
+            PublishSnapshotRequest {
+                current_remote_generation: remote_manifest
+                    .as_ref()
+                    .map(|manifest| manifest.manifest.remote_generation)
+                    .unwrap_or(0),
+                snapshot: &built_snapshot.snapshot,
+                synced_at: &built_snapshot.created_at,
+                operation: SyncProgressOperation::ForcePublishLocalAsRemote,
+                progress,
+            },
+        )
+        .await
+    }
+    .await;
+
+    match operation_result {
+        Ok(mut result) => {
+            result.safety_backup_path = Some(safety_backup_path);
+            Ok(result)
+        }
+        Err(err) => Err(format!(
+            "{err} Emergency backup created at {safety_backup_path}."
+        )),
+    }
 }
 
 async fn resolve_sync_conflict_with_client<T: DriveTransport>(
@@ -875,7 +1171,7 @@ async fn publish_snapshot_with_client<T: DriveTransport>(
     request: PublishSnapshotRequest<'_>,
 ) -> Result<SyncActionResult, String> {
     let PublishSnapshotRequest {
-        remote_manifest,
+        current_remote_generation,
         snapshot,
         synced_at,
         operation,
@@ -917,7 +1213,7 @@ async fn publish_snapshot_with_client<T: DriveTransport>(
         &snapshot.profile.profile_name,
         &snapshot.snapshot_id,
         &uploaded_snapshot.snapshot_sha256,
-        remote_manifest.remote_generation + 1,
+        current_remote_generation + 1,
         synced_at,
         &device_id,
     );
@@ -993,6 +1289,18 @@ async fn load_remote_manifest<T: DriveTransport>(
         })?;
     sync_drive::validate_remote_manifest_compatibility(&remote_manifest.manifest)?;
     Ok(remote_manifest)
+}
+
+async fn load_remote_manifest_optional<T: DriveTransport>(
+    client: &GoogleDriveClient<T>,
+    token_store: &dyn SecureTokenStore,
+    profile_id: &str,
+) -> Result<Option<RemoteManifestFile>, String> {
+    let Some(remote_manifest) = client.read_manifest(token_store, profile_id).await? else {
+        return Ok(None);
+    };
+    sync_drive::validate_remote_manifest_compatibility(&remote_manifest.manifest)?;
+    Ok(Some(remote_manifest))
 }
 
 async fn download_remote_snapshot<T: DriveTransport>(
@@ -2510,6 +2818,216 @@ mod tests {
             config_after.last_confirmed_snapshot_id,
             Some(manifest_before.manifest.snapshot_id)
         );
+    }
+
+    #[tokio::test]
+    async fn replace_local_from_remote_overwrites_local_state_and_clears_conflicts() {
+        let (temp_dir, conn) = setup_app();
+        let transport = MemoryDriveTransport::new();
+        let client = build_client(transport.clone());
+        let token_store = test_token_store();
+
+        let media_uid = add_media(&conn, "Base Title");
+        create_remote_sync_profile_with_client(
+            temp_dir.path(),
+            &conn,
+            &client,
+            &token_store,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        update_media_title(&conn, &media_uid, "Local Dirty");
+        sync_state::save_pending_conflicts(
+            temp_dir.path(),
+            &[SyncConflict::MediaFieldConflict {
+                media_uid: media_uid.clone(),
+                field_name: "title".to_string(),
+                base_value: Some("Base Title".to_string()),
+                local_value: Some("Local Dirty".to_string()),
+                remote_value: Some("Remote Truth".to_string()),
+            }],
+        )
+        .unwrap();
+
+        let config = sync_state::load_sync_config(temp_dir.path())
+            .unwrap()
+            .unwrap();
+        let remote_manifest = load_remote_manifest(&client, &token_store, &config.sync_profile_id)
+            .await
+            .unwrap();
+        let mut remote_snapshot = download_remote_snapshot(&client, &token_store, &remote_manifest)
+            .await
+            .unwrap();
+        let remote_media = remote_snapshot.library.get_mut(&media_uid).unwrap();
+        remote_media.title = "Remote Truth".to_string();
+        remote_media.updated_at = "2026-04-02T13:00:00Z".to_string();
+        remote_media.updated_by_device_id = "dev_remote".to_string();
+        remote_snapshot.snapshot_id = "snap_remote_truth".to_string();
+        remote_snapshot.created_at = "2026-04-02T13:00:00Z".to_string();
+        remote_snapshot.created_by_device_id = "dev_remote".to_string();
+
+        let uploaded = client
+            .upload_snapshot(&token_store, &config.sync_profile_id, &remote_snapshot)
+            .await
+            .unwrap();
+        let next_manifest = RemoteSyncManifest::new(
+            &config.sync_profile_id,
+            &remote_snapshot.profile.profile_name,
+            &remote_snapshot.snapshot_id,
+            &uploaded.snapshot_sha256,
+            remote_manifest.manifest.remote_generation + 1,
+            &remote_snapshot.created_at,
+            "dev_remote",
+        );
+        client
+            .upsert_manifest_and_confirm(&token_store, &next_manifest)
+            .await
+            .unwrap();
+
+        let result = replace_local_from_remote_with_client(
+            temp_dir.path(),
+            &conn,
+            &client,
+            &token_store,
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            result.sync_status.state,
+            sync_state::SyncConnectionState::ConnectedClean
+        );
+        assert!(result.remote_changed);
+        assert!(result.published_snapshot_id.is_none());
+        assert!(std::path::Path::new(result.safety_backup_path.as_deref().unwrap()).exists());
+        assert_eq!(first_media_title(&conn), "Remote Truth");
+        assert!(sync_state::load_pending_conflicts(temp_dir.path())
+            .unwrap()
+            .is_empty());
+
+        let config_after = sync_state::load_sync_config(temp_dir.path())
+            .unwrap()
+            .unwrap();
+        assert_eq!(config_after.last_sync_status, SyncLifecycleStatus::Clean);
+        assert_eq!(
+            config_after.last_confirmed_snapshot_id,
+            Some("snap_remote_truth".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn force_publish_local_as_remote_overwrites_remote_and_clears_conflicts() {
+        let (temp_dir, conn) = setup_app();
+        let transport = MemoryDriveTransport::new();
+        let client = build_client(transport.clone());
+        let token_store = test_token_store();
+
+        let media_uid = add_media(&conn, "Base Title");
+        create_remote_sync_profile_with_client(
+            temp_dir.path(),
+            &conn,
+            &client,
+            &token_store,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        update_media_title(&conn, &media_uid, "Local Authoritative");
+        sync_state::mark_sync_dirty_if_configured(temp_dir.path()).unwrap();
+        sync_state::save_pending_conflicts(
+            temp_dir.path(),
+            &[SyncConflict::MediaFieldConflict {
+                media_uid: media_uid.clone(),
+                field_name: "title".to_string(),
+                base_value: Some("Base Title".to_string()),
+                local_value: Some("Local Authoritative".to_string()),
+                remote_value: Some("Remote Diverged".to_string()),
+            }],
+        )
+        .unwrap();
+
+        let config = sync_state::load_sync_config(temp_dir.path())
+            .unwrap()
+            .unwrap();
+        let remote_manifest = load_remote_manifest(&client, &token_store, &config.sync_profile_id)
+            .await
+            .unwrap();
+        let mut remote_snapshot = download_remote_snapshot(&client, &token_store, &remote_manifest)
+            .await
+            .unwrap();
+        let remote_media = remote_snapshot.library.get_mut(&media_uid).unwrap();
+        remote_media.title = "Remote Diverged".to_string();
+        remote_media.updated_at = "2026-04-02T14:00:00Z".to_string();
+        remote_media.updated_by_device_id = "dev_remote".to_string();
+        remote_snapshot.snapshot_id = "snap_remote_diverged".to_string();
+        remote_snapshot.created_at = "2026-04-02T14:00:00Z".to_string();
+        remote_snapshot.created_by_device_id = "dev_remote".to_string();
+
+        let uploaded = client
+            .upload_snapshot(&token_store, &config.sync_profile_id, &remote_snapshot)
+            .await
+            .unwrap();
+        let next_manifest = RemoteSyncManifest::new(
+            &config.sync_profile_id,
+            &remote_snapshot.profile.profile_name,
+            &remote_snapshot.snapshot_id,
+            &uploaded.snapshot_sha256,
+            remote_manifest.manifest.remote_generation + 1,
+            &remote_snapshot.created_at,
+            "dev_remote",
+        );
+        client
+            .upsert_manifest_and_confirm(&token_store, &next_manifest)
+            .await
+            .unwrap();
+
+        let result = force_publish_local_as_remote_with_client(
+            temp_dir.path(),
+            &conn,
+            &client,
+            &token_store,
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            result.sync_status.state,
+            sync_state::SyncConnectionState::ConnectedClean
+        );
+        assert!(!result.remote_changed);
+        assert!(result.published_snapshot_id.is_some());
+        assert!(std::path::Path::new(result.safety_backup_path.as_deref().unwrap()).exists());
+        assert!(sync_state::load_pending_conflicts(temp_dir.path())
+            .unwrap()
+            .is_empty());
+
+        let manifest_after = load_remote_manifest(&client, &token_store, &config.sync_profile_id)
+            .await
+            .unwrap();
+        assert_eq!(
+            result.published_snapshot_id,
+            Some(manifest_after.manifest.snapshot_id.clone())
+        );
+
+        let remote_after = download_remote_snapshot(&client, &token_store, &manifest_after)
+            .await
+            .unwrap();
+        assert_eq!(
+            remote_after.library.get(&media_uid).unwrap().title,
+            "Local Authoritative"
+        );
+
+        let config_after = sync_state::load_sync_config(temp_dir.path())
+            .unwrap()
+            .unwrap();
+        assert_eq!(config_after.last_sync_status, SyncLifecycleStatus::Clean);
     }
 
     #[test]

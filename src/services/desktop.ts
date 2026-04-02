@@ -88,6 +88,8 @@ export class DesktopServices implements AppServices {
         return invoke('attach_remote_sync_profile', { profileId });
     }
     runSync():                              Promise<SyncActionResult> { return invoke('run_sync'); }
+    replaceLocalFromRemote():               Promise<SyncActionResult> { return invoke('replace_local_from_remote'); }
+    forcePublishLocalAsRemote():            Promise<SyncActionResult> { return invoke('force_publish_local_as_remote'); }
     getSyncConflicts():                      Promise<SyncConflict[]>   { return invoke('get_sync_conflicts'); }
     resolveSyncConflict(conflictIndex: number, resolution: SyncConflictResolution): Promise<SyncActionResult> {
         return invoke('resolve_sync_conflict', { conflictIndex, resolution });

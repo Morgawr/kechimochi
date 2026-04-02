@@ -150,6 +150,8 @@ describe('DesktopServices', () => {
             .mockResolvedValueOnce({ sync_status: { state: 'connected_clean' }, safety_backup_path: null, published_snapshot_id: 'snap_2', lost_race: false, remote_changed: false })
             .mockResolvedValueOnce({ sync_status: { state: 'dirty' }, safety_backup_path: null, published_snapshot_id: null, lost_race: false, remote_changed: true })
             .mockResolvedValueOnce({ sync_status: { state: 'connected_clean' }, safety_backup_path: null, published_snapshot_id: 'snap_3', lost_race: false, remote_changed: true })
+            .mockResolvedValueOnce({ sync_status: { state: 'connected_clean' }, safety_backup_path: '/tmp/recovery.zip', published_snapshot_id: null, lost_race: false, remote_changed: true })
+            .mockResolvedValueOnce({ sync_status: { state: 'connected_clean' }, safety_backup_path: '/tmp/recovery.zip', published_snapshot_id: 'snap_4', lost_race: false, remote_changed: false })
             .mockResolvedValueOnce([{ kind: 'media_field_conflict', media_uid: 'uid_1', field_name: 'title', base_value: null, local_value: 'A', remote_value: 'B' }])
             .mockResolvedValueOnce({ sync_status: { state: 'dirty', conflict_count: 0 }, safety_backup_path: null, published_snapshot_id: null, lost_race: false, remote_changed: false });
 
@@ -161,6 +163,8 @@ describe('DesktopServices', () => {
         await expect(services.createRemoteSyncProfile()).resolves.toMatchObject({ published_snapshot_id: 'snap_2' });
         await expect(services.attachRemoteSyncProfile('prof_1')).resolves.toMatchObject({ remote_changed: true });
         await expect(services.runSync()).resolves.toMatchObject({ published_snapshot_id: 'snap_3' });
+        await expect(services.replaceLocalFromRemote()).resolves.toMatchObject({ safety_backup_path: '/tmp/recovery.zip' });
+        await expect(services.forcePublishLocalAsRemote()).resolves.toMatchObject({ published_snapshot_id: 'snap_4' });
         await expect(services.getSyncConflicts()).resolves.toHaveLength(1);
         await expect(services.resolveSyncConflict(0, { kind: 'media_field', side: 'local' })).resolves.toMatchObject({
             sync_status: { state: 'dirty', conflict_count: 0 },
@@ -174,8 +178,10 @@ describe('DesktopServices', () => {
         expect(invoke).toHaveBeenNthCalledWith(6, 'create_remote_sync_profile');
         expect(invoke).toHaveBeenNthCalledWith(7, 'attach_remote_sync_profile', { profileId: 'prof_1' });
         expect(invoke).toHaveBeenNthCalledWith(8, 'run_sync');
-        expect(invoke).toHaveBeenNthCalledWith(9, 'get_sync_conflicts');
-        expect(invoke).toHaveBeenNthCalledWith(10, 'resolve_sync_conflict', {
+        expect(invoke).toHaveBeenNthCalledWith(9, 'replace_local_from_remote');
+        expect(invoke).toHaveBeenNthCalledWith(10, 'force_publish_local_as_remote');
+        expect(invoke).toHaveBeenNthCalledWith(11, 'get_sync_conflicts');
+        expect(invoke).toHaveBeenNthCalledWith(12, 'resolve_sync_conflict', {
             conflictIndex: 0,
             resolution: { kind: 'media_field', side: 'local' },
         });

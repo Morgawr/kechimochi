@@ -18,6 +18,8 @@ vi.mock('../../src/api', () => ({
     createRemoteSyncProfile: vi.fn(),
     attachRemoteSyncProfile: vi.fn(),
     runSync: vi.fn(),
+    replaceLocalFromRemote: vi.fn(),
+    forcePublishLocalAsRemote: vi.fn(),
     getSyncConflicts: vi.fn(),
     resolveSyncConflict: vi.fn(),
     subscribeSyncProgress: vi.fn(() => Promise.resolve(() => undefined)),
@@ -522,6 +524,106 @@ describe('ProfileView', () => {
         expect(modals.customAlert).toHaveBeenCalledWith(
             'Sync Complete',
             expect.stringContaining('Cloud Sync completed successfully')
+        );
+    });
+
+    it('should replace local data from remote after confirmation', async () => {
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
+            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
+            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
+            return '0';
+        });
+        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+        vi.mocked(api.getSyncStatus).mockResolvedValue({
+            state: 'connected_clean',
+            google_authenticated: true,
+            sync_profile_id: 'prof_1',
+            profile_name: 'test-user',
+            google_account_email: 'sync@example.com',
+            last_sync_at: '2026-04-02T00:00:00Z',
+            device_name: 'Desk',
+            conflict_count: 0,
+        });
+        vi.mocked(modals.customConfirm).mockResolvedValue(true);
+        vi.mocked(api.replaceLocalFromRemote).mockResolvedValue({
+            sync_status: {
+                state: 'connected_clean',
+                google_authenticated: true,
+                sync_profile_id: 'prof_1',
+                profile_name: 'test-user',
+                google_account_email: 'sync@example.com',
+                last_sync_at: '2026-04-02T00:20:00Z',
+                device_name: 'Desk',
+                conflict_count: 0,
+            },
+            safety_backup_path: '/tmp/recovery.zip',
+            published_snapshot_id: null,
+            lost_race: false,
+            remote_changed: true,
+        });
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-replace-local-from-remote')).not.toBeNull());
+        (container.querySelector('#profile-btn-replace-local-from-remote') as HTMLButtonElement).click();
+
+        await vi.waitFor(() => expect(api.replaceLocalFromRemote).toHaveBeenCalled());
+        expect(api.subscribeSyncProgress).toHaveBeenCalled();
+        expect(modals.customAlert).toHaveBeenCalledWith(
+            'Local Recovery Complete',
+            expect.stringContaining('latest cloud snapshot')
+        );
+    });
+
+    it('should force publish local data after confirmation', async () => {
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
+            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
+            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
+            return '0';
+        });
+        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+        vi.mocked(api.getSyncStatus).mockResolvedValue({
+            state: 'dirty',
+            google_authenticated: true,
+            sync_profile_id: 'prof_1',
+            profile_name: 'test-user',
+            google_account_email: 'sync@example.com',
+            last_sync_at: '2026-04-02T00:00:00Z',
+            device_name: 'Desk',
+            conflict_count: 0,
+        });
+        vi.mocked(modals.customConfirm).mockResolvedValue(true);
+        vi.mocked(api.forcePublishLocalAsRemote).mockResolvedValue({
+            sync_status: {
+                state: 'connected_clean',
+                google_authenticated: true,
+                sync_profile_id: 'prof_1',
+                profile_name: 'test-user',
+                google_account_email: 'sync@example.com',
+                last_sync_at: '2026-04-02T00:30:00Z',
+                device_name: 'Desk',
+                conflict_count: 0,
+            },
+            safety_backup_path: '/tmp/recovery.zip',
+            published_snapshot_id: 'snap_force_1',
+            lost_race: false,
+            remote_changed: false,
+        });
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-force-publish-local')).not.toBeNull());
+        (container.querySelector('#profile-btn-force-publish-local') as HTMLButtonElement).click();
+
+        await vi.waitFor(() => expect(api.forcePublishLocalAsRemote).toHaveBeenCalled());
+        expect(api.subscribeSyncProgress).toHaveBeenCalled();
+        expect(modals.customAlert).toHaveBeenCalledWith(
+            'Cloud Recovery Complete',
+            expect.stringContaining('published as the new cloud snapshot')
         );
     });
 

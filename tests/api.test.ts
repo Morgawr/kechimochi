@@ -227,6 +227,16 @@ describe('api.ts', () => {
       expect(invoke).toHaveBeenCalledWith('run_sync');
     });
 
+    it('replaceLocalFromRemote should call invoke', async () => {
+      await api.replaceLocalFromRemote();
+      expect(invoke).toHaveBeenCalledWith('replace_local_from_remote');
+    });
+
+    it('forcePublishLocalAsRemote should call invoke', async () => {
+      await api.forcePublishLocalAsRemote();
+      expect(invoke).toHaveBeenCalledWith('force_publish_local_as_remote');
+    });
+
     it('getSyncConflicts should call invoke', async () => {
       await api.getSyncConflicts();
       expect(invoke).toHaveBeenCalledWith('get_sync_conflicts');

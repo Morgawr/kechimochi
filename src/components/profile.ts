@@ -24,6 +24,8 @@ import {
     createRemoteSyncProfile,
     attachRemoteSyncProfile,
     runSync,
+    replaceLocalFromRemote,
+    forcePublishLocalAsRemote,
     getSyncConflicts,
     resolveSyncConflict,
     subscribeSyncProgress,
@@ -677,6 +679,8 @@ export class ProfileView extends Component<ProfileState> {
                     : ''
                 }
 
+                ${isConfigured ? this.renderSyncRecoveryPanel(syncStatus) : ''}
+
                 ${this.state.showSyncConflicts && hasConflicts ? this.renderSyncConflictPanel() : ''}
             </div>
         `;
@@ -726,6 +730,29 @@ export class ProfileView extends Component<ProfileState> {
                 ${syncStatus.google_authenticated
                     ? html`<button class="btn btn-ghost" id="profile-btn-disconnect-sync">Disconnect Google</button>`
                     : ''}
+            </div>
+        `;
+    }
+
+    private renderSyncRecoveryPanel(syncStatus: SyncStatus) {
+        const disabled = !syncStatus.google_authenticated || syncStatus.state === 'syncing';
+        const disabledAttr = disabled ? 'disabled' : '';
+        const hint = !syncStatus.google_authenticated
+            ? 'Re-authenticate before using these recovery tools.'
+            : 'An emergency local backup ZIP will be created first.';
+
+        return html`
+            <div style="display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem; border-radius: var(--radius-md); border: 1px solid rgba(255, 71, 87, 0.28); background: rgba(255, 71, 87, 0.06);">
+                <div style="display: flex; flex-direction: column; gap: 0.3rem;">
+                    <strong style="color: var(--text-primary);">Dangerous recovery</strong>
+                    <span style="color: var(--text-secondary); font-size: 0.85rem;">
+                        Use these only if normal sync or conflict resolution cannot recover this profile cleanly. ${hint}
+                    </span>
+                </div>
+                <div style="display: flex; gap: 0.65rem; flex-wrap: wrap; justify-content: flex-end;">
+                    <button class="btn btn-secondary" id="profile-btn-replace-local-from-remote" ${disabledAttr}>Replace Local From Remote</button>
+                    <button class="btn btn-danger" id="profile-btn-force-publish-local" ${disabledAttr}>Force Publish Local</button>
+                </div>
             </div>
         `;
     }
@@ -995,6 +1022,18 @@ export class ProfileView extends Component<ProfileState> {
         root.querySelector('#profile-btn-run-sync')?.addEventListener('click', () => {
             this.handleRunSync().catch(error => {
                 Logger.error('Failed to run sync', error);
+            });
+        });
+
+        root.querySelector('#profile-btn-replace-local-from-remote')?.addEventListener('click', () => {
+            this.handleReplaceLocalFromRemote().catch(error => {
+                Logger.error('Failed to replace local data from remote', error);
+            });
+        });
+
+        root.querySelector('#profile-btn-force-publish-local')?.addEventListener('click', () => {
+            this.handleForcePublishLocalAsRemote().catch(error => {
+                Logger.error('Failed to force publish local data', error);
             });
         });
 
@@ -1363,6 +1402,87 @@ export class ProfileView extends Component<ProfileState> {
                 return;
             }
             await customAlert('Sync Error', `Sync failed: ${stringifyError(error)}`);
+            await this.refreshSyncData();
+        }
+    }
+
+    private async handleReplaceLocalFromRemote() {
+        if (!(await customConfirm(
+            'Replace Local From Remote',
+            'This will create an emergency local backup ZIP, then overwrite this device\'s local media, logs, milestones, sync conflicts, and sync status from the latest Google Drive snapshot. Google Drive data will not be changed.',
+            'btn-danger',
+            'Replace Local'
+        ))) {
+            return;
+        }
+
+        try {
+            if (!this.state.syncStatus?.google_authenticated) {
+                await this.connectGoogleDriveForSync();
+                await this.refreshSyncData(this.state.showSyncConflicts);
+            }
+
+            const result = await this.withSyncProgressBlockingStatus(
+                'Replacing Local Data From Cloud Sync',
+                'Creating an emergency backup, then downloading the latest cloud snapshot and replacing this device\'s local state...',
+                'replace_local_from_remote',
+                () => replaceLocalFromRemote()
+            );
+            await this.refreshSyncData(false);
+            await customAlert(
+                'Local Recovery Complete',
+                this.describeSyncActionResult(
+                    result,
+                    'This device was replaced with the latest cloud snapshot.'
+                )
+            );
+        } catch (error) {
+            await customAlert('Cloud Sync Recovery Failed', `Failed to replace local data: ${stringifyError(error)}`);
+            await this.refreshSyncData();
+        }
+    }
+
+    private async handleForcePublishLocalAsRemote() {
+        if (!(await customConfirm(
+            'Force Publish Local',
+            'This will create an emergency local backup ZIP, then overwrite the Google Drive sync head with this device\'s current local state. Other devices will receive these changes the next time they sync.',
+            'btn-danger',
+            'Force Publish'
+        ))) {
+            return;
+        }
+
+        try {
+            if (!this.state.syncStatus?.google_authenticated) {
+                await this.connectGoogleDriveForSync();
+                await this.refreshSyncData(this.state.showSyncConflicts);
+            }
+
+            const result = await this.withSyncProgressBlockingStatus(
+                'Force Publishing Local Data',
+                'Creating an emergency backup, then uploading this device\'s local state as the new cloud sync head...',
+                'force_publish_local_as_remote',
+                () => forcePublishLocalAsRemote()
+            );
+            await this.refreshSyncData(false);
+
+            if (result.lost_race) {
+                await customAlert(
+                    'Recovery Needs Another Attempt',
+                    'Another device published a newer snapshot before this recovery write finished. Your local state and the emergency backup were preserved, so you can try the force publish again.'
+                );
+                return;
+            }
+
+            await customAlert(
+                'Cloud Recovery Complete',
+                this.describeSyncActionResult(
+                    result,
+                    'This device\'s current local state was published as the new cloud snapshot.'
+                )
+            );
+        } catch (error) {
+            await customAlert('Cloud Sync Recovery Failed', `Failed to force publish local data: ${stringifyError(error)}`);
             await this.refreshSyncData();
         }
     }

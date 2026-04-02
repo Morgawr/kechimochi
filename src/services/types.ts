@@ -84,6 +84,8 @@ export interface AppServices {
     createRemoteSyncProfile(): Promise<SyncActionResult>;
     attachRemoteSyncProfile(profileId: string): Promise<SyncActionResult>;
     runSync(): Promise<SyncActionResult>;
+    replaceLocalFromRemote(): Promise<SyncActionResult>;
+    forcePublishLocalAsRemote(): Promise<SyncActionResult>;
     getSyncConflicts(): Promise<SyncConflict[]>;
     resolveSyncConflict(conflictIndex: number, resolution: SyncConflictResolution): Promise<SyncActionResult>;
     subscribeSyncProgress(listener: (update: SyncProgressUpdate) => void): Promise<() => void>;

@@ -28,6 +28,7 @@ pub struct DbState {
 
 const SYNC_COMMAND_TIMEOUT_SECS: u64 = 120;
 const CREATE_SYNC_PROFILE_TIMEOUT_SECS: u64 = 900;
+const RECOVERY_SYNC_TIMEOUT_SECS: u64 = 900;
 const SYNC_PROGRESS_EVENT: &str = "sync-progress";
 
 fn with_conn<T, F>(state: &State<DbState>, operation: F) -> Result<T, String>
@@ -688,6 +689,60 @@ async fn run_sync(
 }
 
 #[tauri::command]
+async fn replace_local_from_remote(
+    app_handle: tauri::AppHandle,
+    state: State<'_, DbState>,
+) -> Result<sync_orchestrator::SyncActionResult, String> {
+    let app_dir = db::get_data_dir(&app_handle);
+    let config = google_oauth_config(&app_handle)?;
+    let token_store = sync_auth::OsSecureTokenStore::default();
+    let conn = state.conn.clone();
+    let progress_app_handle = app_handle.clone();
+    let progress_reporter = move |update| {
+        let _ = progress_app_handle.emit(SYNC_PROGRESS_EVENT, update);
+    };
+    with_sync_command_timeout(
+        "Replacing local data from Google Drive",
+        RECOVERY_SYNC_TIMEOUT_SECS,
+        sync_orchestrator::replace_local_from_remote_with_progress(
+            &app_dir,
+            &conn,
+            &config,
+            &token_store,
+            Some(&progress_reporter),
+        ),
+    )
+    .await
+}
+
+#[tauri::command]
+async fn force_publish_local_as_remote(
+    app_handle: tauri::AppHandle,
+    state: State<'_, DbState>,
+) -> Result<sync_orchestrator::SyncActionResult, String> {
+    let app_dir = db::get_data_dir(&app_handle);
+    let config = google_oauth_config(&app_handle)?;
+    let token_store = sync_auth::OsSecureTokenStore::default();
+    let conn = state.conn.clone();
+    let progress_app_handle = app_handle.clone();
+    let progress_reporter = move |update| {
+        let _ = progress_app_handle.emit(SYNC_PROGRESS_EVENT, update);
+    };
+    with_sync_command_timeout(
+        "Force publishing local data to Google Drive",
+        RECOVERY_SYNC_TIMEOUT_SECS,
+        sync_orchestrator::force_publish_local_as_remote_with_progress(
+            &app_dir,
+            &conn,
+            &config,
+            &token_store,
+            Some(&progress_reporter),
+        ),
+    )
+    .await
+}
+
+#[tauri::command]
 fn get_sync_conflicts(
     app_handle: tauri::AppHandle,
 ) -> Result<Vec<sync_merge::SyncConflict>, String> {
@@ -797,6 +852,8 @@ pub fn run() {
             preview_attach_remote_sync_profile,
             attach_remote_sync_profile,
             run_sync,
+            replace_local_from_remote,
+            force_publish_local_as_remote,
             get_sync_conflicts,
             resolve_sync_conflict,
             disconnect_google_drive,

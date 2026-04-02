@@ -177,7 +177,9 @@ export interface SyncActionResult {
 export type SyncProgressOperation =
     | 'create_remote_sync_profile'
     | 'attach_remote_sync_profile'
-    | 'run_sync';
+    | 'run_sync'
+    | 'replace_local_from_remote'
+    | 'force_publish_local_as_remote';
 
 export type SyncProgressStage =
     | 'loading_remote'
