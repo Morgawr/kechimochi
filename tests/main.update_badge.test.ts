@@ -6,6 +6,7 @@ import type { UpdateState } from '../src/types';
 vi.mock('../src/api', () => ({
     initializeUserDb: vi.fn(() => Promise.resolve()),
     getUsername: vi.fn(() => Promise.resolve('os-user')),
+    getStartupError: vi.fn(() => Promise.resolve(null)),
     getSetting: vi.fn((key) => {
         if (key === SETTING_KEYS.THEME) return Promise.resolve('dark');
         if (key === SETTING_KEYS.PROFILE_NAME) return Promise.resolve('test-user');

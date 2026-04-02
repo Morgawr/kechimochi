@@ -57,40 +57,85 @@ vi.mock('../src/modals', () => ({
     showAvailableUpdateModal: vi.fn(() => Promise.resolve()),
 }));
 
+const setDefaultApiMocks = () => {
+    vi.mocked(api.initializeUserDb).mockResolvedValue();
+    vi.mocked(api.getUsername).mockResolvedValue('os-user');
+    vi.mocked(api.getStartupError).mockResolvedValue(null);
+    vi.mocked(api.getSetting).mockImplementation(async (key) => {
+        if (key === SETTING_KEYS.THEME) return 'dark';
+        if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
+        return null;
+    });
+    vi.mocked(api.getProfilePicture).mockResolvedValue(null);
+    vi.mocked(api.getLogs).mockResolvedValue([
+        { id: 0, date: '2024-01-01', duration_minutes: 0, title: 'T', media_id: 1, media_type: 'M', language: 'Japanese' } as ActivitySummary,
+    ]);
+    vi.mocked(api.getAllMedia).mockResolvedValue([]);
+    vi.mocked(api.getHeatmap).mockResolvedValue([{ date: '2024-01-01', total_minutes: 10 }]);
+    vi.mocked(api.getTimelineEvents).mockResolvedValue([]);
+    vi.mocked(api.getMilestones).mockResolvedValue([]);
+    vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+    vi.mocked(api.clearMilestones).mockImplementation(() => {});
+    vi.mocked(api.deleteMilestone).mockImplementation(() => {});
+    vi.mocked(api.setSetting).mockResolvedValue();
+};
+
+const setDefaultModalMocks = () => {
+    vi.mocked(modals.initialProfilePrompt).mockResolvedValue('new-user');
+    vi.mocked(modals.showLogActivityModal).mockResolvedValue(false);
+};
+
+const renderAppShell = () => {
+    document.body.innerHTML = `
+        <div id="app">
+            <div id="desktop-title-bar"></div>
+            <header>
+                <div id="nav-user-avatar"></div>
+                <img id="nav-user-avatar-image" />
+                <span id="nav-user-avatar-fallback"></span>
+                <span id="nav-user-name"></span>
+                <div id="dev-build-badge"></div>
+                <button id="update-available-badge"></button>
+                <div class="nav-link" data-view="dashboard"></div>
+                <div class="nav-link" data-view="media"></div>
+                <div class="nav-link" data-view="timeline"></div>
+                <div class="nav-link" data-view="profile"></div>
+                <button id="win-min"></button>
+                <button id="win-max"></button>
+                <button id="win-close"></button>
+                <button id="btn-add-activity"></button>
+            </header>
+            <div id="view-container"></div>
+        </div>
+    `;
+};
+
 describe('main.ts initialization', () => {
     const bootApp = async () => {
-        await import('../src/main');
-        document.dispatchEvent(new Event('DOMContentLoaded'));
+        const { App } = await import('../src/main');
+        await App.start();
         await vi.waitFor(() => expect(api.initializeUserDb).toHaveBeenCalled());
     };
 
     beforeEach(async () => {
         vi.clearAllMocks();
         vi.spyOn(Logger, 'warn').mockImplementation(() => {});
-        
-        document.body.innerHTML = `
-            <div id="view-container"></div>
-            <div id="nav-user-avatar"></div>
-            <img id="nav-user-avatar-image" />
-            <span id="nav-user-avatar-fallback"></span>
-            <span id="nav-user-name"></span>
-            <div id="dev-build-badge"></div>
-            <button id="update-available-badge"></button>
-            <div class="nav-link" data-view="dashboard"></div>
-            <div class="nav-link" data-view="media"></div>
-            <div class="nav-link" data-view="timeline"></div>
-            <div class="nav-link" data-view="profile"></div>
-            <button id="win-min"></button>
-            <button id="win-max"></button>
-            <button id="win-close"></button>
-            <button id="btn-add-activity"></button>
-        `;
+        setDefaultApiMocks();
+        setDefaultModalMocks();
+
+        const globals = globalThis as Record<string, unknown>;
+        globals.__APP_VERSION__ = '0.1.0-dev.test';
+        globals.__APP_BUILD_CHANNEL__ = 'dev';
+        globals.__APP_RELEASE_STAGE__ = 'beta';
+
+        renderAppShell();
         
         // Mock localStorage
         const store: Record<string, string> = { [STORAGE_KEYS.CURRENT_PROFILE]: 'test-user' };
         vi.stubGlobal('localStorage', {
             getItem: vi.fn(key => store[key] || null),
             setItem: vi.fn((key, val) => store[key] = val),
+            removeItem: vi.fn((key) => delete store[key]),
         });
         
         vi.stubGlobal('sessionStorage', {
@@ -179,8 +224,8 @@ describe('main.ts initialization', () => {
             'Kechimochi could not open this database safely.\n\nDatabase schema version 3 is newer than this app supports (2)'
         );
 
-        await import('../src/main');
-        document.dispatchEvent(new Event('DOMContentLoaded'));
+        const { App } = await import('../src/main');
+        await App.start();
 
         expect(api.initializeUserDb).not.toHaveBeenCalled();
         await vi.waitFor(() => expect(document.getElementById('alert-body')?.textContent).toContain(
