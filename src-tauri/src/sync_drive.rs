@@ -334,7 +334,7 @@ impl GoogleDriveClient<ReqwestDriveTransport> {
 
 impl<T: DriveTransport> GoogleDriveClient<T> {
     #[cfg(test)]
-    fn new_with_transport(
+    pub(crate) fn new_with_transport(
         auth_config: GoogleOAuthClientConfig,
         api_base_url: &str,
         upload_base_url: &str,

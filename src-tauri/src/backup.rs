@@ -11,6 +11,7 @@ use zip::write::SimpleFileOptions;
 use zip::{ZipArchive, ZipWriter};
 
 use crate::db;
+use crate::sync_state;
 use crate::DbState;
 
 pub const BACKUP_FORMAT_VERSION: i64 = 1;
@@ -198,8 +199,12 @@ pub fn import_full_backup(
     file_path: String,
 ) -> Result<String, String> {
     let app_dir = db::get_data_dir(&app_handle);
-    let mut conn_guard = state.conn.lock().unwrap();
-    import_full_backup_internal(&app_dir, &mut conn_guard, &file_path)
+    let import_result = {
+        let mut conn_guard = state.conn.lock().unwrap();
+        import_full_backup_internal(&app_dir, &mut conn_guard, &file_path)
+    }?;
+    sync_state::clear_sync_runtime_files(&app_dir)?;
+    Ok(import_result)
 }
 
 pub fn import_full_backup_internal(

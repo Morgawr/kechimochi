@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 use crate::db;
 use crate::sync_snapshot::{
@@ -26,6 +27,13 @@ pub enum SyncConflict {
         base_value: Option<String>,
         local_value: Option<String>,
         remote_value: Option<String>,
+    },
+    ExtraDataEntryConflict {
+        media_uid: String,
+        entry_key: String,
+        base_value: Option<Value>,
+        local_value: Option<Value>,
+        remote_value: Option<Value>,
     },
     DeleteVsUpdate {
         media_uid: String,
@@ -392,9 +400,8 @@ fn merge_media_three_way(
         &remote.tracking_status,
         &mut conflicts,
     );
-    let extra_data = merge_scalar_field(
+    let extra_data = merge_extra_data_field(
         uid,
-        "extra_data",
         Some(&base.extra_data),
         &local.extra_data,
         &remote.extra_data,
@@ -512,9 +519,8 @@ fn merge_media_created_on_both(
         &remote.tracking_status,
         &mut conflicts,
     );
-    let extra_data = merge_scalar_field(
+    let extra_data = merge_extra_data_field(
         uid,
-        "extra_data",
         None,
         &local.extra_data,
         &remote.extra_data,
@@ -643,6 +649,148 @@ fn merge_optional_scalar_field(
                 local.cloned()
             }
         }
+    }
+}
+
+fn merge_extra_data_field(
+    media_uid: &str,
+    base_raw: Option<&String>,
+    local_raw: &str,
+    remote_raw: &str,
+    conflicts: &mut Vec<SyncConflict>,
+) -> String {
+    let local_entries = parse_extra_data_object(local_raw);
+    let remote_entries = parse_extra_data_object(remote_raw);
+    let base_entries = base_raw.and_then(|raw| parse_extra_data_object(raw));
+
+    match (
+        base_entries.as_ref(),
+        local_entries.as_ref(),
+        remote_entries.as_ref(),
+    ) {
+        (Some(base), Some(local), Some(remote)) => {
+            merge_extra_data_entries(media_uid, Some(base), local, remote, conflicts)
+        }
+        (None, Some(local), Some(remote)) if base_raw.is_none() => {
+            merge_extra_data_entries(media_uid, None, local, remote, conflicts)
+        }
+        _ => choose_scalar_string_default(base_raw, local_raw, remote_raw),
+    }
+}
+
+fn choose_scalar_string_default(base: Option<&String>, local: &str, remote: &str) -> String {
+    match base {
+        Some(base) if local == base => remote.to_string(),
+        _ => local.to_string(),
+    }
+}
+
+fn merge_extra_data_entries(
+    media_uid: &str,
+    base: Option<&BTreeMap<String, Value>>,
+    local: &BTreeMap<String, Value>,
+    remote: &BTreeMap<String, Value>,
+    conflicts: &mut Vec<SyncConflict>,
+) -> String {
+    let mut merged = BTreeMap::new();
+    let mut keys = BTreeSet::new();
+    if let Some(base) = base {
+        keys.extend(base.keys().cloned());
+    }
+    keys.extend(local.keys().cloned());
+    keys.extend(remote.keys().cloned());
+
+    for key in keys {
+        let chosen = merge_extra_data_entry(
+            media_uid,
+            &key,
+            base.and_then(|entries| entries.get(&key)),
+            local.get(&key),
+            remote.get(&key),
+            conflicts,
+        );
+        if let Some(value) = chosen {
+            merged.insert(key, value);
+        }
+    }
+
+    serialize_extra_data_object(&merged)
+}
+
+fn merge_extra_data_entry(
+    media_uid: &str,
+    entry_key: &str,
+    base: Option<&Value>,
+    local: Option<&Value>,
+    remote: Option<&Value>,
+    conflicts: &mut Vec<SyncConflict>,
+) -> Option<Value> {
+    match base {
+        Some(base) => {
+            if local == Some(base) {
+                remote.cloned()
+            } else if remote == Some(base) || local == remote {
+                local.cloned()
+            } else {
+                conflicts.push(SyncConflict::ExtraDataEntryConflict {
+                    media_uid: media_uid.to_string(),
+                    entry_key: entry_key.to_string(),
+                    base_value: Some(base.clone()),
+                    local_value: local.cloned(),
+                    remote_value: remote.cloned(),
+                });
+                local.cloned()
+            }
+        }
+        None => match (local, remote) {
+            (Some(local), Some(remote)) if local == remote => Some(local.clone()),
+            (Some(local), None) => Some(local.clone()),
+            (None, Some(remote)) => Some(remote.clone()),
+            (Some(local), Some(remote)) => {
+                conflicts.push(SyncConflict::ExtraDataEntryConflict {
+                    media_uid: media_uid.to_string(),
+                    entry_key: entry_key.to_string(),
+                    base_value: None,
+                    local_value: Some(local.clone()),
+                    remote_value: Some(remote.clone()),
+                });
+                Some(local.clone())
+            }
+            (None, None) => None,
+        },
+    }
+}
+
+fn parse_extra_data_object(raw: &str) -> Option<BTreeMap<String, Value>> {
+    let trimmed = raw.trim();
+    let normalized = if trimmed.is_empty() { "{}" } else { trimmed };
+    let value = serde_json::from_str::<Value>(normalized).ok()?;
+    match sort_json_value(value) {
+        Value::Object(map) => Some(map.into_iter().collect()),
+        _ => None,
+    }
+}
+
+fn serialize_extra_data_object(entries: &BTreeMap<String, Value>) -> String {
+    let mut map = Map::new();
+    for (key, value) in entries {
+        map.insert(key.clone(), sort_json_value(value.clone()));
+    }
+    serde_json::to_string(&Value::Object(map)).unwrap_or_else(|_| "{}".to_string())
+}
+
+fn sort_json_value(value: Value) -> Value {
+    match value {
+        Value::Array(values) => Value::Array(values.into_iter().map(sort_json_value).collect()),
+        Value::Object(map) => {
+            let mut sorted = Map::new();
+            let ordered: BTreeMap<_, _> = map.into_iter().collect();
+            for (key, value) in ordered {
+                sorted.insert(key, sort_json_value(value));
+            }
+            Value::Object(sorted)
+        }
+        other => other,
     }
 }
 
@@ -1309,6 +1457,74 @@ mod tests {
         assert_eq!(
             outcome.merged_snapshot.library["uid-1"].description,
             "Local"
+        );
+    }
+
+    #[test]
+    fn test_merge_extra_data_non_overlapping_entry_changes_auto_merge() {
+        let mut base = empty_snapshot();
+        let mut local = empty_snapshot();
+        let mut remote = empty_snapshot();
+        let base_media = media("uid-1");
+
+        base.library.insert("uid-1".to_string(), base_media.clone());
+        local
+            .library
+            .insert("uid-1".to_string(), base_media.clone());
+        remote.library.insert("uid-1".to_string(), base_media);
+
+        local.library.get_mut("uid-1").unwrap().extra_data =
+            r#"{"base":1,"local_only":{"x":1}}"#.to_string();
+        remote.library.get_mut("uid-1").unwrap().extra_data =
+            r#"{"base":1,"remote_only":[1,2]}"#.to_string();
+
+        let outcome = merge_snapshots(Some(&base), &local, &remote).unwrap();
+        assert!(outcome.conflicts.is_empty());
+        assert_eq!(
+            serde_json::from_str::<Value>(&outcome.merged_snapshot.library["uid-1"].extra_data)
+                .unwrap(),
+            serde_json::json!({
+                "base": 1,
+                "local_only": {"x": 1},
+                "remote_only": [1, 2]
+            })
+        );
+    }
+
+    #[test]
+    fn test_merge_extra_data_conflict_is_queued_per_entry() {
+        let mut base = empty_snapshot();
+        let mut local = empty_snapshot();
+        let mut remote = empty_snapshot();
+        let mut base_media = media("uid-1");
+        base_media.extra_data = r#"{"conflict":1,"shared":true}"#.to_string();
+
+        base.library.insert("uid-1".to_string(), base_media.clone());
+        local
+            .library
+            .insert("uid-1".to_string(), base_media.clone());
+        remote.library.insert("uid-1".to_string(), base_media);
+
+        local.library.get_mut("uid-1").unwrap().extra_data =
+            r#"{"conflict":2,"local_only":"left","shared":true}"#.to_string();
+        remote.library.get_mut("uid-1").unwrap().extra_data =
+            r#"{"conflict":3,"remote_only":"right","shared":true}"#.to_string();
+
+        let outcome = merge_snapshots(Some(&base), &local, &remote).unwrap();
+        assert_eq!(outcome.conflicts.len(), 1);
+        assert!(matches!(
+            &outcome.conflicts[0],
+            SyncConflict::ExtraDataEntryConflict { entry_key, .. } if entry_key == "conflict"
+        ));
+        assert_eq!(
+            serde_json::from_str::<Value>(&outcome.merged_snapshot.library["uid-1"].extra_data)
+                .unwrap(),
+            serde_json::json!({
+                "conflict": 2,
+                "local_only": "left",
+                "remote_only": "right",
+                "shared": true
+            })
         );
     }
 

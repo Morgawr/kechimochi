@@ -1,0 +1,1821 @@
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+
+use chrono::Utc;
+use image::ImageFormat;
+use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
+use sha2::{Digest, Sha256};
+
+use crate::backup;
+use crate::db;
+use crate::sync_auth::{self, GoogleOAuthClientConfig, SecureTokenStore};
+use crate::sync_drive::{
+    self, DriveTransport, GoogleDriveClient, RemoteManifestFile, RemoteSyncManifest,
+};
+use crate::sync_merge::{self, MergeSide, SyncConflict};
+use crate::sync_snapshot::{
+    self, SnapshotBuildOptions, SnapshotMediaAggregate, SnapshotTombstone, SyncSnapshot,
+};
+use crate::sync_state::{self, SyncConfig, SyncLifecycleStatus, SyncStatus};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RemoteSyncProfileSummary {
+    pub profile_id: String,
+    pub profile_name: String,
+    pub snapshot_id: String,
+    pub remote_generation: i64,
+    pub updated_at: String,
+    pub last_writer_device_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SyncActionResult {
+    pub sync_status: SyncStatus,
+    #[serde(default)]
+    pub safety_backup_path: Option<String>,
+    #[serde(default)]
+    pub published_snapshot_id: Option<String>,
+    pub lost_race: bool,
+    pub remote_changed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DeleteVsUpdateChoice {
+    RespectDelete,
+    Restore,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SyncConflictResolution {
+    MediaField { side: MergeSide },
+    ExtraDataEntry { side: MergeSide },
+    DeleteVsUpdate { choice: DeleteVsUpdateChoice },
+    ProfilePicture { side: MergeSide },
+}
+
+struct BuiltSnapshot {
+    snapshot: SyncSnapshot,
+    created_at: String,
+    device_id: String,
+}
+
+pub async fn list_remote_sync_profiles(
+    auth_config: &GoogleOAuthClientConfig,
+    token_store: &dyn SecureTokenStore,
+) -> Result<Vec<RemoteSyncProfileSummary>, String> {
+    let client = GoogleDriveClient::new(auth_config.clone())?;
+    list_remote_sync_profiles_with_client(&client, token_store).await
+}
+
+pub async fn create_remote_sync_profile(
+    app_dir: &Path,
+    conn: &Arc<Mutex<Connection>>,
+    auth_config: &GoogleOAuthClientConfig,
+    token_store: &dyn SecureTokenStore,
+    device_name_override: Option<String>,
+) -> Result<SyncActionResult, String> {
+    let client = GoogleDriveClient::new(auth_config.clone())?;
+    create_remote_sync_profile_with_client(
+        app_dir,
+        conn,
+        &client,
+        token_store,
+        device_name_override,
+    )
+    .await
+}
+
+pub async fn attach_remote_sync_profile(
+    app_dir: &Path,
+    conn: &Arc<Mutex<Connection>>,
+    auth_config: &GoogleOAuthClientConfig,
+    token_store: &dyn SecureTokenStore,
+    profile_id: &str,
+    device_name_override: Option<String>,
+) -> Result<SyncActionResult, String> {
+    let client = GoogleDriveClient::new(auth_config.clone())?;
+    attach_remote_sync_profile_with_client(
+        app_dir,
+        conn,
+        &client,
+        token_store,
+        profile_id,
+        device_name_override,
+    )
+    .await
+}
+
+pub async fn run_sync(
+    app_dir: &Path,
+    conn: &Arc<Mutex<Connection>>,
+    auth_config: &GoogleOAuthClientConfig,
+    token_store: &dyn SecureTokenStore,
+) -> Result<SyncActionResult, String> {
+    let client = GoogleDriveClient::new(auth_config.clone())?;
+    run_sync_with_client(app_dir, conn, &client, token_store).await
+}
+
+pub fn get_sync_conflicts(app_dir: &Path) -> Result<Vec<SyncConflict>, String> {
+    sync_state::load_pending_conflicts(app_dir)
+}
+
+pub async fn resolve_sync_conflict(
+    app_dir: &Path,
+    conn: &Arc<Mutex<Connection>>,
+    auth_config: &GoogleOAuthClientConfig,
+    token_store: &dyn SecureTokenStore,
+    conflict_index: usize,
+    resolution: SyncConflictResolution,
+) -> Result<SyncActionResult, String> {
+    let client = GoogleDriveClient::new(auth_config.clone())?;
+    resolve_sync_conflict_with_client(
+        app_dir,
+        conn,
+        &client,
+        token_store,
+        conflict_index,
+        resolution,
+    )
+    .await
+}
+
+async fn list_remote_sync_profiles_with_client<T: DriveTransport>(
+    client: &GoogleDriveClient<T>,
+    token_store: &dyn SecureTokenStore,
+) -> Result<Vec<RemoteSyncProfileSummary>, String> {
+    Ok(client
+        .list_remote_sync_profiles(token_store)
+        .await?
+        .into_iter()
+        .map(|entry| RemoteSyncProfileSummary {
+            profile_id: entry.manifest.profile_id,
+            profile_name: entry.manifest.profile_name,
+            snapshot_id: entry.manifest.snapshot_id,
+            remote_generation: entry.manifest.remote_generation,
+            updated_at: entry.manifest.updated_at,
+            last_writer_device_id: entry.manifest.last_writer_device_id,
+        })
+        .collect())
+}
+
+async fn create_remote_sync_profile_with_client<T: DriveTransport>(
+    app_dir: &Path,
+    conn: &Arc<Mutex<Connection>>,
+    client: &GoogleDriveClient<T>,
+    token_store: &dyn SecureTokenStore,
+    device_name_override: Option<String>,
+) -> Result<SyncActionResult, String> {
+    let _lock = sync_state::acquire_sync_lock(app_dir)?;
+    if sync_state::load_sync_config(app_dir)?.is_some() {
+        return Err("Sync is already configured for this profile".to_string());
+    }
+
+    let safety_backup_path = create_local_safety_backup(app_dir, conn)?;
+    let google_account_email = sync_auth::load_google_account_email(token_store)?;
+    let profile_id = generate_prefixed_id("prof");
+    let built_snapshot = build_local_snapshot(app_dir, conn, &profile_id, None)?;
+
+    upload_missing_cover_blobs_with_client(conn, &built_snapshot.snapshot, client, token_store)
+        .await?;
+    let uploaded_snapshot = client
+        .upload_snapshot(token_store, &profile_id, &built_snapshot.snapshot)
+        .await?;
+
+    let manifest = RemoteSyncManifest::new(
+        &profile_id,
+        &built_snapshot.snapshot.profile.profile_name,
+        &built_snapshot.snapshot.snapshot_id,
+        &uploaded_snapshot.snapshot_sha256,
+        1,
+        &built_snapshot.created_at,
+        &built_snapshot.device_id,
+    );
+    let manifest_write = client
+        .upsert_manifest_and_confirm(token_store, &manifest)
+        .await?;
+    if !manifest_write.race_won {
+        return Err("Remote manifest changed unexpectedly while creating sync profile".to_string());
+    }
+
+    sync_state::save_base_snapshot(app_dir, &built_snapshot.snapshot)?;
+    sync_state::clear_pending_conflicts(app_dir)?;
+    sync_state::save_sync_config(
+        app_dir,
+        &SyncConfig {
+            sync_profile_id: profile_id.clone(),
+            profile_name: built_snapshot.snapshot.profile.profile_name.clone(),
+            google_account_email,
+            remote_manifest_name: sync_drive::manifest_file_name(&profile_id),
+            last_confirmed_snapshot_id: Some(built_snapshot.snapshot.snapshot_id.clone()),
+            last_sync_at: Some(built_snapshot.created_at.clone()),
+            last_sync_status: SyncLifecycleStatus::Clean,
+            device_name: device_name_override.unwrap_or_else(default_device_name),
+        },
+    )?;
+
+    build_action_result(
+        app_dir,
+        token_store,
+        Some(safety_backup_path),
+        Some(built_snapshot.snapshot.snapshot_id),
+        false,
+        false,
+    )
+}
+
+async fn attach_remote_sync_profile_with_client<T: DriveTransport>(
+    app_dir: &Path,
+    conn: &Arc<Mutex<Connection>>,
+    client: &GoogleDriveClient<T>,
+    token_store: &dyn SecureTokenStore,
+    profile_id: &str,
+    device_name_override: Option<String>,
+) -> Result<SyncActionResult, String> {
+    let _lock = sync_state::acquire_sync_lock(app_dir)?;
+    if sync_state::load_sync_config(app_dir)?.is_some() {
+        return Err("Sync is already configured for this profile".to_string());
+    }
+
+    let safety_backup_path = create_local_safety_backup(app_dir, conn)?;
+    let google_account_email = sync_auth::load_google_account_email(token_store)?;
+    let remote_manifest = load_remote_manifest(client, token_store, profile_id).await?;
+    let remote_snapshot = download_remote_snapshot(client, token_store, &remote_manifest).await?;
+    let local_snapshot = build_local_snapshot(app_dir, conn, profile_id, None)?;
+    let merge_outcome =
+        sync_merge::merge_snapshots(None, &local_snapshot.snapshot, &remote_snapshot)?;
+
+    apply_snapshot_and_materialize_with_client(
+        conn,
+        app_dir.join("covers").as_path(),
+        &merge_outcome.merged_snapshot,
+        client,
+        token_store,
+    )
+    .await?;
+
+    sync_state::save_base_snapshot(app_dir, &remote_snapshot)?;
+    sync_state::save_sync_config(
+        app_dir,
+        &SyncConfig {
+            sync_profile_id: profile_id.to_string(),
+            profile_name: merge_outcome.merged_snapshot.profile.profile_name.clone(),
+            google_account_email,
+            remote_manifest_name: sync_drive::manifest_file_name(profile_id),
+            last_confirmed_snapshot_id: Some(remote_snapshot.snapshot_id.clone()),
+            last_sync_at: Some(local_snapshot.created_at.clone()),
+            last_sync_status: if merge_outcome.conflicts.is_empty() {
+                SyncLifecycleStatus::Dirty
+            } else {
+                SyncLifecycleStatus::ConflictPending
+            },
+            device_name: device_name_override.unwrap_or_else(default_device_name),
+        },
+    )?;
+
+    if !merge_outcome.conflicts.is_empty() {
+        sync_state::save_pending_conflicts(app_dir, &merge_outcome.conflicts)?;
+        return build_action_result(
+            app_dir,
+            token_store,
+            Some(safety_backup_path),
+            None,
+            false,
+            true,
+        );
+    }
+
+    sync_state::clear_pending_conflicts(app_dir)?;
+    publish_snapshot_with_client(
+        app_dir,
+        conn,
+        client,
+        token_store,
+        &remote_manifest.manifest,
+        &merge_outcome.merged_snapshot,
+        local_snapshot.created_at.as_str(),
+    )
+    .await
+    .map(|mut result| {
+        result.safety_backup_path = Some(safety_backup_path);
+        result.remote_changed = true;
+        result
+    })
+}
+
+async fn run_sync_with_client<T: DriveTransport>(
+    app_dir: &Path,
+    conn: &Arc<Mutex<Connection>>,
+    client: &GoogleDriveClient<T>,
+    token_store: &dyn SecureTokenStore,
+) -> Result<SyncActionResult, String> {
+    let _lock = sync_state::acquire_sync_lock(app_dir)?;
+    let Some(config) = sync_state::load_sync_config(app_dir)? else {
+        return Err("Sync is not configured for this profile".to_string());
+    };
+
+    if !sync_state::load_pending_conflicts(app_dir)?.is_empty() {
+        sync_state::update_sync_config(app_dir, |current| {
+            current.last_sync_status = SyncLifecycleStatus::ConflictPending;
+        })?;
+        return build_action_result(app_dir, token_store, None, None, false, false);
+    }
+
+    sync_state::update_sync_config(app_dir, |current| {
+        current.last_sync_status = SyncLifecycleStatus::Syncing;
+    })?;
+
+    let result = run_sync_inner(app_dir, conn, client, token_store, &config).await;
+    if let Err(err) = &result {
+        let _ = sync_state::update_sync_config(app_dir, |current| {
+            current.last_sync_status = SyncLifecycleStatus::Error;
+        });
+        return Err(err.clone());
+    }
+
+    result
+}
+
+async fn run_sync_inner<T: DriveTransport>(
+    app_dir: &Path,
+    conn: &Arc<Mutex<Connection>>,
+    client: &GoogleDriveClient<T>,
+    token_store: &dyn SecureTokenStore,
+    config: &SyncConfig,
+) -> Result<SyncActionResult, String> {
+    let base_snapshot = sync_state::load_base_snapshot(app_dir)?
+        .ok_or_else(|| "Missing local base snapshot. Reconnect or recreate sync.".to_string())?;
+    let remote_manifest =
+        load_remote_manifest(client, token_store, &config.sync_profile_id).await?;
+
+    if remote_manifest.manifest.snapshot_id == base_snapshot.snapshot_id {
+        let local_snapshot =
+            build_local_snapshot(app_dir, conn, &config.sync_profile_id, Some(&base_snapshot))?;
+        if snapshots_logically_equal(&local_snapshot.snapshot, &base_snapshot) {
+            sync_state::clear_pending_conflicts(app_dir)?;
+            sync_state::update_sync_config(app_dir, |current| {
+                current.profile_name = local_snapshot.snapshot.profile.profile_name.clone();
+                current.last_confirmed_snapshot_id = Some(base_snapshot.snapshot_id.clone());
+                current.last_sync_at = Some(local_snapshot.created_at.clone());
+                current.last_sync_status = SyncLifecycleStatus::Clean;
+            })?;
+            return build_action_result(app_dir, token_store, None, None, false, false);
+        }
+
+        return publish_snapshot_with_client(
+            app_dir,
+            conn,
+            client,
+            token_store,
+            &remote_manifest.manifest,
+            &local_snapshot.snapshot,
+            &local_snapshot.created_at,
+        )
+        .await;
+    }
+
+    let remote_snapshot = download_remote_snapshot(client, token_store, &remote_manifest).await?;
+    let local_snapshot =
+        build_local_snapshot(app_dir, conn, &config.sync_profile_id, Some(&base_snapshot))?;
+    let merge_outcome = sync_merge::merge_snapshots(
+        Some(&base_snapshot),
+        &local_snapshot.snapshot,
+        &remote_snapshot,
+    )?;
+
+    if !merge_outcome.conflicts.is_empty() {
+        apply_snapshot_and_materialize_with_client(
+            conn,
+            app_dir.join("covers").as_path(),
+            &merge_outcome.merged_snapshot,
+            client,
+            token_store,
+        )
+        .await?;
+        sync_state::save_base_snapshot(app_dir, &remote_snapshot)?;
+        sync_state::save_pending_conflicts(app_dir, &merge_outcome.conflicts)?;
+        sync_state::update_sync_config(app_dir, |current| {
+            current.profile_name = merge_outcome.merged_snapshot.profile.profile_name.clone();
+            current.last_confirmed_snapshot_id = Some(remote_snapshot.snapshot_id.clone());
+            current.last_sync_at = Some(local_snapshot.created_at.clone());
+            current.last_sync_status = SyncLifecycleStatus::ConflictPending;
+        })?;
+        return build_action_result(app_dir, token_store, None, None, false, true);
+    }
+
+    apply_snapshot_and_materialize_with_client(
+        conn,
+        app_dir.join("covers").as_path(),
+        &merge_outcome.merged_snapshot,
+        client,
+        token_store,
+    )
+    .await?;
+    sync_state::clear_pending_conflicts(app_dir)?;
+
+    publish_snapshot_with_client(
+        app_dir,
+        conn,
+        client,
+        token_store,
+        &remote_manifest.manifest,
+        &merge_outcome.merged_snapshot,
+        &local_snapshot.created_at,
+    )
+    .await
+    .map(|mut result| {
+        result.remote_changed = true;
+        result
+    })
+}
+
+async fn resolve_sync_conflict_with_client<T: DriveTransport>(
+    app_dir: &Path,
+    conn: &Arc<Mutex<Connection>>,
+    client: &GoogleDriveClient<T>,
+    token_store: &dyn SecureTokenStore,
+    conflict_index: usize,
+    resolution: SyncConflictResolution,
+) -> Result<SyncActionResult, String> {
+    let _lock = sync_state::acquire_sync_lock(app_dir)?;
+    let Some(config) = sync_state::load_sync_config(app_dir)? else {
+        return Err("Sync is not configured for this profile".to_string());
+    };
+    let base_snapshot = sync_state::load_base_snapshot(app_dir)?
+        .ok_or_else(|| "Missing local base snapshot. Reconnect or recreate sync.".to_string())?;
+    let mut conflicts = sync_state::load_pending_conflicts(app_dir)?;
+    if conflict_index >= conflicts.len() {
+        return Err(format!("Conflict index {conflict_index} is out of bounds"));
+    }
+
+    let conflict = conflicts
+        .get(conflict_index)
+        .cloned()
+        .ok_or_else(|| format!("Conflict index {conflict_index} is out of bounds"))?;
+    let mut local_snapshot =
+        build_local_snapshot(app_dir, conn, &config.sync_profile_id, Some(&base_snapshot))?
+            .snapshot;
+
+    apply_conflict_resolution_to_snapshot(&mut local_snapshot, &conflict, &resolution)?;
+    apply_snapshot_and_materialize_with_client(
+        conn,
+        app_dir.join("covers").as_path(),
+        &local_snapshot,
+        client,
+        token_store,
+    )
+    .await?;
+
+    conflicts.remove(conflict_index);
+    if conflicts.is_empty() {
+        sync_state::clear_pending_conflicts(app_dir)?;
+        sync_state::update_sync_config(app_dir, |current| {
+            current.profile_name = local_snapshot.profile.profile_name.clone();
+            current.last_sync_status = SyncLifecycleStatus::Dirty;
+        })?;
+    } else {
+        sync_state::save_pending_conflicts(app_dir, &conflicts)?;
+        sync_state::update_sync_config(app_dir, |current| {
+            current.profile_name = local_snapshot.profile.profile_name.clone();
+            current.last_sync_status = SyncLifecycleStatus::ConflictPending;
+        })?;
+    }
+
+    build_action_result(app_dir, token_store, None, None, false, false)
+}
+
+async fn publish_snapshot_with_client<T: DriveTransport>(
+    app_dir: &Path,
+    conn: &Arc<Mutex<Connection>>,
+    client: &GoogleDriveClient<T>,
+    token_store: &dyn SecureTokenStore,
+    remote_manifest: &RemoteSyncManifest,
+    snapshot: &SyncSnapshot,
+    synced_at: &str,
+) -> Result<SyncActionResult, String> {
+    upload_missing_cover_blobs_with_client(conn, snapshot, client, token_store).await?;
+    let uploaded_snapshot = client
+        .upload_snapshot(token_store, &snapshot.profile.profile_id, snapshot)
+        .await?;
+    let google_account_email = sync_auth::load_google_account_email(token_store)?;
+    let device_id = sync_state::get_or_create_device_id(app_dir)?;
+    let next_manifest = RemoteSyncManifest::new(
+        &snapshot.profile.profile_id,
+        &snapshot.profile.profile_name,
+        &snapshot.snapshot_id,
+        &uploaded_snapshot.snapshot_sha256,
+        remote_manifest.remote_generation + 1,
+        synced_at,
+        &device_id,
+    );
+    let manifest_write = client
+        .upsert_manifest_and_confirm(token_store, &next_manifest)
+        .await?;
+
+    if !manifest_write.race_won {
+        sync_state::update_sync_config(app_dir, |current| {
+            current.profile_name = snapshot.profile.profile_name.clone();
+            current.last_sync_status = SyncLifecycleStatus::Dirty;
+        })?;
+        return build_action_result(app_dir, token_store, None, None, true, false);
+    }
+
+    sync_state::save_base_snapshot(app_dir, snapshot)?;
+    sync_state::clear_pending_conflicts(app_dir)?;
+    sync_state::update_sync_config(app_dir, |current| {
+        current.profile_name = snapshot.profile.profile_name.clone();
+        current.google_account_email = google_account_email;
+        current.last_confirmed_snapshot_id = Some(snapshot.snapshot_id.clone());
+        current.last_sync_at = Some(synced_at.to_string());
+        current.last_sync_status = SyncLifecycleStatus::Clean;
+    })?;
+
+    build_action_result(
+        app_dir,
+        token_store,
+        None,
+        Some(snapshot.snapshot_id.clone()),
+        false,
+        false,
+    )
+}
+
+async fn load_remote_manifest<T: DriveTransport>(
+    client: &GoogleDriveClient<T>,
+    token_store: &dyn SecureTokenStore,
+    profile_id: &str,
+) -> Result<RemoteManifestFile, String> {
+    let remote_manifest = client
+        .read_manifest(token_store, profile_id)
+        .await?
+        .ok_or_else(|| {
+            format!(
+                "Remote manifest '{}' is missing",
+                sync_drive::manifest_file_name(profile_id)
+            )
+        })?;
+    sync_drive::validate_remote_manifest_compatibility(&remote_manifest.manifest)?;
+    Ok(remote_manifest)
+}
+
+async fn download_remote_snapshot<T: DriveTransport>(
+    client: &GoogleDriveClient<T>,
+    token_store: &dyn SecureTokenStore,
+    remote_manifest: &RemoteManifestFile,
+) -> Result<SyncSnapshot, String> {
+    let remote_snapshot = client
+        .download_snapshot(
+            token_store,
+            &remote_manifest.manifest.profile_id,
+            &remote_manifest.manifest.snapshot_id,
+            &remote_manifest.manifest.snapshot_sha256,
+        )
+        .await?;
+    sync_drive::validate_remote_snapshot_compatibility(&remote_snapshot)?;
+    Ok(remote_snapshot)
+}
+
+fn build_local_snapshot(
+    app_dir: &Path,
+    conn: &Arc<Mutex<Connection>>,
+    profile_id: &str,
+    base_snapshot: Option<&SyncSnapshot>,
+) -> Result<BuiltSnapshot, String> {
+    let created_at = Utc::now().to_rfc3339();
+    let device_id = sync_state::get_or_create_device_id(app_dir)?;
+    let snapshot_id = generate_prefixed_id("snap");
+
+    let tombstones = {
+        let conn_guard = conn.lock().map_err(|e| e.to_string())?;
+        derive_local_tombstones(&conn_guard, base_snapshot, &created_at, &device_id)?
+    };
+
+    let snapshot = {
+        let conn_guard = conn.lock().map_err(|e| e.to_string())?;
+        sync_snapshot::build_snapshot(
+            &conn_guard,
+            SnapshotBuildOptions {
+                snapshot_id: &snapshot_id,
+                created_at: &created_at,
+                created_by_device_id: &device_id,
+                profile_id,
+                base_snapshot,
+                tombstones: &tombstones,
+            },
+        )?
+    };
+
+    Ok(BuiltSnapshot {
+        snapshot,
+        created_at,
+        device_id,
+    })
+}
+
+fn derive_local_tombstones(
+    conn: &Connection,
+    base_snapshot: Option<&SyncSnapshot>,
+    deleted_at: &str,
+    device_id: &str,
+) -> Result<Vec<SnapshotTombstone>, String> {
+    let Some(base_snapshot) = base_snapshot else {
+        return Ok(Vec::new());
+    };
+
+    let local_media_uids = db::get_all_media(conn)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter_map(|media| media.uid)
+        .collect::<BTreeSet<_>>();
+    let base_tombstones = base_snapshot
+        .tombstones
+        .iter()
+        .map(|tombstone| (tombstone.media_uid.clone(), tombstone.clone()))
+        .collect::<BTreeMap<_, _>>();
+    let mut tombstones = BTreeMap::new();
+
+    for uid in base_snapshot.library.keys() {
+        if local_media_uids.contains(uid) {
+            continue;
+        }
+        if let Some(existing) = base_tombstones.get(uid) {
+            tombstones.insert(uid.clone(), existing.clone());
+        } else {
+            tombstones.insert(
+                uid.clone(),
+                SnapshotTombstone {
+                    media_uid: uid.clone(),
+                    deleted_at: deleted_at.to_string(),
+                    deleted_by_device_id: device_id.to_string(),
+                },
+            );
+        }
+    }
+
+    for tombstone in &base_snapshot.tombstones {
+        if !local_media_uids.contains(&tombstone.media_uid) {
+            tombstones
+                .entry(tombstone.media_uid.clone())
+                .or_insert_with(|| tombstone.clone());
+        }
+    }
+
+    Ok(tombstones.into_values().collect())
+}
+
+fn snapshots_logically_equal(left: &SyncSnapshot, right: &SyncSnapshot) -> bool {
+    left.sync_protocol_version == right.sync_protocol_version
+        && left.db_schema_version == right.db_schema_version
+        && left.profile == right.profile
+        && left.library == right.library
+        && left.settings == right.settings
+        && left.profile_picture == right.profile_picture
+        && left.tombstones == right.tombstones
+}
+
+fn create_local_safety_backup(
+    app_dir: &Path,
+    conn: &Arc<Mutex<Connection>>,
+) -> Result<String, String> {
+    sync_state::ensure_sync_dir(app_dir)?;
+    let file_name = format!(
+        "pre_sync_backup_{}.zip",
+        Utc::now().format("%Y%m%dT%H%M%SZ")
+    );
+    let path = sync_state::sync_dir(app_dir).join(file_name);
+    let conn_guard = conn.lock().map_err(|e| e.to_string())?;
+    backup::export_full_backup_internal(
+        app_dir,
+        &conn_guard,
+        &path.to_string_lossy(),
+        "{}",
+        env!("CARGO_PKG_VERSION"),
+    )?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+fn default_device_name() -> String {
+    std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .unwrap_or_else(|_| "Device".to_string())
+}
+
+fn generate_prefixed_id(prefix: &str) -> String {
+    format!("{prefix}_{}", uuid::Uuid::new_v4().simple())
+}
+
+fn build_action_result(
+    app_dir: &Path,
+    token_store: &dyn SecureTokenStore,
+    safety_backup_path: Option<String>,
+    published_snapshot_id: Option<String>,
+    lost_race: bool,
+    remote_changed: bool,
+) -> Result<SyncActionResult, String> {
+    let google_account_email = sync_auth::load_google_account_email(token_store)?;
+    let sync_status = sync_state::get_sync_status(app_dir, true, google_account_email)?;
+    Ok(SyncActionResult {
+        sync_status,
+        safety_backup_path,
+        published_snapshot_id,
+        lost_race,
+        remote_changed,
+    })
+}
+
+fn apply_conflict_resolution_to_snapshot(
+    snapshot: &mut SyncSnapshot,
+    conflict: &SyncConflict,
+    resolution: &SyncConflictResolution,
+) -> Result<(), String> {
+    match (conflict, resolution) {
+        (
+            SyncConflict::MediaFieldConflict {
+                media_uid,
+                field_name,
+                local_value,
+                remote_value,
+                ..
+            },
+            SyncConflictResolution::MediaField { side },
+        ) => {
+            let aggregate = snapshot.library.get_mut(media_uid).ok_or_else(|| {
+                format!("Media '{media_uid}' was not found in the current snapshot")
+            })?;
+            let chosen = match side {
+                MergeSide::Local => local_value.clone(),
+                MergeSide::Remote => remote_value.clone(),
+            };
+            apply_media_field_choice(aggregate, field_name, chosen)?;
+            Ok(())
+        }
+        (
+            SyncConflict::ExtraDataEntryConflict {
+                media_uid,
+                entry_key,
+                local_value,
+                remote_value,
+                ..
+            },
+            SyncConflictResolution::ExtraDataEntry { side },
+        ) => {
+            let aggregate = snapshot.library.get_mut(media_uid).ok_or_else(|| {
+                format!("Media '{media_uid}' was not found in the current snapshot")
+            })?;
+            let chosen = match side {
+                MergeSide::Local => local_value.clone(),
+                MergeSide::Remote => remote_value.clone(),
+            };
+            apply_extra_data_entry_choice(&mut aggregate.extra_data, entry_key, chosen)?;
+            Ok(())
+        }
+        (
+            SyncConflict::DeleteVsUpdate {
+                media_uid,
+                deleted_side,
+                local_media,
+                remote_media,
+                tombstone,
+                ..
+            },
+            SyncConflictResolution::DeleteVsUpdate { choice },
+        ) => {
+            match choice {
+                DeleteVsUpdateChoice::RespectDelete => {
+                    snapshot.library.remove(media_uid);
+                    upsert_tombstone(snapshot, tombstone.clone());
+                }
+                DeleteVsUpdateChoice::Restore => {
+                    let restored = match deleted_side {
+                        MergeSide::Local => remote_media.as_ref().clone(),
+                        MergeSide::Remote => local_media.as_ref().clone(),
+                    }
+                    .ok_or_else(|| {
+                        format!(
+                            "Conflict for media '{media_uid}' does not contain a restore candidate"
+                        )
+                    })?;
+                    snapshot.library.insert(media_uid.clone(), restored);
+                    remove_tombstone(snapshot, media_uid);
+                }
+            }
+            Ok(())
+        }
+        (
+            SyncConflict::ProfilePictureConflict {
+                local_picture,
+                remote_picture,
+                ..
+            },
+            SyncConflictResolution::ProfilePicture { side },
+        ) => {
+            snapshot.profile_picture = match side {
+                MergeSide::Local => local_picture.as_ref().clone(),
+                MergeSide::Remote => remote_picture.as_ref().clone(),
+            };
+            Ok(())
+        }
+        _ => Err("Conflict resolution kind does not match the pending conflict".to_string()),
+    }
+}
+
+fn apply_media_field_choice(
+    aggregate: &mut SnapshotMediaAggregate,
+    field_name: &str,
+    chosen: Option<String>,
+) -> Result<(), String> {
+    match field_name {
+        "title" => aggregate.title = required_choice(field_name, chosen)?,
+        "media_type" => aggregate.media_type = required_choice(field_name, chosen)?,
+        "status" => aggregate.status = required_choice(field_name, chosen)?,
+        "language" => aggregate.language = required_choice(field_name, chosen)?,
+        "description" => aggregate.description = required_choice(field_name, chosen)?,
+        "content_type" => aggregate.content_type = required_choice(field_name, chosen)?,
+        "tracking_status" => aggregate.tracking_status = required_choice(field_name, chosen)?,
+        "extra_data" => aggregate.extra_data = required_choice(field_name, chosen)?,
+        "cover_blob_sha256" => aggregate.cover_blob_sha256 = chosen,
+        other => return Err(format!("Unsupported media field conflict '{other}'")),
+    }
+    Ok(())
+}
+
+fn apply_extra_data_entry_choice(
+    extra_data: &mut String,
+    entry_key: &str,
+    chosen: Option<Value>,
+) -> Result<(), String> {
+    let mut object = parse_extra_data_object(extra_data)?;
+    match chosen {
+        Some(value) => {
+            object.insert(entry_key.to_string(), sort_json_value(value));
+        }
+        None => {
+            object.remove(entry_key);
+        }
+    }
+    *extra_data = serialize_extra_data_object(&object)?;
+    Ok(())
+}
+
+fn required_choice(field_name: &str, chosen: Option<String>) -> Result<String, String> {
+    chosen.ok_or_else(|| format!("Conflict field '{field_name}' requires a non-null value"))
+}
+
+fn parse_extra_data_object(raw: &str) -> Result<BTreeMap<String, Value>, String> {
+    let trimmed = raw.trim();
+    let normalized = if trimmed.is_empty() { "{}" } else { trimmed };
+    let value = serde_json::from_str::<Value>(normalized)
+        .map_err(|e| format!("Failed to parse extra_data object: {e}"))?;
+    match sort_json_value(value) {
+        Value::Object(map) => Ok(map.into_iter().collect()),
+        _ => Err("extra_data is not a JSON object".to_string()),
+    }
+}
+
+fn serialize_extra_data_object(entries: &BTreeMap<String, Value>) -> Result<String, String> {
+    let mut map = Map::new();
+    for (key, value) in entries {
+        map.insert(key.clone(), sort_json_value(value.clone()));
+    }
+    serde_json::to_string(&Value::Object(map)).map_err(|e| e.to_string())
+}
+
+fn sort_json_value(value: Value) -> Value {
+    match value {
+        Value::Array(values) => Value::Array(values.into_iter().map(sort_json_value).collect()),
+        Value::Object(map) => {
+            let mut sorted = Map::new();
+            let ordered: BTreeMap<_, _> = map.into_iter().collect();
+            for (key, value) in ordered {
+                sorted.insert(key, sort_json_value(value));
+            }
+            Value::Object(sorted)
+        }
+        other => other,
+    }
+}
+
+fn upsert_tombstone(snapshot: &mut SyncSnapshot, tombstone: SnapshotTombstone) {
+    if let Some(existing) = snapshot
+        .tombstones
+        .iter_mut()
+        .find(|existing| existing.media_uid == tombstone.media_uid)
+    {
+        *existing = tombstone;
+    } else {
+        snapshot.tombstones.push(tombstone);
+        snapshot
+            .tombstones
+            .sort_by(|left, right| left.media_uid.cmp(&right.media_uid));
+    }
+}
+
+fn remove_tombstone(snapshot: &mut SyncSnapshot, media_uid: &str) {
+    snapshot
+        .tombstones
+        .retain(|tombstone| tombstone.media_uid != media_uid);
+}
+
+async fn upload_missing_cover_blobs_with_client<T: DriveTransport>(
+    conn: &Arc<Mutex<Connection>>,
+    snapshot: &SyncSnapshot,
+    client: &GoogleDriveClient<T>,
+    token_store: &dyn SecureTokenStore,
+) -> Result<(), String> {
+    let local_hash_cache = build_local_cover_hash_cache(conn)?;
+
+    for hash in required_cover_hashes(snapshot) {
+        if client.blob_exists(token_store, &hash).await? {
+            continue;
+        }
+
+        let path = local_hash_cache
+            .get(&hash)
+            .ok_or_else(|| format!("Local cover blob '{hash}' is missing"))?;
+        let bytes = fs::read(path)
+            .map_err(|e| format!("Failed to read local cover blob '{hash}' from '{path}': {e}"))?;
+        validate_cover_blob_bytes(&hash, &bytes)?;
+        let _ = client.upload_blob(token_store, &hash, &bytes).await?;
+    }
+
+    Ok(())
+}
+
+async fn apply_snapshot_and_materialize_with_client<T: DriveTransport>(
+    conn: &Arc<Mutex<Connection>>,
+    covers_dir: &Path,
+    snapshot: &SyncSnapshot,
+    client: &GoogleDriveClient<T>,
+    token_store: &dyn SecureTokenStore,
+) -> Result<(), String> {
+    {
+        let conn_guard = conn.lock().map_err(|e| e.to_string())?;
+        sync_snapshot::apply_snapshot(&conn_guard, snapshot)?;
+    }
+
+    materialize_snapshot_cover_blobs_with_client(conn, covers_dir, snapshot, client, token_store)
+        .await
+}
+
+async fn materialize_snapshot_cover_blobs_with_client<T: DriveTransport>(
+    conn: &Arc<Mutex<Connection>>,
+    covers_dir: &Path,
+    snapshot: &SyncSnapshot,
+    client: &GoogleDriveClient<T>,
+    token_store: &dyn SecureTokenStore,
+) -> Result<(), String> {
+    let mut local_hash_cache = build_local_cover_hash_cache(conn)?;
+    let existing_media = {
+        let conn_guard = conn.lock().map_err(|e| e.to_string())?;
+        db::get_all_media(&conn_guard).map_err(|e| e.to_string())?
+    };
+    let media_by_uid = existing_media
+        .into_iter()
+        .filter_map(|media| media.uid.clone().map(|uid| (uid, media)))
+        .collect::<BTreeMap<_, _>>();
+
+    for (uid, aggregate) in &snapshot.library {
+        let Some(expected_hash) = aggregate.cover_blob_sha256.as_ref() else {
+            continue;
+        };
+
+        let media = media_by_uid
+            .get(uid)
+            .ok_or_else(|| format!("Snapshot media uid '{uid}' was not found in SQLite"))?;
+        let current_hash =
+            sync_snapshot::compute_cover_blob_sha256_from_path(Path::new(&media.cover_image))?;
+        if current_hash.as_deref() == Some(expected_hash.as_str()) {
+            continue;
+        }
+
+        let target_path = if let Some(existing_path) = local_hash_cache.get(expected_hash) {
+            existing_path.clone()
+        } else {
+            let bytes = client
+                .download_blob(token_store, expected_hash)
+                .await?
+                .ok_or_else(|| format!("Missing cover blob '{expected_hash}' on remote store"))?;
+            validate_cover_blob_bytes(expected_hash, &bytes)?;
+            let materialized = materialize_cover_blob(covers_dir, expected_hash, &bytes)?;
+            let materialized = materialized.to_string_lossy().to_string();
+            local_hash_cache.insert(expected_hash.clone(), materialized.clone());
+            materialized
+        };
+
+        if media.cover_image != target_path {
+            let conn_guard = conn.lock().map_err(|e| e.to_string())?;
+            db::update_media_cover_image_by_uid(&conn_guard, uid, &target_path)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn build_local_cover_hash_cache(
+    conn: &Arc<Mutex<Connection>>,
+) -> Result<BTreeMap<String, String>, String> {
+    let conn_guard = conn.lock().map_err(|e| e.to_string())?;
+    let mut cache = BTreeMap::new();
+    for media in db::get_all_media(&conn_guard).map_err(|e| e.to_string())? {
+        let path = Path::new(&media.cover_image);
+        let Some(hash) = sync_snapshot::compute_cover_blob_sha256_from_path(path)? else {
+            continue;
+        };
+        cache.entry(hash).or_insert(media.cover_image);
+    }
+    Ok(cache)
+}
+
+fn required_cover_hashes(snapshot: &SyncSnapshot) -> BTreeSet<String> {
+    snapshot
+        .library
+        .values()
+        .filter_map(|aggregate| aggregate.cover_blob_sha256.clone())
+        .collect()
+}
+
+fn validate_cover_blob_bytes(expected_hash: &str, bytes: &[u8]) -> Result<(), String> {
+    if bytes.is_empty() {
+        return Err(format!(
+            "Cover blob '{expected_hash}' is corrupted or empty"
+        ));
+    }
+
+    let actual_hash = compute_sha256_hex(bytes);
+    if actual_hash != expected_hash {
+        return Err(format!(
+            "Cover blob '{expected_hash}' is corrupted (expected hash {expected_hash}, got {actual_hash})"
+        ));
+    }
+
+    Ok(())
+}
+
+fn materialize_cover_blob(
+    covers_dir: &Path,
+    sha256: &str,
+    bytes: &[u8],
+) -> Result<PathBuf, String> {
+    fs::create_dir_all(covers_dir).map_err(|e| e.to_string())?;
+
+    let extension = match image::guess_format(bytes) {
+        Ok(ImageFormat::Png) => "png",
+        Ok(ImageFormat::Jpeg) => "jpg",
+        Ok(ImageFormat::WebP) => "webp",
+        _ => "img",
+    };
+    let path = covers_dir.join(format!("sync_blob_{sha256}.{extension}"));
+
+    if path.exists() {
+        let existing_hash = sync_snapshot::compute_cover_blob_sha256_from_path(&path)?;
+        if existing_hash.as_deref() == Some(sha256) {
+            return Ok(path);
+        }
+    }
+
+    fs::write(&path, bytes).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
+fn compute_sha256_hex(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let mut output = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        use std::fmt::Write as _;
+        let _ = write!(&mut output, "{byte:02x}");
+    }
+    output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use reqwest::Method;
+    use tempfile::TempDir;
+    use url::Url;
+
+    use crate::models::Media;
+    use crate::sync_auth::{StoredGoogleTokens, GOOGLE_DRIVE_APPDATA_SCOPE};
+
+    #[derive(Debug, Default, Clone)]
+    struct MemoryTokenStore {
+        tokens: Arc<Mutex<Option<StoredGoogleTokens>>>,
+    }
+
+    impl SecureTokenStore for MemoryTokenStore {
+        fn load_tokens(&self) -> Result<Option<StoredGoogleTokens>, String> {
+            Ok(self.tokens.lock().unwrap().clone())
+        }
+
+        fn save_tokens(&self, tokens: &StoredGoogleTokens) -> Result<(), String> {
+            *self.tokens.lock().unwrap() = Some(tokens.clone());
+            Ok(())
+        }
+
+        fn clear_tokens(&self) -> Result<(), String> {
+            *self.tokens.lock().unwrap() = None;
+            Ok(())
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct StoredTestFile {
+        id: String,
+        name: String,
+        mime_type: String,
+        modified_time: String,
+        parents: Vec<String>,
+        bytes: Vec<u8>,
+    }
+
+    #[derive(Debug, Default)]
+    struct TestDriveState {
+        next_id: usize,
+        next_timestamp: usize,
+        files: BTreeMap<String, StoredTestFile>,
+        expected_access_token: String,
+        overwrite_manifest_after_write: Option<RemoteSyncManifest>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct TestUploadMetadata {
+        name: String,
+        #[serde(rename = "mimeType")]
+        mime_type: String,
+        #[serde(default)]
+        parents: Vec<String>,
+    }
+
+    enum MemoryDriveResponse {
+        Json(serde_json::Value),
+        Bytes(Vec<u8>),
+    }
+
+    #[derive(Clone)]
+    struct MemoryDriveTransport {
+        state: Arc<Mutex<TestDriveState>>,
+    }
+
+    impl DriveTransport for MemoryDriveTransport {
+        fn request_json<'a>(
+            &'a self,
+            method: Method,
+            url: &'a str,
+            access_token: &'a str,
+            content_type: Option<String>,
+            body: Option<Vec<u8>>,
+        ) -> sync_drive::TransportFuture<'a, serde_json::Value> {
+            let transport = self.clone();
+            let url = url.to_string();
+            let access_token = access_token.to_string();
+            Box::pin(async move {
+                match transport.handle_request(method, &url, &access_token, content_type, body)? {
+                    MemoryDriveResponse::Json(value) => Ok(value),
+                    MemoryDriveResponse::Bytes(_) => {
+                        Err("Expected JSON response but transport returned bytes".to_string())
+                    }
+                }
+            })
+        }
+
+        fn request_bytes<'a>(
+            &'a self,
+            method: Method,
+            url: &'a str,
+            access_token: &'a str,
+            content_type: Option<String>,
+            body: Option<Vec<u8>>,
+        ) -> sync_drive::TransportFuture<'a, Vec<u8>> {
+            let transport = self.clone();
+            let url = url.to_string();
+            let access_token = access_token.to_string();
+            Box::pin(async move {
+                match transport.handle_request(method, &url, &access_token, content_type, body)? {
+                    MemoryDriveResponse::Bytes(bytes) => Ok(bytes),
+                    MemoryDriveResponse::Json(_) => {
+                        Err("Expected byte response but transport returned JSON".to_string())
+                    }
+                }
+            })
+        }
+    }
+
+    impl MemoryDriveTransport {
+        fn new() -> Self {
+            Self {
+                state: Arc::new(Mutex::new(TestDriveState {
+                    next_id: 0,
+                    next_timestamp: 0,
+                    files: BTreeMap::new(),
+                    expected_access_token: "access-token".to_string(),
+                    overwrite_manifest_after_write: None,
+                })),
+            }
+        }
+
+        fn overwrite_manifest_after_next_write(&self, manifest: RemoteSyncManifest) {
+            self.state.lock().unwrap().overwrite_manifest_after_write = Some(manifest);
+        }
+
+        fn handle_request(
+            &self,
+            method: Method,
+            url: &str,
+            access_token: &str,
+            content_type: Option<String>,
+            body: Option<Vec<u8>>,
+        ) -> Result<MemoryDriveResponse, String> {
+            let url = Url::parse(url).map_err(|e| e.to_string())?;
+            let path = url.path();
+
+            self.authorize_request(access_token)?;
+
+            if method == Method::GET && path.ends_with("/drive/v3/files") {
+                let query = url
+                    .query_pairs()
+                    .find(|(key, _)| key == "q")
+                    .map(|(_, value)| value.to_string());
+                let state = self.state.lock().unwrap();
+                let mut files = state.files.values().cloned().collect::<Vec<_>>();
+                if let Some(query) = query.as_deref() {
+                    files.retain(|file| file_matches_query(file, query));
+                }
+
+                return Ok(MemoryDriveResponse::Json(serde_json::json!({
+                    "files": files.into_iter().map(file_to_json).collect::<Vec<_>>()
+                })));
+            }
+
+            if method == Method::GET && path.contains("/drive/v3/files/") {
+                let file_id = path
+                    .rsplit('/')
+                    .next()
+                    .ok_or_else(|| "Missing file id".to_string())?;
+                let alt = url
+                    .query_pairs()
+                    .find(|(key, _)| key == "alt")
+                    .map(|(_, value)| value.to_string());
+                let state = self.state.lock().unwrap();
+                let file = state
+                    .files
+                    .get(file_id)
+                    .ok_or_else(|| "File not found".to_string())?;
+
+                return if alt.as_deref() == Some("media") {
+                    Ok(MemoryDriveResponse::Bytes(file.bytes.clone()))
+                } else {
+                    Ok(MemoryDriveResponse::Json(file_to_json(file.clone())))
+                };
+            }
+
+            if method == Method::POST && path.ends_with("/upload/drive/v3/files") {
+                let content_type =
+                    content_type.ok_or_else(|| "Missing upload Content-Type".to_string())?;
+                let body = body.ok_or_else(|| "Missing upload body".to_string())?;
+                let (metadata, bytes) = parse_multipart_related(&content_type, &body)?;
+
+                let mut state = self.state.lock().unwrap();
+                state.next_id += 1;
+                let id = format!("file_{}", state.next_id);
+                let file = StoredTestFile {
+                    id: id.clone(),
+                    name: metadata.name.clone(),
+                    mime_type: metadata.mime_type.clone(),
+                    modified_time: next_timestamp(&mut state),
+                    parents: metadata.parents,
+                    bytes,
+                };
+                state.files.insert(id.clone(), file.clone());
+                maybe_overwrite_manifest_after_write(&mut state, &metadata.name);
+                return Ok(MemoryDriveResponse::Json(file_to_json(file)));
+            }
+
+            if method == Method::PATCH && path.contains("/upload/drive/v3/files/") {
+                let content_type =
+                    content_type.ok_or_else(|| "Missing upload Content-Type".to_string())?;
+                let body = body.ok_or_else(|| "Missing upload body".to_string())?;
+                let (metadata, bytes) = parse_multipart_related(&content_type, &body)?;
+                let file_id = path
+                    .rsplit('/')
+                    .next()
+                    .ok_or_else(|| "Missing file id".to_string())?;
+
+                let mut state = self.state.lock().unwrap();
+                let modified_time = next_timestamp(&mut state);
+                let file = state
+                    .files
+                    .get_mut(file_id)
+                    .ok_or_else(|| "File not found".to_string())?;
+                file.name = metadata.name.clone();
+                file.mime_type = metadata.mime_type.clone();
+                file.bytes = bytes;
+                file.modified_time = modified_time;
+                if !metadata.parents.is_empty() {
+                    file.parents = metadata.parents;
+                }
+                let updated = file.clone();
+                maybe_overwrite_manifest_after_write(&mut state, &metadata.name);
+                return Ok(MemoryDriveResponse::Json(file_to_json(updated)));
+            }
+
+            Err(format!("Unhandled transport request: {} {}", method, url))
+        }
+
+        fn authorize_request(&self, access_token: &str) -> Result<(), String> {
+            let state = self.state.lock().unwrap();
+            if access_token == state.expected_access_token {
+                Ok(())
+            } else {
+                Err("Unauthorized".to_string())
+            }
+        }
+    }
+
+    fn test_client_config() -> GoogleOAuthClientConfig {
+        GoogleOAuthClientConfig {
+            client_id: "client-id".to_string(),
+            client_secret: Some("client-secret".to_string()),
+            auth_endpoint: "https://accounts.example.test/authorize".to_string(),
+            token_endpoint: "https://oauth.example.test/token".to_string(),
+            scope: GOOGLE_DRIVE_APPDATA_SCOPE.to_string(),
+            callback_timeout_secs: 5,
+        }
+    }
+
+    fn test_token_store() -> MemoryTokenStore {
+        let store = MemoryTokenStore::default();
+        store
+            .save_tokens(&StoredGoogleTokens {
+                refresh_token: "refresh-token".to_string(),
+                access_token: Some("access-token".to_string()),
+                access_token_expires_at: Some("2999-01-01T00:00:00Z".to_string()),
+                scope: Some(GOOGLE_DRIVE_APPDATA_SCOPE.to_string()),
+                token_type: Some("Bearer".to_string()),
+                google_account_email: Some("user@example.com".to_string()),
+            })
+            .unwrap();
+        store
+    }
+
+    fn build_client(transport: MemoryDriveTransport) -> GoogleDriveClient<MemoryDriveTransport> {
+        GoogleDriveClient::new_with_transport(
+            test_client_config(),
+            "https://drive.example.test/drive/v3",
+            "https://drive.example.test/upload/drive/v3",
+            transport,
+        )
+    }
+
+    fn setup_app() -> (TempDir, Arc<Mutex<Connection>>) {
+        let temp_dir = TempDir::new().unwrap();
+        let conn = db::init_db(temp_dir.path().to_path_buf(), Some("Morg")).unwrap();
+        (temp_dir, Arc::new(Mutex::new(conn)))
+    }
+
+    fn add_media(conn: &Arc<Mutex<Connection>>, title: &str) -> String {
+        let media = Media {
+            id: None,
+            uid: None,
+            title: title.to_string(),
+            media_type: "Playing".to_string(),
+            status: "Active".to_string(),
+            language: "Japanese".to_string(),
+            description: String::new(),
+            cover_image: String::new(),
+            extra_data: "{}".to_string(),
+            content_type: "Videogame".to_string(),
+            tracking_status: "Ongoing".to_string(),
+        };
+        let conn_guard = conn.lock().unwrap();
+        db::add_media_with_id(&conn_guard, &media).unwrap();
+        db::get_all_media(&conn_guard)
+            .unwrap()
+            .into_iter()
+            .find(|existing| existing.title == title)
+            .and_then(|existing| existing.uid)
+            .unwrap()
+    }
+
+    fn update_media_title(conn: &Arc<Mutex<Connection>>, media_uid: &str, title: &str) {
+        let conn_guard = conn.lock().unwrap();
+        let mut media = db::get_all_media(&conn_guard)
+            .unwrap()
+            .into_iter()
+            .find(|existing| existing.uid.as_deref() == Some(media_uid))
+            .unwrap();
+        media.title = title.to_string();
+        db::update_media(&conn_guard, &media).unwrap();
+    }
+
+    fn first_media_title(conn: &Arc<Mutex<Connection>>) -> String {
+        let conn_guard = conn.lock().unwrap();
+        db::get_all_media(&conn_guard).unwrap()[0].title.clone()
+    }
+
+    fn file_to_json(file: StoredTestFile) -> serde_json::Value {
+        serde_json::json!({
+            "id": file.id,
+            "name": file.name,
+            "mimeType": file.mime_type,
+            "size": file.bytes.len().to_string(),
+            "modifiedTime": file.modified_time,
+        })
+    }
+
+    fn file_matches_query(file: &StoredTestFile, query: &str) -> bool {
+        let exact_name = query
+            .split("name = '")
+            .nth(1)
+            .and_then(|rest| rest.split('\'').next());
+        if let Some(name) = exact_name {
+            return file.name == name;
+        }
+
+        let prefix = query
+            .split("name contains '")
+            .nth(1)
+            .and_then(|rest| rest.split('\'').next());
+        if let Some(prefix) = prefix {
+            return file.name.contains(prefix);
+        }
+
+        true
+    }
+
+    fn next_timestamp(state: &mut TestDriveState) -> String {
+        state.next_timestamp += 1;
+        format!("2026-04-02T10:00:{:02}Z", state.next_timestamp)
+    }
+
+    fn parse_multipart_related(
+        content_type: &str,
+        body: &[u8],
+    ) -> Result<(TestUploadMetadata, Vec<u8>), String> {
+        let boundary = content_type
+            .split("boundary=")
+            .nth(1)
+            .ok_or_else(|| "Missing multipart boundary".to_string())?;
+
+        let first_prefix = format!("--{boundary}\r\n");
+        let second_prefix = format!("\r\n--{boundary}\r\n");
+        let final_suffix = format!("\r\n--{boundary}--\r\n");
+
+        let after_first = body
+            .strip_prefix(first_prefix.as_bytes())
+            .ok_or_else(|| "Multipart body missing first boundary".to_string())?;
+        let first_header_end = find_bytes(after_first, b"\r\n\r\n")
+            .ok_or_else(|| "Multipart metadata headers missing".to_string())?;
+        let metadata_start = first_header_end + 4;
+        let metadata_end = find_bytes(&after_first[metadata_start..], second_prefix.as_bytes())
+            .ok_or_else(|| "Multipart metadata section missing".to_string())?
+            + metadata_start;
+        let metadata = serde_json::from_slice::<TestUploadMetadata>(
+            &after_first[metadata_start..metadata_end],
+        )
+        .map_err(|e| e.to_string())?;
+
+        let after_second = &after_first[metadata_end + second_prefix.len()..];
+        let second_header_end = find_bytes(after_second, b"\r\n\r\n")
+            .ok_or_else(|| "Multipart media headers missing".to_string())?;
+        let data_start = second_header_end + 4;
+        let data_end = find_bytes(&after_second[data_start..], final_suffix.as_bytes())
+            .ok_or_else(|| "Multipart final boundary missing".to_string())?
+            + data_start;
+
+        Ok((metadata, after_second[data_start..data_end].to_vec()))
+    }
+
+    fn maybe_overwrite_manifest_after_write(state: &mut TestDriveState, file_name: &str) {
+        if !file_name.starts_with("kechimochi-manifest-") {
+            return;
+        }
+
+        let Some(override_manifest) = state.overwrite_manifest_after_write.take() else {
+            return;
+        };
+        let override_name = sync_drive::manifest_file_name(&override_manifest.profile_id);
+        let target_id = state
+            .files
+            .iter()
+            .find_map(|(id, file)| (file.name == override_name).then(|| id.clone()));
+        let modified_time = next_timestamp(state);
+        if let Some(target_id) = target_id {
+            if let Some(file) = state.files.get_mut(&target_id) {
+                file.bytes = serde_json::to_vec(&override_manifest).unwrap();
+                file.modified_time = modified_time;
+            }
+        }
+    }
+
+    fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+        haystack
+            .windows(needle.len())
+            .position(|window| window == needle)
+    }
+
+    #[tokio::test]
+    async fn create_remote_sync_profile_persists_sync_state() {
+        let (temp_dir, conn) = setup_app();
+        let transport = MemoryDriveTransport::new();
+        let client = build_client(transport);
+        let token_store = test_token_store();
+
+        let media_uid = add_media(&conn, "Base Title");
+        let result = create_remote_sync_profile_with_client(
+            temp_dir.path(),
+            &conn,
+            &client,
+            &token_store,
+            Some("Desk".to_string()),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            result.sync_status.state,
+            sync_state::SyncConnectionState::ConnectedClean
+        );
+        assert!(result.published_snapshot_id.is_some());
+        assert!(sync_state::load_base_snapshot(temp_dir.path())
+            .unwrap()
+            .is_some());
+
+        let config = sync_state::load_sync_config(temp_dir.path())
+            .unwrap()
+            .unwrap();
+        assert_eq!(config.device_name, "Desk");
+        assert_eq!(config.last_sync_status, SyncLifecycleStatus::Clean);
+
+        let profiles = list_remote_sync_profiles_with_client(&client, &token_store)
+            .await
+            .unwrap();
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(profiles[0].profile_name, config.profile_name);
+        assert!(!profiles[0].profile_name.is_empty());
+        assert!(sync_state::load_pending_conflicts(temp_dir.path())
+            .unwrap()
+            .is_empty());
+        assert!(!media_uid.is_empty());
+    }
+
+    #[tokio::test]
+    async fn run_sync_queues_conflicts_and_resolution_restores_local_choice() {
+        let (temp_dir, conn) = setup_app();
+        let transport = MemoryDriveTransport::new();
+        let client = build_client(transport.clone());
+        let token_store = test_token_store();
+
+        let media_uid = add_media(&conn, "Base Title");
+        create_remote_sync_profile_with_client(temp_dir.path(), &conn, &client, &token_store, None)
+            .await
+            .unwrap();
+
+        update_media_title(&conn, &media_uid, "Local Title");
+        sync_state::mark_sync_dirty_if_configured(temp_dir.path()).unwrap();
+
+        let config = sync_state::load_sync_config(temp_dir.path())
+            .unwrap()
+            .unwrap();
+        let remote_manifest = load_remote_manifest(&client, &token_store, &config.sync_profile_id)
+            .await
+            .unwrap();
+        let mut remote_snapshot = download_remote_snapshot(&client, &token_store, &remote_manifest)
+            .await
+            .unwrap();
+        let remote_media = remote_snapshot.library.get_mut(&media_uid).unwrap();
+        remote_media.title = "Remote Title".to_string();
+        remote_media.updated_at = "2026-04-02T11:00:00Z".to_string();
+        remote_media.updated_by_device_id = "dev_remote".to_string();
+        remote_snapshot.snapshot_id = "snap_remote_conflict".to_string();
+        remote_snapshot.created_at = "2026-04-02T11:00:00Z".to_string();
+        remote_snapshot.created_by_device_id = "dev_remote".to_string();
+
+        let uploaded = client
+            .upload_snapshot(&token_store, &config.sync_profile_id, &remote_snapshot)
+            .await
+            .unwrap();
+        let next_manifest = RemoteSyncManifest::new(
+            &config.sync_profile_id,
+            &remote_snapshot.profile.profile_name,
+            &remote_snapshot.snapshot_id,
+            &uploaded.snapshot_sha256,
+            remote_manifest.manifest.remote_generation + 1,
+            &remote_snapshot.created_at,
+            "dev_remote",
+        );
+        client
+            .upsert_manifest_and_confirm(&token_store, &next_manifest)
+            .await
+            .unwrap();
+
+        let sync_result = run_sync_with_client(temp_dir.path(), &conn, &client, &token_store)
+            .await
+            .unwrap();
+        assert_eq!(
+            sync_result.sync_status.state,
+            sync_state::SyncConnectionState::ConflictPending
+        );
+        assert!(sync_result.remote_changed);
+
+        let conflicts = sync_state::load_pending_conflicts(temp_dir.path()).unwrap();
+        assert_eq!(conflicts.len(), 1);
+        assert!(matches!(
+            &conflicts[0],
+            SyncConflict::MediaFieldConflict { field_name, .. } if field_name == "title"
+        ));
+
+        let resolve_result = resolve_sync_conflict_with_client(
+            temp_dir.path(),
+            &conn,
+            &client,
+            &token_store,
+            0,
+            SyncConflictResolution::MediaField {
+                side: MergeSide::Local,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            resolve_result.sync_status.state,
+            sync_state::SyncConnectionState::Dirty
+        );
+        assert!(sync_state::load_pending_conflicts(temp_dir.path())
+            .unwrap()
+            .is_empty());
+        assert_eq!(first_media_title(&conn), "Local Title");
+    }
+
+    #[tokio::test]
+    async fn pending_conflicts_block_publish_attempts() {
+        let (temp_dir, conn) = setup_app();
+        let transport = MemoryDriveTransport::new();
+        let client = build_client(transport);
+        let token_store = test_token_store();
+
+        let media_uid = add_media(&conn, "Base Title");
+        create_remote_sync_profile_with_client(temp_dir.path(), &conn, &client, &token_store, None)
+            .await
+            .unwrap();
+
+        let config = sync_state::load_sync_config(temp_dir.path())
+            .unwrap()
+            .unwrap();
+        let manifest_before = load_remote_manifest(&client, &token_store, &config.sync_profile_id)
+            .await
+            .unwrap();
+
+        update_media_title(&conn, &media_uid, "Locally Dirty");
+        sync_state::save_pending_conflicts(
+            temp_dir.path(),
+            &[SyncConflict::MediaFieldConflict {
+                media_uid,
+                field_name: "title".to_string(),
+                base_value: Some("Base Title".to_string()),
+                local_value: Some("Locally Dirty".to_string()),
+                remote_value: Some("Remote Title".to_string()),
+            }],
+        )
+        .unwrap();
+
+        let result = run_sync_with_client(temp_dir.path(), &conn, &client, &token_store)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            result.sync_status.state,
+            sync_state::SyncConnectionState::ConflictPending
+        );
+        assert!(!result.remote_changed);
+        assert!(!result.lost_race);
+
+        let manifest_after = load_remote_manifest(&client, &token_store, &config.sync_profile_id)
+            .await
+            .unwrap();
+        assert_eq!(
+            manifest_before.manifest.snapshot_id,
+            manifest_after.manifest.snapshot_id
+        );
+        assert_eq!(
+            manifest_before.manifest.remote_generation,
+            manifest_after.manifest.remote_generation
+        );
+    }
+
+    #[tokio::test]
+    async fn publish_lost_race_keeps_sync_status_dirty() {
+        let (temp_dir, conn) = setup_app();
+        let transport = MemoryDriveTransport::new();
+        let client = build_client(transport.clone());
+        let token_store = test_token_store();
+
+        let media_uid = add_media(&conn, "Base Title");
+        create_remote_sync_profile_with_client(temp_dir.path(), &conn, &client, &token_store, None)
+            .await
+            .unwrap();
+
+        update_media_title(&conn, &media_uid, "Local Title");
+        sync_state::mark_sync_dirty_if_configured(temp_dir.path()).unwrap();
+
+        let config = sync_state::load_sync_config(temp_dir.path())
+            .unwrap()
+            .unwrap();
+        let manifest_before = load_remote_manifest(&client, &token_store, &config.sync_profile_id)
+            .await
+            .unwrap();
+        transport.overwrite_manifest_after_next_write(RemoteSyncManifest::new(
+            &config.sync_profile_id,
+            &config.profile_name,
+            "snap_rival",
+            "sha_rival",
+            manifest_before.manifest.remote_generation + 1,
+            "2026-04-02T12:00:00Z",
+            "dev_rival",
+        ));
+
+        let result = run_sync_with_client(temp_dir.path(), &conn, &client, &token_store)
+            .await
+            .unwrap();
+
+        assert!(result.lost_race);
+        assert_eq!(
+            result.sync_status.state,
+            sync_state::SyncConnectionState::Dirty
+        );
+
+        let config_after = sync_state::load_sync_config(temp_dir.path())
+            .unwrap()
+            .unwrap();
+        assert_eq!(config_after.last_sync_status, SyncLifecycleStatus::Dirty);
+        assert_eq!(
+            config_after.last_confirmed_snapshot_id,
+            Some(manifest_before.manifest.snapshot_id)
+        );
+    }
+
+    #[test]
+    fn extra_data_entry_resolution_updates_only_the_target_key() {
+        let mut snapshot = SyncSnapshot {
+            sync_protocol_version: sync_snapshot::SYNC_PROTOCOL_VERSION,
+            db_schema_version: db::CURRENT_SCHEMA_VERSION,
+            snapshot_id: "snap_1".to_string(),
+            created_at: "2026-04-02T10:00:00Z".to_string(),
+            created_by_device_id: "dev_local".to_string(),
+            profile: sync_snapshot::SnapshotProfile {
+                profile_id: "prof_1".to_string(),
+                profile_name: "Morg".to_string(),
+                updated_at: "2026-04-02T10:00:00Z".to_string(),
+            },
+            library: BTreeMap::from([(
+                "uid-1".to_string(),
+                sync_snapshot::SnapshotMediaAggregate {
+                    uid: "uid-1".to_string(),
+                    title: "Test".to_string(),
+                    media_type: "Playing".to_string(),
+                    status: "Active".to_string(),
+                    language: "Japanese".to_string(),
+                    description: String::new(),
+                    content_type: "Videogame".to_string(),
+                    tracking_status: "Ongoing".to_string(),
+                    extra_data: r#"{"conflict":1,"stable":"keep"}"#.to_string(),
+                    cover_blob_sha256: None,
+                    updated_at: "2026-04-02T10:00:00Z".to_string(),
+                    updated_by_device_id: "dev_local".to_string(),
+                    activities: vec![],
+                    milestones: vec![],
+                },
+            )]),
+            settings: BTreeMap::new(),
+            profile_picture: None,
+            tombstones: vec![],
+        };
+
+        let conflict = SyncConflict::ExtraDataEntryConflict {
+            media_uid: "uid-1".to_string(),
+            entry_key: "conflict".to_string(),
+            base_value: Some(serde_json::json!(0)),
+            local_value: Some(serde_json::json!(1)),
+            remote_value: None,
+        };
+
+        apply_conflict_resolution_to_snapshot(
+            &mut snapshot,
+            &conflict,
+            &SyncConflictResolution::ExtraDataEntry {
+                side: MergeSide::Remote,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            serde_json::from_str::<Value>(&snapshot.library["uid-1"].extra_data).unwrap(),
+            serde_json::json!({"stable":"keep"})
+        );
+    }
+}

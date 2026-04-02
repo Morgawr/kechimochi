@@ -7,6 +7,7 @@ pub mod sync_auth;
 pub mod sync_cover_blobs;
 pub mod sync_drive;
 pub mod sync_merge;
+pub mod sync_orchestrator;
 pub mod sync_snapshot;
 pub mod sync_state;
 
@@ -24,58 +25,128 @@ pub struct DbState {
     pub conn: Arc<Mutex<Connection>>,
 }
 
+fn with_conn<T, F>(state: &State<DbState>, operation: F) -> Result<T, String>
+where
+    F: FnOnce(&Connection) -> Result<T, String>,
+{
+    let conn = state.conn.lock().unwrap();
+    operation(&conn)
+}
+
+fn with_conn_mut<T, F>(state: &State<DbState>, operation: F) -> Result<T, String>
+where
+    F: FnOnce(&mut Connection) -> Result<T, String>,
+{
+    let mut conn = state.conn.lock().unwrap();
+    operation(&mut conn)
+}
+
+fn mark_sync_dirty(app_handle: &tauri::AppHandle) -> Result<(), String> {
+    let app_dir = db::get_data_dir(app_handle);
+    sync_state::mark_sync_dirty_if_configured(&app_dir)?;
+    Ok(())
+}
+
+fn run_dirty_command<T, F>(app_handle: &tauri::AppHandle, operation: F) -> Result<T, String>
+where
+    F: FnOnce() -> Result<T, String>,
+{
+    let result = operation()?;
+    mark_sync_dirty(app_handle)?;
+    Ok(result)
+}
+
 #[tauri::command]
 fn get_all_media(state: State<DbState>) -> Result<Vec<Media>, String> {
-    let conn = state.conn.lock().unwrap();
-    db::get_all_media(&conn).map_err(|e| e.to_string())
+    with_conn(&state, |conn| {
+        db::get_all_media(conn).map_err(|e| e.to_string())
+    })
 }
 
 #[tauri::command]
-fn add_media(state: State<DbState>, media: Media) -> Result<i64, String> {
-    let conn = state.conn.lock().unwrap();
-    db::add_media_with_id(&conn, &media).map_err(|e| e.to_string())
+fn add_media(
+    app_handle: tauri::AppHandle,
+    state: State<DbState>,
+    media: Media,
+) -> Result<i64, String> {
+    run_dirty_command(&app_handle, || {
+        with_conn(&state, |conn| {
+            db::add_media_with_id(conn, &media).map_err(|e| e.to_string())
+        })
+    })
 }
 
 #[tauri::command]
-fn update_media(state: State<DbState>, media: Media) -> Result<(), String> {
-    let conn = state.conn.lock().unwrap();
-    db::update_media(&conn, &media).map_err(|e| e.to_string())
+fn update_media(
+    app_handle: tauri::AppHandle,
+    state: State<DbState>,
+    media: Media,
+) -> Result<(), String> {
+    run_dirty_command(&app_handle, || {
+        with_conn(&state, |conn| {
+            db::update_media(conn, &media).map_err(|e| e.to_string())
+        })
+    })
 }
 
 #[tauri::command]
-fn delete_media(state: State<DbState>, id: i64) -> Result<(), String> {
-    let conn = state.conn.lock().unwrap();
-    db::delete_media(&conn, id).map_err(|e| e.to_string())
+fn delete_media(
+    app_handle: tauri::AppHandle,
+    state: State<DbState>,
+    id: i64,
+) -> Result<(), String> {
+    run_dirty_command(&app_handle, || {
+        with_conn(&state, |conn| {
+            db::delete_media(conn, id).map_err(|e| e.to_string())
+        })
+    })
 }
 
 #[tauri::command]
-fn add_log(state: State<DbState>, log: ActivityLog) -> Result<i64, String> {
-    let conn = state.conn.lock().unwrap();
-    db::add_log(&conn, &log).map_err(|e| e.to_string())
+fn add_log(
+    app_handle: tauri::AppHandle,
+    state: State<DbState>,
+    log: ActivityLog,
+) -> Result<i64, String> {
+    run_dirty_command(&app_handle, || {
+        with_conn(&state, |conn| {
+            db::add_log(conn, &log).map_err(|e| e.to_string())
+        })
+    })
 }
 
 #[tauri::command]
-fn delete_log(state: State<DbState>, id: i64) -> Result<(), String> {
-    let conn = state.conn.lock().unwrap();
-    db::delete_log(&conn, id).map_err(|e| e.to_string())
+fn delete_log(app_handle: tauri::AppHandle, state: State<DbState>, id: i64) -> Result<(), String> {
+    run_dirty_command(&app_handle, || {
+        with_conn(&state, |conn| {
+            db::delete_log(conn, id).map_err(|e| e.to_string())
+        })
+    })
 }
 
 #[tauri::command]
-fn update_log(state: State<DbState>, log: ActivityLog) -> Result<(), String> {
-    let conn = state.conn.lock().unwrap();
-    db::update_log(&conn, &log).map_err(|e| e.to_string())
+fn update_log(
+    app_handle: tauri::AppHandle,
+    state: State<DbState>,
+    log: ActivityLog,
+) -> Result<(), String> {
+    run_dirty_command(&app_handle, || {
+        with_conn(&state, |conn| {
+            db::update_log(conn, &log).map_err(|e| e.to_string())
+        })
+    })
 }
 
 #[tauri::command]
 fn get_logs(state: State<DbState>) -> Result<Vec<ActivitySummary>, String> {
-    let conn = state.conn.lock().unwrap();
-    db::get_logs(&conn).map_err(|e| e.to_string())
+    with_conn(&state, |conn| db::get_logs(conn).map_err(|e| e.to_string()))
 }
 
 #[tauri::command]
 fn get_heatmap(state: State<DbState>) -> Result<Vec<DailyHeatmap>, String> {
-    let conn = state.conn.lock().unwrap();
-    db::get_heatmap(&conn).map_err(|e| e.to_string())
+    with_conn(&state, |conn| {
+        db::get_heatmap(conn).map_err(|e| e.to_string())
+    })
 }
 
 #[tauri::command]
@@ -83,56 +154,95 @@ fn get_logs_for_media(
     state: State<DbState>,
     media_id: i64,
 ) -> Result<Vec<ActivitySummary>, String> {
-    let conn = state.conn.lock().unwrap();
-    db::get_logs_for_media(&conn, media_id).map_err(|e| e.to_string())
+    with_conn(&state, |conn| {
+        db::get_logs_for_media(conn, media_id).map_err(|e| e.to_string())
+    })
 }
 
 #[tauri::command]
 fn get_timeline_events(state: State<DbState>) -> Result<Vec<TimelineEvent>, String> {
-    let conn = state.conn.lock().unwrap();
-    db::get_timeline_events(&conn).map_err(|e| e.to_string())
+    with_conn(&state, |conn| {
+        db::get_timeline_events(conn).map_err(|e| e.to_string())
+    })
 }
 
 #[tauri::command]
 fn get_milestones(state: State<DbState>, media_title: String) -> Result<Vec<Milestone>, String> {
-    let conn = state.conn.lock().unwrap();
-    db::get_milestones_for_media(&conn, &media_title).map_err(|e| e.to_string())
+    with_conn(&state, |conn| {
+        db::get_milestones_for_media(conn, &media_title).map_err(|e| e.to_string())
+    })
 }
 
 #[tauri::command]
-fn add_milestone(state: State<DbState>, milestone: Milestone) -> Result<i64, String> {
-    let conn = state.conn.lock().unwrap();
-    db::add_milestone(&conn, &milestone).map_err(|e| e.to_string())
+fn add_milestone(
+    app_handle: tauri::AppHandle,
+    state: State<DbState>,
+    milestone: Milestone,
+) -> Result<i64, String> {
+    run_dirty_command(&app_handle, || {
+        with_conn(&state, |conn| {
+            db::add_milestone(conn, &milestone).map_err(|e| e.to_string())
+        })
+    })
 }
 
 #[tauri::command]
-fn delete_milestone(state: State<DbState>, id: i64) -> Result<(), String> {
-    let conn = state.conn.lock().unwrap();
-    db::delete_milestone(&conn, id).map_err(|e| e.to_string())
+fn delete_milestone(
+    app_handle: tauri::AppHandle,
+    state: State<DbState>,
+    id: i64,
+) -> Result<(), String> {
+    run_dirty_command(&app_handle, || {
+        with_conn(&state, |conn| {
+            db::delete_milestone(conn, id).map_err(|e| e.to_string())
+        })
+    })
 }
 
 #[tauri::command]
-fn delete_milestones_for_media(state: State<DbState>, media_title: String) -> Result<(), String> {
-    let conn = state.conn.lock().unwrap();
-    db::delete_milestones_for_media(&conn, &media_title).map_err(|e| e.to_string())
+fn delete_milestones_for_media(
+    app_handle: tauri::AppHandle,
+    state: State<DbState>,
+    media_title: String,
+) -> Result<(), String> {
+    run_dirty_command(&app_handle, || {
+        with_conn(&state, |conn| {
+            db::delete_milestones_for_media(conn, &media_title).map_err(|e| e.to_string())
+        })
+    })
 }
 
 #[tauri::command]
-fn update_milestone(state: State<DbState>, milestone: Milestone) -> Result<(), String> {
-    let conn = state.conn.lock().unwrap();
-    db::update_milestone(&conn, &milestone).map_err(|e| e.to_string())
+fn update_milestone(
+    app_handle: tauri::AppHandle,
+    state: State<DbState>,
+    milestone: Milestone,
+) -> Result<(), String> {
+    run_dirty_command(&app_handle, || {
+        with_conn(&state, |conn| {
+            db::update_milestone(conn, &milestone).map_err(|e| e.to_string())
+        })
+    })
 }
 
 #[tauri::command]
 fn export_milestones_csv(state: State<DbState>, file_path: String) -> Result<usize, String> {
-    let conn = state.conn.lock().unwrap();
-    csv_import::export_milestones_csv(&conn, &file_path)
+    with_conn(&state, |conn| {
+        csv_import::export_milestones_csv(conn, &file_path)
+    })
 }
 
 #[tauri::command]
-fn import_milestones_csv(state: State<DbState>, file_path: String) -> Result<usize, String> {
-    let mut conn = state.conn.lock().unwrap();
-    csv_import::import_milestones_csv(&mut conn, &file_path)
+fn import_milestones_csv(
+    app_handle: tauri::AppHandle,
+    state: State<DbState>,
+    file_path: String,
+) -> Result<usize, String> {
+    run_dirty_command(&app_handle, || {
+        with_conn_mut(&state, |conn| {
+            csv_import::import_milestones_csv(conn, &file_path)
+        })
+    })
 }
 
 #[tauri::command]
@@ -142,10 +252,12 @@ fn upload_cover_image(
     media_id: i64,
     path: String,
 ) -> Result<String, String> {
-    let app_dir = db::get_data_dir(&app_handle);
-    let covers_dir = app_dir.join("covers");
-    let conn = state.conn.lock().unwrap();
-    db::save_cover_image(&conn, covers_dir, media_id, std::path::Path::new(&path))
+    let covers_dir = db::get_data_dir(&app_handle).join("covers");
+    run_dirty_command(&app_handle, || {
+        with_conn(&state, |conn| {
+            db::save_cover_image(conn, covers_dir, media_id, std::path::Path::new(&path))
+        })
+    })
 }
 
 #[tauri::command]
@@ -228,8 +340,7 @@ async fn download_and_save_image(
     let bytes = res.bytes().await.map_err(|e| e.to_string())?;
     let bytes_vec = bytes.to_vec();
 
-    let app_dir = db::get_data_dir(&app_handle);
-    let covers_dir = app_dir.join("covers");
+    let covers_dir = db::get_data_dir(&app_handle).join("covers");
 
     let ext = std::path::Path::new(&url)
         .extension()
@@ -237,14 +348,22 @@ async fn download_and_save_image(
         .unwrap_or("jpg");
     let ext = ext.split('?').next().unwrap_or("jpg");
 
-    let conn = state.conn.lock().unwrap();
-    db::save_cover_bytes(&conn, covers_dir, media_id, bytes_vec, ext)
+    run_dirty_command(&app_handle, || {
+        with_conn(&state, |conn| {
+            db::save_cover_bytes(conn, covers_dir, media_id, bytes_vec, ext)
+        })
+    })
 }
 
 #[tauri::command]
-fn import_csv(state: State<DbState>, file_path: String) -> Result<usize, String> {
-    let mut conn = state.conn.lock().unwrap();
-    csv_import::import_csv(&mut conn, &file_path)
+fn import_csv(
+    app_handle: tauri::AppHandle,
+    state: State<DbState>,
+    file_path: String,
+) -> Result<usize, String> {
+    run_dirty_command(&app_handle, || {
+        with_conn_mut(&state, |conn| csv_import::import_csv(conn, &file_path))
+    })
 }
 
 #[tauri::command]
@@ -254,14 +373,16 @@ fn export_csv(
     start_date: Option<String>,
     end_date: Option<String>,
 ) -> Result<usize, String> {
-    let conn = state.conn.lock().unwrap();
-    csv_import::export_logs_csv(&conn, &file_path, start_date, end_date)
+    with_conn(&state, |conn| {
+        csv_import::export_logs_csv(conn, &file_path, start_date, end_date)
+    })
 }
 
 #[tauri::command]
 fn export_media_csv(state: State<DbState>, file_path: String) -> Result<usize, String> {
-    let conn = state.conn.lock().unwrap();
-    csv_import::export_media_csv(&conn, &file_path)
+    with_conn(&state, |conn| {
+        csv_import::export_media_csv(conn, &file_path)
+    })
 }
 
 #[tauri::command]
@@ -269,8 +390,9 @@ fn analyze_media_csv(
     state: State<DbState>,
     file_path: String,
 ) -> Result<Vec<csv_import::MediaConflict>, String> {
-    let conn = state.conn.lock().unwrap();
-    csv_import::analyze_media_csv(&conn, &file_path)
+    with_conn(&state, |conn| {
+        csv_import::analyze_media_csv(conn, &file_path)
+    })
 }
 
 #[tauri::command]
@@ -279,10 +401,12 @@ fn apply_media_import(
     state: State<DbState>,
     records: Vec<csv_import::MediaCsvRow>,
 ) -> Result<usize, String> {
-    let mut conn = state.conn.lock().unwrap();
-    let app_dir = db::get_data_dir(&app_handle);
-    let covers_dir = app_dir.join("covers");
-    csv_import::apply_media_import(covers_dir, &mut conn, records)
+    let covers_dir = db::get_data_dir(&app_handle).join("covers");
+    run_dirty_command(&app_handle, || {
+        with_conn_mut(&state, |conn| {
+            csv_import::apply_media_import(covers_dir, conn, records)
+        })
+    })
 }
 
 #[tauri::command]
@@ -298,9 +422,12 @@ fn initialize_user_db(
 }
 
 #[tauri::command]
-fn clear_activities(state: State<DbState>) -> Result<(), String> {
-    let conn = state.conn.lock().unwrap();
-    db::clear_activities(&conn).map_err(|e| e.to_string())
+fn clear_activities(app_handle: tauri::AppHandle, state: State<DbState>) -> Result<(), String> {
+    run_dirty_command(&app_handle, || {
+        with_conn(&state, |conn| {
+            db::clear_activities(conn).map_err(|e| e.to_string())
+        })
+    })
 }
 
 #[tauri::command]
@@ -311,19 +438,29 @@ fn wipe_everything(app_handle: tauri::AppHandle, state: State<DbState>) -> Resul
     }
 
     let app_dir = db::get_data_dir(&app_handle);
+    sync_state::clear_sync_runtime_files(&app_dir)?;
     db::wipe_everything(app_dir)
 }
 
 #[tauri::command]
-fn set_setting(state: State<DbState>, key: String, value: String) -> Result<(), String> {
-    let conn = state.conn.lock().unwrap();
-    db::set_setting(&conn, &key, &value).map_err(|e| e.to_string())
+fn set_setting(
+    app_handle: tauri::AppHandle,
+    state: State<DbState>,
+    key: String,
+    value: String,
+) -> Result<(), String> {
+    run_dirty_command(&app_handle, || {
+        with_conn(&state, |conn| {
+            db::set_setting(conn, &key, &value).map_err(|e| e.to_string())
+        })
+    })
 }
 
 #[tauri::command]
 fn get_setting(state: State<DbState>, key: String) -> Result<Option<String>, String> {
-    let conn = state.conn.lock().unwrap();
-    db::get_setting(&conn, &key).map_err(|e| e.to_string())
+    with_conn(&state, |conn| {
+        db::get_setting(conn, &key).map_err(|e| e.to_string())
+    })
 }
 
 #[tauri::command]
@@ -333,22 +470,36 @@ fn get_username() -> String {
 
 #[tauri::command]
 fn get_profile_picture(state: State<DbState>) -> Result<Option<ProfilePicture>, String> {
-    let conn = state.conn.lock().unwrap();
-    db::get_profile_picture(&conn).map_err(|e| e.to_string())
+    with_conn(&state, |conn| {
+        db::get_profile_picture(conn).map_err(|e| e.to_string())
+    })
 }
 
 #[tauri::command]
-fn upload_profile_picture(state: State<DbState>, path: String) -> Result<ProfilePicture, String> {
+fn upload_profile_picture(
+    app_handle: tauri::AppHandle,
+    state: State<DbState>,
+    path: String,
+) -> Result<ProfilePicture, String> {
     let profile_picture = profile_picture::process_profile_picture_file(&path)?;
-    let conn = state.conn.lock().unwrap();
-    db::upsert_profile_picture(&conn, &profile_picture).map_err(|e| e.to_string())?;
-    Ok(profile_picture)
+    run_dirty_command(&app_handle, || {
+        with_conn(&state, |conn| {
+            db::upsert_profile_picture(conn, &profile_picture).map_err(|e| e.to_string())?;
+            Ok(profile_picture.clone())
+        })
+    })
 }
 
 #[tauri::command]
-fn delete_profile_picture(state: State<DbState>) -> Result<(), String> {
-    let conn = state.conn.lock().unwrap();
-    db::delete_profile_picture(&conn).map_err(|e| e.to_string())
+fn delete_profile_picture(
+    app_handle: tauri::AppHandle,
+    state: State<DbState>,
+) -> Result<(), String> {
+    run_dirty_command(&app_handle, || {
+        with_conn(&state, |conn| {
+            db::delete_profile_picture(conn).map_err(|e| e.to_string())
+        })
+    })
 }
 
 #[tauri::command]
@@ -383,6 +534,91 @@ async fn connect_google_drive(
             .open_url(auth_url, None::<&str>)
             .map_err(|e| e.to_string())
     })
+    .await
+}
+
+#[tauri::command]
+async fn list_remote_sync_profiles(
+    _app_handle: tauri::AppHandle,
+) -> Result<Vec<sync_orchestrator::RemoteSyncProfileSummary>, String> {
+    let config = sync_auth::GoogleOAuthClientConfig::from_env()?;
+    let token_store = sync_auth::OsSecureTokenStore::default();
+    sync_orchestrator::list_remote_sync_profiles(&config, &token_store).await
+}
+
+#[tauri::command]
+async fn create_remote_sync_profile(
+    app_handle: tauri::AppHandle,
+    state: State<'_, DbState>,
+) -> Result<sync_orchestrator::SyncActionResult, String> {
+    let app_dir = db::get_data_dir(&app_handle);
+    let config = sync_auth::GoogleOAuthClientConfig::from_env()?;
+    let token_store = sync_auth::OsSecureTokenStore::default();
+    let conn = state.conn.clone();
+    sync_orchestrator::create_remote_sync_profile(&app_dir, &conn, &config, &token_store, None)
+        .await
+}
+
+#[tauri::command]
+async fn attach_remote_sync_profile(
+    app_handle: tauri::AppHandle,
+    state: State<'_, DbState>,
+    profile_id: String,
+) -> Result<sync_orchestrator::SyncActionResult, String> {
+    let app_dir = db::get_data_dir(&app_handle);
+    let config = sync_auth::GoogleOAuthClientConfig::from_env()?;
+    let token_store = sync_auth::OsSecureTokenStore::default();
+    let conn = state.conn.clone();
+    sync_orchestrator::attach_remote_sync_profile(
+        &app_dir,
+        &conn,
+        &config,
+        &token_store,
+        &profile_id,
+        None,
+    )
+    .await
+}
+
+#[tauri::command]
+async fn run_sync(
+    app_handle: tauri::AppHandle,
+    state: State<'_, DbState>,
+) -> Result<sync_orchestrator::SyncActionResult, String> {
+    let app_dir = db::get_data_dir(&app_handle);
+    let config = sync_auth::GoogleOAuthClientConfig::from_env()?;
+    let token_store = sync_auth::OsSecureTokenStore::default();
+    let conn = state.conn.clone();
+    sync_orchestrator::run_sync(&app_dir, &conn, &config, &token_store).await
+}
+
+#[tauri::command]
+fn get_sync_conflicts(
+    app_handle: tauri::AppHandle,
+) -> Result<Vec<sync_merge::SyncConflict>, String> {
+    let app_dir = db::get_data_dir(&app_handle);
+    sync_orchestrator::get_sync_conflicts(&app_dir)
+}
+
+#[tauri::command]
+async fn resolve_sync_conflict(
+    app_handle: tauri::AppHandle,
+    state: State<'_, DbState>,
+    conflict_index: usize,
+    resolution: sync_orchestrator::SyncConflictResolution,
+) -> Result<sync_orchestrator::SyncActionResult, String> {
+    let app_dir = db::get_data_dir(&app_handle);
+    let config = sync_auth::GoogleOAuthClientConfig::from_env()?;
+    let token_store = sync_auth::OsSecureTokenStore::default();
+    let conn = state.conn.clone();
+    sync_orchestrator::resolve_sync_conflict(
+        &app_dir,
+        &conn,
+        &config,
+        &token_store,
+        conflict_index,
+        resolution,
+    )
     .await
 }
 
@@ -457,6 +693,12 @@ pub fn run() {
             delete_profile_picture,
             get_sync_status,
             connect_google_drive,
+            list_remote_sync_profiles,
+            create_remote_sync_profile,
+            attach_remote_sync_profile,
+            run_sync,
+            get_sync_conflicts,
+            resolve_sync_conflict,
             disconnect_google_drive,
             set_setting,
             get_setting,
