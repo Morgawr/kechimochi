@@ -81,6 +81,7 @@ interface ProfileState {
     syncConflicts: SyncConflict[];
     syncError: string | null;
     showSyncConflicts: boolean;
+    showSyncRecoveryTools: boolean;
 }
 
 function stringifyError(error: unknown): string {
@@ -104,11 +105,11 @@ function formatSyncStateLabel(state: SyncConnectionState): string {
         case 'connected_clean':
             return 'Connected';
         case 'dirty':
-            return 'Dirty';
+            return 'Unsynced Changes';
         case 'syncing':
             return 'Syncing';
         case 'conflict_pending':
-            return 'Conflict';
+            return 'Conflicts Pending';
         case 'error':
             return 'Error';
         case 'disconnected':
@@ -164,6 +165,11 @@ function formatConflictValue(value: unknown): string {
         return value === '' ? '(empty)' : value;
     }
     return JSON.stringify(value, null, 2);
+}
+
+function isGenericDeviceName(value: string | null | undefined): boolean {
+    const normalized = value?.trim().toLowerCase();
+    return !normalized || normalized === 'device';
 }
 
 function profilePictureLabel(picture: SyncConflictProfilePicture | null): string {
@@ -240,6 +246,7 @@ export class ProfileView extends Component<ProfileState> {
             syncConflicts: [],
             syncError: null,
             showSyncConflicts: false,
+            showSyncRecoveryTools: false,
         });
     }
 
@@ -634,6 +641,7 @@ export class ProfileView extends Component<ProfileState> {
         const isConfigured = syncStatus.sync_profile_id !== null;
         const statusColor = syncStatusColor(syncStatus);
         const chips = this.renderSyncChips(syncStatus, hasConflicts);
+        const infoTiles = this.renderSyncInfoTiles(syncStatus);
 
         return html`
             <div class="card" id="profile-sync-card" style="display: flex; flex-direction: column; gap: 1rem; border: 1px solid ${syncCardBorderColor(syncStatus.state)};">
@@ -655,10 +663,7 @@ export class ProfileView extends Component<ProfileState> {
                 </p>
 
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.9rem;">
-                    ${this.renderSyncInfoTile('Google account', this.googleAccountLabel(syncStatus))}
-                    ${this.renderSyncInfoTile('Sync profile', syncStatus.profile_name || 'Not attached')}
-                    ${this.renderSyncInfoTile('Device name', syncStatus.device_name || 'Not assigned')}
-                    ${this.renderSyncInfoTile('Last sync', formatSyncTimestamp(syncStatus.last_sync_at))}
+                    ${infoTiles}
                 </div>
 
                 ${this.state.syncError
@@ -688,14 +693,6 @@ export class ProfileView extends Component<ProfileState> {
 
     private renderSyncChips(syncStatus: SyncStatus, hasConflicts: boolean): HTMLElement[] {
         const chips: HTMLElement[] = [];
-        const dirtyLabel = this.syncDirtyLabel(syncStatus.state);
-        if (dirtyLabel) {
-            chips.push(html`
-                <span style="font-size: 0.76rem; color: var(--text-primary); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 999px; padding: 0.22rem 0.65rem; background: rgba(245, 158, 11, 0.08);">
-                    ${dirtyLabel}
-                </span>
-            `);
-        }
         if (hasConflicts) {
             chips.push(html`
                 <span style="font-size: 0.76rem; color: var(--text-primary); border: 1px solid rgba(255, 127, 80, 0.35); border-radius: 999px; padding: 0.22rem 0.65rem; background: rgba(255, 127, 80, 0.08);">
@@ -706,14 +703,21 @@ export class ProfileView extends Component<ProfileState> {
         return chips;
     }
 
-    private syncDirtyLabel(state: SyncConnectionState): string | null {
-        if (state === 'dirty') {
-            return 'Unsynced local changes';
+    private renderSyncInfoTiles(syncStatus: SyncStatus): HTMLElement[] {
+        const tiles: Array<{ label: string; value: string }> = [];
+        if (syncStatus.google_account_email) {
+            tiles.push({ label: 'Google account', value: syncStatus.google_account_email });
         }
-        if (state === 'conflict_pending') {
-            return 'Conflict review required';
+        tiles.push({ label: 'Sync profile', value: syncStatus.profile_name || 'Not attached' });
+        if (!isGenericDeviceName(syncStatus.device_name)) {
+            tiles.push({ label: 'Device name', value: syncStatus.device_name!.trim() });
         }
-        return null;
+        tiles.push({ label: 'Last sync', value: formatSyncTimestamp(syncStatus.last_sync_at) });
+
+        return tiles.map((tile, index) => {
+            const shouldSpanFullWidth = tiles.length % 2 === 1 && index === tiles.length - 1;
+            return this.renderSyncInfoTile(tile.label, tile.value, shouldSpanFullWidth);
+        });
     }
 
     private renderSyncActions(syncStatus: SyncStatus, hasConflicts: boolean) {
@@ -740,19 +744,37 @@ export class ProfileView extends Component<ProfileState> {
         const hint = !syncStatus.google_authenticated
             ? 'Re-authenticate before using these recovery tools.'
             : 'An emergency local backup ZIP will be created first.';
+        const toggleLabel = this.state.showSyncRecoveryTools ? 'Hide tools' : 'Show tools';
 
         return html`
-            <div style="display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem; border-radius: var(--radius-md); border: 1px solid rgba(255, 71, 87, 0.28); background: rgba(255, 71, 87, 0.06);">
-                <div style="display: flex; flex-direction: column; gap: 0.3rem;">
-                    <strong style="color: var(--text-primary);">Dangerous recovery</strong>
-                    <span style="color: var(--text-secondary); font-size: 0.85rem;">
-                        Use these only if normal sync or conflict resolution cannot recover this profile cleanly. ${hint}
+            <div style="display: flex; flex-direction: column; gap: 0.75rem; padding: 0.9rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-color); background: rgba(255,255,255,0.02);">
+                <button
+                    id="profile-btn-toggle-sync-recovery"
+                    type="button"
+                    style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; width: 100%; padding: 0; border: none; background: transparent; color: inherit; cursor: pointer; text-align: left;"
+                >
+                    <span style="display: flex; flex-direction: column; gap: 0.2rem;">
+                        <strong style="color: var(--text-primary);">Advanced recovery</strong>
+                        <span style="color: var(--text-secondary); font-size: 0.85rem;">
+                            Use only when normal sync or conflict resolution cannot recover this profile cleanly.
+                        </span>
                     </span>
-                </div>
-                <div style="display: flex; gap: 0.65rem; flex-wrap: wrap; justify-content: flex-end;">
-                    <button class="btn btn-secondary" id="profile-btn-replace-local-from-remote" ${disabledAttr}>Replace Local From Remote</button>
-                    <button class="btn btn-danger" id="profile-btn-force-publish-local" ${disabledAttr}>Force Publish Local</button>
-                </div>
+                    <span style="font-size: 0.82rem; color: var(--text-secondary); white-space: nowrap;">${toggleLabel}</span>
+                </button>
+                ${this.state.showSyncRecoveryTools
+                    ? html`
+                        <div style="display: flex; flex-direction: column; gap: 0.75rem; padding: 0.9rem 1rem; border-radius: var(--radius-md); border: 1px solid rgba(255, 71, 87, 0.28); background: rgba(255, 71, 87, 0.06);">
+                            <span style="color: var(--text-secondary); font-size: 0.85rem;">
+                                These actions are destructive. ${hint}
+                            </span>
+                            <div style="display: flex; gap: 0.65rem; flex-wrap: wrap; justify-content: flex-end;">
+                                <button class="btn btn-secondary" id="profile-btn-replace-local-from-remote" ${disabledAttr}>Replace Local From Remote</button>
+                                <button class="btn btn-danger" id="profile-btn-force-publish-local" ${disabledAttr}>Force Publish Local</button>
+                            </div>
+                        </div>
+                    `
+                    : ''
+                }
             </div>
         `;
     }
@@ -815,16 +837,10 @@ export class ProfileView extends Component<ProfileState> {
         return 'Connect this device to Google Drive to keep your library and progress in sync across installations.';
     }
 
-    private googleAccountLabel(syncStatus: SyncStatus): string {
-        if (syncStatus.google_account_email) {
-            return syncStatus.google_account_email;
-        }
-        return syncStatus.google_authenticated ? 'Connected' : 'Not connected';
-    }
-
-    private renderSyncInfoTile(label: string, value: string) {
+    private renderSyncInfoTile(label: string, value: string, fullWidth = false) {
+        const spanStyle = fullWidth ? 'grid-column: 1 / -1;' : '';
         return html`
-            <div style="display: flex; flex-direction: column; gap: 0.25rem; padding: 0.9rem 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: rgba(255,255,255,0.02);">
+            <div style="${spanStyle} display: flex; flex-direction: column; gap: 0.25rem; padding: 0.9rem 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: rgba(255,255,255,0.02);">
                 <span style="font-size: 0.78rem; color: var(--text-secondary);">${label}</span>
                 <strong style="font-size: 0.96rem; color: var(--text-primary);">${value}</strong>
             </div>
@@ -1023,6 +1039,10 @@ export class ProfileView extends Component<ProfileState> {
             this.handleRunSync().catch(error => {
                 Logger.error('Failed to run sync', error);
             });
+        });
+
+        root.querySelector('#profile-btn-toggle-sync-recovery')?.addEventListener('click', () => {
+            this.setState({ showSyncRecoveryTools: !this.state.showSyncRecoveryTools });
         });
 
         root.querySelector('#profile-btn-replace-local-from-remote')?.addEventListener('click', () => {

@@ -527,6 +527,42 @@ describe('ProfileView', () => {
         );
     });
 
+    it('should simplify sync card details and hide generic device placeholders', async () => {
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
+            if (key === SETTING_KEYS.THEME) return 'pastel-pink';
+            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
+            return '0';
+        });
+        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+        vi.mocked(api.getSyncStatus).mockResolvedValue({
+            state: 'dirty',
+            google_authenticated: true,
+            sync_profile_id: 'prof_1',
+            profile_name: 'test-user',
+            google_account_email: null,
+            last_sync_at: '2026-04-02T00:00:00Z',
+            device_name: 'Device',
+            conflict_count: 0,
+        });
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-sync-card')).not.toBeNull());
+
+        expect(container.textContent).toContain('Unsynced Changes');
+        expect(container.textContent).not.toContain('Unsynced local changes');
+        expect(container.textContent).not.toContain('Google account');
+        expect(container.textContent).not.toContain('Device name');
+        expect(container.textContent).not.toContain('Current installation');
+        expect(container.querySelector('#profile-btn-replace-local-from-remote')).toBeNull();
+
+        (container.querySelector('#profile-btn-toggle-sync-recovery') as HTMLButtonElement).click();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-replace-local-from-remote')).not.toBeNull());
+    });
+
     it('should replace local data from remote after confirmation', async () => {
         vi.mocked(api.getSetting).mockImplementation(async (key) => {
             if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
@@ -566,6 +602,8 @@ describe('ProfileView', () => {
         const view = new ProfileView(container);
         view.render();
 
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-toggle-sync-recovery')).not.toBeNull());
+        (container.querySelector('#profile-btn-toggle-sync-recovery') as HTMLButtonElement).click();
         await vi.waitFor(() => expect(container.querySelector('#profile-btn-replace-local-from-remote')).not.toBeNull());
         (container.querySelector('#profile-btn-replace-local-from-remote') as HTMLButtonElement).click();
 
@@ -616,6 +654,8 @@ describe('ProfileView', () => {
         const view = new ProfileView(container);
         view.render();
 
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-toggle-sync-recovery')).not.toBeNull());
+        (container.querySelector('#profile-btn-toggle-sync-recovery') as HTMLButtonElement).click();
         await vi.waitFor(() => expect(container.querySelector('#profile-btn-force-publish-local')).not.toBeNull());
         (container.querySelector('#profile-btn-force-publish-local') as HTMLButtonElement).click();
 

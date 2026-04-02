@@ -92,6 +92,9 @@ describe('modals/sync.ts', () => {
         expect(document.body.textContent).toContain('Potential duplicate titles');
         expect(document.body.textContent).toContain('Attach and Review');
         expect(document.body.textContent).toContain('land in conflict review');
+        expect(document.body.textContent).toContain('Counts compare media by sync UID');
+        expect(document.body.textContent).toContain('Only on this device');
+        expect(document.body.textContent).toContain('Only in cloud');
 
         (document.querySelector('#sync-attach-cancel') as HTMLButtonElement).click();
 
@@ -111,6 +114,10 @@ describe('modals/sync.ts', () => {
 
         expect(document.body.textContent).toContain('Attach Profile');
         expect(document.body.textContent).not.toContain('Potential duplicate titles');
+        expect(document.body.textContent).toContain('5 media entries already line up');
+        expect(document.body.textContent).not.toContain('Only on this device');
+        expect(document.body.textContent).not.toContain('Only in cloud');
+        expect(document.body.textContent).not.toContain('Conflicts to review');
 
         (document.querySelector('#sync-attach-confirm') as HTMLButtonElement).click();
 

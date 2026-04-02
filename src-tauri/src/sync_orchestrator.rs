@@ -1510,12 +1510,32 @@ fn create_local_safety_backup(
 
 fn default_device_name() -> String {
     std::env::var("COMPUTERNAME")
-        .or_else(|_| std::env::var("HOSTNAME"))
-        .unwrap_or_else(|_| "Device".to_string())
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            std::env::var("HOSTNAME")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+        })
+        .or_else(read_hostname_from_system_file)
+        .unwrap_or_else(|| "Device".to_string())
 }
 
 fn generate_prefixed_id(prefix: &str) -> String {
     format!("{prefix}_{}", uuid::Uuid::new_v4().simple())
+}
+
+#[cfg(target_os = "windows")]
+fn read_hostname_from_system_file() -> Option<String> {
+    None
+}
+
+#[cfg(not(target_os = "windows"))]
+fn read_hostname_from_system_file() -> Option<String> {
+    fs::read_to_string("/etc/hostname")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 fn build_action_result(

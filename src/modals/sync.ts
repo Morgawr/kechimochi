@@ -14,6 +14,55 @@ function formatTimestamp(value: string): string {
     return parsed.toLocaleString();
 }
 
+function buildAttachPreviewSummary(preview: SyncAttachPreview): string {
+    if (
+        preview.local_only_media_count === 0
+        && preview.remote_only_media_count === 0
+        && preview.conflict_count === 0
+    ) {
+        return `${preview.matched_media_count} media entr${preview.matched_media_count === 1 ? 'y already lines' : 'ies already line'} up between this device and the cloud profile.`;
+    }
+
+    const parts: string[] = [];
+    if (preview.local_only_media_count > 0) {
+        parts.push(`${preview.local_only_media_count} only on this device`);
+    }
+    if (preview.remote_only_media_count > 0) {
+        parts.push(`${preview.remote_only_media_count} only in cloud`);
+    }
+    if (preview.matched_media_count > 0) {
+        parts.push(`${preview.matched_media_count} already matched`);
+    }
+    if (preview.conflict_count > 0) {
+        parts.push(`${preview.conflict_count} conflict${preview.conflict_count === 1 ? '' : 's'} to review`);
+    }
+
+    return `Counts compare media by sync UID, not by title. ${parts.join(', ')}.`;
+}
+
+function buildAttachPreviewStats(preview: SyncAttachPreview): Array<{
+    label: string;
+    value: number;
+    highlight?: boolean;
+}> {
+    const stats: Array<{ label: string; value: number; highlight?: boolean }> = [];
+    if (preview.local_only_media_count > 0) {
+        stats.push({ label: 'Only on this device', value: preview.local_only_media_count });
+    }
+    if (preview.remote_only_media_count > 0) {
+        stats.push({ label: 'Only in cloud', value: preview.remote_only_media_count });
+    }
+    stats.push({ label: 'Matched items', value: preview.matched_media_count });
+    if (preview.conflict_count > 0) {
+        stats.push({
+            label: 'Conflicts to review',
+            value: preview.conflict_count,
+            highlight: true,
+        });
+    }
+    return stats;
+}
+
 export async function showSyncEnablementWizard(
     profiles: RemoteSyncProfileSummary[],
     googleEmail?: string | null,
@@ -109,6 +158,8 @@ export async function showSyncAttachPreview(preview: SyncAttachPreview): Promise
         const { overlay, cleanup } = createOverlay();
         const hasWarnings =
             preview.conflict_count > 0 || preview.potential_duplicate_titles.length > 0;
+        const summary = buildAttachPreviewSummary(preview);
+        const stats = buildAttachPreviewStats(preview);
 
         overlay.innerHTML = `
             <div class="modal-content" style="max-width: 720px; width: min(92vw, 720px); max-height: 85vh; display: flex; flex-direction: column;">
@@ -116,23 +167,16 @@ export async function showSyncAttachPreview(preview: SyncAttachPreview): Promise
                 <p style="margin: 0; color: var(--text-secondary);">
                     Review how <strong style="color: var(--text-primary);">${escapeHTML(preview.profile_name)}</strong> compares with this device before attaching it.
                 </p>
+                <div style="margin-top: 1rem; padding: 0.9rem 1rem; border-radius: var(--radius-md); border: 1px solid rgba(56, 189, 248, 0.24); background: rgba(56, 189, 248, 0.06); color: var(--text-primary);">
+                    ${escapeHTML(summary)}
+                </div>
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.8rem; margin-top: 1.25rem;">
-                    <div style="padding: 0.9rem 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md);">
-                        <div style="font-size: 0.8rem; color: var(--text-secondary);">Local only</div>
-                        <div style="font-size: 1.5rem; font-weight: 700; color: var(--text-primary);">${preview.local_only_media_count}</div>
-                    </div>
-                    <div style="padding: 0.9rem 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md);">
-                        <div style="font-size: 0.8rem; color: var(--text-secondary);">Remote only</div>
-                        <div style="font-size: 1.5rem; font-weight: 700; color: var(--text-primary);">${preview.remote_only_media_count}</div>
-                    </div>
-                    <div style="padding: 0.9rem 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md);">
-                        <div style="font-size: 0.8rem; color: var(--text-secondary);">Matched by UID</div>
-                        <div style="font-size: 1.5rem; font-weight: 700; color: var(--text-primary);">${preview.matched_media_count}</div>
-                    </div>
-                    <div style="padding: 0.9rem 1rem; border: 1px solid ${preview.conflict_count > 0 ? 'rgba(255, 99, 132, 0.45)' : 'var(--border-color)'}; border-radius: var(--radius-md); background: ${preview.conflict_count > 0 ? 'rgba(255, 99, 132, 0.07)' : 'transparent'};">
-                        <div style="font-size: 0.8rem; color: var(--text-secondary);">Conflicts to review</div>
-                        <div style="font-size: 1.5rem; font-weight: 700; color: var(--text-primary);">${preview.conflict_count}</div>
-                    </div>
+                    ${stats.map((stat, index) => `
+                        <div style="${stats.length % 2 === 1 && index === stats.length - 1 ? 'grid-column: 1 / -1;' : ''} padding: 0.9rem 1rem; border: 1px solid ${stat.highlight ? 'rgba(255, 99, 132, 0.45)' : 'var(--border-color)'}; border-radius: var(--radius-md); background: ${stat.highlight ? 'rgba(255, 99, 132, 0.07)' : 'transparent'};">
+                            <div style="font-size: 0.8rem; color: var(--text-secondary);">${escapeHTML(stat.label)}</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: var(--text-primary);">${stat.value}</div>
+                        </div>
+                    `).join('')}
                 </div>
                 ${preview.potential_duplicate_titles.length > 0
                     ? `<div style="margin-top: 1rem; padding: 0.95rem 1rem; border-radius: var(--radius-md); border: 1px solid rgba(245, 158, 11, 0.35); background: rgba(245, 158, 11, 0.08);">
