@@ -141,6 +141,7 @@ describe('Dashboard', () => {
 
         const dashboard = new Dashboard(container);
         await vi.waitFor(() => {
+            dashboard.render();
             // @ts-expect-error - accessing private state
             if (!dashboard.state.isInitialized) throw new Error('Not initialized');
         });
@@ -167,6 +168,7 @@ describe('Dashboard', () => {
 
         const dashboard = new Dashboard(container);
         await vi.waitFor(() => {
+            dashboard.render();
             // @ts-expect-error - accessing private state
             if (!dashboard.state.isInitialized) throw new Error('Not initialized');
         });

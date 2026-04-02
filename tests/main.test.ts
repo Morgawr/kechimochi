@@ -12,6 +12,17 @@ import {
     stubMainStorage,
 } from './helpers/main_harness';
 
+function createDeferred<T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+        resolve = res;
+        reject = rej;
+    });
+
+    return { promise, resolve, reject };
+}
+
 const mockWindow = {
     minimize: vi.fn(),
     maximize: vi.fn(),
@@ -65,6 +76,33 @@ describe('main.ts initialization', () => {
     it('should initialize the App', async () => {
         await bootApp();
         expect(localStorage.getItem).toHaveBeenCalled();
+    });
+
+    it('should keep the startup loader visible until the initial dashboard is ready', async () => {
+        const logsDeferred = createDeferred<Awaited<ReturnType<typeof api.getLogs>>>();
+        vi.mocked(api.getLogs).mockImplementation(() => logsDeferred.promise);
+
+        const { App } = await import('../src/main');
+        const startPromise = App.start();
+
+        await vi.waitFor(() => expect(document.getElementById('app')?.dataset.bootState).toBe('loading'));
+        expect(document.getElementById('app-startup-loader')).not.toBeNull();
+
+        logsDeferred.resolve([]);
+
+        await startPromise;
+        await vi.waitFor(() => expect(document.getElementById('app')?.dataset.bootState).toBe('ready'));
+    });
+
+    it('should not fetch inactive view data during startup', async () => {
+        await bootApp();
+
+        expect(api.getTimelineEvents).not.toHaveBeenCalled();
+        expect(api.getLogsForMedia).not.toHaveBeenCalled();
+
+        const requestedSettings = vi.mocked(api.getSetting).mock.calls.map(([key]) => key);
+        expect(requestedSettings).not.toContain(SETTING_KEYS.GRID_HIDE_ARCHIVED);
+        expect(requestedSettings).not.toContain(SETTING_KEYS.LIBRARY_LAYOUT_MODE);
     });
 
     it('should show the dev build badge by default', async () => {
@@ -147,10 +185,10 @@ describe('main.ts initialization', () => {
     it('should refresh timeline data after logging activity from the timeline view', async () => {
         await bootApp();
 
-        await vi.waitFor(() => expect(api.getTimelineEvents).toHaveBeenCalled());
-        const initialCalls = vi.mocked(api.getTimelineEvents).mock.calls.length;
+        expect(api.getTimelineEvents).not.toHaveBeenCalled();
 
         await clickView('timeline');
+        await vi.waitFor(() => expect(api.getTimelineEvents).toHaveBeenCalled());
         const callsAfterNavigation = vi.mocked(api.getTimelineEvents).mock.calls.length;
 
         vi.mocked(modals.showLogActivityModal).mockResolvedValue(true);
@@ -159,7 +197,6 @@ describe('main.ts initialization', () => {
         await vi.waitFor(() =>
             expect(vi.mocked(api.getTimelineEvents).mock.calls.length).toBeGreaterThan(callsAfterNavigation),
         );
-        expect(callsAfterNavigation).toBeGreaterThanOrEqual(initialCalls);
     });
 
     it('should handle profile updated event', async () => {

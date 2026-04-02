@@ -62,10 +62,6 @@ export class TimelineView extends Component<TimelineState> {
         });
     }
 
-    protected onMount(): void {
-        this.loadData().catch(error => Logger.error('Failed to load timeline data', error));
-    }
-
     async loadData(): Promise<void> {
         if (this.state.isLoading) {
             return;

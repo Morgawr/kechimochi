@@ -14,6 +14,7 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ### Changed
 - Media sync identity now uses stable UIDs instead of title-only matching.
+- During app startup now there is a spinning loader to offset the loading time and reduce startup jank
 
 ### Fixed
 - macOS DMG builds are now packaged as universal binaries to support both Intel and Apple Silicon architectures natively.

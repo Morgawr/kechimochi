@@ -86,7 +86,7 @@ export function resetMainModalMocks(mockedModals: ModalsModule) {
 
 export function renderMainAppShell() {
     document.body.innerHTML = `
-        <div id="app">
+        <div id="app" data-boot-state="loading">
             <div id="desktop-title-bar"></div>
             <header>
                 <div id="nav-user-avatar"></div>
@@ -105,6 +105,9 @@ export function renderMainAppShell() {
                 <button id="btn-add-activity"></button>
             </header>
             <div id="view-container"></div>
+            <div id="app-startup-loader" class="app-startup-loader" role="status" aria-label="Loading">
+                <div class="app-startup-loader__spinner" aria-hidden="true"></div>
+            </div>
         </div>
     `;
 }

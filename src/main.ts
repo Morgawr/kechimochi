@@ -50,6 +50,11 @@ if (mockDateStr) {
     };
 }
 type ViewType = typeof VIEW_NAMES[keyof typeof VIEW_NAMES];
+const APP_BOOT_STATES = {
+    LOADING: 'loading',
+    READY: 'ready',
+} as const;
+type AppBootState = typeof APP_BOOT_STATES[keyof typeof APP_BOOT_STATES];
 
 function renderStartupErrorScreen(message: string): void {
     const appRoot = document.getElementById('app');
@@ -94,6 +99,21 @@ function renderBootstrapFailureScreen(error: unknown): void {
     );
 }
 
+function ensureStartupLoader(appRoot: HTMLElement): void {
+    if (appRoot.querySelector('#app-startup-loader')) {
+        return;
+    }
+
+    const loader = document.createElement('div');
+    loader.id = 'app-startup-loader';
+    loader.className = 'app-startup-loader';
+    loader.setAttribute('role', 'status');
+    loader.setAttribute('aria-label', 'Loading');
+    loader.innerHTML = '<div class="app-startup-loader__spinner" aria-hidden="true"></div>';
+
+    appRoot.appendChild(loader);
+}
+
 export class App {
     private currentView: ViewType = VIEW_NAMES.DASHBOARD;
     private currentProfile: string = '';
@@ -103,6 +123,7 @@ export class App {
     private readonly timelineView: TimelineView;
     private readonly profileView: ProfileView;
     private readonly updateManager: UpdateManager;
+    private readonly appRoot: HTMLElement;
 
     private readonly viewContainer: HTMLElement;
     private readonly dashboardContainer: HTMLElement;
@@ -119,6 +140,9 @@ export class App {
     private readonly navLinks: NodeListOf<HTMLElement>;
 
     constructor(updateManager: UpdateManager = new UpdateManager()) {
+        this.appRoot = document.getElementById('app')!;
+        ensureStartupLoader(this.appRoot);
+        this.setBootState(APP_BOOT_STATES.LOADING);
         this.updateManager = updateManager;
         this.viewContainer = document.getElementById('view-container')!;
         this.navUserNameEl = document.getElementById('nav-user-name')!;
@@ -131,12 +155,16 @@ export class App {
 
         this.dashboardContainer = document.createElement('div');
         this.dashboardContainer.style.height = '100%';
+        this.dashboardContainer.style.display = 'none';
         this.mediaContainer = document.createElement('div');
         this.mediaContainer.style.height = '100%';
+        this.mediaContainer.style.display = 'none';
         this.timelineContainer = document.createElement('div');
         this.timelineContainer.style.height = '100%';
+        this.timelineContainer.style.display = 'none';
         this.profileContainer = document.createElement('div');
         this.profileContainer.style.height = '100%';
+        this.profileContainer.style.display = 'none';
 
         this.viewContainer.appendChild(this.dashboardContainer);
         this.viewContainer.appendChild(this.mediaContainer);
@@ -191,12 +219,17 @@ export class App {
         await this.loadTheme();
 
         await this.switchView(this.currentView);
+        this.setBootState(APP_BOOT_STATES.READY);
 
         try {
             await this.updateManager.initialize({ isFreshInstall });
         } catch (e) {
             Logger.warn('[kechimochi] Failed to initialize update manager:', e);
         }
+    }
+
+    private setBootState(state: AppBootState) {
+        this.appRoot.dataset.bootState = state;
     }
 
     private setupWindowControls() {

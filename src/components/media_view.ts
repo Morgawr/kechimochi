@@ -64,7 +64,6 @@ export class MediaView extends Component<MediaViewState> {
         globalThis.addEventListener('keydown', this.keyboardHandler);
         globalThis.addEventListener('mouseup', this.mouseHandler);
         this.bindGridSupportListener();
-        this.loadData().catch(e => Logger.error('Failed to load data', e));
     }
 
     public destroy() {

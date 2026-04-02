@@ -498,6 +498,8 @@ describe('MediaView', () => {
         const component = new MediaView(container);
         // @ts-expect-error - avoiding the render-triggered retry loop for this failure-path test
         component.state.isInitialized = true;
+        await component.loadData();
+
         await vi.waitFor(() => {
             expect(errorSpy).toHaveBeenCalledWith('Failed to load media view content', expect.any(Error));
         });

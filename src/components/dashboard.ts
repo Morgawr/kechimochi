@@ -59,10 +59,6 @@ export class Dashboard extends Component<DashboardState> {
         });
     }
 
-    protected onMount() {
-        this.loadData().catch(e => Logger.error("Failed to load dashboard data", e));
-    }
-
     async loadData() {
         if (this.isRefreshing) return;
         this.isRefreshing = true;
@@ -123,6 +119,9 @@ export class Dashboard extends Component<DashboardState> {
 
     render() {
         if (!this.state.isInitialized) {
+            if (!this.isRefreshing) {
+                this.loadData().catch(e => Logger.error('Failed to load dashboard data', e));
+            }
             this.clear();
             this.container.innerHTML = '<div style="display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-secondary);">Loading...</div>';
             return;
