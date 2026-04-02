@@ -61,8 +61,22 @@ export async function isOverlayActive(overlay: WebdriverIO.Element): Promise<boo
 export async function waitForNoActiveOverlays(timeout = 5000): Promise<void> {
     await browser.waitUntil(async () => {
         return await browser.execute(() => {
-            return !Array.from(document.querySelectorAll('.modal-overlay')).some((overlay) => {
-                return overlay.classList.contains('active');
+            const overlays = Array.from(document.querySelectorAll('.modal-overlay'));
+            return !overlays.some((overlay) => {
+                if (!(overlay instanceof HTMLElement)) {
+                    return false;
+                }
+
+                if (!overlay.classList.contains('active')) {
+                    return false;
+                }
+
+                const style = globalThis.getComputedStyle(overlay);
+                const rect = overlay.getBoundingClientRect();
+                return style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && rect.width > 0
+                    && rect.height > 0;
             });
         });
     }, {
@@ -74,22 +88,18 @@ export async function waitForNoActiveOverlays(timeout = 5000): Promise<void> {
 
 export async function getTopmostVisibleOverlay(selector?: string) {
     await browser.waitUntil(async () => {
-        const overlays = Array.from(await $$('.modal-overlay')).reverse();
-        for (const overlay of overlays) {
-            if (!(await isOverlayActive(overlay))) continue;
-
-            if (selector) {
-                const child = overlay.$(selector);
-                if (!(await child.isDisplayed().catch(() => false))) {
-                    continue;
-                }
-            }
-
-            return true;
-        }
-        return false;
+        return (await findTopmostVisibleOverlay(selector)) !== null;
     }, { timeout: 8000, timeoutMsg: `No visible modal overlay found for selector "${selector || '<any>'}"` });
 
+    const overlay = await findTopmostVisibleOverlay(selector);
+    if (overlay) {
+        return overlay;
+    }
+
+    throw new Error(`No visible modal overlay found for selector "${selector || '<any>'}"`);
+}
+
+export async function findTopmostVisibleOverlay(selector?: string): Promise<WebdriverIO.Element | null> {
     const overlays = Array.from(await $$('.modal-overlay')).reverse();
     for (const overlay of overlays) {
         if (!(await isOverlayActive(overlay))) continue;
@@ -104,7 +114,7 @@ export async function getTopmostVisibleOverlay(selector?: string) {
         return overlay;
     }
 
-    throw new Error(`No visible modal overlay found for selector "${selector || '<any>'}"`);
+    return null;
 }
 
 export async function waitForOverlayToDisappear(overlay: WebdriverIO.Element, timeout = 5000) {
@@ -380,5 +390,5 @@ export async function performActivityEdit(btnSelector: string, newDuration: stri
     await submitBtn.click();
 
     await modal.waitForDisplayed({ reverse: true, timeout: 5000 });
-    await browser.pause(500); // reduced from 1000
+    await waitForNoActiveOverlays(5000);
 }

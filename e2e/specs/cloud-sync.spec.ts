@@ -32,8 +32,10 @@ const CONFLICT_KEY = 'sync_conflict_note';
 const FORCE_KEY = 'force_publish_note';
 const MANUAL_SYNC_TITLE = 'Cloud Sync Manual Local';
 const ROUNDTRIP_TITLE = 'Cloud Sync Backup Roundtrip';
+const REMOTE_SYNC_TIMEOUT_MS = 12_000;
+const BACKUP_ALERT_TIMEOUT_MS = 12_000;
 
-async function waitForRemoteMediaTitle(title: string, timeout = 20_000): Promise<void> {
+async function waitForRemoteMediaTitle(title: string, timeout = REMOTE_SYNC_TIMEOUT_MS): Promise<void> {
   await browser.waitUntil(async () => {
     const remoteProfileId = getSingleRemoteProfileId();
     const snapshot = readRemoteProfile(remoteProfileId).snapshot;
@@ -80,7 +82,7 @@ describe('CUJ: Cloud Sync', () => {
 
   it('should complete the mocked Google login flow and create the first cloud profile', async function () {
     await enableSyncByCreatingNewProfile();
-    await waitForRemoteProfileCount(1, 30_000);
+    await waitForRemoteProfileCount(1, REMOTE_SYNC_TIMEOUT_MS);
     remoteProfileId = getSingleRemoteProfileId();
 
     await openCloudSyncCard();
@@ -197,7 +199,7 @@ describe('CUJ: Cloud Sync', () => {
     await navigateTo('profile');
     await setDialogMockPath(backupZipPath);
     await safeClick('#profile-btn-export-full-backup');
-    await dismissAlert('Full backup export completed.', 20_000);
+    await dismissAlert('Full backup export completed.', BACKUP_ALERT_TIMEOUT_MS);
     expect(fs.existsSync(backupZipPath)).toBe(true);
 
     await addMedia(ROUNDTRIP_TITLE, 'Watching', 'Anime');
@@ -208,8 +210,7 @@ describe('CUJ: Cloud Sync', () => {
     await setDialogMockPath(backupZipPath);
     await safeClick('#profile-btn-import-full-backup');
     await confirmAction(true);
-    await dismissAlert('Backup imported successfully!', 20_000);
-    await browser.pause(500);
+    await dismissAlert('Backup imported successfully!', BACKUP_ALERT_TIMEOUT_MS);
     await waitForAppReady();
 
     await enableSyncByAttachingExistingProfile();

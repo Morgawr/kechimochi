@@ -154,7 +154,9 @@ export async function setSearchQuery(query: string): Promise<void> {
 }
 
 async function waitForLibraryRefresh(): Promise<void> {
-    await browser.pause(250);
+    await browser.executeAsync((done) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => done(true)));
+    });
 }
 
 async function waitForFilterPanelState(expanded: boolean): Promise<void> {
@@ -331,7 +333,10 @@ export async function setHideArchived(hide: boolean): Promise<void> {
         // The input itself is hidden (opacity 0), so we click the slider (.slider)
         const slider = checkbox.nextElement();
         await slider.click();
-        await browser.pause(300);
+        await browser.waitUntil(async () => (await checkbox.isSelected()) === hide, {
+            timeout: 3_000,
+            timeoutMsg: `"Hide Archived" did not become ${hide ? 'checked' : 'unchecked'}`
+        });
     }
 }
 

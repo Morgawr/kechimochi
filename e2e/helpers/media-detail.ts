@@ -103,7 +103,15 @@ export async function clickBackButton(): Promise<void> {
     const btn = $('#btn-back-grid');
     await btn.waitForDisplayed({ timeout: 5000 });
     await btn.click();
-    await browser.pause(500); // Wait for transition
+    await browser.waitUntil(async () => {
+        const detailVisible = await $('#media-detail-header').isDisplayed().catch(() => false);
+        const gridVisible = await $('#media-grid-container').isDisplayed().catch(() => false);
+        const listVisible = await $('#media-list-container').isDisplayed().catch(() => false);
+        return !detailVisible && (gridVisible || listVisible);
+    }, {
+        timeout: 5_000,
+        timeoutMsg: 'Media detail did not transition back to the library in time'
+    });
 }
 
 /**
@@ -118,23 +126,21 @@ export async function editDescription(newDescription: string): Promise<void> {
         timeoutMsg: 'Description field never became visible'
     });
 
-    let opened = false;
-    for (let attempt = 0; attempt < 3 && !opened; attempt++) {
-        try {
-            const descEl = await $('#media-description');
-            await descEl.scrollIntoView();
-            await descEl.doubleClick();
-            const textarea = await $('textarea');
-            await textarea.waitForDisplayed({ timeout: 3000 });
-            opened = true;
-        } catch {
-            await browser.pause(200);
+    await browser.waitUntil(async () => {
+        const textarea = $('textarea');
+        if (await textarea.isDisplayed().catch(() => false)) {
+            return true;
         }
-    }
 
-    if (!opened) {
-        throw new Error('Failed to enter description edit mode after retries');
-    }
+        const descEl = $('#media-description');
+        await descEl.scrollIntoView();
+        await descEl.doubleClick();
+        return await textarea.isDisplayed().catch(() => false);
+    }, {
+        timeout: 3_000,
+        interval: 150,
+        timeoutMsg: 'Failed to enter description edit mode after retries'
+    });
 
     const textarea = await $('textarea');
     await textarea.waitForDisplayed({ timeout: 3000 });
@@ -491,7 +497,13 @@ export async function logActivityFromDetail(expectedTitle: string, duration: str
 
     // Wait for modal to disappear
     await modal.waitForDisplayed({ reverse: true, timeout: 5000 });
-    await browser.pause(500); // Wait for re-render of logs
+    await browser.waitUntil(async () => {
+        const items = await $$('.media-detail-log-item');
+        return items.length > 0;
+    }, {
+        timeout: 5_000,
+        timeoutMsg: 'Activity log list did not re-render after creating an entry'
+    });
 }
 
 /**

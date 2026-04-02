@@ -137,24 +137,33 @@ export async function waitForAppReady(timeout = 30000): Promise<void> {
   // In WebKit/Tauri, storage access can be transiently "insecure" if the origin isn't fully established.
   let setResolved = false;
   let attempts = 0;
-  while (!setResolved && attempts < 6 && timeLeft() > 7000) {
-    try {
-      await browser.execute((date: string) => {
-        sessionStorage.setItem('kechimochi_mock_date', date);
-        localStorage.setItem('kechimochi_profile', 'TESTUSER');
-      }, MOCK_DATE);
-      setResolved = true;
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e);
-      if (message.includes('insecure') || message.includes('Access is denied')) {
-        attempts++;
-        Logger.warn(`[e2e] sessionStorage not ready (attempt ${attempts}), retrying in 500ms...`);
-        await browser.pause(500);
-      } else {
+  try {
+    await browser.waitUntil(async () => {
+      try {
+        await browser.execute((date: string) => {
+          sessionStorage.setItem('kechimochi_mock_date', date);
+          localStorage.setItem('kechimochi_profile', 'TESTUSER');
+        }, MOCK_DATE);
+        setResolved = true;
+        return true;
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : String(e);
+        if (message.includes('insecure') || message.includes('Access is denied')) {
+          attempts++;
+          Logger.warn(`[e2e] sessionStorage not ready (attempt ${attempts}), retrying...`);
+          return false;
+        }
+
         Logger.error('[e2e] Non-security error setting mock date:', message);
-        break; // Fatal error
+        throw e;
       }
-    }
+    }, {
+      timeout: Math.min(3000, Math.max(1000, timeLeft() - 4000)),
+      interval: 100,
+      timeoutMsg: 'sessionStorage never became ready for mock date injection',
+    });
+  } catch {
+    // Keep the existing degraded fallback below.
   }
 
   // 3. Refresh to apply the mock date only if we successfully set it.

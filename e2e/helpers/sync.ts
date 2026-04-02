@@ -1,6 +1,11 @@
 /// <reference types="@wdio/globals/types" />
-import { dismissAlert, confirmAction, getTopmostVisibleOverlay, safeClick, waitForNoActiveOverlays } from './common.js';
+import { dismissAlert, confirmAction, findTopmostVisibleOverlay, getTopmostVisibleOverlay, safeClick, waitForNoActiveOverlays } from './common.js';
 import { navigateTo, verifyActiveView } from './navigation.js';
+
+const SYNC_ALERT_TIMEOUT_MS = 20_000;
+const SYNC_OVERLAY_TIMEOUT_MS = 6_000;
+const SYNC_ENABLEMENT_TIMEOUT_MS = 12_000;
+const SYNC_RECOVERY_TIMEOUT_MS = 8_000;
 
 export async function openCloudSyncCard(): Promise<void> {
     if (!(await verifyActiveView('profile'))) {
@@ -33,9 +38,9 @@ export async function enableSyncByCreatingNewProfile(): Promise<void> {
     const wizard = await getTopmostVisibleOverlay('#sync-enable-create');
     await safeClick(() => wizard.$('#sync-enable-create'));
 
-    await dismissAlert('Cloud Sync is now enabled', 90_000);
-    await waitForNoActiveOverlays(10_000);
-    await waitForSyncCardText('Sync Now', 15_000);
+    await dismissAlert('Cloud Sync is now enabled', SYNC_ALERT_TIMEOUT_MS);
+    await waitForNoActiveOverlays(SYNC_OVERLAY_TIMEOUT_MS);
+    await waitForSyncCardText('Sync Now', SYNC_ENABLEMENT_TIMEOUT_MS);
 }
 
 export async function enableSyncByAttachingExistingProfile(): Promise<void> {
@@ -50,28 +55,27 @@ export async function enableSyncByAttachingExistingProfile(): Promise<void> {
     const preview = await getTopmostVisibleOverlay('#sync-attach-confirm');
     await safeClick(() => preview.$('#sync-attach-confirm'));
 
-    await dismissAlert('The profile was attached successfully', 90_000);
-    await waitForNoActiveOverlays(10_000);
+    await dismissAlert('The profile was attached successfully', SYNC_ALERT_TIMEOUT_MS);
+    await waitForNoActiveOverlays(SYNC_OVERLAY_TIMEOUT_MS);
 }
 
 export async function runSyncNow(expectedAlertText: string): Promise<void> {
     await openCloudSyncCard();
+    await dismissMergedStateReminderIfPresent();
     await safeClick('#profile-btn-run-sync');
     try {
-        await dismissAlert(expectedAlertText, 90_000);
+        await dismissAlert(expectedAlertText, SYNC_ALERT_TIMEOUT_MS);
     } catch (error) {
-        const lingeringAlertText = await $('#alert-body').getText().catch(() => '');
-        if (!lingeringAlertText.includes('Run Sync Now to publish the merged state')) {
+        if (!(await dismissMergedStateReminderIfPresent())) {
             throw error;
         }
 
-        await dismissAlert('Run Sync Now to publish the merged state', 5_000);
-        await waitForNoActiveOverlays(10_000);
         await safeClick('#profile-btn-run-sync');
-        await dismissAlert(expectedAlertText, 90_000);
+        await dismissAlert(expectedAlertText, SYNC_ALERT_TIMEOUT_MS);
     }
 
-    await waitForNoActiveOverlays(10_000);
+    await dismissMergedStateReminderIfPresent();
+    await waitForNoActiveOverlays(SYNC_OVERLAY_TIMEOUT_MS);
 }
 
 export async function expandAdvancedRecovery(): Promise<void> {
@@ -90,16 +94,16 @@ export async function forcePublishLocal(): Promise<void> {
     await expandAdvancedRecovery();
     await safeClick('#profile-btn-force-publish-local');
     await confirmAction(true);
-    await dismissAlert('published as the new cloud snapshot', 90_000);
-    await waitForNoActiveOverlays(10_000);
+    await dismissAlert('published as the new cloud snapshot', SYNC_ALERT_TIMEOUT_MS);
+    await waitForNoActiveOverlays(SYNC_RECOVERY_TIMEOUT_MS);
 }
 
 export async function replaceLocalFromRemote(): Promise<void> {
     await expandAdvancedRecovery();
     await safeClick('#profile-btn-replace-local-from-remote');
     await confirmAction(true);
-    await dismissAlert('latest cloud snapshot', 90_000);
-    await waitForNoActiveOverlays(10_000);
+    await dismissAlert('latest cloud snapshot', SYNC_ALERT_TIMEOUT_MS);
+    await waitForNoActiveOverlays(SYNC_RECOVERY_TIMEOUT_MS);
 }
 
 export async function openSyncConflictsPanel(): Promise<void> {
@@ -121,11 +125,27 @@ export async function resolveFirstExtraDataConflict(side: 'local' | 'remote'): P
     const button = $(selector);
     await button.waitForDisplayed({ timeout: 10_000 });
     await safeClick(button);
-    await dismissAlert('Run Sync Now to publish the merged state', 30_000);
-    await waitForNoActiveOverlays(10_000);
+    await dismissAlert('Run Sync Now to publish the merged state', SYNC_ALERT_TIMEOUT_MS);
+    await waitForNoActiveOverlays(SYNC_OVERLAY_TIMEOUT_MS);
 }
 
-async function waitForSyncEnablementOverlay(timeout = 30_000): Promise<void> {
+async function dismissMergedStateReminderIfPresent(): Promise<boolean> {
+    const overlay = await findTopmostVisibleOverlay('#alert-ok');
+    if (!overlay) {
+        return false;
+    }
+
+    const message = await overlay.$('#alert-body').getText().catch(() => '');
+    if (!message.includes('Run Sync Now to publish the merged state')) {
+        return false;
+    }
+
+    await safeClick(() => overlay.$('#alert-ok'));
+    await waitForNoActiveOverlays(SYNC_OVERLAY_TIMEOUT_MS);
+    return true;
+}
+
+async function waitForSyncEnablementOverlay(timeout = SYNC_ENABLEMENT_TIMEOUT_MS): Promise<void> {
     await browser.waitUntil(async () => {
         const overlayState = await browser.execute(() => {
             const overlays = Array.from(document.querySelectorAll('.modal-overlay.active')).reverse();
@@ -165,7 +185,7 @@ async function waitForSyncEnablementOverlay(timeout = 30_000): Promise<void> {
         timeoutMsg: 'Cloud Sync enablement did not open a wizard or error alert in time',
     });
 
-    const alertOverlay = await getTopmostVisibleOverlay('#alert-ok').catch(() => null);
+    const alertOverlay = await findTopmostVisibleOverlay('#alert-ok');
     if (alertOverlay) {
         const alertBody = alertOverlay.$('#alert-body');
         const message = await alertBody.getText().catch(() => 'Unknown Cloud Sync enablement failure');
