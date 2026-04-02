@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-04-03
+
 ### Added
 - Google Drive cloud sync for desktop builds, with sign-in, first upload, attach, manual sync, conflict review, and recovery actions.
 - Snapshot-based sync with per-device state, remote cover-art transfer, and sync progress UI.
