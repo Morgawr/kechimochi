@@ -100,6 +100,11 @@ describe('MediaLibraryBrowser', () => {
         );
         gridComponent.render();
 
+        const contentContainer = container.querySelector<HTMLElement>('#media-library-content');
+        expect(contentContainer?.style.minWidth).toBe('0');
+        const layoutRoot = container.querySelector<HTMLElement>('.media-library-layout-root');
+        expect(layoutRoot?.style.minWidth).toBe('0');
+
         const expectedTitles = ['Alpha', 'Gamma'];
         expect(vi.mocked(MediaGrid).mock.calls[0][1]).toEqual({
             mediaList: expect.arrayContaining([

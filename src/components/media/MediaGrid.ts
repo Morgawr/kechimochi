@@ -32,7 +32,8 @@ export class MediaGrid extends Component<MediaGridState> {
             items: this.state.mediaList,
             containerId: 'media-grid-container',
             containerClassName: 'media-grid-scroll-container',
-            containerStyle: 'display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); grid-auto-rows: 320px; gap: 1.5rem; overflow-y: auto; flex: 1; padding: 0.5rem 1rem 2rem 1rem; align-content: flex-start;',
+            // min-width:0 is required for flex children to shrink instead of overflowing horizontally.
+            containerStyle: 'display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); grid-auto-rows: 320px; gap: 1.5rem; overflow-y: auto; flex: 1; min-width: 0; padding: 0.5rem 1rem 2rem 1rem; align-content: flex-start;',
             emptyStateMarkup: '<div style="grid-column: 1 / -1; text-align: center; color: var(--text-secondary); padding: 4rem;">No media matches your filters.</div>',
             initialBatchSize: 15,
             batchSize: 10,

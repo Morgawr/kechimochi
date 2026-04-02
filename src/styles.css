@@ -496,7 +496,8 @@ a {
 #app {
   display: flex;
   flex-direction: column;
-  width: 100vw;
+  /* Avoid 100vw subtle overflow when scrollbars are present (can clip right edge). */
+  width: 100%;
   height: 100dvh;
 }
 

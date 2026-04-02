@@ -49,6 +49,10 @@ describe('MediaList', () => {
         component.render();
 
         expect(MediaListItem).toHaveBeenCalledTimes(2);
+        const listContainer = env.container.querySelector<HTMLElement>('#media-list-container');
+        expect(listContainer?.style.minWidth).toBe('0');
+        const firstWrapper = vi.mocked(MediaListItem).mock.calls[0][0] as HTMLElement;
+        expect(firstWrapper.style.containIntrinsicSize).toBe('auto 168px');
         expect(vi.mocked(MediaListItem)).toHaveBeenNthCalledWith(
             1,
             expect.anything(),

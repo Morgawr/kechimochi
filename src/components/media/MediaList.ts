@@ -35,7 +35,8 @@ export class MediaList extends Component<MediaListState> {
             items: this.state.mediaList,
             containerId: 'media-list-container',
             containerClassName: 'media-list-scroll-container',
-            containerStyle: 'display: flex; flex-direction: column; gap: 1rem; overflow-y: auto; flex: 1; padding: 0.5rem 1rem 2rem 1rem;',
+            // min-width:0 is required for flex children to shrink instead of overflowing horizontally.
+            containerStyle: 'display: flex; flex-direction: column; gap: 1rem; overflow-y: auto; flex: 1; min-width: 0; padding: 0.5rem 1rem 2rem 1rem;',
             emptyStateMarkup: '<div style="text-align: center; color: var(--text-secondary); padding: 4rem;">No media matches your filters.</div>',
             initialBatchSize: 18,
             batchSize: 12,
@@ -46,7 +47,10 @@ export class MediaList extends Component<MediaListState> {
                 const itemWrapper = createAnimatedCollectionItemWrapper(
                     'media-list-item-wrapper',
                     isFirstBatch ? index * 0.02 : 0,
-                    '1000px 168px',
+                    // Only reserve a reasonable block-size for content-visibility.
+                    // Reserving a large inline-size (like 1000px) can create horizontal clipping
+                    // when the window is narrower because offscreen items contribute to scrollWidth.
+                    'auto 168px',
                 );
                 const metrics = media.id == null ? null : (this.state.metricsByMediaId[media.id] ?? null);
                 const item = new MediaListItem(

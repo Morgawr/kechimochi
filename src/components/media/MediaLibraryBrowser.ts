@@ -72,7 +72,9 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
 
             const contentContainer = document.createElement('div');
             contentContainer.id = 'media-library-content';
-            contentContainer.style.cssText = 'display: flex; flex: 1; min-height: 0;';
+            // Allow the library content to shrink in flex layouts; otherwise long children can
+            // force horizontal overflow which then gets clipped by the app shell.
+            contentContainer.style.cssText = 'display: flex; flex: 1; min-height: 0; min-width: 0;';
             this.container.appendChild(contentContainer);
 
             this.shellRendered = true;
@@ -234,7 +236,10 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
 
         const layoutRoot = document.createElement('div');
         layoutRoot.className = 'media-library-layout-root';
-        layoutRoot.style.cssText = 'display: flex; flex: 1; min-height: 0;';
+        // Flex children default to min-width:auto, which can prevent shrinking and create
+        // horizontal overflow (then clipped by the app shell). Allow the library layouts
+        // to shrink properly at narrow window widths.
+        layoutRoot.style.cssText = 'display: flex; flex: 1; min-height: 0; min-width: 0;';
         container.appendChild(layoutRoot);
 
         const filteredList = this.getFilteredMediaList();
