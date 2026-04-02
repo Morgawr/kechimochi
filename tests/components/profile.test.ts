@@ -437,7 +437,7 @@ describe('ProfileView', () => {
 
     it('should show a setup message when Google OAuth is not configured', async () => {
         vi.mocked(api.connectGoogleDrive).mockRejectedValue(
-            new Error('Google Drive sync is not configured. Set `plugins.kechimochiSync.clientId` in src-tauri/tauri.conf.json or export KECHIMOCHI_GOOGLE_CLIENT_ID before launching the app.')
+            new Error('Google Drive sync is not configured for this build. Provide KECHIMOCHI_GOOGLE_CLIENT_ID and KECHIMOCHI_GOOGLE_CLIENT_SECRET in a private .env.local or release build environment before building the desktop app.')
         );
 
         const view = new ProfileView(container);
@@ -448,7 +448,7 @@ describe('ProfileView', () => {
 
         await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
             'Cloud Sync Setup Needed',
-            expect.stringContaining('plugins.kechimochiSync.clientId')
+            expect.stringContaining('KECHIMOCHI_GOOGLE_CLIENT_SECRET')
         ));
     });
 
@@ -465,7 +465,7 @@ describe('ProfileView', () => {
 
         await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
             'Cloud Sync OAuth Config Error',
-            expect.stringContaining('plugins.kechimochiSync.clientSecret')
+            expect.stringContaining('KECHIMOCHI_GOOGLE_CLIENT_SECRET')
         ));
     });
 

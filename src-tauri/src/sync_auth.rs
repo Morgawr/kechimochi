@@ -64,10 +64,68 @@ struct GoogleOAuthPluginConfig {
 }
 
 impl GoogleOAuthClientConfig {
+    fn configured_runtime_client_id() -> Option<String> {
+        std::env::var(ENV_CLIENT_ID)
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    }
+
+    fn configured_runtime_client_secret() -> Option<String> {
+        std::env::var(ENV_CLIENT_SECRET)
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    }
+
+    fn configured_bundled_client_id() -> Option<String> {
+        option_env!("KECHIMOCHI_BUNDLED_GOOGLE_CLIENT_ID")
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    }
+
+    fn configured_bundled_client_secret() -> Option<String> {
+        option_env!("KECHIMOCHI_BUNDLED_GOOGLE_CLIENT_SECRET")
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    }
+
+    fn configured_client_id_override() -> Option<String> {
+        Self::configured_runtime_client_id().or_else(Self::configured_bundled_client_id)
+    }
+
+    fn configured_client_secret_override() -> Option<String> {
+        Self::configured_runtime_client_secret().or_else(Self::configured_bundled_client_secret)
+    }
+
+    fn with_private_overrides(mut self) -> Self {
+        if let Some(client_id) = Self::configured_client_id_override() {
+            self.client_id = client_id;
+        }
+        if let Some(client_secret) = Self::configured_client_secret_override() {
+            self.client_secret = Some(client_secret);
+        }
+        self
+    }
+
+    fn env_client_id_is_configured() -> bool {
+        Self::configured_runtime_client_id().is_some()
+    }
+
+    fn should_prefer_env_config() -> bool {
+        std::env::var(ENV_TEST_TOKEN_STORE_PATH)
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .is_some()
+    }
+
     pub fn from_env() -> Result<Self, String> {
-        let client_id = std::env::var(ENV_CLIENT_ID)
-            .map_err(|_| format!("Missing Google OAuth client ID in {ENV_CLIENT_ID}"))?;
-        let client_secret = std::env::var(ENV_CLIENT_SECRET).ok();
+        let client_id = Self::configured_runtime_client_id()
+            .ok_or_else(|| format!("Missing Google OAuth client ID in {ENV_CLIENT_ID}"))?;
+        let client_secret = Self::configured_client_secret_override();
         let auth_endpoint =
             std::env::var(ENV_AUTH_ENDPOINT).unwrap_or_else(|_| DEFAULT_AUTH_ENDPOINT.to_string());
         let token_endpoint = std::env::var(ENV_TOKEN_ENDPOINT)
@@ -128,25 +186,41 @@ impl GoogleOAuthClientConfig {
         }))
     }
 
+    fn from_bundled_config() -> Option<Self> {
+        let client_id = Self::configured_bundled_client_id()?;
+
+        Some(Self {
+            client_id,
+            client_secret: Self::configured_client_secret_override(),
+            auth_endpoint: std::env::var(ENV_AUTH_ENDPOINT)
+                .unwrap_or_else(|_| DEFAULT_AUTH_ENDPOINT.to_string()),
+            token_endpoint: std::env::var(ENV_TOKEN_ENDPOINT)
+                .unwrap_or_else(|_| DEFAULT_TOKEN_ENDPOINT.to_string()),
+            scope: GOOGLE_DRIVE_APPDATA_SCOPE.to_string(),
+            callback_timeout_secs: DEFAULT_CALLBACK_TIMEOUT_SECS,
+        })
+    }
+
     pub fn from_plugin_or_env(plugin_config: Option<&Value>) -> Result<Self, String> {
-        if std::env::var(ENV_CLIENT_ID)
-            .ok()
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
-            .is_some()
-        {
+        if Self::should_prefer_env_config() && Self::env_client_id_is_configured() {
             return Self::from_env();
         }
 
-        if let Some(config) = Self::from_plugin_config(plugin_config)? {
+        if let Some(config) = Self::from_bundled_config() {
             return Ok(config);
         }
 
-        Self::from_env().map_err(|_| {
-            format!(
-                "Google Drive sync is not configured. Set `plugins.{TAURI_PLUGIN_CONFIG_KEY}.clientId` in src-tauri/tauri.conf.json or export {ENV_CLIENT_ID} before launching the app."
-            )
-        })
+        if let Some(config) = Self::from_plugin_config(plugin_config)? {
+            return Ok(config.with_private_overrides());
+        }
+
+        if Self::env_client_id_is_configured() {
+            return Self::from_env();
+        }
+
+        Err(format!(
+            "Google Drive sync is not configured for this build. Provide {ENV_CLIENT_ID} and {ENV_CLIENT_SECRET} in a private .env.local or release build environment before building the desktop app."
+        ))
     }
 }
 
@@ -792,8 +866,14 @@ mod tests {
         }
     }
 
+    fn oauth_env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
     #[test]
     fn oauth_config_can_be_loaded_from_tauri_plugin_config() {
+        let _lock = oauth_env_lock().lock().unwrap();
         let config = GoogleOAuthClientConfig::from_plugin_or_env(Some(&serde_json::json!({
             "clientId": "tauri-client-id",
             "clientSecret": "tauri-client-secret",
@@ -818,10 +898,32 @@ mod tests {
 
     #[test]
     fn empty_tauri_plugin_config_is_treated_as_not_configured() {
+        let _lock = oauth_env_lock().lock().unwrap();
         assert_eq!(
             GoogleOAuthClientConfig::from_plugin_config(Some(&serde_json::json!({}))).unwrap(),
             None
         );
+    }
+
+    #[test]
+    fn oauth_config_can_merge_private_env_secret_into_tauri_plugin_config() {
+        let _lock = oauth_env_lock().lock().unwrap();
+        let previous_secret = std::env::var(ENV_CLIENT_SECRET).ok();
+        std::env::set_var(ENV_CLIENT_SECRET, "private-env-secret");
+
+        let config = GoogleOAuthClientConfig::from_plugin_or_env(Some(&serde_json::json!({
+            "clientId": "tauri-client-id"
+        })))
+        .unwrap();
+
+        assert_eq!(config.client_id, "tauri-client-id");
+        assert_eq!(config.client_secret.as_deref(), Some("private-env-secret"));
+
+        if let Some(previous_secret) = previous_secret {
+            std::env::set_var(ENV_CLIENT_SECRET, previous_secret);
+        } else {
+            std::env::remove_var(ENV_CLIENT_SECRET);
+        }
     }
 
     #[test]

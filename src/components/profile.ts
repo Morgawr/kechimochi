@@ -1722,14 +1722,14 @@ export class ProfileView extends Component<ProfileState> {
         if (isMissingGoogleOAuthConfigError(message)) {
             await customAlert(
                 'Cloud Sync Setup Needed',
-                'Google Drive sync is not configured for this app build yet. Add `plugins.kechimochiSync.clientId` to `src-tauri/tauri.conf.json` or set `KECHIMOCHI_GOOGLE_CLIENT_ID` before launching the app, then restart it.'
+                'Google Drive sync is not configured for this app build yet. Provide `KECHIMOCHI_GOOGLE_CLIENT_ID` and `KECHIMOCHI_GOOGLE_CLIENT_SECRET` in a private `.env.local` or release build environment, rebuild the desktop app, then restart it.'
             );
             return;
         }
         if (isMissingGoogleOAuthClientSecretError(message)) {
             await customAlert(
                 'Cloud Sync OAuth Config Error',
-                'This Google OAuth credential requires a client secret. For this desktop app, use a Google OAuth client created as `Desktop app`, or add the matching `plugins.kechimochiSync.clientSecret` to `src-tauri/tauri.conf.json`.'
+                'This Google OAuth credential requires a client secret. For this desktop app, use a Google OAuth client created as `Desktop app`, then provide the matching `KECHIMOCHI_GOOGLE_CLIENT_SECRET` privately in `.env.local` or the release build environment and rebuild the app.'
             );
             return;
         }

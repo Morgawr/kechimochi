@@ -44,6 +44,15 @@ npm run tauri dev
 
 This will start the Vite development server for the frontend and compile the Rust backend in debug mode.
 
+If you need Google Drive cloud sync for a local desktop build, place the desktop OAuth client ID and secret in a gitignored `.env.local` at the repository root or in `src-tauri/.env.local`:
+
+```bash
+KECHIMOCHI_GOOGLE_CLIENT_ID=your-desktop-client-id.apps.googleusercontent.com
+KECHIMOCHI_GOOGLE_CLIENT_SECRET=your-desktop-client-secret
+```
+
+The desktop build injects both values at build time, so they do not need to live in `src-tauri/tauri.conf.json`.
+
 ### Web Interface
 You can also run Kechimochi as a web application. This requires starting both the frontend development server and a separate Rust backend API server.
 
@@ -140,6 +149,8 @@ npx tauri build
 ```
 
 The compiled packages (AppImage, deb, etc.) will be located in `src-tauri/target/release/bundle/`.
+
+For release builds with Google Drive sync enabled, provide both `KECHIMOCHI_GOOGLE_CLIENT_ID` and `KECHIMOCHI_GOOGLE_CLIENT_SECRET` in the build environment or a private `.env.local` before running the build.
 
 ### Web Release (Self Hosted)
 

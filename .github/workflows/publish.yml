@@ -2,6 +2,11 @@ name: "Publish Dev Artifacts"
 
 on:
   workflow_call:
+    secrets:
+      KECHIMOCHI_GOOGLE_CLIENT_ID:
+        required: true
+      KECHIMOCHI_GOOGLE_CLIENT_SECRET:
+        required: true
 
 jobs:
   prepare:
@@ -238,6 +243,8 @@ jobs:
       - name: build tauri app
         working-directory: ./src-tauri
         env:
+          KECHIMOCHI_GOOGLE_CLIENT_ID: ${{ secrets.KECHIMOCHI_GOOGLE_CLIENT_ID }}
+          KECHIMOCHI_GOOGLE_CLIENT_SECRET: ${{ secrets.KECHIMOCHI_GOOGLE_CLIENT_SECRET }}
           TAURI_BUNDLER_NEW_APPIMAGE_FORMAT: 1
           VITE_APP_VERSION: ${{ needs.prepare.outputs.display_version }}
           VITE_APP_CHANNEL: dev
@@ -282,6 +289,8 @@ jobs:
 
       - name: build tauri app
         env:
+          KECHIMOCHI_GOOGLE_CLIENT_ID: ${{ secrets.KECHIMOCHI_GOOGLE_CLIENT_ID }}
+          KECHIMOCHI_GOOGLE_CLIENT_SECRET: ${{ secrets.KECHIMOCHI_GOOGLE_CLIENT_SECRET }}
           VITE_APP_VERSION: ${{ needs.prepare.outputs.display_version }}
           VITE_APP_CHANNEL: dev
           VITE_RELEASE_STAGE: beta
@@ -326,6 +335,8 @@ jobs:
 
       - name: build tauri app
         env:
+          KECHIMOCHI_GOOGLE_CLIENT_ID: ${{ secrets.KECHIMOCHI_GOOGLE_CLIENT_ID }}
+          KECHIMOCHI_GOOGLE_CLIENT_SECRET: ${{ secrets.KECHIMOCHI_GOOGLE_CLIENT_SECRET }}
           VITE_APP_VERSION: ${{ needs.prepare.outputs.display_version }}
           VITE_APP_CHANNEL: dev
           VITE_RELEASE_STAGE: beta

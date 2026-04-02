@@ -25,6 +25,8 @@ For the database and backup compatibility policy, see `docs/database-versioning.
 Release builds are created only from Git tags that match `vX.Y.Z`.
 
 - The checked-in version files must already be set to the release version.
+- Private desktop OAuth values such as `KECHIMOCHI_GOOGLE_CLIENT_ID` and `KECHIMOCHI_GOOGLE_CLIENT_SECRET` must come from the release environment, not tracked config files.
+- GitHub Actions desktop builds currently source those values from repository secrets with the same names.
 - The release workflow publishes assets to the GitHub Releases tab.
 - Tagged releases currently publish desktop bundles for Linux, Windows, and macOS, plus self-hosted web packages for Linux, Windows, and macOS.
 - While the app is in beta, release builds display `BETA VERSION X.Y.Z` in the UI.
