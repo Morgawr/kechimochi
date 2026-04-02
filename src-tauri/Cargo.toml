@@ -32,6 +32,9 @@ base64 = { version = "0.22.1", features = ["alloc"] }
 image = { version = "0.25.6", default-features = false, features = ["jpeg", "png", "webp"] }
 sha2 = "0.10.9"
 uuid = { version = "1.18.1", features = ["v4", "v5"] }
+url = "2.5.7"
+oauth2 = { version = "5", default-features = false, features = ["reqwest"] }
+keyring = "3"
 
 # Web server (used only by the web-server binary)
 axum = { version = "0.7", features = ["multipart"] }

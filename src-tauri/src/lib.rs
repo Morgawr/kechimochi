@@ -3,13 +3,16 @@ pub mod csv_import;
 pub mod db;
 pub mod models;
 pub mod profile_picture;
+pub mod sync_auth;
 pub mod sync_cover_blobs;
 pub mod sync_merge;
 pub mod sync_snapshot;
+pub mod sync_state;
 
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 use tauri::{Manager, State};
+use tauri_plugin_opener::OpenerExt;
 
 use models::{
     ActivityLog, ActivitySummary, DailyHeatmap, Media, Milestone, ProfilePicture, TimelineEvent,
@@ -347,6 +350,48 @@ fn delete_profile_picture(state: State<DbState>) -> Result<(), String> {
     db::delete_profile_picture(&conn).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn get_sync_status(app_handle: tauri::AppHandle) -> Result<sync_state::SyncStatus, String> {
+    let app_dir = db::get_data_dir(&app_handle);
+    let token_store = sync_auth::OsSecureTokenStore::default();
+    let google_authenticated = match sync_auth::has_google_drive_tokens(&token_store) {
+        Ok(authenticated) => authenticated,
+        Err(err) => {
+            if sync_state::load_sync_config(&app_dir)?.is_some() {
+                return Err(err);
+            }
+            false
+        }
+    };
+    let google_account_email =
+        sync_auth::load_google_account_email(&token_store).unwrap_or_default();
+    sync_state::get_sync_status(&app_dir, google_authenticated, google_account_email)
+}
+
+#[tauri::command]
+async fn connect_google_drive(
+    app_handle: tauri::AppHandle,
+) -> Result<sync_auth::GoogleDriveAuthSession, String> {
+    let app_dir = db::get_data_dir(&app_handle);
+    let config = sync_auth::GoogleOAuthClientConfig::from_env()?;
+    let token_store = sync_auth::OsSecureTokenStore::default();
+
+    sync_auth::connect_google_drive_with_browser(&app_dir, &config, &token_store, |auth_url| {
+        app_handle
+            .opener()
+            .open_url(auth_url, None::<&str>)
+            .map_err(|e| e.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+fn disconnect_google_drive(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let app_dir = db::get_data_dir(&app_handle);
+    let token_store = sync_auth::OsSecureTokenStore::default();
+    sync_auth::disconnect_google_drive_data(&app_dir, &token_store)
+}
+
 pub fn get_username_logic() -> String {
     std::env::var("USER")
         .or_else(|_| std::env::var("USERNAME"))
@@ -409,6 +454,9 @@ pub fn run() {
             get_profile_picture,
             upload_profile_picture,
             delete_profile_picture,
+            get_sync_status,
+            connect_google_drive,
+            disconnect_google_drive,
             set_setting,
             get_setting,
             backup::export_full_backup,
