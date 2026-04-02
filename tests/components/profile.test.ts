@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { resolve } from 'node:path';
 import { ProfileView } from '../../src/components/profile';
 import * as api from '../../src/api';
 import { Media } from '../../src/api';
@@ -68,6 +69,7 @@ import * as modals from '../../src/modals';
 
 describe('ProfileView', () => {
     let container: HTMLElement;
+    const SAFE_BACKUP_PATH = resolve(process.cwd(), 'e2e', 'fixtures', 'recovery.zip');
 
     beforeEach(() => {
         container = document.createElement('div');
@@ -593,7 +595,7 @@ describe('ProfileView', () => {
                 device_name: 'Desk',
                 conflict_count: 0,
             },
-            safety_backup_path: '/tmp/recovery.zip',
+            safety_backup_path: SAFE_BACKUP_PATH,
             published_snapshot_id: null,
             lost_race: false,
             remote_changed: true,
@@ -645,7 +647,7 @@ describe('ProfileView', () => {
                 device_name: 'Desk',
                 conflict_count: 0,
             },
-            safety_backup_path: '/tmp/recovery.zip',
+            safety_backup_path: SAFE_BACKUP_PATH,
             published_snapshot_id: 'snap_force_1',
             lost_race: false,
             remote_changed: false,

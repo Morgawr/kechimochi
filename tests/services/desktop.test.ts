@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { join, resolve } from 'node:path';
 import { DesktopServices } from '../../src/services/desktop';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -32,7 +33,8 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
 
 describe('DesktopServices', () => {
     let services: DesktopServices;
-    const SAFE_DIR = '/home/testuser/kechimochi-fixtures';
+    const SAFE_DIR = resolve(process.cwd(), 'e2e', 'fixtures');
+    const SAFE_BACKUP_PATH = join(SAFE_DIR, 'recovery.zip');
 
     beforeEach(() => {
         services = new DesktopServices();
@@ -150,8 +152,8 @@ describe('DesktopServices', () => {
             .mockResolvedValueOnce({ sync_status: { state: 'connected_clean' }, safety_backup_path: null, published_snapshot_id: 'snap_2', lost_race: false, remote_changed: false })
             .mockResolvedValueOnce({ sync_status: { state: 'dirty' }, safety_backup_path: null, published_snapshot_id: null, lost_race: false, remote_changed: true })
             .mockResolvedValueOnce({ sync_status: { state: 'connected_clean' }, safety_backup_path: null, published_snapshot_id: 'snap_3', lost_race: false, remote_changed: true })
-            .mockResolvedValueOnce({ sync_status: { state: 'connected_clean' }, safety_backup_path: '/tmp/recovery.zip', published_snapshot_id: null, lost_race: false, remote_changed: true })
-            .mockResolvedValueOnce({ sync_status: { state: 'connected_clean' }, safety_backup_path: '/tmp/recovery.zip', published_snapshot_id: 'snap_4', lost_race: false, remote_changed: false })
+            .mockResolvedValueOnce({ sync_status: { state: 'connected_clean' }, safety_backup_path: SAFE_BACKUP_PATH, published_snapshot_id: null, lost_race: false, remote_changed: true })
+            .mockResolvedValueOnce({ sync_status: { state: 'connected_clean' }, safety_backup_path: SAFE_BACKUP_PATH, published_snapshot_id: 'snap_4', lost_race: false, remote_changed: false })
             .mockResolvedValueOnce([{ kind: 'media_field_conflict', media_uid: 'uid_1', field_name: 'title', base_value: null, local_value: 'A', remote_value: 'B' }])
             .mockResolvedValueOnce({ sync_status: { state: 'dirty', conflict_count: 0 }, safety_backup_path: null, published_snapshot_id: null, lost_race: false, remote_changed: false });
 
@@ -163,7 +165,7 @@ describe('DesktopServices', () => {
         await expect(services.createRemoteSyncProfile()).resolves.toMatchObject({ published_snapshot_id: 'snap_2' });
         await expect(services.attachRemoteSyncProfile('prof_1')).resolves.toMatchObject({ remote_changed: true });
         await expect(services.runSync()).resolves.toMatchObject({ published_snapshot_id: 'snap_3' });
-        await expect(services.replaceLocalFromRemote()).resolves.toMatchObject({ safety_backup_path: '/tmp/recovery.zip' });
+        await expect(services.replaceLocalFromRemote()).resolves.toMatchObject({ safety_backup_path: SAFE_BACKUP_PATH });
         await expect(services.forcePublishLocalAsRemote()).resolves.toMatchObject({ published_snapshot_id: 'snap_4' });
         await expect(services.getSyncConflicts()).resolves.toHaveLength(1);
         await expect(services.resolveSyncConflict(0, { kind: 'media_field', side: 'local' })).resolves.toMatchObject({

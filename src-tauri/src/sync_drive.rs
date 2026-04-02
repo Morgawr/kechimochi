@@ -16,6 +16,8 @@ use crate::sync_snapshot::{self, SyncSnapshot, SYNC_PROTOCOL_VERSION};
 
 const DEFAULT_DRIVE_API_BASE_URL: &str = "https://www.googleapis.com/drive/v3";
 const DEFAULT_DRIVE_UPLOAD_BASE_URL: &str = "https://www.googleapis.com/upload/drive/v3";
+const ENV_DRIVE_API_BASE_URL: &str = "KECHIMOCHI_GOOGLE_DRIVE_API_BASE_URL";
+const ENV_DRIVE_UPLOAD_BASE_URL: &str = "KECHIMOCHI_GOOGLE_DRIVE_UPLOAD_BASE_URL";
 const APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
 const APP_DATA_FOLDER_NAME: &str = "appDataFolder";
 const MANIFEST_FILE_PREFIX: &str = "kechimochi-manifest-";
@@ -315,11 +317,11 @@ pub fn validate_remote_snapshot_compatibility(snapshot: &SyncSnapshot) -> Result
 
 impl GoogleDriveClient<ReqwestDriveTransport> {
     pub fn new(auth_config: GoogleOAuthClientConfig) -> Result<Self, String> {
-        Self::new_with_base_urls(
-            auth_config,
-            DEFAULT_DRIVE_API_BASE_URL,
-            DEFAULT_DRIVE_UPLOAD_BASE_URL,
-        )
+        let api_base_url = std::env::var(ENV_DRIVE_API_BASE_URL)
+            .unwrap_or_else(|_| DEFAULT_DRIVE_API_BASE_URL.to_string());
+        let upload_base_url = std::env::var(ENV_DRIVE_UPLOAD_BASE_URL)
+            .unwrap_or_else(|_| DEFAULT_DRIVE_UPLOAD_BASE_URL.to_string());
+        Self::new_with_base_urls(auth_config, &api_base_url, &upload_base_url)
     }
 
     pub fn new_with_base_urls(

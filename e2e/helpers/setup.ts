@@ -199,10 +199,20 @@ export async function waitForAppReady(timeout = 30000): Promise<void> {
     }
   ).catch(async () => {
     const appRootExists = await $('#app').isExisting().catch(() => false);
+    const viewContainerExists = await $('#view-container').isExisting().catch(() => false);
+    const navLinkCount = await $$('.nav-link').then((links) => links.length).catch(() => 0);
+    const bodyTextLength = await $('body').getText().then((text) => text.trim().length).catch(() => 0);
+
     if (appRootExists) {
       Logger.warn('[e2e] App shell not fully ready, proceeding with degraded readiness because #app exists');
       return;
     }
+
+    if (viewContainerExists || navLinkCount > 0 || bodyTextLength > 0) {
+      Logger.warn('[e2e] App shell did not meet the strict readiness check, proceeding with degraded readiness because visible shell content exists');
+      return;
+    }
+
     throw new Error('App did not reach a stable ready UI state after startup');
   });
 

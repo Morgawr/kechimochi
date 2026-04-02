@@ -9,6 +9,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
 import { prepareTestDir, cleanupTestDir, E2E_PACKAGE_VERSION } from './helpers/setup.js';
+import { startSyncMockServer, stopSyncMockServer } from './helpers/sync-mock.js';
 import { Logger } from '../src/core/logger';
 
 interface TauriSessionCaps {
@@ -196,6 +197,7 @@ export const config: WebdriverIO.Config = {
     const specFile = specs[0];
     const specName = path.basename(specFile, '.spec.ts');
     const isUpdateSpec = specName === 'update-notifications';
+    const isSyncSpec = specName === 'cloud-sync';
     
     // 1. Isolated Data Directory for this session
     const testDir = prepareTestDir({
@@ -208,6 +210,21 @@ export const config: WebdriverIO.Config = {
         : undefined,
     });
     process.env.KECHIMOCHI_DATA_DIR = testDir;
+
+    let syncEnv: Record<string, string> = {};
+    if (isSyncSpec) {
+      const syncMock = await startSyncMockServer();
+      syncEnv = {
+        KECHIMOCHI_GOOGLE_CLIENT_ID: syncMock.clientId,
+        KECHIMOCHI_GOOGLE_AUTH_ENDPOINT: syncMock.authEndpoint,
+        KECHIMOCHI_GOOGLE_TOKEN_ENDPOINT: syncMock.tokenEndpoint,
+        KECHIMOCHI_GOOGLE_DRIVE_API_BASE_URL: syncMock.driveApiBaseUrl,
+        KECHIMOCHI_GOOGLE_DRIVE_UPLOAD_BASE_URL: syncMock.driveUploadBaseUrl,
+        KECHIMOCHI_SYNC_TEST_AUTO_OPEN: '1',
+        KECHIMOCHI_SYNC_TEST_TOKEN_STORE_PATH: path.join(testDir, 'e2e_google_tokens.json'),
+      };
+      Logger.info(`[e2e] [${specName}] Using local sync mock server at ${syncMock.baseUrl}`);
+    }
 
     // 2. Dynamic Port Assignment (offset by worker ID)
     // WDIO_WORKER_ID looks like "0-0", "0-1", etc.
@@ -230,7 +247,8 @@ export const config: WebdriverIO.Config = {
     // 4. Pass isolated environment to the app via capabilities
     caps['tauri:options'].envs = {
         ...caps['tauri:options'].envs,
-        KECHIMOCHI_DATA_DIR: testDir
+        KECHIMOCHI_DATA_DIR: testDir,
+        ...syncEnv,
     };
 
     // 5. Proactively create the requested subfolders
@@ -273,6 +291,7 @@ export const config: WebdriverIO.Config = {
         env: {
           ...process.env,
           KECHIMOCHI_DATA_DIR: testDir,
+          ...syncEnv,
           RUST_LOG: 'debug',
           TAURI_DEBUG: '1'
         },
@@ -330,6 +349,8 @@ export const config: WebdriverIO.Config = {
     if (stageDir && specName) {
       await moveArtifactsToFinalDir(stageDir, specName, finalDir);
     }
+
+    await stopSyncMockServer();
 
     // 3. Clean up the isolated data directory
     const testDir = process.env.KECHIMOCHI_DATA_DIR;

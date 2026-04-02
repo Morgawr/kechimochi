@@ -20,6 +20,39 @@ function resolveElement(target: ElementTarget): WebdriverIO.Element {
     return target;
 }
 
+function selectorForTarget(target: ElementTarget, element: WebdriverIO.Element): string | null {
+    if (typeof target === 'string') {
+        return target;
+    }
+
+    const selector = (element as unknown as { selector?: unknown }).selector;
+    return typeof selector === 'string' ? selector : null;
+}
+
+function clickLastVisibleMatch(selector: string): Promise<void> {
+    return browser.execute((resolvedSelector) => {
+        const nodes = Array.from(document.querySelectorAll(resolvedSelector as string)).reverse();
+        const target = nodes.find((node) => {
+            if (!(node instanceof HTMLElement)) {
+                return false;
+            }
+
+            const style = globalThis.getComputedStyle(node);
+            const rect = node.getBoundingClientRect();
+            return style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && rect.width > 0
+                && rect.height > 0;
+        });
+
+        if (!(target instanceof HTMLElement)) {
+            throw new Error(`Could not resolve clickable element for selector ${resolvedSelector}`);
+        }
+
+        target.click();
+    }, selector);
+}
+
 export async function isOverlayActive(overlay: WebdriverIO.Element): Promise<boolean> {
     const className = await overlay.getAttribute('class').catch(() => '');
     return (className ?? '').split(/\s+/).includes('active');
@@ -118,9 +151,12 @@ export async function safeClick(target: ElementTarget, timeout = 5000): Promise<
             try {
                 await element.click();
             } catch {
-                await browser.execute((el) => {
-                    (el as HTMLElement).click();
-                }, element);
+                const selector = selectorForTarget(target, element);
+                if (selector) {
+                    await clickLastVisibleMatch(selector);
+                } else {
+                    throw new Error('Element click fallback requires a selector');
+                }
             }
 
             return;

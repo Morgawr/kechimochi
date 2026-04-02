@@ -1,7 +1,8 @@
 use std::collections::HashMap;
+use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -33,6 +34,7 @@ const ENV_CLIENT_ID: &str = "KECHIMOCHI_GOOGLE_CLIENT_ID";
 const ENV_CLIENT_SECRET: &str = "KECHIMOCHI_GOOGLE_CLIENT_SECRET";
 const ENV_AUTH_ENDPOINT: &str = "KECHIMOCHI_GOOGLE_AUTH_ENDPOINT";
 const ENV_TOKEN_ENDPOINT: &str = "KECHIMOCHI_GOOGLE_TOKEN_ENDPOINT";
+const ENV_TEST_TOKEN_STORE_PATH: &str = "KECHIMOCHI_SYNC_TEST_TOKEN_STORE_PATH";
 const TAURI_PLUGIN_CONFIG_KEY: &str = "kechimochiSync";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -127,6 +129,15 @@ impl GoogleOAuthClientConfig {
     }
 
     pub fn from_plugin_or_env(plugin_config: Option<&Value>) -> Result<Self, String> {
+        if std::env::var(ENV_CLIENT_ID)
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .is_some()
+        {
+            return Self::from_env();
+        }
+
         if let Some(config) = Self::from_plugin_config(plugin_config)? {
             return Ok(config);
         }
@@ -182,12 +193,28 @@ pub struct OsSecureTokenStore {
     account: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct FileSecureTokenStore {
+    path: PathBuf,
+}
+
 impl Default for OsSecureTokenStore {
     fn default() -> Self {
         Self {
             service: TOKEN_STORE_SERVICE.to_string(),
             account: TOKEN_STORE_ACCOUNT.to_string(),
         }
+    }
+}
+
+impl FileSecureTokenStore {
+    pub fn from_env() -> Option<Self> {
+        std::env::var(ENV_TEST_TOKEN_STORE_PATH)
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .map(|path| Self { path })
     }
 }
 
@@ -228,6 +255,42 @@ impl SecureTokenStore for OsSecureTokenStore {
     }
 }
 
+impl SecureTokenStore for FileSecureTokenStore {
+    fn load_tokens(&self) -> Result<Option<StoredGoogleTokens>, String> {
+        if !self.path.exists() {
+            return Ok(None);
+        }
+
+        let raw = fs::read_to_string(&self.path).map_err(|e| e.to_string())?;
+        let tokens = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+        Ok(Some(tokens))
+    }
+
+    fn save_tokens(&self, tokens: &StoredGoogleTokens) -> Result<(), String> {
+        if let Some(parent) = self.path.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        let raw = serde_json::to_string(tokens).map_err(|e| e.to_string())?;
+        fs::write(&self.path, raw).map_err(|e| e.to_string())
+    }
+
+    fn clear_tokens(&self) -> Result<(), String> {
+        match fs::remove_file(&self.path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.to_string()),
+        }
+    }
+}
+
+pub fn default_secure_token_store() -> Box<dyn SecureTokenStore> {
+    if let Some(store) = FileSecureTokenStore::from_env() {
+        Box::new(store)
+    } else {
+        Box::new(OsSecureTokenStore::default())
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct GoogleTokenResponse {
     access_token: String,
@@ -263,7 +326,7 @@ pub async fn connect_google_drive_with_browser<F>(
     open_browser: F,
 ) -> Result<GoogleDriveAuthSession, String>
 where
-    F: FnOnce(&str) -> Result<(), String>,
+    F: FnOnce(&str) -> futures::future::BoxFuture<'static, Result<(), String>>,
 {
     let state = format!("state_{}", uuid::Uuid::new_v4().simple());
     let listener = TcpListener::bind(("127.0.0.1", 0)).map_err(|e| e.to_string())?;
@@ -278,7 +341,7 @@ where
         wait_for_oauth_callback(listener, &callback_state, timeout)
     });
 
-    open_browser(pending_flow.auth_url.as_str())?;
+    open_browser(pending_flow.auth_url.as_str()).await?;
 
     let code = callback_task
         .await
