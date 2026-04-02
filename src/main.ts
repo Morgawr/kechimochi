@@ -104,12 +104,11 @@ function ensureStartupLoader(appRoot: HTMLElement): void {
         return;
     }
 
-    const loader = document.createElement('div');
+    const loader = document.createElement('output');
     loader.id = 'app-startup-loader';
     loader.className = 'app-startup-loader';
-    loader.setAttribute('role', 'status');
     loader.setAttribute('aria-label', 'Loading');
-    loader.innerHTML = '<div class="app-startup-loader__spinner" aria-hidden="true"></div>';
+    loader.innerHTML = '<span class="app-startup-loader__spinner" aria-hidden="true"></span>';
 
     appRoot.appendChild(loader);
 }

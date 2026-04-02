@@ -105,9 +105,9 @@ export function renderMainAppShell() {
                 <button id="btn-add-activity"></button>
             </header>
             <div id="view-container"></div>
-            <div id="app-startup-loader" class="app-startup-loader" role="status" aria-label="Loading">
-                <div class="app-startup-loader__spinner" aria-hidden="true"></div>
-            </div>
+            <output id="app-startup-loader" class="app-startup-loader" aria-label="Loading">
+                <span class="app-startup-loader__spinner" aria-hidden="true"></span>
+            </output>
         </div>
     `;
 }
