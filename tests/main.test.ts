@@ -145,15 +145,71 @@ describe('main.ts initialization', () => {
         await vi.waitFor(() => expect(mediaLink?.classList.contains('active')).toBe(true));
     });
 
-    it('should handle initial profile prompt', async () => {
+    it('should initialize a new local profile from the first-run setup modal', async () => {
         vi.mocked(api.getSetting).mockResolvedValue(null);
         stubMainStorage(null);
-        vi.mocked(modals.initialProfilePrompt).mockResolvedValue('new-user');
+        vi.mocked(modals.showInitialSetupPrompt).mockResolvedValue({ action: 'create_local', profileName: 'new-user' });
         
         await bootApp();
         
-        await vi.waitFor(() => expect(modals.initialProfilePrompt).toHaveBeenCalled());
+        await vi.waitFor(() => expect(modals.showInitialSetupPrompt).toHaveBeenCalled());
         expect(api.initializeUserDb).toHaveBeenCalledWith('new-user');
+        expect(api.setSetting).toHaveBeenCalledWith(SETTING_KEYS.PROFILE_NAME, 'new-user');
+    });
+
+    it('should attach an existing cloud profile during first-run setup', async () => {
+        let attached = false;
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === SETTING_KEYS.PROFILE_NAME) {
+                return attached ? 'Remote User' : null;
+            }
+            if (key === SETTING_KEYS.THEME) return 'dark';
+            return null;
+        });
+        stubMainStorage(null);
+        vi.mocked(modals.showInitialSetupPrompt).mockResolvedValue({ action: 'sync_remote' });
+        vi.mocked(api.listRemoteSyncProfiles).mockResolvedValue([{
+            profile_id: 'prof_1',
+            profile_name: 'Remote User',
+            snapshot_id: 'snap_1',
+            remote_generation: 1,
+            updated_at: '2026-04-03T00:00:00Z',
+            last_writer_device_id: 'Desktop',
+        }]);
+        vi.mocked(modals.showSyncEnablementWizard).mockResolvedValue({ action: 'attach', profileId: 'prof_1' });
+        vi.mocked(api.attachRemoteSyncProfile).mockImplementation(async () => {
+            attached = true;
+            return {
+                sync_status: {
+                    state: 'connected_clean',
+                    google_authenticated: true,
+                    sync_profile_id: 'prof_1',
+                    profile_name: 'Remote User',
+                    google_account_email: 'sync@example.com',
+                    last_sync_at: '2026-04-03T00:00:00Z',
+                    device_name: 'Desktop',
+                    conflict_count: 0,
+                    backup_size_bytes: 0,
+                },
+                safety_backup_path: null,
+                published_snapshot_id: 'snap_1',
+                lost_race: false,
+                remote_changed: false,
+            };
+        });
+
+        await bootApp();
+
+        expect(api.initializeUserDb).toHaveBeenCalledWith();
+        expect(api.connectGoogleDrive).toHaveBeenCalled();
+        expect(modals.showSyncEnablementWizard).toHaveBeenCalledWith(
+            expect.any(Array),
+            'sync@example.com',
+            { allowCreateNew: false, title: 'Import From Google Drive' },
+        );
+        expect(api.previewAttachRemoteSyncProfile).toHaveBeenCalledWith('prof_1');
+        expect(api.attachRemoteSyncProfile).toHaveBeenCalledWith('prof_1');
+        await vi.waitFor(() => expect(document.getElementById('nav-user-name')?.textContent).toBe('Remote User'));
     });
 
     it('should handle global add activity button', async () => {

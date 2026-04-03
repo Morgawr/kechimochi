@@ -6,6 +6,11 @@ export type SyncEnablementChoice =
     | { action: 'create_new' }
     | { action: 'attach'; profileId: string };
 
+interface SyncEnablementWizardOptions {
+    allowCreateNew?: boolean;
+    title?: string;
+}
+
 function formatTimestamp(value: string): string {
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) {
@@ -66,23 +71,30 @@ function buildAttachPreviewStats(preview: SyncAttachPreview): Array<{
 export async function showSyncEnablementWizard(
     profiles: RemoteSyncProfileSummary[],
     googleEmail?: string | null,
+    options?: SyncEnablementWizardOptions,
 ): Promise<SyncEnablementChoice | null> {
     return new Promise((resolve) => {
         const { overlay, cleanup } = createOverlay();
         const selectedProfileId = profiles[0]?.profile_id ?? null;
+        const allowCreateNew = options?.allowCreateNew ?? true;
+        const title = options?.title ?? (allowCreateNew ? 'Enable Cloud Sync' : 'Import From Google Drive');
 
         overlay.innerHTML = `
             <div class="modal-content" style="max-width: 760px; width: min(92vw, 760px); max-height: 85vh; display: flex; flex-direction: column;">
-                <h3 style="margin-bottom: 0.5rem;">Enable Cloud Sync</h3>
+                <h3 style="margin-bottom: 0.5rem;">${escapeHTML(title)}</h3>
                 <p style="margin: 0; color: var(--text-secondary);">
                     ${googleEmail
                         ? `Signed in as <strong style="color: var(--text-primary);">${escapeHTML(googleEmail)}</strong>.`
                         : 'Choose how this device should connect to Google Drive.'}
                 </p>
                 <p style="margin: 0.75rem 0 0; color: var(--text-secondary); font-size: 0.92rem;">
-                    ${profiles.length === 0
+                    ${profiles.length === 0 && allowCreateNew
                         ? 'No existing sync profiles were found for this account yet. Create a new cloud profile to start syncing this library.'
-                        : 'You can create a brand new cloud profile or attach this device to an existing one. Existing profiles always show an attach preview before anything is applied.'}
+                        : profiles.length === 0
+                            ? 'No existing Kechimochi sync profiles were found for this account yet.'
+                            : allowCreateNew
+                                ? 'You can create a brand new cloud profile or attach this device to an existing one. Existing profiles always show an attach preview before anything is applied.'
+                                : 'Choose which existing synced library to import onto this device. You will see an attach preview before anything is applied.'}
                 </p>
                 ${profiles.length > 0
                     ? `<div style="margin-top: 1.25rem; display: flex; flex-direction: column; gap: 0.8rem; overflow: auto; padding-right: 0.25rem;">
@@ -107,8 +119,10 @@ export async function showSyncEnablementWizard(
                         This will upload your current local state as the first remote snapshot for this Google account.
                     </div>`}
                 <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem; flex-wrap: wrap;">
-                    <button class="btn btn-ghost" id="sync-enable-cancel">Cancel</button>
-                    <button class="btn btn-secondary" id="sync-enable-create">Create New Profile</button>
+                    <button class="btn btn-ghost" id="sync-enable-cancel">${allowCreateNew ? 'Cancel' : 'Back'}</button>
+                    ${allowCreateNew
+                        ? '<button class="btn btn-secondary" id="sync-enable-create">Create New Profile</button>'
+                        : ''}
                     ${profiles.length > 0
                         ? '<button class="btn btn-primary" id="sync-enable-attach">Attach Selected Profile</button>'
                         : ''}

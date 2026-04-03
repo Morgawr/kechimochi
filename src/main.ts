@@ -3,10 +3,25 @@ import { MediaView } from './components/media_view';
 import { ProfileView } from './components/profile';
 import { TimelineView } from './components/timeline';
 import {
-    initializeUserDb, getUsername, getSetting, setSetting, getProfilePicture, getStartupError
+    initializeUserDb,
+    getUsername,
+    getSetting,
+    setSetting,
+    getProfilePicture,
+    getStartupError,
+    connectGoogleDrive,
+    listRemoteSyncProfiles,
+    previewAttachRemoteSyncProfile,
+    attachRemoteSyncProfile,
+    subscribeSyncProgress,
 } from './api';
 import {
-    initialProfilePrompt, showLogActivityModal
+    showInitialSetupPrompt,
+    showLogActivityModal,
+    showSyncEnablementWizard,
+    showSyncAttachPreview,
+    customAlert,
+    showBlockingStatus,
 } from './modals';
 import { syncAppShell } from './app_shell';
 import { initServices, getServices } from './services';
@@ -15,7 +30,7 @@ import { formatBuildBadge } from './app_version';
 import { escapeHTML } from './core/html';
 import { getProfileInitials, profilePictureToDataUrl } from './utils/profile_picture';
 import { STORAGE_KEYS, SETTING_KEYS, VIEW_NAMES, EVENTS, DEFAULTS } from './constants';
-import type { ProfilePicture } from './types';
+import type { ProfilePicture, SyncProgressUpdate } from './types';
 import { UpdateManager } from './updates';
 
 // Support global date mocking for E2E tests
@@ -55,6 +70,9 @@ const APP_BOOT_STATES = {
     READY: 'ready',
 } as const;
 type AppBootState = typeof APP_BOOT_STATES[keyof typeof APP_BOOT_STATES];
+const ENABLE_SYNC_AUTH_TIMEOUT_MS = 60_000;
+const ENABLE_SYNC_AUTH_TIMEOUT_ERROR =
+    'Google sign-in timed out before the app received the browser callback.';
 
 function renderStartupErrorScreen(message: string): void {
     const appRoot = document.getElementById('app');
@@ -305,18 +323,109 @@ export class App {
                 await setSetting(SETTING_KEYS.PROFILE_NAME, oldProfile);
                 this.currentProfile = oldProfile;
             } else {
-                // Initialize default db
                 const osUsername = await getUsername();
-                const newName = await initialProfilePrompt(osUsername);
-                await initializeUserDb(newName);
-                await setSetting(SETTING_KEYS.PROFILE_NAME, newName);
-                this.currentProfile = newName;
+                await this.handleInitialSetup(osUsername);
             }
         }
 
         localStorage.setItem(STORAGE_KEYS.CURRENT_PROFILE, this.currentProfile);
         await this.refreshProfileChrome();
         return true;
+    }
+
+    private async handleInitialSetup(defaultProfileName: string): Promise<void> {
+        if (!getServices().isDesktop()) {
+            await this.createLocalProfile(defaultProfileName);
+            return;
+        }
+
+        while (true) {
+            const choice = await showInitialSetupPrompt(defaultProfileName, { allowCloudSync: true });
+            if (choice.action === 'create_local') {
+                await this.createLocalProfile(choice.profileName);
+                return;
+            }
+
+            const didAttachRemote = await this.attachRemoteProfileDuringSetup();
+            if (didAttachRemote) {
+                return;
+            }
+        }
+    }
+
+    private async createLocalProfile(profileName: string): Promise<void> {
+        await initializeUserDb(profileName);
+        await setSetting(SETTING_KEYS.PROFILE_NAME, profileName);
+        this.currentProfile = profileName;
+    }
+
+    private async attachRemoteProfileDuringSetup(): Promise<boolean> {
+        await initializeUserDb();
+
+        try {
+            const authSession = await this.withBlockingStatus(
+                'Connecting to Google Drive',
+                'Opening the browser sign-in flow for Google Drive...',
+                () => connectGoogleDrive(),
+                {
+                    timeoutMs: ENABLE_SYNC_AUTH_TIMEOUT_MS,
+                    timeoutMessage: ENABLE_SYNC_AUTH_TIMEOUT_ERROR,
+                },
+            );
+
+            const profiles = await this.withBlockingStatus(
+                'Loading Cloud Profiles',
+                'Checking Google Drive for existing Kechimochi sync profiles...',
+                () => listRemoteSyncProfiles(),
+            );
+
+            if (profiles.length === 0) {
+                await customAlert(
+                    'No Cloud Profiles Found',
+                    'This Google account does not have any existing Kechimochi sync profiles yet. Create a local profile instead.'
+                );
+                return false;
+            }
+
+            const choice = await showSyncEnablementWizard(
+                profiles,
+                authSession.google_account_email,
+                { allowCreateNew: false, title: 'Import From Google Drive' },
+            );
+            if (!choice || choice.action !== 'attach') {
+                return false;
+            }
+
+            const preview = await this.withBlockingStatus(
+                'Preparing Attach Preview',
+                'Comparing this device with the selected cloud profile...',
+                () => previewAttachRemoteSyncProfile(choice.profileId),
+            );
+            const confirmed = await showSyncAttachPreview(preview);
+            if (!confirmed) {
+                return false;
+            }
+
+            await this.withSyncProgressBlockingStatus(
+                'Importing Cloud Profile',
+                'Downloading remote data, applying changes on this device, and publishing the merged result...',
+                'attach_remote_sync_profile',
+                () => attachRemoteSyncProfile(choice.profileId),
+            );
+
+            this.currentProfile = await getSetting(SETTING_KEYS.PROFILE_NAME) || DEFAULTS.PROFILE;
+            return true;
+        } catch (error) {
+            await customAlert('Cloud Sync Error', `Failed to import from Google Drive: ${this.stringifyError(error)}`);
+            return false;
+        }
+    }
+
+    private stringifyError(error: unknown): string {
+        if (error instanceof Error) {
+            return error.message;
+        }
+        return String(error);
     }
 
     private async loadTheme() {
@@ -357,6 +466,64 @@ export class App {
         } catch (e) {
             Logger.warn('[kechimochi] Failed to load profile picture, falling back to initials.', e);
             return null;
+        }
+    }
+
+    private async withBlockingStatus<T>(
+        title: string,
+        text: string,
+        operation: () => Promise<T>,
+        options?: {
+            timeoutMs?: number;
+            timeoutMessage?: string;
+        },
+    ): Promise<T> {
+        const progress = showBlockingStatus(title, text);
+        let timeoutHandle: ReturnType<typeof globalThis.setTimeout> | undefined;
+        try {
+            if (!options?.timeoutMs) {
+                return await operation();
+            }
+
+            const timeoutPromise = new Promise<T>((_, reject) => {
+                timeoutHandle = globalThis.setTimeout(() => {
+                    reject(new Error(options.timeoutMessage || 'Operation timed out.'));
+                }, options.timeoutMs);
+            });
+
+            return await Promise.race([operation(), timeoutPromise]);
+        } finally {
+            if (timeoutHandle !== undefined) {
+                globalThis.clearTimeout(timeoutHandle);
+            }
+            progress.close();
+        }
+    }
+
+    private async withSyncProgressBlockingStatus<T>(
+        title: string,
+        text: string,
+        operationName: SyncProgressUpdate['operation'],
+        operation: () => Promise<T>,
+    ): Promise<T> {
+        const progress = showBlockingStatus(title, text);
+        let unsubscribe: (() => void) | undefined;
+        try {
+            unsubscribe = await subscribeSyncProgress((update) => {
+                if (update.operation !== operationName) {
+                    return;
+                }
+                progress.setText?.(update.message);
+                progress.setProgress?.(
+                    update.current,
+                    update.total,
+                    update.total > 0 ? `${Math.min(update.current, update.total)} / ${update.total}` : undefined,
+                );
+            });
+            return await operation();
+        } finally {
+            unsubscribe?.();
+            progress.close();
         }
     }
 

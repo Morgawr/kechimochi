@@ -515,8 +515,12 @@ async fn attach_remote_sync_profile_with_client<T: DriveTransport>(
         SyncProgressOperation::AttachRemoteSyncProfile,
         progress,
     )?;
-    let merge_outcome =
+    let local_is_pristine_attach_shell = is_pristine_attach_shell(&local_snapshot.snapshot);
+    let mut merge_outcome =
         sync_merge::merge_snapshots(None, &local_snapshot.snapshot, &remote_snapshot)?;
+    if local_is_pristine_attach_shell {
+        merge_outcome.merged_snapshot.profile = remote_snapshot.profile.clone();
+    }
 
     apply_snapshot_and_materialize_with_client(
         conn,
@@ -643,6 +647,14 @@ async fn preview_attach_remote_sync_profile_with_client<T: DriveTransport>(
         ),
         conflict_count: merge_outcome.conflicts.len(),
     })
+}
+
+fn is_pristine_attach_shell(snapshot: &SyncSnapshot) -> bool {
+    snapshot.profile.profile_name == "default"
+        && snapshot.library.is_empty()
+        && snapshot.settings.is_empty()
+        && snapshot.profile_picture.is_none()
+        && snapshot.tombstones.is_empty()
 }
 
 async fn run_sync_with_client<T: DriveTransport>(
@@ -2673,6 +2685,64 @@ mod tests {
         assert!(recorded
             .iter()
             .any(|update| update.stage == SyncProgressStage::Complete));
+    }
+
+    #[tokio::test]
+    async fn attach_remote_sync_profile_inherits_remote_profile_name_for_pristine_local_db() {
+        let (source_dir, source_conn) = setup_app();
+        let transport = MemoryDriveTransport::new();
+        let client = build_client(transport);
+        let token_store = test_token_store();
+
+        {
+            let conn_guard = source_conn.lock().unwrap();
+            db::set_setting(&conn_guard, "profile_name", "Remote User").unwrap();
+        }
+        add_media(&source_conn, "Base Title");
+        create_remote_sync_profile_with_client(
+            source_dir.path(),
+            &source_conn,
+            &client,
+            &token_store,
+            Some("Source".to_string()),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let source_config = sync_state::load_sync_config(source_dir.path())
+            .unwrap()
+            .unwrap();
+
+        let target_dir = TempDir::new().unwrap();
+        let target_conn = Arc::new(Mutex::new(
+            db::init_db(target_dir.path().to_path_buf(), None).unwrap(),
+        ));
+
+        let result = attach_remote_sync_profile_with_client(
+            target_dir.path(),
+            &target_conn,
+            &client,
+            &token_store,
+            &source_config.sync_profile_id,
+            Some("Target".to_string()),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.sync_status.profile_name.as_deref(), Some("Remote User"));
+
+        let target_config = sync_state::load_sync_config(target_dir.path())
+            .unwrap()
+            .unwrap();
+        assert_eq!(target_config.profile_name, "Remote User");
+
+        let persisted_profile_name = {
+            let conn_guard = target_conn.lock().unwrap();
+            db::get_setting(&conn_guard, "profile_name").unwrap()
+        };
+        assert_eq!(persisted_profile_name.as_deref(), Some("Remote User"));
     }
 
     #[tokio::test]
