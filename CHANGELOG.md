@@ -6,6 +6,16 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+### Added
+- Added Android builds
+- Android development builds are now published as GitHub workflow artifacts.
+
+### Changed
+- Android now uses the app logo for launcher icons.
+
+### Fixed
+- Cloud sync no longer times out while it is still making progress, and remote library downloads are faster.
+
 ## [0.2.0] - 2026-04-03
 
 ### Added
