@@ -1,11 +1,14 @@
 buildscript {
+    val androidVersions = java.util.Properties().apply {
+        rootDir.resolve("gradle.properties").inputStream().use { load(it) }
+    }
     repositories {
         google()
         mavenCentral()
     }
     dependencies {
-        classpath("com.android.tools.build:gradle:8.11.0")
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.25")
+        classpath("com.android.tools.build:gradle:${androidVersions.getProperty("androidGradlePluginVersion")}")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:${androidVersions.getProperty("kotlinGradlePluginVersion")}")
     }
 }
 
@@ -19,4 +22,3 @@ allprojects {
 tasks.register("clean").configure {
     delete("build")
 }
-
