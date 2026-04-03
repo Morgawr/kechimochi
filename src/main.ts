@@ -371,7 +371,7 @@ export class App {
                 onNoProfiles: showNoCloudProfilesFoundAlert,
                 connectPromptText: 'Opening the browser sign-in flow for Google Drive...',
             });
-            if (!selection || selection.action !== 'attach') {
+            if (selection?.action !== 'attach') {
                 return false;
             }
 
