@@ -355,3 +355,69 @@ jobs:
         with:
           name: kechimochi-macos-${{ needs.prepare.outputs.display_version }}
           path: release-desktop/kechimochi-macos-${{ needs.prepare.outputs.display_version }}.dmg
+
+  publish-android:
+    runs-on: ubuntu-latest
+    needs: prepare
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.head_sha }}
+          persist-credentials: false
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: install node dependencies
+        run: npm ci
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: stable
+          targets: aarch64-linux-android
+
+      - name: cache rust dependencies
+        uses: swatinem/rust-cache@aa7c1c80a07a27a84c0aa76d0cef0aad3830e330 # v2.7.8
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: setup java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: setup android sdk
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-36 build-tools;36.0.0'
+
+      - name: build android apk
+        env:
+          KECHIMOCHI_GOOGLE_CLIENT_ID: ${{ secrets.KECHIMOCHI_GOOGLE_CLIENT_ID }}
+          KECHIMOCHI_GOOGLE_CLIENT_SECRET: ${{ secrets.KECHIMOCHI_GOOGLE_CLIENT_SECRET }}
+          VITE_APP_VERSION: ${{ needs.prepare.outputs.display_version }}
+          VITE_APP_CHANNEL: dev
+          VITE_RELEASE_STAGE: beta
+        run: npm run tauri -- android build --debug --apk --ci --target aarch64
+
+      - name: rename APK artifact
+        shell: bash
+        run: |
+          VERSION="${{ needs.prepare.outputs.display_version }}"
+          mkdir -p release-mobile
+          cp src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk \
+            "release-mobile/kechimochi-android-${VERSION}.apk"
+
+      - name: upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kechimochi-android-${{ needs.prepare.outputs.display_version }}
+          path: release-mobile/kechimochi-android-${{ needs.prepare.outputs.display_version }}.apk
