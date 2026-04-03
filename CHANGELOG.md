@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-04-04
+
 ### Added
 - Added Android builds
 - Android development builds are now published as GitHub workflow artifacts.
