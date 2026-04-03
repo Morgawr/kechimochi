@@ -37,6 +37,8 @@ const CREATE_SYNC_PROFILE_TIMEOUT_SECS: u64 = 900;
 const RECOVERY_SYNC_TIMEOUT_SECS: u64 = 900;
 const SYNC_PROGRESS_EVENT: &str = "sync-progress";
 const SYNC_TEST_AUTO_OPEN_ENV: &str = "KECHIMOCHI_SYNC_TEST_AUTO_OPEN";
+const SKIP_LEGACY_LOCAL_PROFILE_MIGRATION_ENV: &str =
+    "KECHIMOCHI_E2E_SKIP_LEGACY_LOCAL_PROFILE_MIGRATION";
 
 type SyncTokenStore = Box<dyn sync_auth::SecureTokenStore>;
 type SyncDbConn = Arc<Mutex<Connection>>;
@@ -650,6 +652,16 @@ fn get_username() -> String {
 }
 
 #[tauri::command]
+fn should_skip_legacy_local_profile_migration() -> bool {
+    matches!(
+        std::env::var(SKIP_LEGACY_LOCAL_PROFILE_MIGRATION_ENV)
+            .ok()
+            .as_deref(),
+        Some("1" | "true" | "TRUE" | "yes" | "YES")
+    )
+}
+
+#[tauri::command]
 fn get_profile_picture(state: State<DbState>) -> Result<Option<ProfilePicture>, String> {
     with_conn(&state, |conn| {
         db::get_profile_picture(conn).map_err(|e| e.to_string())
@@ -1039,6 +1051,7 @@ pub fn run() {
             fetch_external_json,
             download_and_save_image,
             get_username,
+            should_skip_legacy_local_profile_migration,
             get_profile_picture,
             upload_profile_picture,
             delete_profile_picture,

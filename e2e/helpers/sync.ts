@@ -59,6 +59,32 @@ export async function enableSyncByAttachingExistingProfile(): Promise<void> {
     await waitForNoActiveOverlays(SYNC_OVERLAY_TIMEOUT_MS);
 }
 
+export async function completeFirstRunSyncImport(expectedProfileName: string): Promise<void> {
+    const syncButton = $('#initial-prompt-sync');
+    await syncButton.waitForDisplayed({
+        timeout: 10_000,
+        timeoutMsg: 'First-run sync import button did not appear',
+    });
+    await safeClick(syncButton);
+
+    await waitForSyncEnablementOverlay();
+    const wizard = await getTopmostVisibleOverlay('#sync-enable-attach');
+    await safeClick(() => wizard.$('#sync-enable-attach'));
+
+    const preview = await getTopmostVisibleOverlay('#sync-attach-confirm');
+    await safeClick(() => preview.$('#sync-attach-confirm'));
+    await waitForNoActiveOverlays(SYNC_OVERLAY_TIMEOUT_MS);
+
+    await browser.waitUntil(async () => {
+        const headerName = await $('#nav-user-name').getText().catch(() => '');
+        const dashboardVisible = await $('.dashboard-root').isDisplayed().catch(() => false);
+        return dashboardVisible && headerName === expectedProfileName;
+    }, {
+        timeout: 15_000,
+        timeoutMsg: `App did not finish first-run sync import for ${expectedProfileName}`,
+    });
+}
+
 export async function runSyncNow(expectedAlertText: string): Promise<void> {
     await openCloudSyncCard();
     await dismissMergedStateReminderIfPresent();

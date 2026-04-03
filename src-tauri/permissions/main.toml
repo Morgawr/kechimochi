@@ -27,6 +27,7 @@ commands.allow = [
     "fetch_external_json",
     "download_and_save_image",
     "get_username",
+    "should_skip_legacy_local_profile_migration",
     "get_profile_picture",
     "upload_profile_picture",
     "delete_profile_picture",

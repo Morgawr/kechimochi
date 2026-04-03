@@ -252,9 +252,10 @@ export const config: WebdriverIO.Config = {
     const specFile = specs[0];
     const specName = path.basename(specFile, '.spec.ts');
     const isUpdateSpec = specName === 'update-notifications';
-    const isSyncSpec = specName === 'cloud-sync';
+    const isSyncSpec = specName === 'cloud-sync' || specName === 'startup-cloud-sync';
     const isSyncBackupManagementSpec = specName === 'sync-backup-management';
     const isStartupSchemaMismatchSpec = specName === 'startup-schema-mismatch';
+    const isFreshInstallSpec = specName === 'startup-cloud-sync';
     
     // 1. Isolated Data Directory for this session
     const testDir = prepareTestDir({
@@ -266,6 +267,7 @@ export const config: WebdriverIO.Config = {
           }
         : undefined,
       overrideSchemaVersion: isStartupSchemaMismatchSpec ? 999 : undefined,
+      freshInstall: isFreshInstallSpec,
     });
     process.env.KECHIMOCHI_DATA_DIR = testDir;
 
@@ -278,6 +280,12 @@ export const config: WebdriverIO.Config = {
       // Force a file-backed token store so CI does not depend on desktop keyring availability.
       syncEnv = {
         KECHIMOCHI_SYNC_TEST_TOKEN_STORE_PATH: path.join(testDir, 'e2e_google_tokens.json'),
+      };
+    }
+    if (isFreshInstallSpec) {
+      syncEnv = {
+        ...syncEnv,
+        KECHIMOCHI_E2E_SKIP_LEGACY_LOCAL_PROFILE_MIGRATION: '1',
       };
     }
     if (isSyncSpec) {

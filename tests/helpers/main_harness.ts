@@ -20,6 +20,7 @@ export function createMainApiMock() {
         initializeUserDb: vi.fn(() => Promise.resolve()),
         getUsername: vi.fn(() => Promise.resolve('os-user')),
         getStartupError: vi.fn(() => Promise.resolve(null)),
+        shouldSkipLegacyLocalProfileMigration: vi.fn(() => Promise.resolve(false)),
         getSetting: vi.fn((key: string) => Promise.resolve(getDefaultSettingValue(key))),
         setSetting: vi.fn(() => Promise.resolve()),
         getProfilePicture: vi.fn(() => Promise.resolve(null)),
@@ -100,6 +101,7 @@ export function resetMainApiMocks(mockedApi: ApiModule) {
     vi.mocked(mockedApi.initializeUserDb).mockResolvedValue();
     vi.mocked(mockedApi.getUsername).mockResolvedValue('os-user');
     vi.mocked(mockedApi.getStartupError).mockResolvedValue(null);
+    vi.mocked(mockedApi.shouldSkipLegacyLocalProfileMigration).mockResolvedValue(false);
     vi.mocked(mockedApi.getSetting).mockImplementation(async (key) => getDefaultSettingValue(key));
     vi.mocked(mockedApi.setSetting).mockResolvedValue();
     vi.mocked(mockedApi.getProfilePicture).mockResolvedValue(null);

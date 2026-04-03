@@ -84,6 +84,9 @@ export function setSetting(key: string, value: string): Promise<void> { return g
 export function getUsername(): Promise<string> { return getServices().getUsername(); }
 export function getAppVersion(): Promise<string> { return getServices().getAppVersion(); }
 export function getStartupError(): Promise<string | null> { return getServices().getStartupError(); }
+export function shouldSkipLegacyLocalProfileMigration(): Promise<boolean> {
+  return getServices().shouldSkipLegacyLocalProfileMigration();
+}
 export function getProfilePicture(): Promise<ProfilePicture | null> { return getServices().getProfilePicture(); }
 export function deleteProfilePicture(): Promise<void> { return getServices().deleteProfilePicture(); }
 export function uploadProfilePicture(): Promise<ProfilePicture | null> { return getServices().pickAndUploadProfilePicture(); }

@@ -128,6 +128,7 @@ export class WebServices implements AppServices {
     getUsername():                           Promise<string>            { return get('/username'); }
     getAppVersion():                         Promise<string>            { return Promise.resolve(getBuildVersion()); }
     getStartupError():                       Promise<string | null>     { return Promise.resolve(null); }
+    shouldSkipLegacyLocalProfileMigration(): Promise<boolean>          { return Promise.resolve(false); }
     getProfilePicture():                     Promise<ProfilePicture | null> { return get('/profile-picture'); }
     deleteProfilePicture():                  Promise<void>              { return del('/profile-picture'); }
     getSyncStatus():                         Promise<SyncStatus>        { return Promise.reject(syncUnavailableError()); }

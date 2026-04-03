@@ -61,6 +61,17 @@ type SyncSnapshot = JsonObject & {
     tombstones: JsonObject[];
 };
 
+type SeedRemoteMedia = {
+    title: string;
+    description?: string;
+    mediaType?: string;
+    status?: string;
+    language?: string;
+    contentType?: string;
+    trackingStatus?: string;
+    extraData?: Record<string, unknown>;
+};
+
 type SyncMockServerConfig = {
     baseUrl: string;
     authEndpoint: string;
@@ -550,6 +561,79 @@ export async function stopSyncMockServer(): Promise<void> {
 
 export function getSyncMockServerConfig(): SyncMockServerConfig {
     return requireConfig();
+}
+
+export function seedRemoteSyncProfile(options?: {
+    profileName?: string;
+    media?: SeedRemoteMedia[];
+    theme?: string;
+}): string {
+    const currentState = requireState();
+    const profileId = `prof_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const snapshotId = `snap_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const createdAt = createRemoteMutationTimestamp(currentState);
+    const profileName = options?.profileName ?? 'REMOTEUSER';
+    const mediaEntries = options?.media ?? [];
+    const library: Record<string, SnapshotMedia> = {};
+
+    for (const entry of mediaEntries) {
+        const mediaUid = `uid_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+        library[mediaUid] = {
+            uid: mediaUid,
+            title: entry.title,
+            media_type: entry.mediaType ?? 'Reading',
+            status: entry.status ?? 'Active',
+            language: entry.language ?? 'Japanese',
+            description: entry.description ?? '',
+            content_type: entry.contentType ?? 'Novel',
+            tracking_status: entry.trackingStatus ?? 'Ongoing',
+            extra_data: JSON.stringify(entry.extraData ?? {}),
+            cover_blob_sha256: null,
+            updated_at: createdAt,
+            updated_by_device_id: REMOTE_DEVICE_ID,
+            activities: [],
+            milestones: [],
+        };
+    }
+
+    const snapshot: SyncSnapshot = {
+        sync_protocol_version: 1,
+        db_schema_version: 2,
+        snapshot_id: snapshotId,
+        created_at: createdAt,
+        created_by_device_id: REMOTE_DEVICE_ID,
+        profile: {
+            profile_id: profileId,
+            profile_name: profileName,
+            updated_at: createdAt,
+        },
+        library,
+        settings: options?.theme
+            ? {
+                theme: {
+                    value: options.theme,
+                    updated_at: createdAt,
+                    updated_by_device_id: REMOTE_DEVICE_ID,
+                },
+            }
+            : {},
+        tombstones: [],
+    };
+
+    const manifest: RemoteManifest = {
+        sync_protocol_version: snapshot.sync_protocol_version,
+        db_schema_version: snapshot.db_schema_version,
+        profile_id: profileId,
+        profile_name: profileName,
+        snapshot_id: snapshotId,
+        snapshot_sha256: '',
+        remote_generation: 1,
+        updated_at: createdAt,
+        last_writer_device_id: REMOTE_DEVICE_ID,
+    };
+
+    writeRemoteProfileToState(currentState, manifest, snapshot);
+    return profileId;
 }
 
 function listRemoteProfilesInternal(): Array<{ manifest: RemoteManifest; snapshot: SyncSnapshot }> {

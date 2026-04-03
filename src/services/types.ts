@@ -73,6 +73,7 @@ export interface AppServices {
     getUsername(): Promise<string>;
     getAppVersion(): Promise<string>;
     getStartupError(): Promise<string | null>;
+    shouldSkipLegacyLocalProfileMigration(): Promise<boolean>;
     getProfilePicture(): Promise<ProfilePicture | null>;
     deleteProfilePicture(): Promise<void>;
 

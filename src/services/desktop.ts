@@ -80,6 +80,7 @@ export class DesktopServices implements AppServices {
 
     getUsername():                           Promise<string>          { return invoke('get_username'); }
     getStartupError():                       Promise<string | null>   { return invoke('get_startup_error'); }
+    shouldSkipLegacyLocalProfileMigration(): Promise<boolean>        { return invoke('should_skip_legacy_local_profile_migration'); }
     getProfilePicture():                     Promise<ProfilePicture | null> { return invoke('get_profile_picture'); }
     deleteProfilePicture():                  Promise<void>            { return invoke('delete_profile_picture'); }
     getSyncStatus():                         Promise<SyncStatus>      { return invoke('get_sync_status'); }

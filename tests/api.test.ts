@@ -165,6 +165,11 @@ describe('api.ts', () => {
       expect(invoke).toHaveBeenCalledWith('get_username');
     });
 
+    it('shouldSkipLegacyLocalProfileMigration should call invoke', async () => {
+      await api.shouldSkipLegacyLocalProfileMigration();
+      expect(invoke).toHaveBeenCalledWith('should_skip_legacy_local_profile_migration');
+    });
+
     it('getProfilePicture should call invoke', async () => {
       await api.getProfilePicture();
       expect(invoke).toHaveBeenCalledWith('get_profile_picture');

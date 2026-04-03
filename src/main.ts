@@ -9,6 +9,7 @@ import {
     setSetting,
     getProfilePicture,
     getStartupError,
+    shouldSkipLegacyLocalProfileMigration,
     connectGoogleDrive,
     listRemoteSyncProfiles,
     previewAttachRemoteSyncProfile,
@@ -317,7 +318,10 @@ export class App {
             return false;
         } else {
             // Check for previous user profile in localStorage to migrate it
-            const oldProfile = localStorage.getItem(STORAGE_KEYS.CURRENT_PROFILE);
+            const shouldSkipLegacyProfileMigration = await shouldSkipLegacyLocalProfileMigration();
+            const oldProfile = shouldSkipLegacyProfileMigration
+                ? null
+                : localStorage.getItem(STORAGE_KEYS.CURRENT_PROFILE);
             if (oldProfile && oldProfile !== 'default') {
                 await initializeUserDb(oldProfile);
                 await setSetting(SETTING_KEYS.PROFILE_NAME, oldProfile);

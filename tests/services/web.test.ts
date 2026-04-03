@@ -160,6 +160,11 @@ describe('WebServices', () => {
         expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/profile-picture', { method: 'DELETE' });
     });
 
+    it('does not skip legacy local profile migration in web mode', async () => {
+        await expect(services.shouldSkipLegacyLocalProfileMigration()).resolves.toBe(false);
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
     it('loads cover images from API filenames and handles blank refs', async () => {
         expect(await services.loadCoverImage('')).toBeNull();
         expect(await services.loadCoverImage(String.raw`C:\covers\sample image.png`)).toBe('/api/covers/file/sample%20image.png');

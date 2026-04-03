@@ -15,6 +15,7 @@ export const E2E_PACKAGE_VERSION = PACKAGE_VERSION.version;
 interface PrepareTestDirOptions {
   extraSettings?: Record<string, string>;
   overrideSchemaVersion?: number;
+  freshInstall?: boolean;
 }
 
 function seedSettings(dbPath: string, settings: Record<string, string>): void {
@@ -39,6 +40,9 @@ function seedSettings(dbPath: string, settings: Record<string, string>): void {
  */
 export function prepareTestDir(options: PrepareTestDirOptions = {}): string {
   const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kechimochi-e2e-'));
+  if (options.freshInstall) {
+    return testDir;
+  }
 
   // Copy and pre-migrate fixture databases so localStorage leak is bypassed entirely
   const srcTestUser = path.join(FIXTURES_DIR, 'kechimochi_TESTUSER.db');
@@ -115,8 +119,12 @@ async function normalizeWindowSize(): Promise<void> {
  * Waits for the app to be ready by polling for a known DOM element.
  * Also ensures the system date is mocked to 2024-03-31 for consistent stats/charts.
  */
-export async function waitForAppReady(timeout = 30000): Promise<void> {
+export async function waitForAppReady(
+  timeout = 30000,
+  options: { seedLocalProfile?: boolean } = {},
+): Promise<void> {
   const MOCK_DATE = '2024-03-31';
+  const seedLocalProfile = options.seedLocalProfile ?? true;
   const startTs = Date.now();
   const reserveMs = 1000;
   const timeLeft = () => Math.max(0, timeout - (Date.now() - startTs));
@@ -153,10 +161,14 @@ export async function waitForAppReady(timeout = 30000): Promise<void> {
   try {
     await browser.waitUntil(async () => {
       try {
-        await browser.execute((date: string) => {
+        await browser.execute((date: string, shouldSeedLocalProfile: boolean) => {
           sessionStorage.setItem('kechimochi_mock_date', date);
-          localStorage.setItem('kechimochi_profile', 'TESTUSER');
-        }, MOCK_DATE);
+          if (shouldSeedLocalProfile) {
+            localStorage.setItem('kechimochi_profile', 'TESTUSER');
+          } else {
+            localStorage.removeItem('kechimochi_profile');
+          }
+        }, MOCK_DATE, seedLocalProfile);
         setResolved = true;
         return true;
       } catch (e: unknown) {
