@@ -10,28 +10,7 @@ describe('Local Sync Backup Management', () => {
     const syncDir = path.join(dataDir, 'sync');
 
     before(async () => {
-        // Prepare sync directory and mock config before app is ready or during early startup
-        if (!fs.existsSync(syncDir)) {
-            fs.mkdirSync(syncDir, { recursive: true });
-        }
-
-        // Mock a connected sync config so the tile shows up
-        const configPath = path.join(syncDir, 'sync_config.json');
-        const config = {
-            sync_profile_id: 'prof_e2e_test',
-            profile_name: 'E2E Test Profile',
-            google_account_email: 'test@example.com',
-            remote_manifest_name: 'kechimochi-manifest-prof_e2e_test.json',
-            last_sync_status: 'clean',
-            device_name: 'E2E Device'
-        };
-        fs.writeFileSync(configPath, JSON.stringify(config));
-
-        // Create dummy backups: 1.0 MB + 1.0 MB = 2.0 MB
-        fs.writeFileSync(path.join(syncDir, 'pre_sync_backup_1.zip'), Buffer.alloc(1024 * 1024));
-        fs.writeFileSync(path.join(syncDir, 'pre_sync_backup_2.zip'), Buffer.alloc(1024 * 1024));
-        fs.writeFileSync(path.join(syncDir, 'important_data.txt'), 'do not touch');
-
+        // The WDIO session seeds the sync fixture before the desktop app launches.
         await waitForAppReady();
     });
 

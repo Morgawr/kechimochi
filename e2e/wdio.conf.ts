@@ -132,6 +132,26 @@ async function moveArtifactsToFinalDir(stageDir: string, specName: string, final
   }
 }
 
+async function seedSyncBackupManagementFixture(testDir: string): Promise<void> {
+  const { mkdirSync, writeFileSync } = await import('node:fs');
+  const syncDir = path.join(testDir, 'sync');
+  const syncConfigPath = path.join(syncDir, 'sync_config.json');
+
+  mkdirSync(syncDir, { recursive: true });
+  writeFileSync(syncConfigPath, JSON.stringify({
+    sync_profile_id: 'prof_e2e_test',
+    profile_name: 'E2E Test Profile',
+    google_account_email: 'test@example.com',
+    remote_manifest_name: 'kechimochi-manifest-prof_e2e_test.json',
+    last_sync_status: 'clean',
+    device_name: 'E2E Device',
+  }));
+
+  writeFileSync(path.join(syncDir, 'pre_sync_backup_1.zip'), Buffer.alloc(1024 * 1024));
+  writeFileSync(path.join(syncDir, 'pre_sync_backup_2.zip'), Buffer.alloc(1024 * 1024));
+  writeFileSync(path.join(syncDir, 'important_data.txt'), 'do not touch');
+}
+
 export const config: WebdriverIO.Config = {
   // ==================
   // Runner Configuration
@@ -233,6 +253,7 @@ export const config: WebdriverIO.Config = {
     const specName = path.basename(specFile, '.spec.ts');
     const isUpdateSpec = specName === 'update-notifications';
     const isSyncSpec = specName === 'cloud-sync';
+    const isSyncBackupManagementSpec = specName === 'sync-backup-management';
     const isStartupSchemaMismatchSpec = specName === 'startup-schema-mismatch';
     
     // 1. Isolated Data Directory for this session
@@ -248,17 +269,27 @@ export const config: WebdriverIO.Config = {
     });
     process.env.KECHIMOCHI_DATA_DIR = testDir;
 
+    if (isSyncBackupManagementSpec) {
+      await seedSyncBackupManagementFixture(testDir);
+    }
+
     let syncEnv: Record<string, string> = {};
+    if (isSyncSpec || isSyncBackupManagementSpec) {
+      // Force a file-backed token store so CI does not depend on desktop keyring availability.
+      syncEnv = {
+        KECHIMOCHI_SYNC_TEST_TOKEN_STORE_PATH: path.join(testDir, 'e2e_google_tokens.json'),
+      };
+    }
     if (isSyncSpec) {
       const syncMock = await startSyncMockServer();
       syncEnv = {
+        ...syncEnv,
         KECHIMOCHI_GOOGLE_CLIENT_ID: syncMock.clientId,
         KECHIMOCHI_GOOGLE_AUTH_ENDPOINT: syncMock.authEndpoint,
         KECHIMOCHI_GOOGLE_TOKEN_ENDPOINT: syncMock.tokenEndpoint,
         KECHIMOCHI_GOOGLE_DRIVE_API_BASE_URL: syncMock.driveApiBaseUrl,
         KECHIMOCHI_GOOGLE_DRIVE_UPLOAD_BASE_URL: syncMock.driveUploadBaseUrl,
         KECHIMOCHI_SYNC_TEST_AUTO_OPEN: '1',
-        KECHIMOCHI_SYNC_TEST_TOKEN_STORE_PATH: path.join(testDir, 'e2e_google_tokens.json'),
       };
       Logger.info(`[e2e] [${specName}] Using local sync mock server at ${syncMock.baseUrl}`);
     }
