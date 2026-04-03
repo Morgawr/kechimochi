@@ -17,18 +17,13 @@ import {
     getProfilePicture,
     uploadProfilePicture,
     getSyncStatus,
-    connectGoogleDrive,
     disconnectGoogleDrive,
-    listRemoteSyncProfiles,
-    previewAttachRemoteSyncProfile,
     createRemoteSyncProfile,
-    attachRemoteSyncProfile,
     runSync,
     replaceLocalFromRemote,
     forcePublishLocalAsRemote,
     getSyncConflicts,
     resolveSyncConflict,
-    subscribeSyncProgress,
     clearSyncBackups,
     isDesktop,
 } from '../api';
@@ -39,8 +34,6 @@ import {
     customConfirm,
     showMediaCsvConflictModal,
     showBlockingStatus,
-    showSyncEnablementWizard,
-    showSyncAttachPreview,
 } from '../modals';
 import { getServices } from '../services';
 import { formatProductVersionLabel, getAppVersionInfo } from '../app_version';
@@ -61,6 +54,14 @@ import { getProfileInitials, profilePictureToDataUrl } from '../utils/profile_pi
 import { getCharacterCountFromExtraData } from '../utils/extra_data';
 import { STORAGE_KEYS, SETTING_KEYS, DEFAULTS, EVENTS } from '../constants';
 import type { UpdateManager } from '../updates';
+import {
+    attachSelectedRemoteProfile,
+    connectGoogleDriveForSync,
+    ENABLE_SYNC_AUTH_TIMEOUT_ERROR,
+    resolveSyncEnablementSelection,
+    runBlockingStatus,
+    runSyncProgressBlockingStatus,
+} from '../sync_enablement';
 
 interface ProfileState {
     currentProfile: string;
@@ -211,10 +212,6 @@ function isSyncAlreadyInProgressError(message: string): boolean {
 function isGoogleDriveNotAuthenticatedError(message: string): boolean {
     return message.includes('Google Drive is not authenticated');
 }
-
-const ENABLE_SYNC_AUTH_TIMEOUT_MS = 60_000;
-const ENABLE_SYNC_AUTH_TIMEOUT_ERROR =
-    'Google sign-in timed out before the app received the browser callback.';
 
 function formatBytes(bytes: number, decimals = 1): string {
     if (bytes === 0) return '0 Bytes';
@@ -1341,26 +1338,17 @@ export class ProfileView extends Component<ProfileState> {
         }
 
         try {
-            let googleEmail = this.state.syncStatus?.google_account_email || null;
-
-            if (!this.state.syncStatus?.google_authenticated) {
-                const authSession = await this.connectGoogleDriveForSync();
-                googleEmail = authSession.google_account_email;
-            }
-
-            const profiles = await this.withBlockingStatus(
-                'Loading Cloud Profiles',
-                'Checking Google Drive for existing Kechimochi sync profiles...',
-                () => listRemoteSyncProfiles()
-            );
-
-            const choice = await showSyncEnablementWizard(profiles, googleEmail);
-            if (!choice) {
+            const selection = await resolveSyncEnablementSelection({
+                googleAuthenticated: Boolean(this.state.syncStatus?.google_authenticated),
+                googleEmail: this.state.syncStatus?.google_account_email || null,
+                withBlockingStatus: this.withBlockingStatus,
+            });
+            if (!selection) {
                 await this.refreshSyncData();
                 return;
             }
 
-            if (choice.action === 'create_new') {
+            if (selection.action === 'create_new') {
                 const result = await this.withSyncProgressBlockingStatus(
                     'Creating Cloud Sync Profile',
                     'Preparing your library snapshot and uploading any cover art. First sync can take longer on large libraries...',
@@ -1375,26 +1363,14 @@ export class ProfileView extends Component<ProfileState> {
                 return;
             }
 
-            const preview = await this.withBlockingStatus(
-                'Preparing Attach Preview',
-                'Comparing this device with the selected cloud profile...',
-                () => previewAttachRemoteSyncProfile(choice.profileId)
-            );
-
-            const confirmed = await showSyncAttachPreview(preview);
-            if (!confirmed) {
-                await this.refreshSyncData();
-                return;
-            }
-
-            const result = await this.withSyncProgressBlockingStatus(
+            const result = await attachSelectedRemoteProfile(
+                this.withSyncProgressBlockingStatus,
+                selection.profileId,
                 'Attaching Cloud Sync Profile',
                 'Downloading remote data, applying changes on this device, and publishing the merged result...',
-                'attach_remote_sync_profile',
-                () => attachRemoteSyncProfile(choice.profileId)
             );
-            await this.refreshSyncData(preview.conflict_count > 0);
-            await customAlert('Cloud Sync Attached', this.describeAttachResult(result, preview));
+            await this.refreshSyncData(selection.preview.conflict_count > 0);
+            await customAlert('Cloud Sync Attached', this.describeAttachResult(result, selection.preview));
         } catch (error) {
             await this.showEnableSyncError(error);
             await this.refreshSyncData();
@@ -1538,14 +1514,9 @@ export class ProfileView extends Component<ProfileState> {
     }
 
     private async connectGoogleDriveForSync() {
-        return this.withBlockingStatus(
-            'Connecting to Google Drive',
+        return connectGoogleDriveForSync(
+            this.withBlockingStatus,
             'Complete the Google sign-in flow in your browser to keep going.',
-            () => connectGoogleDrive(),
-            {
-                timeoutMs: ENABLE_SYNC_AUTH_TIMEOUT_MS,
-                timeoutMessage: ENABLE_SYNC_AUTH_TIMEOUT_ERROR,
-            }
         );
     }
 
@@ -1672,26 +1643,7 @@ export class ProfileView extends Component<ProfileState> {
             timeoutMessage?: string;
         },
     ): Promise<T> {
-        const progress = showBlockingStatus(title, text);
-        let timeoutHandle: ReturnType<typeof globalThis.setTimeout> | undefined;
-        try {
-            if (!options?.timeoutMs) {
-                return await operation();
-            }
-
-            const timeoutPromise = new Promise<T>((_, reject) => {
-                timeoutHandle = globalThis.setTimeout(() => {
-                    reject(new Error(options.timeoutMessage || 'Operation timed out.'));
-                }, options.timeoutMs);
-            });
-
-            return await Promise.race([operation(), timeoutPromise]);
-        } finally {
-            if (timeoutHandle !== undefined) {
-                globalThis.clearTimeout(timeoutHandle);
-            }
-            progress.close();
-        }
+        return runBlockingStatus(title, text, operation, options);
     }
 
     private async withSyncProgressBlockingStatus<T>(
@@ -1700,25 +1652,7 @@ export class ProfileView extends Component<ProfileState> {
         operationName: SyncProgressUpdate['operation'],
         operation: () => Promise<T>,
     ): Promise<T> {
-        const progress = showBlockingStatus(title, text);
-        let unsubscribe: (() => void) | undefined;
-        try {
-            unsubscribe = await subscribeSyncProgress((update) => {
-                if (update.operation !== operationName) {
-                    return;
-                }
-                progress.setText?.(update.message);
-                progress.setProgress?.(
-                    update.current,
-                    update.total,
-                    update.total > 0 ? `${Math.min(update.current, update.total)} / ${update.total}` : undefined
-                );
-            });
-            return await operation();
-        } finally {
-            unsubscribe?.();
-            progress.close();
-        }
+        return runSyncProgressBlockingStatus(title, text, operationName, operation);
     }
 
     private describeSyncActionResult(result: SyncActionResult, successMessage: string): string {

@@ -299,7 +299,7 @@ describe('ProfileView', () => {
         expect(api.connectGoogleDrive).toHaveBeenCalled();
         expect(api.listRemoteSyncProfiles).toHaveBeenCalled();
         expect(api.subscribeSyncProgress).toHaveBeenCalled();
-        expect(modals.showSyncEnablementWizard).toHaveBeenCalledWith([], 'sync@example.com');
+        expect(modals.showSyncEnablementWizard).toHaveBeenCalledWith([], 'sync@example.com', undefined);
         expect(modals.customAlert).toHaveBeenCalledWith('Cloud Sync Enabled', expect.stringContaining('Cloud Sync is now enabled'));
     });
 

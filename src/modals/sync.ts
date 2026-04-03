@@ -6,7 +6,7 @@ export type SyncEnablementChoice =
     | { action: 'create_new' }
     | { action: 'attach'; profileId: string };
 
-interface SyncEnablementWizardOptions {
+export interface SyncEnablementWizardOptions {
     allowCreateNew?: boolean;
     title?: string;
 }
