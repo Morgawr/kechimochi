@@ -8,6 +8,7 @@ vi.mock('../../../src/api', () => ({
 
 const mockServices = {
     isDesktop: vi.fn(() => true),
+    supportsWindowControls: vi.fn(() => true),
     loadCoverImage: vi.fn(),
 };
 

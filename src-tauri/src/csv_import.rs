@@ -1,6 +1,7 @@
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
+use std::io::Read;
 use std::path::Path;
 
 use crate::db;
@@ -72,9 +73,13 @@ pub fn import_csv(conn: &mut Connection, file_path: &str) -> Result<usize, Strin
     }
 
     let file = File::open(path).map_err(|e| e.to_string())?;
+    import_csv_from_reader(conn, file)
+}
+
+pub fn import_csv_from_reader<R: Read>(conn: &mut Connection, reader: R) -> Result<usize, String> {
     let mut rdr = csv::ReaderBuilder::new()
         .has_headers(true)
-        .from_reader(file);
+        .from_reader(reader);
 
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     let mut imported_count = 0;
@@ -273,9 +278,16 @@ pub fn import_milestones_csv(conn: &mut Connection, file_path: &str) -> Result<u
     }
 
     let file = File::open(path).map_err(|e| e.to_string())?;
+    import_milestones_csv_from_reader(conn, file)
+}
+
+pub fn import_milestones_csv_from_reader<R: Read>(
+    conn: &mut Connection,
+    reader: R,
+) -> Result<usize, String> {
     let mut rdr = csv::ReaderBuilder::new()
         .has_headers(true)
-        .from_reader(file);
+        .from_reader(reader);
 
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     let mut imported_count = 0;
@@ -318,9 +330,16 @@ pub fn analyze_media_csv(conn: &Connection, file_path: &str) -> Result<Vec<Media
     }
 
     let file = File::open(path).map_err(|e| e.to_string())?;
+    analyze_media_csv_from_reader(conn, file)
+}
+
+pub fn analyze_media_csv_from_reader<R: Read>(
+    conn: &Connection,
+    reader: R,
+) -> Result<Vec<MediaConflict>, String> {
     let mut rdr = csv::ReaderBuilder::new()
         .has_headers(true)
-        .from_reader(file);
+        .from_reader(reader);
     let mut conflicts = Vec::new();
 
     for result in rdr.deserialize() {

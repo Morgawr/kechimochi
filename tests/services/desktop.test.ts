@@ -49,6 +49,7 @@ describe('DesktopServices', () => {
         vi.clearAllMocks();
         delete (globalThis as Record<string, unknown>).mockOpenPath;
         delete (globalThis as Record<string, unknown>).mockSavePath;
+        vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (X11; Linux x86_64) Tauri/2.0' });
         vi.stubGlobal('URL', {
             createObjectURL: vi.fn(() => 'blob:desktop'),
         });
@@ -243,8 +244,15 @@ describe('DesktopServices', () => {
         vi.mocked(invoke).mockResolvedValueOnce('json-data').mockResolvedValueOnce([9, 8, 7]);
 
         expect(services.isDesktop()).toBe(true);
+        expect(services.supportsWindowControls()).toBe(true);
         await expect(services.fetchExternalJson('https://example.com', 'GET')).resolves.toBe('json-data');
         await expect(services.fetchRemoteBytes('https://example.com/img')).resolves.toEqual([9, 8, 7]);
+    });
+
+    it('disables window controls for Android runtimes', () => {
+        vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (Linux; Android 15; Pixel 8) Tauri/2.0' });
+
+        expect(new DesktopServices().supportsWindowControls()).toBe(false);
     });
 
     it('loads timeline events through invoke', async () => {

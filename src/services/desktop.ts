@@ -33,6 +33,11 @@ import { getMockExternalJsonResponse } from './external_mocks';
 export class DesktopServices implements AppServices {
     private win: ReturnType<typeof getCurrentWindow> | null = null;
 
+    private supportsDesktopWindowControls(): boolean {
+        const ua = navigator.userAgent || '';
+        return !/\bAndroid\b/i.test(ua);
+    }
+
     private getWin() {
         if (!this.win) this.win = getCurrentWindow();
         return this.win;
@@ -256,4 +261,5 @@ export class DesktopServices implements AppServices {
     closeWindow():    void { this.getWin().close(); }
 
     isDesktop(): boolean { return true; }
+    supportsWindowControls(): boolean { return this.supportsDesktopWindowControls(); }
 }

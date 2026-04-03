@@ -232,7 +232,7 @@ export class App {
     }
 
     private setupWindowControls() {
-        if (!getServices().isDesktop()) return;
+        if (!getServices().supportsWindowControls()) return;
         document.getElementById('win-min')?.addEventListener('click', () => getServices().minimizeWindow());
         document.getElementById('win-max')?.addEventListener('click', () => getServices().maximizeWindow());
         document.getElementById('win-close')?.addEventListener('click', () => getServices().closeWindow());
@@ -393,7 +393,7 @@ export class App {
 document.addEventListener('DOMContentLoaded', () => {
     (async () => {
         await initServices();
-        syncAppShell(getServices().isDesktop());
+        syncAppShell(getServices().isDesktop(), getServices().supportsWindowControls());
         await App.start();
     })().catch(e => {
         renderBootstrapFailureScreen(e);

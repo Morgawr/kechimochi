@@ -53,6 +53,18 @@ KECHIMOCHI_GOOGLE_CLIENT_SECRET=your-desktop-client-secret
 
 The desktop build injects both values at build time, so they do not need to live in `src-tauri/tauri.conf.json`.
 
+### Android (Tauri Mobile)
+The Android project is generated under `src-tauri/gen/android` and is intended to be checked into the repository.
+
+With the Android SDK/NDK installed and `ANDROID_HOME` / `ANDROID_SDK_ROOT` pointing at your SDK, you can use the standard Tauri mobile commands:
+
+```bash
+npm run tauri android dev
+npm run tauri android build --debug --apk --ci
+```
+
+The debug build produces an APK through the generated Gradle project.
+
 ### Web Interface
 You can also run Kechimochi as a web application. This requires starting both the frontend development server and a separate Rust backend API server.
 

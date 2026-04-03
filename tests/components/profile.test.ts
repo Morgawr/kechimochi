@@ -50,6 +50,7 @@ const mockServices = {
     analyzeMediaCsvFromPick: vi.fn(),
     exportMediaLibrary: vi.fn(),
     isDesktop: vi.fn(() => true),
+    supportsWindowControls: vi.fn(() => true),
 };
 
 vi.mock('../../src/services', () => ({

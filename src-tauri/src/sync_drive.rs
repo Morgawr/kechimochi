@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use std::io::{Read, Write};
 use std::pin::Pin;
@@ -650,11 +650,25 @@ impl<T: DriveTransport> GoogleDriveClient<T> {
         &self,
         token_store: &dyn SecureTokenStore,
     ) -> Result<BTreeSet<String>, String> {
+        Ok(self
+            .list_blob_files(token_store)
+            .await?
+            .into_keys()
+            .collect())
+    }
+
+    pub async fn list_blob_files(
+        &self,
+        token_store: &dyn SecureTokenStore,
+    ) -> Result<BTreeMap<String, DriveFileMetadata>, String> {
         let query = format!("name contains '{}' and trashed = false", BLOB_FILE_PREFIX);
         let files = self.list_app_data_files(token_store, Some(&query)).await?;
         Ok(files
             .into_iter()
-            .filter_map(|file| file.name.strip_prefix(BLOB_FILE_PREFIX).map(str::to_string))
+            .filter_map(|file| {
+                let hash = file.name.strip_prefix(BLOB_FILE_PREFIX).map(str::to_string);
+                hash.map(|hash| (hash, file))
+            })
             .collect())
     }
 

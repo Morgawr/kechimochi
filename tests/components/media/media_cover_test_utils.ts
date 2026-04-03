@@ -2,6 +2,7 @@ import { vi } from 'vitest';
 
 export const mockServices = {
     isDesktop: vi.fn(() => true),
+    supportsWindowControls: vi.fn(() => true),
     loadCoverImage: vi.fn(),
 };
 

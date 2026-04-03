@@ -38,6 +38,7 @@ vi.mock('../../../src/modals', () => ({
 import * as modals from '../../../src/modals';
 const mockServices = {
     isDesktop: vi.fn(() => true),
+    supportsWindowControls: vi.fn(() => true),
     loadCoverImage: vi.fn(),
     pickAndUploadCover: vi.fn(),
 };

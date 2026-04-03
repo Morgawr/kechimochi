@@ -1,3 +1,4 @@
+pub mod app_file_io;
 pub mod backup;
 pub mod csv_import;
 pub mod db;
@@ -102,8 +103,12 @@ fn sync_command_setup(
 
 fn sync_progress_reporter(
     app_handle: tauri::AppHandle,
+    activity_tx: Option<tokio::sync::mpsc::UnboundedSender<()>>,
 ) -> impl Fn(sync_orchestrator::SyncProgressUpdate) + Send + Sync + 'static {
     move |update| {
+        if let Some(activity_tx) = activity_tx.as_ref() {
+            let _ = activity_tx.send(());
+        }
         let _ = app_handle.emit(SYNC_PROGRESS_EVENT, update);
     }
 }
@@ -134,14 +139,44 @@ async fn auto_open_sync_auth_url(auth_url: &str) -> Result<(), String> {
 async fn with_sync_command_timeout<T, F>(
     operation_name: &str,
     timeout_secs: u64,
+    mut activity_rx: Option<tokio::sync::mpsc::UnboundedReceiver<()>>,
     operation: F,
 ) -> Result<T, String>
 where
     F: std::future::Future<Output = Result<T, String>>,
 {
-    match tokio::time::timeout(Duration::from_secs(timeout_secs), operation).await {
-        Ok(result) => result,
-        Err(_) => Err(format!("{operation_name} timed out. Please try again.")),
+    if activity_rx.is_none() {
+        return match tokio::time::timeout(Duration::from_secs(timeout_secs), operation).await {
+            Ok(result) => result,
+            Err(_) => Err(format!("{operation_name} timed out. Please try again.")),
+        };
+    }
+
+    let timeout = Duration::from_secs(timeout_secs);
+    tokio::pin!(operation);
+    let sleep = tokio::time::sleep(timeout);
+    tokio::pin!(sleep);
+
+    loop {
+        tokio::select! {
+            result = &mut operation => return result,
+            maybe_activity = async {
+                match activity_rx.as_mut() {
+                    Some(rx) => rx.recv().await,
+                    None => std::future::pending::<Option<()>>().await,
+                }
+            } => {
+                match maybe_activity {
+                    Some(_) => sleep.as_mut().reset(tokio::time::Instant::now() + timeout),
+                    None => activity_rx = None,
+                }
+            },
+            _ = &mut sleep => {
+                return Err(format!(
+                    "{operation_name} timed out while waiting for sync progress. Please try again."
+                ));
+            }
+        }
     }
 }
 
@@ -149,6 +184,7 @@ async fn with_sync_command<T, F, Fut>(
     app_handle: &tauri::AppHandle,
     operation_name: &str,
     timeout_secs: u64,
+    activity_rx: Option<tokio::sync::mpsc::UnboundedReceiver<()>>,
     operation: F,
 ) -> Result<T, String>
 where
@@ -159,6 +195,7 @@ where
     with_sync_command_timeout(
         operation_name,
         timeout_secs,
+        activity_rx,
         operation(app_dir, config, token_store),
     )
     .await
@@ -169,6 +206,7 @@ async fn with_sync_db_command<T, F, Fut>(
     state: &State<'_, DbState>,
     operation_name: &str,
     timeout_secs: u64,
+    activity_rx: Option<tokio::sync::mpsc::UnboundedReceiver<()>>,
     operation: F,
 ) -> Result<T, String>
 where
@@ -185,6 +223,7 @@ where
         app_handle,
         operation_name,
         timeout_secs,
+        activity_rx,
         move |app_dir, config, token_store| operation(app_dir, conn, config, token_store),
     )
     .await
@@ -372,9 +411,10 @@ fn import_milestones_csv(
     state: State<DbState>,
     file_path: String,
 ) -> Result<usize, String> {
+    let file = app_file_io::open_input_file(&app_handle, &file_path)?;
     run_dirty_command(&app_handle, || {
         with_conn_mut(&state, |conn| {
-            csv_import::import_milestones_csv(conn, &file_path)
+            csv_import::import_milestones_csv_from_reader(conn, file)
         })
     })
 }
@@ -387,16 +427,18 @@ fn upload_cover_image(
     path: String,
 ) -> Result<String, String> {
     let covers_dir = db::get_data_dir(&app_handle).join("covers");
+    let bytes = app_file_io::read_input_bytes(&app_handle, &path)?;
+    let extension = app_file_io::infer_image_extension(&app_handle, &path, &bytes);
     run_dirty_command(&app_handle, || {
         with_conn(&state, |conn| {
-            db::save_cover_image(conn, covers_dir, media_id, std::path::Path::new(&path))
+            db::save_cover_bytes(conn, covers_dir, media_id, bytes, &extension)
         })
     })
 }
 
 #[tauri::command]
-fn read_file_bytes(path: String) -> Result<Vec<u8>, String> {
-    std::fs::read(&path).map_err(|e| e.to_string())
+fn read_file_bytes(app_handle: tauri::AppHandle, path: String) -> Result<Vec<u8>, String> {
+    app_file_io::read_input_bytes(&app_handle, &path)
 }
 
 #[tauri::command]
@@ -495,8 +537,11 @@ fn import_csv(
     state: State<DbState>,
     file_path: String,
 ) -> Result<usize, String> {
+    let file = app_file_io::open_input_file(&app_handle, &file_path)?;
     run_dirty_command(&app_handle, || {
-        with_conn_mut(&state, |conn| csv_import::import_csv(conn, &file_path))
+        with_conn_mut(&state, |conn| {
+            csv_import::import_csv_from_reader(conn, file)
+        })
     })
 }
 
@@ -521,11 +566,13 @@ fn export_media_csv(state: State<DbState>, file_path: String) -> Result<usize, S
 
 #[tauri::command]
 fn analyze_media_csv(
+    app_handle: tauri::AppHandle,
     state: State<DbState>,
     file_path: String,
 ) -> Result<Vec<csv_import::MediaConflict>, String> {
+    let file = app_file_io::open_input_file(&app_handle, &file_path)?;
     with_conn(&state, |conn| {
-        csv_import::analyze_media_csv(conn, &file_path)
+        csv_import::analyze_media_csv_from_reader(conn, file)
     })
 }
 
@@ -615,7 +662,8 @@ fn upload_profile_picture(
     state: State<DbState>,
     path: String,
 ) -> Result<ProfilePicture, String> {
-    let profile_picture = profile_picture::process_profile_picture_file(&path)?;
+    let bytes = app_file_io::read_input_bytes(&app_handle, &path)?;
+    let profile_picture = profile_picture::process_profile_picture_bytes(&bytes)?;
     run_dirty_command(&app_handle, || {
         with_conn(&state, |conn| {
             db::upsert_profile_picture(conn, &profile_picture).map_err(|e| e.to_string())?;
@@ -689,6 +737,7 @@ async fn list_remote_sync_profiles(
         &app_handle,
         "Loading cloud profiles",
         SYNC_COMMAND_TIMEOUT_SECS,
+        None,
         |_, config, token_store| async move {
             sync_orchestrator::list_remote_sync_profiles(&config, token_store.as_ref()).await
         },
@@ -701,12 +750,14 @@ async fn create_remote_sync_profile(
     app_handle: tauri::AppHandle,
     state: State<'_, DbState>,
 ) -> Result<sync_orchestrator::SyncActionResult, String> {
-    let progress_reporter = sync_progress_reporter(app_handle.clone());
+    let (activity_tx, activity_rx) = tokio::sync::mpsc::unbounded_channel();
+    let progress_reporter = sync_progress_reporter(app_handle.clone(), Some(activity_tx));
     with_sync_db_command(
         &app_handle,
         &state,
         "Creating the cloud sync profile",
         CREATE_SYNC_PROFILE_TIMEOUT_SECS,
+        Some(activity_rx),
         move |app_dir, conn, config, token_store| async move {
             sync_orchestrator::create_remote_sync_profile_with_progress(
                 &app_dir,
@@ -728,12 +779,14 @@ async fn attach_remote_sync_profile(
     state: State<'_, DbState>,
     profile_id: String,
 ) -> Result<sync_orchestrator::SyncActionResult, String> {
-    let progress_reporter = sync_progress_reporter(app_handle.clone());
+    let (activity_tx, activity_rx) = tokio::sync::mpsc::unbounded_channel();
+    let progress_reporter = sync_progress_reporter(app_handle.clone(), Some(activity_tx));
     with_sync_db_command(
         &app_handle,
         &state,
         "Attaching the cloud sync profile",
         SYNC_COMMAND_TIMEOUT_SECS,
+        Some(activity_rx),
         move |app_dir, conn, config, token_store| async move {
             sync_orchestrator::attach_remote_sync_profile_with_progress(
                 &app_dir,
@@ -761,6 +814,7 @@ async fn preview_attach_remote_sync_profile(
         &state,
         "Preparing the cloud profile attach preview",
         SYNC_COMMAND_TIMEOUT_SECS,
+        None,
         move |app_dir, conn, config, token_store| async move {
             sync_orchestrator::preview_attach_remote_sync_profile(
                 &app_dir,
@@ -780,12 +834,14 @@ async fn run_sync(
     app_handle: tauri::AppHandle,
     state: State<'_, DbState>,
 ) -> Result<sync_orchestrator::SyncActionResult, String> {
-    let progress_reporter = sync_progress_reporter(app_handle.clone());
+    let (activity_tx, activity_rx) = tokio::sync::mpsc::unbounded_channel();
+    let progress_reporter = sync_progress_reporter(app_handle.clone(), Some(activity_tx));
     with_sync_db_command(
         &app_handle,
         &state,
         "Syncing with Google Drive",
         SYNC_COMMAND_TIMEOUT_SECS,
+        Some(activity_rx),
         move |app_dir, conn, config, token_store| async move {
             sync_orchestrator::run_sync_with_progress(
                 &app_dir,
@@ -805,12 +861,14 @@ async fn replace_local_from_remote(
     app_handle: tauri::AppHandle,
     state: State<'_, DbState>,
 ) -> Result<sync_orchestrator::SyncActionResult, String> {
-    let progress_reporter = sync_progress_reporter(app_handle.clone());
+    let (activity_tx, activity_rx) = tokio::sync::mpsc::unbounded_channel();
+    let progress_reporter = sync_progress_reporter(app_handle.clone(), Some(activity_tx));
     with_sync_db_command(
         &app_handle,
         &state,
         "Replacing local data from Google Drive",
         RECOVERY_SYNC_TIMEOUT_SECS,
+        Some(activity_rx),
         move |app_dir, conn, config, token_store| async move {
             sync_orchestrator::replace_local_from_remote_with_progress(
                 &app_dir,
@@ -830,12 +888,14 @@ async fn force_publish_local_as_remote(
     app_handle: tauri::AppHandle,
     state: State<'_, DbState>,
 ) -> Result<sync_orchestrator::SyncActionResult, String> {
-    let progress_reporter = sync_progress_reporter(app_handle.clone());
+    let (activity_tx, activity_rx) = tokio::sync::mpsc::unbounded_channel();
+    let progress_reporter = sync_progress_reporter(app_handle.clone(), Some(activity_tx));
     with_sync_db_command(
         &app_handle,
         &state,
         "Force publishing local data to Google Drive",
         RECOVERY_SYNC_TIMEOUT_SECS,
+        Some(activity_rx),
         move |app_dir, conn, config, token_store| async move {
             sync_orchestrator::force_publish_local_as_remote_with_progress(
                 &app_dir,
@@ -870,6 +930,7 @@ async fn resolve_sync_conflict(
         &state,
         "Resolving the sync conflict",
         SYNC_COMMAND_TIMEOUT_SECS,
+        None,
         move |app_dir, conn, config, token_store| async move {
             sync_orchestrator::resolve_sync_conflict(
                 &app_dir,
@@ -907,6 +968,7 @@ pub fn get_username_logic() -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let app_dir = db::get_data_dir(app.handle());

@@ -1,7 +1,11 @@
-export function syncAppShell(isDesktop: boolean, doc: Document = document): void {
+export function syncAppShell(
+    isDesktop: boolean,
+    supportsWindowControls: boolean = isDesktop,
+    doc: Document = document,
+): void {
     doc.body.dataset.runtime = isDesktop ? 'desktop' : 'web';
 
-    if (isDesktop) {
+    if (supportsWindowControls) {
         return;
     }
 

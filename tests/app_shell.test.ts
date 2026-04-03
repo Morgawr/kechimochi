@@ -25,4 +25,11 @@ describe('syncAppShell', () => {
         expect(document.body.dataset.runtime).toBe('desktop');
         expect(document.getElementById('desktop-title-bar')).not.toBeNull();
     });
+
+    it('removes the desktop title bar when native window controls are unavailable', () => {
+        syncAppShell(true, false);
+
+        expect(document.body.dataset.runtime).toBe('desktop');
+        expect(document.getElementById('desktop-title-bar')).toBeNull();
+    });
 });

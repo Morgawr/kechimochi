@@ -25,6 +25,7 @@ use crate::sync_snapshot::{
 use crate::sync_state::{self, SyncConfig, SyncLifecycleStatus, SyncStatus};
 
 const COVER_UPLOAD_CONCURRENCY: usize = 4;
+const COVER_DOWNLOAD_CONCURRENCY: usize = 8;
 const COVER_UPLOAD_MAX_ATTEMPTS: usize = 3;
 const COVER_UPLOAD_RETRY_DELAY_MS: u64 = 1_500;
 
@@ -1923,7 +1924,7 @@ async fn materialize_snapshot_cover_blobs_with_client<T: DriveTransport>(
         .filter_map(|media| media.uid.clone().map(|uid| (uid, media)))
         .collect::<BTreeMap<_, _>>();
 
-    let mut pending_downloads = 0usize;
+    let mut pending_hashes = BTreeSet::new();
     for (uid, aggregate) in &snapshot.library {
         let Some(expected_hash) = aggregate.cover_blob_sha256.as_ref() else {
             continue;
@@ -1937,9 +1938,10 @@ async fn materialize_snapshot_cover_blobs_with_client<T: DriveTransport>(
             continue;
         }
         if !local_hash_cache.contains_key(expected_hash) {
-            pending_downloads += 1;
+            pending_hashes.insert(expected_hash.clone());
         }
     }
+    let pending_downloads = pending_hashes.len();
 
     report_progress(
         operation.clone(),
@@ -1958,6 +1960,47 @@ async fn materialize_snapshot_cover_blobs_with_client<T: DriveTransport>(
     );
     let mut downloaded = 0usize;
 
+    if pending_downloads > 0 {
+        let remote_blob_files = client.list_blob_files(token_store).await?;
+        let covers_dir = covers_dir.to_path_buf();
+        let mut downloads = stream::iter(pending_hashes.into_iter().map(|expected_hash| {
+            let client = client.clone();
+            let remote_file_id = remote_blob_files
+                .get(&expected_hash)
+                .map(|file| file.id.clone())
+                .ok_or_else(|| format!("Missing cover blob '{expected_hash}' on remote store"));
+            let covers_dir = covers_dir.clone();
+            async move {
+                let remote_file_id = remote_file_id?;
+                let bytes = client
+                    .download_app_data_file_by_id(token_store, &remote_file_id)
+                    .await
+                    .map_err(|e| format!("Failed to download cover blob '{expected_hash}': {e}"))?;
+                validate_cover_blob_bytes(&expected_hash, &bytes)?;
+                let materialized = materialize_cover_blob(&covers_dir, &expected_hash, &bytes)?;
+                Ok::<_, String>((expected_hash, materialized.to_string_lossy().to_string()))
+            }
+        }))
+        .buffer_unordered(COVER_DOWNLOAD_CONCURRENCY);
+
+        while let Some(result) = downloads.next().await {
+            let (expected_hash, materialized_path) = result?;
+            local_hash_cache.insert(expected_hash, materialized_path);
+            downloaded += 1;
+            report_progress(
+                operation.clone(),
+                progress,
+                SyncProgressStage::ApplyingRemoteChanges,
+                downloaded,
+                pending_downloads.max(1),
+                format!(
+                    "Downloading missing remote cover art... {} of {} downloaded.",
+                    downloaded, pending_downloads
+                ),
+            );
+        }
+    }
+
     for (uid, aggregate) in &snapshot.library {
         let Some(expected_hash) = aggregate.cover_blob_sha256.as_ref() else {
             continue;
@@ -1975,27 +2018,9 @@ async fn materialize_snapshot_cover_blobs_with_client<T: DriveTransport>(
         let target_path = if let Some(existing_path) = local_hash_cache.get(expected_hash) {
             existing_path.clone()
         } else {
-            let bytes = client
-                .download_blob(token_store, expected_hash)
-                .await?
-                .ok_or_else(|| format!("Missing cover blob '{expected_hash}' on remote store"))?;
-            validate_cover_blob_bytes(expected_hash, &bytes)?;
-            let materialized = materialize_cover_blob(covers_dir, expected_hash, &bytes)?;
-            let materialized = materialized.to_string_lossy().to_string();
-            local_hash_cache.insert(expected_hash.clone(), materialized.clone());
-            downloaded += 1;
-            report_progress(
-                operation.clone(),
-                progress,
-                SyncProgressStage::ApplyingRemoteChanges,
-                downloaded,
-                pending_downloads.max(1),
-                format!(
-                    "Downloading missing remote cover art... {} of {} downloaded.",
-                    downloaded, pending_downloads
-                ),
-            );
-            materialized
+            return Err(format!(
+                "Cover blob '{expected_hash}' was not materialized locally"
+            ));
         };
 
         if media.cover_image != target_path {
@@ -2113,6 +2138,7 @@ fn compute_sha256_hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use image::{DynamicImage, ImageBuffer, ImageFormat, Rgba};
     use reqwest::Method;
     use tempfile::TempDir;
     use url::Url;
@@ -2156,6 +2182,7 @@ mod tests {
         next_id: usize,
         next_timestamp: usize,
         files: BTreeMap<String, StoredTestFile>,
+        requests: Vec<(Method, String)>,
         expected_access_token: String,
         overwrite_manifest_after_write: Option<RemoteSyncManifest>,
     }
@@ -2230,6 +2257,7 @@ mod tests {
                     next_id: 0,
                     next_timestamp: 0,
                     files: BTreeMap::new(),
+                    requests: Vec::new(),
                     expected_access_token: "access-token".to_string(),
                     overwrite_manifest_after_write: None,
                 })),
@@ -2238,6 +2266,14 @@ mod tests {
 
         fn overwrite_manifest_after_next_write(&self, manifest: RemoteSyncManifest) {
             self.state.lock().unwrap().overwrite_manifest_after_write = Some(manifest);
+        }
+
+        fn recorded_requests(&self) -> Vec<(Method, String)> {
+            self.state.lock().unwrap().requests.clone()
+        }
+
+        fn clear_requests(&self) {
+            self.state.lock().unwrap().requests.clear();
         }
 
         fn handle_request(
@@ -2250,6 +2286,11 @@ mod tests {
         ) -> Result<MemoryDriveResponse, String> {
             let url = Url::parse(url).map_err(|e| e.to_string())?;
             let path = url.path();
+
+            {
+                let mut state = self.state.lock().unwrap();
+                state.requests.push((method.clone(), url.to_string()));
+            }
 
             self.authorize_request(access_token)?;
 
@@ -2433,6 +2474,17 @@ mod tests {
     fn first_media_title(conn: &Arc<Mutex<Connection>>) -> String {
         let conn_guard = conn.lock().unwrap();
         db::get_all_media(&conn_guard).unwrap()[0].title.clone()
+    }
+
+    fn encode_test_png(seed: u8) -> Vec<u8> {
+        let image = DynamicImage::ImageRgba8(ImageBuffer::from_pixel(
+            4,
+            4,
+            Rgba([seed, 255u8.saturating_sub(seed), seed / 2, 255]),
+        ));
+        let mut cursor = std::io::Cursor::new(Vec::new());
+        image.write_to(&mut cursor, ImageFormat::Png).unwrap();
+        cursor.into_inner()
     }
 
     fn file_to_json(file: StoredTestFile) -> serde_json::Value {
@@ -2621,6 +2673,77 @@ mod tests {
         assert!(recorded
             .iter()
             .any(|update| update.stage == SyncProgressStage::Complete));
+    }
+
+    #[tokio::test]
+    async fn materialize_snapshot_cover_blobs_lists_remote_blob_inventory_once() {
+        let (temp_dir, conn) = setup_app();
+        let transport = MemoryDriveTransport::new();
+        let client = build_client(transport.clone());
+        let token_store = test_token_store();
+
+        let first_uid = add_media(&conn, "Alpha");
+        let second_uid = add_media(&conn, "Beta");
+        let mut snapshot = build_local_snapshot(temp_dir.path(), &conn, "prof_test", None)
+            .unwrap()
+            .snapshot;
+
+        let first_cover = encode_test_png(32);
+        let second_cover = encode_test_png(196);
+        let first_hash = compute_sha256_hex(&first_cover);
+        let second_hash = compute_sha256_hex(&second_cover);
+
+        client
+            .upload_blob(&token_store, &first_hash, &first_cover)
+            .await
+            .unwrap();
+        client
+            .upload_blob(&token_store, &second_hash, &second_cover)
+            .await
+            .unwrap();
+
+        snapshot
+            .library
+            .get_mut(&first_uid)
+            .unwrap()
+            .cover_blob_sha256 = Some(first_hash.clone());
+        snapshot
+            .library
+            .get_mut(&second_uid)
+            .unwrap()
+            .cover_blob_sha256 = Some(second_hash.clone());
+
+        transport.clear_requests();
+        materialize_snapshot_cover_blobs_with_client(
+            &conn,
+            temp_dir.path().join("covers").as_path(),
+            &snapshot,
+            &client,
+            &token_store,
+            SyncProgressOperation::RunSync,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let list_requests = transport
+            .recorded_requests()
+            .into_iter()
+            .filter(|(method, request_url)| {
+                *method == Method::GET
+                    && Url::parse(request_url)
+                        .map(|url| url.path().ends_with("/drive/v3/files"))
+                        .unwrap_or(false)
+            })
+            .count();
+
+        assert_eq!(list_requests, 1);
+
+        let media = {
+            let conn_guard = conn.lock().unwrap();
+            db::get_all_media(&conn_guard).unwrap()
+        };
+        assert!(media.iter().all(|entry| !entry.cover_image.is_empty()));
     }
 
     #[tokio::test]

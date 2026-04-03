@@ -314,4 +314,5 @@ export class WebServices implements AppServices {
     closeWindow():    void { return; }
 
     isDesktop(): boolean { return false; }
+    supportsWindowControls(): boolean { return false; }
 }
