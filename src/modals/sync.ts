@@ -78,6 +78,15 @@ export async function showSyncEnablementWizard(
         const selectedProfileId = profiles[0]?.profile_id ?? null;
         const allowCreateNew = options?.allowCreateNew ?? true;
         const title = options?.title ?? (allowCreateNew ? 'Enable Cloud Sync' : 'Import From Google Drive');
+        const hasProfiles = profiles.length > 0;
+        let description = 'No existing Kechimochi sync profiles were found for this account yet.';
+        if (!hasProfiles && allowCreateNew) {
+            description = 'No existing sync profiles were found for this account yet. Create a new cloud profile to start syncing this library.';
+        } else if (hasProfiles && allowCreateNew) {
+            description = 'You can create a brand new cloud profile or attach this device to an existing one. Existing profiles always show an attach preview before anything is applied.';
+        } else if (hasProfiles) {
+            description = 'Choose which existing synced library to import onto this device. You will see an attach preview before anything is applied.';
+        }
 
         overlay.innerHTML = `
             <div class="modal-content" style="max-width: 760px; width: min(92vw, 760px); max-height: 85vh; display: flex; flex-direction: column;">
@@ -88,15 +97,9 @@ export async function showSyncEnablementWizard(
                         : 'Choose how this device should connect to Google Drive.'}
                 </p>
                 <p style="margin: 0.75rem 0 0; color: var(--text-secondary); font-size: 0.92rem;">
-                    ${profiles.length === 0 && allowCreateNew
-                        ? 'No existing sync profiles were found for this account yet. Create a new cloud profile to start syncing this library.'
-                        : profiles.length === 0
-                            ? 'No existing Kechimochi sync profiles were found for this account yet.'
-                            : allowCreateNew
-                                ? 'You can create a brand new cloud profile or attach this device to an existing one. Existing profiles always show an attach preview before anything is applied.'
-                                : 'Choose which existing synced library to import onto this device. You will see an attach preview before anything is applied.'}
+                    ${description}
                 </p>
-                ${profiles.length > 0
+                ${hasProfiles
                     ? `<div style="margin-top: 1.25rem; display: flex; flex-direction: column; gap: 0.8rem; overflow: auto; padding-right: 0.25rem;">
                         ${profiles.map((profile, index) => `
                             <label style="display: flex; gap: 0.9rem; align-items: flex-start; padding: 0.95rem 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: rgba(255,255,255,0.02); cursor: pointer;">
@@ -123,7 +126,7 @@ export async function showSyncEnablementWizard(
                     ${allowCreateNew
                         ? '<button class="btn btn-secondary" id="sync-enable-create">Create New Profile</button>'
                         : ''}
-                    ${profiles.length > 0
+                    ${hasProfiles
                         ? '<button class="btn btn-primary" id="sync-enable-attach">Attach Selected Profile</button>'
                         : ''}
                 </div>
