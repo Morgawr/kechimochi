@@ -9,6 +9,8 @@ The format is based on Keep a Changelog, with one section per released version.
 ### Added
 - Added Android builds
 - Android development builds are now published as GitHub workflow artifacts.
+- Ability to view how much storage is used by sync backups
+- Users can now clear the local sync backup files automatically with a button click
 
 ### Changed
 - Android now uses the app logo for launcher icons.
