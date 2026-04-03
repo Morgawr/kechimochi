@@ -30,6 +30,7 @@ import {
     resolveSyncConflict,
     subscribeSyncProgress,
     clearSyncBackups,
+    isDesktop,
 } from '../api';
 import {
     customPrompt,
@@ -724,7 +725,7 @@ export class ProfileView extends Component<ProfileState> {
         }
         tiles.push({ label: 'Last sync', value: formatSyncTimestamp(syncStatus.last_sync_at) });
 
-        if (syncStatus.sync_profile_id) {
+        if (isDesktop() && syncStatus.sync_profile_id) {
             tiles.push({
                 label: 'Local backups size',
                 value: formatBytes(syncStatus.backup_size_bytes),

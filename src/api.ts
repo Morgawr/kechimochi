@@ -110,6 +110,8 @@ export function subscribeSyncProgress(listener: (update: SyncProgressUpdate) => 
 }
 export function clearSyncBackups(): Promise<void> { return getServices().clearSyncBackups(); }
 
+export function isDesktop(): boolean { return getServices().isDesktop(); }
+
 export function applyMediaImport(records: MediaCsvRow[]): Promise<number> { return getServices().applyMediaImport(records); }
 
 export function getMilestones(mediaTitle: string): Promise<Milestone[]> { return getServices().getMilestones(mediaTitle); }

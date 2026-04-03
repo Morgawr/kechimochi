@@ -43,6 +43,7 @@ vi.mock('../../src/api', () => ({
     exportFullBackup: vi.fn(),
     importFullBackup: vi.fn(),
     clearSyncBackups: vi.fn(),
+    isDesktop: vi.fn(() => true),
 }));
 
 const mockServices = {
