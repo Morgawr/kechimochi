@@ -29,6 +29,7 @@ import {
     getSyncConflicts,
     resolveSyncConflict,
     subscribeSyncProgress,
+    clearSyncBackups,
 } from '../api';
 import {
     customPrompt,
@@ -213,6 +214,15 @@ function isGoogleDriveNotAuthenticatedError(message: string): boolean {
 const ENABLE_SYNC_AUTH_TIMEOUT_MS = 60_000;
 const ENABLE_SYNC_AUTH_TIMEOUT_ERROR =
     'Google sign-in timed out before the app received the browser callback.';
+
+function formatBytes(bytes: number, decimals = 1): string {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+}
 
 export class ProfileView extends Component<ProfileState> {
     private isRefreshing = false;
@@ -704,7 +714,7 @@ export class ProfileView extends Component<ProfileState> {
     }
 
     private renderSyncInfoTiles(syncStatus: SyncStatus): HTMLElement[] {
-        const tiles: Array<{ label: string; value: string }> = [];
+        const tiles: Array<{ label: string; value: string; extra?: HTMLElement }> = [];
         if (syncStatus.google_account_email) {
             tiles.push({ label: 'Google account', value: syncStatus.google_account_email });
         }
@@ -714,9 +724,23 @@ export class ProfileView extends Component<ProfileState> {
         }
         tiles.push({ label: 'Last sync', value: formatSyncTimestamp(syncStatus.last_sync_at) });
 
+        if (syncStatus.sync_profile_id) {
+            tiles.push({
+                label: 'Local backups size',
+                value: formatBytes(syncStatus.backup_size_bytes),
+                extra: syncStatus.backup_size_bytes > 0
+                    ? html`
+                        <div style="display: flex; justify-content: flex-end; margin-top: 0.2rem;">
+                            <button class="btn btn-ghost" id="profile-btn-clear-sync-backups" style="padding: 0.2rem 0.5rem; font-size: 0.72rem; line-height: 1;">Clear</button>
+                        </div>
+                    `
+                    : undefined
+            });
+        }
+
         return tiles.map((tile, index) => {
             const shouldSpanFullWidth = tiles.length % 2 === 1 && index === tiles.length - 1;
-            return this.renderSyncInfoTile(tile.label, tile.value, shouldSpanFullWidth);
+            return this.renderSyncInfoTile(tile.label, tile.value, shouldSpanFullWidth, tile.extra);
         });
     }
 
@@ -837,12 +861,13 @@ export class ProfileView extends Component<ProfileState> {
         return 'Connect this device to Google Drive to keep your library and progress in sync across installations.';
     }
 
-    private renderSyncInfoTile(label: string, value: string, fullWidth = false) {
+    private renderSyncInfoTile(label: string, value: string, fullWidth = false, extra?: HTMLElement) {
         const spanStyle = fullWidth ? 'grid-column: 1 / -1;' : '';
         return html`
             <div style="${spanStyle} display: flex; flex-direction: column; gap: 0.25rem; padding: 0.9rem 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: rgba(255,255,255,0.02);">
                 <span style="font-size: 0.78rem; color: var(--text-secondary);">${label}</span>
                 <strong style="font-size: 0.96rem; color: var(--text-primary);">${value}</strong>
+                ${extra || ''}
             </div>
         `;
     }
@@ -1142,6 +1167,19 @@ export class ProfileView extends Component<ProfileState> {
 
             if (target.dataset.syncConflictIndex !== undefined) {
                 await this.handleResolveConflictAction(target);
+                return;
+            }
+
+            if (target.id === 'profile-btn-clear-sync-backups') {
+                if (await customConfirm("Clear Sync Backups", "This will delete all local emergency backups created before sync operations. Are you sure?", "btn-danger", "Clear")) {
+                    try {
+                        await clearSyncBackups();
+                        await this.refreshSyncData();
+                        await customAlert("Success", "Sync backups cleared.");
+                    } catch (error) {
+                        await customAlert("Error", `Failed to clear backups: ${stringifyError(error)}`);
+                    }
+                }
                 return;
             }
 

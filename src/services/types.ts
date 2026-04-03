@@ -90,6 +90,7 @@ export interface AppServices {
     getSyncConflicts(): Promise<SyncConflict[]>;
     resolveSyncConflict(conflictIndex: number, resolution: SyncConflictResolution): Promise<SyncActionResult>;
     subscribeSyncProgress(listener: (update: SyncProgressUpdate) => void): Promise<() => void>;
+    clearSyncBackups(): Promise<void>;
 
     // ── File-based operations (no filesystem paths exposed to callers) ────────
     /** Opens a file picker and imports the selected activities CSV. */

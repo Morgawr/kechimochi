@@ -148,6 +148,8 @@ export class WebServices implements AppServices {
         return Promise.resolve(() => undefined);
     }
 
+    clearSyncBackups():                      Promise<void>              { return Promise.reject(syncUnavailableError()); }
+
     // ── File-based operations ─────────────────────────────────────────────────
     async pickAndImportActivities(): Promise<number | null> {
         const file = await pickFile('.csv');

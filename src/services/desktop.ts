@@ -106,6 +106,8 @@ export class DesktopServices implements AppServices {
         });
     }
 
+    clearSyncBackups():                      Promise<void>            { return invoke('clear_sync_backups'); }
+
     async getAppVersion(): Promise<string> {
         return getBuildVersion();
     }

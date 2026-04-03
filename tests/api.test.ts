@@ -197,6 +197,7 @@ describe('api.ts', () => {
       ['replaceLocalFromRemote', () => api.replaceLocalFromRemote(), 'replace_local_from_remote'],
       ['forcePublishLocalAsRemote', () => api.forcePublishLocalAsRemote(), 'force_publish_local_as_remote'],
       ['getSyncConflicts', () => api.getSyncConflicts(), 'get_sync_conflicts'],
+      ['clearSyncBackups', () => api.clearSyncBackups(), 'clear_sync_backups'],
     ])('%s should call invoke', async (_label, fn, command) => {
       await fn();
       expect(invoke).toHaveBeenCalledWith(command);

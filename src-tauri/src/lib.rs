@@ -683,7 +683,6 @@ fn delete_profile_picture(
         })
     })
 }
-
 #[tauri::command]
 fn get_sync_status(app_handle: tauri::AppHandle) -> Result<sync_state::SyncStatus, String> {
     let app_dir = db::get_data_dir(&app_handle);
@@ -700,6 +699,12 @@ fn get_sync_status(app_handle: tauri::AppHandle) -> Result<sync_state::SyncStatu
     let google_account_email =
         sync_auth::load_google_account_email(token_store.as_ref()).unwrap_or_default();
     sync_state::get_sync_status(&app_dir, google_authenticated, google_account_email)
+}
+
+#[tauri::command]
+fn clear_sync_backups(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let app_dir = db::get_data_dir(&app_handle);
+    sync_state::clear_sync_backups(&app_dir)
 }
 
 #[tauri::command]
@@ -1049,6 +1054,7 @@ pub fn run() {
             get_sync_conflicts,
             resolve_sync_conflict,
             disconnect_google_drive,
+            clear_sync_backups,
             get_startup_error,
             set_setting,
             get_setting,

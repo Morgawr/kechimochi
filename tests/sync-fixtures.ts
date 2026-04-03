@@ -15,6 +15,7 @@ const DEFAULT_SYNC_STATUS: SyncStatus = {
     last_sync_at: null,
     device_name: null,
     conflict_count: 0,
+    backup_size_bytes: 0,
 };
 
 const DEFAULT_CONNECTED_SYNC_STATUS: SyncStatus = {
@@ -26,6 +27,7 @@ const DEFAULT_CONNECTED_SYNC_STATUS: SyncStatus = {
     google_account_email: 'sync@example.com',
     last_sync_at: '2026-04-02T00:00:00Z',
     device_name: 'Desk',
+    backup_size_bytes: 0,
 };
 
 type SyncActionResultOverrides = Omit<Partial<SyncActionResult>, 'sync_status'> & {

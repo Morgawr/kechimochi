@@ -149,6 +149,7 @@ export interface SyncStatus {
     last_sync_at: string | null;
     device_name: string | null;
     conflict_count: number;
+    backup_size_bytes: number;
 }
 
 export interface GoogleDriveAuthSession {

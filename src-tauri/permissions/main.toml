@@ -52,5 +52,6 @@ commands.allow = [
     "import_milestones_csv",
     "delete_milestones_for_media",
     "export_full_backup",
-    "import_full_backup"
+    "import_full_backup",
+    "clear_sync_backups"
 ]

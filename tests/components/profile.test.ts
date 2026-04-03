@@ -42,6 +42,7 @@ vi.mock('../../src/api', () => ({
     clearActivities: vi.fn(),
     exportFullBackup: vi.fn(),
     importFullBackup: vi.fn(),
+    clearSyncBackups: vi.fn(),
 }));
 
 const mockServices = {
@@ -719,5 +720,33 @@ describe('ProfileView', () => {
             configurable: true,
         });
         expect(localStorage.getItem('theme')).toBe('dark');
+    });
+
+    it('should show local backups size and allow clearing them', async () => {
+        vi.mocked(api.getSyncStatus).mockResolvedValue(buildConnectedSyncStatus({
+            backup_size_bytes: 1024 * 1024 * 300.5, // 300.5 MB
+        }));
+        vi.mocked(modals.customConfirm).mockResolvedValue(true);
+        vi.mocked(api.clearSyncBackups).mockResolvedValue();
+
+        const view = new ProfileView(container);
+        await view.loadData();
+        view.render();
+
+        await vi.waitFor(() => expect(container.textContent).toContain('Local backups size'));
+        expect(container.textContent).toContain('300.5 MB');
+
+        const clearBtn = container.querySelector('#profile-btn-clear-sync-backups') as HTMLButtonElement;
+        expect(clearBtn).not.toBeNull();
+        clearBtn.click();
+
+        await vi.waitFor(() => expect(modals.customConfirm).toHaveBeenCalledWith(
+            "Clear Sync Backups",
+            expect.stringContaining("delete all local emergency backups"),
+            "btn-danger",
+            "Clear"
+        ));
+        await vi.waitFor(() => expect(api.clearSyncBackups).toHaveBeenCalled());
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith("Success", "Sync backups cleared."));
     });
 });

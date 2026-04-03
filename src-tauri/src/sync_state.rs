@@ -70,6 +70,7 @@ pub struct SyncStatus {
     #[serde(default)]
     pub device_name: Option<String>,
     pub conflict_count: usize,
+    pub backup_size_bytes: u64,
 }
 
 pub fn sync_dir(app_dir: &Path) -> PathBuf {
@@ -315,6 +316,7 @@ pub fn get_sync_status(
 ) -> Result<SyncStatus, String> {
     let config = load_sync_config(app_dir)?;
     let conflict_count = pending_conflict_count(app_dir)?;
+    let backup_size_bytes = calculate_backup_size(app_dir);
 
     if let Some(config) = config {
         return Ok(SyncStatus {
@@ -330,6 +332,7 @@ pub fn get_sync_status(
             last_sync_at: config.last_sync_at,
             device_name: Some(config.device_name),
             conflict_count,
+            backup_size_bytes,
         });
     }
 
@@ -342,7 +345,45 @@ pub fn get_sync_status(
         last_sync_at: None,
         device_name: None,
         conflict_count,
+        backup_size_bytes,
     })
+}
+
+pub fn calculate_backup_size(app_dir: &Path) -> u64 {
+    let dir = sync_dir(app_dir);
+    if !dir.exists() {
+        return 0;
+    }
+
+    walkdir::WalkDir::new(dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.file_type().is_file()
+                && e.file_name().to_string_lossy().starts_with("pre_sync_backup_")
+                && e.file_name().to_string_lossy().ends_with(".zip")
+        })
+        .map(|e| e.metadata().map(|m| m.len()).unwrap_or(0))
+        .sum()
+}
+
+pub fn clear_sync_backups(app_dir: &Path) -> Result<(), String> {
+    let dir = sync_dir(app_dir);
+    if !dir.exists() {
+        return Ok(());
+    }
+
+    for entry in fs::read_dir(dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if path.is_file() {
+            let name = path.file_name().unwrap_or_default().to_string_lossy();
+            if name.starts_with("pre_sync_backup_") && name.ends_with(".zip") {
+                fs::remove_file(path).map_err(|e| e.to_string())?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn map_lifecycle_status(status: SyncLifecycleStatus) -> SyncConnectionState {
@@ -464,7 +505,38 @@ mod tests {
         .unwrap();
 
         let _guard = acquire_sync_lock(temp_dir.path()).unwrap();
-
         assert!(sync_lock_path(temp_dir.path()).exists());
+    }
+
+    #[test]
+    fn calculate_backup_size_sums_zip_files() {
+        let temp_dir = TempDir::new().unwrap();
+        let app_dir = temp_dir.path();
+        let sync_dir = sync_dir(app_dir);
+        fs::create_dir_all(&sync_dir).unwrap();
+
+        fs::write(sync_dir.join("pre_sync_backup_1.zip"), "abc").unwrap();
+        fs::write(sync_dir.join("pre_sync_backup_2.zip"), "defgh").unwrap();
+        fs::write(sync_dir.join("other.txt"), "ignored").unwrap();
+
+        assert_eq!(calculate_backup_size(app_dir), 8);
+    }
+
+    #[test]
+    fn clear_sync_backups_removes_only_backups() {
+        let temp_dir = TempDir::new().unwrap();
+        let app_dir = temp_dir.path();
+        let sync_dir = sync_dir(app_dir);
+        fs::create_dir_all(&sync_dir).unwrap();
+
+        fs::write(sync_dir.join("pre_sync_backup_1.zip"), "abc").unwrap();
+        fs::write(sync_dir.join("pre_sync_backup_2.zip"), "defgh").unwrap();
+        fs::write(sync_dir.join("other.txt"), "stay").unwrap();
+
+        clear_sync_backups(app_dir).unwrap();
+
+        assert!(sync_dir.join("other.txt").exists());
+        assert!(!sync_dir.join("pre_sync_backup_1.zip").exists());
+        assert!(!sync_dir.join("pre_sync_backup_2.zip").exists());
     }
 }

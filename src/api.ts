@@ -108,6 +108,7 @@ export function resolveSyncConflict(conflictIndex: number, resolution: SyncConfl
 export function subscribeSyncProgress(listener: (update: SyncProgressUpdate) => void): Promise<() => void> {
   return getServices().subscribeSyncProgress(listener);
 }
+export function clearSyncBackups(): Promise<void> { return getServices().clearSyncBackups(); }
 
 export function applyMediaImport(records: MediaCsvRow[]): Promise<number> { return getServices().applyMediaImport(records); }
 
