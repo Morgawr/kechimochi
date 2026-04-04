@@ -430,7 +430,7 @@ jobs:
 
       - name: build android apk
         env:
-          KECHIMOCHI_GOOGLE_ANDROID_CLIENT_ID: ${{ secrets.KECHIMOCHI_GOOGLE_ANDROID_CLIENT_ID }}
+          KECHIMOCHI_GOOGLE_ANDROID_CLIENT_ID: ${{ secrets.KECHIMOCHI_GOOGLE_ANDROID_RELEASE_CLIENT_ID }}
           VITE_APP_VERSION: ${{ needs.validate-release.outputs.version }}
           VITE_APP_CHANNEL: release
           VITE_RELEASE_STAGE: ${{ needs.validate-release.outputs.release_stage }}

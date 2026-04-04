@@ -6,6 +6,14 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-04-04
+
+Re-Re-release of 0.2.2 because the sign APK key was incorrect.
+
+### Fixed
+
+- Android clients using official release .apk should be able to sync again
+
 ## [0.2.3] - 2026-04-04
 
 Re-release 0.2.2 but with valid Android APK signing

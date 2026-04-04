@@ -1,6 +1,6 @@
 [package]
 name = "kechimochi"
-version = "0.2.3"
+version = "0.2.4"
 description = "A personal language immersion tracker"
 authors = ["Morgawr"]
 edition = "2021"
