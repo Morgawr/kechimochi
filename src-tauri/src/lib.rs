@@ -773,31 +773,40 @@ async fn connect_google_drive(
 ) -> Result<sync_auth::GoogleDriveAuthSession, String> {
     let app_dir = db::get_data_dir(&app_handle);
     let token_store = sync_token_store();
+
     #[cfg(target_os = "android")]
     {
         ensure_android_google_drive_access_token(&app_handle, token_store.as_ref()).await?;
         return sync_auth::build_google_drive_auth_session(&app_dir, token_store.as_ref());
     }
 
-    let config = google_oauth_config(&app_handle)?;
+    #[cfg(not(target_os = "android"))]
+    {
+        let config = google_oauth_config(&app_handle)?;
 
-    sync_auth::connect_google_drive_with_browser(&app_dir, &config, token_store.as_ref(), {
-        let app_handle = app_handle.clone();
-        move |auth_url| {
-            let auth_url = auth_url.to_string();
-            Box::pin(async move {
-                if should_auto_open_sync_auth() {
-                    auto_open_sync_auth_url(&auth_url).await
-                } else {
-                    app_handle
-                        .opener()
-                        .open_url(&auth_url, None::<&str>)
-                        .map_err(|e| e.to_string())
+        return sync_auth::connect_google_drive_with_browser(
+            &app_dir,
+            &config,
+            token_store.as_ref(),
+            {
+                let app_handle = app_handle.clone();
+                move |auth_url| {
+                    let auth_url = auth_url.to_string();
+                    Box::pin(async move {
+                        if should_auto_open_sync_auth() {
+                            auto_open_sync_auth_url(&auth_url).await
+                        } else {
+                            app_handle
+                                .opener()
+                                .open_url(&auth_url, None::<&str>)
+                                .map_err(|e| e.to_string())
+                        }
+                    })
                 }
-            })
-        }
-    })
-    .await
+            },
+        )
+        .await;
+    }
 }
 
 #[tauri::command]
