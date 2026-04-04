@@ -436,13 +436,35 @@ jobs:
           VITE_RELEASE_STAGE: ${{ needs.validate-release.outputs.release_stage }}
         run: npm run tauri -- android build --apk --ci --target aarch64
 
+      - name: sign android apk
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          test -n "$ANDROID_KEYSTORE_PASSWORD"
+          test -n "$ANDROID_KEY_ALIAS"
+          test -n "$ANDROID_KEY_PASSWORD"
+          APK=$(find src-tauri/gen/android/app/build/outputs/apk/universal/release -maxdepth 1 -type f -name '*.apk' | head -n 1)
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > /tmp/kechimochi-release.jks
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" sign \
+            --ks /tmp/kechimochi-release.jks \
+            --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --ks-pass pass:"$ANDROID_KEYSTORE_PASSWORD" \
+            --key-pass pass:"$ANDROID_KEY_PASSWORD" \
+            --out /tmp/kechimochi-android-release-signed.apk \
+            "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs /tmp/kechimochi-android-release-signed.apk
+
       - name: rename APK asset
         shell: bash
         run: |
           VERSION="${{ needs.validate-release.outputs.version }}"
           mkdir -p release-mobile
-          APK=$(find src-tauri/gen/android/app/build/outputs/apk/universal/release -maxdepth 1 -type f -name '*.apk' | head -n 1)
-          cp "$APK" "release-mobile/kechimochi-android-${VERSION}.apk"
+          cp /tmp/kechimochi-android-release-signed.apk "release-mobile/kechimochi-android-${VERSION}.apk"
 
       - name: upload release asset
         uses: actions/upload-artifact@v4
