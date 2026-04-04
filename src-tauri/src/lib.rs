@@ -19,6 +19,7 @@ use std::future::Future;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{Emitter, Manager, State};
+#[cfg(not(target_os = "android"))]
 use tauri_plugin_opener::OpenerExt;
 
 use models::{
@@ -38,6 +39,7 @@ const SYNC_COMMAND_TIMEOUT_SECS: u64 = 120;
 const CREATE_SYNC_PROFILE_TIMEOUT_SECS: u64 = 900;
 const RECOVERY_SYNC_TIMEOUT_SECS: u64 = 900;
 const SYNC_PROGRESS_EVENT: &str = "sync-progress";
+#[cfg(not(target_os = "android"))]
 const SYNC_TEST_AUTO_OPEN_ENV: &str = "KECHIMOCHI_SYNC_TEST_AUTO_OPEN";
 const SKIP_LEGACY_LOCAL_PROFILE_MIGRATION_ENV: &str =
     "KECHIMOCHI_E2E_SKIP_LEGACY_LOCAL_PROFILE_MIGRATION";
@@ -161,6 +163,7 @@ fn sync_progress_reporter(
     }
 }
 
+#[cfg(not(target_os = "android"))]
 fn should_auto_open_sync_auth() -> bool {
     matches!(
         std::env::var(SYNC_TEST_AUTO_OPEN_ENV).ok().as_deref(),
@@ -168,6 +171,7 @@ fn should_auto_open_sync_auth() -> bool {
     )
 }
 
+#[cfg(not(target_os = "android"))]
 async fn auto_open_sync_auth_url(auth_url: &str) -> Result<(), String> {
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::limited(10))
