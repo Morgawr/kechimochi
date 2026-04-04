@@ -30,8 +30,13 @@ export class MediaDetail extends Component<MediaDetailState> {
     private readonly mediaList: Media[];
     private readonly currentIndex: number;
     private readonly onViewportResize: () => void;
+    private readonly onGlobalPointerDown: (event: PointerEvent) => void;
+    private readonly onGlobalKeyDown: (event: KeyboardEvent) => void;
     private currentObjectUrl: string | null = null;
     private isDestroyed = false;
+    private overflowMenuRoot: HTMLElement | null = null;
+    private overflowMenu: HTMLElement | null = null;
+    private overflowMenuButton: HTMLButtonElement | null = null;
 
     constructor(container: HTMLElement, media: Media, logs: ActivitySummary[], mediaList: Media[], currentIndex: number, callbacks: { onBack: () => void, onNext: () => void, onPrev: () => void, onNavigate: (index: number) => void, onDelete: () => void }) {
         super(container, { media, logs, milestones: [], imgSrc: null, isDescriptionExpanded: false });
@@ -43,7 +48,11 @@ export class MediaDetail extends Component<MediaDetailState> {
         this.onNavigate = callbacks.onNavigate;
         this.onDelete = callbacks.onDelete;
         this.onViewportResize = () => this.syncViewportLayout();
+        this.onGlobalPointerDown = (event: PointerEvent) => this.handleGlobalPointerDown(event);
+        this.onGlobalKeyDown = (event: KeyboardEvent) => this.handleGlobalKeyDown(event);
         globalThis.addEventListener('resize', this.onViewportResize);
+        globalThis.addEventListener('pointerdown', this.onGlobalPointerDown, true);
+        globalThis.addEventListener('keydown', this.onGlobalKeyDown);
     }
 
     protected override onMount() {
@@ -54,6 +63,8 @@ export class MediaDetail extends Component<MediaDetailState> {
     public override destroy() {
         this.isDestroyed = true;
         globalThis.removeEventListener('resize', this.onViewportResize);
+        globalThis.removeEventListener('pointerdown', this.onGlobalPointerDown, true);
+        globalThis.removeEventListener('keydown', this.onGlobalKeyDown);
         this.revokeCurrentObjectUrl();
         super.destroy();
     }
@@ -166,18 +177,40 @@ export class MediaDetail extends Component<MediaDetailState> {
             <div class="animate-fade-in" style="display: flex; flex-direction: column; height: 100%; gap: 1rem;" id="media-root">
                 <!-- Header Controls -->
                 <div id="media-detail-header" style="display: flex; gap: 1rem; align-items: center; justify-content: space-between; background: var(--bg-dark); padding: 0.5rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-color);">
-                    <div style="flex: 1; display: flex; justify-content: flex-start;">
+                    <div id="media-back-slot" style="flex: 1; display: flex; justify-content: flex-start;">
                         <button class="btn btn-ghost" id="btn-back-grid" style="font-size: 0.9rem; padding: 0.4rem 0.8rem; display: flex; align-items: center; gap: 0.3rem;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> Back to Library</button>
                     </div>
                     
                     <div id="media-detail-nav" style="display: flex; justify-content: center; align-items: center; gap: 1rem;">
                         <button class="btn btn-ghost" id="media-prev" style="font-size: 1.2rem; padding: 0.2rem 1rem;">&lt;&lt;</button>
-                        <select id="media-select" style="max-width: 800px; text-align: center; border: none; background: transparent; font-size: 1.1rem; color: var(--text-primary); outline: none; appearance: none; cursor: pointer; text-align-last: center; text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">
-                            ${rawHtml(this.mediaList.map((m, i) => `<option value="${i}" ${i === this.currentIndex ? 'selected' : ''}>${escapeHTML(m.title)}</option>`).join(''))}
-                        </select>
+                        <div id="media-title-group" style="position: relative; display: flex; align-items: center; gap: 0.45rem; min-width: 0;">
+                            <select id="media-select" style="flex: 1 1 auto; min-width: 0; max-width: 800px; text-align: center; border: none; background: transparent; font-size: 1.1rem; color: var(--text-primary); outline: none; appearance: none; cursor: pointer; text-align-last: center; text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">
+                                ${rawHtml(this.mediaList.map((m, i) => `<option value="${i}" ${i === this.currentIndex ? 'selected' : ''}>${escapeHTML(m.title)}</option>`).join(''))}
+                            </select>
+                            <div id="media-overflow-root" style="position: relative; flex: 0 0 auto;">
+                                <button
+                                    type="button"
+                                    class="btn btn-ghost"
+                                    id="btn-media-overflow"
+                                    aria-haspopup="menu"
+                                    aria-expanded="false"
+                                    title="More actions"
+                                    style="width: 2.4rem; height: 2.4rem; padding: 0; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; font-size: 1.3rem; line-height: 1;"
+                                >⋯</button>
+                                <div id="media-overflow-menu" hidden style="position: absolute; top: calc(100% + 0.5rem); right: 0; min-width: 12rem; padding: 0.35rem; border: 1px solid var(--border-color); border-radius: 12px; background: color-mix(in srgb, var(--bg-card) 94%, black 6%); box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35); z-index: 20;">
+                                    <button
+                                        type="button"
+                                        id="btn-delete-media-detail"
+                                        style="width: 100%; display: flex; align-items: center; gap: 0.5rem; padding: 0.55rem 0.7rem; border: none; border-radius: 9px; background: transparent; color: #ff7582; font: inherit; font-size: 0.9rem; text-align: left; cursor: pointer;"
+                                    >
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg>
+                                        Delete media
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                         <button class="btn btn-ghost" id="media-next" style="font-size: 1.2rem; padding: 0.2rem 1rem;">&gt;&gt;</button>
                     </div>
-                    <div id="media-detail-header-spacer" style="flex: 1;"></div>
                 </div>
 
                 <!-- Main Content -->
@@ -188,13 +221,6 @@ export class MediaDetail extends Component<MediaDetailState> {
                 ? html`<img src="${imgSrc}" style="width: 100%; aspect-ratio: 2/3; object-fit: cover; border-radius: var(--radius-md); cursor: pointer;" id="media-cover-img" alt="Cover" title="Double click to change image" />`
                 : html`<div style="width: 100%; aspect-ratio: 2/3; background: var(--bg-dark); border: 2px dashed var(--border-color); border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-secondary);" id="media-cover-img" title="Double click to add image">No Image</div>`
             }
-                        <div id="media-delete-block" style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 0.5rem;">
-                            <button class="btn" id="btn-delete-media-detail" style="background-color: #ff4757; color: white; border: none; font-weight: bold; width: 100%; padding: 0.6rem; font-size: 0.9rem;">Delete Media</button>
-                            <div style="font-size: 0.7rem; color: var(--text-secondary); line-height: 1.2; text-align: center;">
-                                <strong>DANGER:</strong> COMPLETELY REMOVES THIS MEDIA AND <strong>ALL</strong> ASSOCIATED WORK LOGS FOR ALL USERS.
-                            </div>
-                        </div>
-
                         <div id="media-milestones-slot-left">
                             <!-- Milestones -->
                             <div id="media-milestones-card" class="card" style="margin-top: 1.5rem; padding: 0.5rem; display: flex; flex-direction: column; border: 1px solid var(--border-color); flex: 1; min-height: 0;">
@@ -276,6 +302,7 @@ export class MediaDetail extends Component<MediaDetailState> {
         `;
 
         this.container.appendChild(detailView);
+        this.syncOverflowMenuRefs();
         this.syncViewportLayout();
         this.setupListeners(detailView);
         this.renderStats(detailView);
@@ -309,6 +336,37 @@ export class MediaDetail extends Component<MediaDetailState> {
 
         inactiveSlot.style.display = 'none';
         inactiveSlot.style.flex = '';
+    }
+
+    private syncOverflowMenuRefs() {
+        this.overflowMenuRoot = this.container.querySelector<HTMLElement>('#media-overflow-root');
+        this.overflowMenu = this.container.querySelector<HTMLElement>('#media-overflow-menu');
+        this.overflowMenuButton = this.container.querySelector<HTMLButtonElement>('#btn-media-overflow');
+    }
+
+    private closeOverflowMenu() {
+        if (this.overflowMenu) this.overflowMenu.hidden = true;
+        if (this.overflowMenuButton) this.overflowMenuButton.setAttribute('aria-expanded', 'false');
+    }
+
+    private toggleOverflowMenu() {
+        if (!this.overflowMenu || !this.overflowMenuButton) return;
+        const nextOpen = this.overflowMenu.hidden;
+        this.overflowMenu.hidden = !nextOpen;
+        this.overflowMenuButton.setAttribute('aria-expanded', nextOpen ? 'true' : 'false');
+    }
+
+    private handleGlobalPointerDown(event: PointerEvent) {
+        if (!this.overflowMenu || !this.overflowMenuButton || this.overflowMenu.hidden) return;
+        const target = event.target as Node | null;
+        if (!target || !this.overflowMenuRoot?.contains(target)) {
+            this.closeOverflowMenu();
+        }
+    }
+
+    private handleGlobalKeyDown(event: KeyboardEvent) {
+        if (event.key !== 'Escape') return;
+        this.closeOverflowMenu();
     }
 
     private syncViewportLayout() {
@@ -644,7 +702,14 @@ export class MediaDetail extends Component<MediaDetailState> {
             this.render();
         });
 
+        root.querySelector('#btn-media-overflow')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this.toggleOverflowMenu();
+        });
+
         root.querySelector('#btn-delete-media-detail')?.addEventListener('click', async () => {
+            this.closeOverflowMenu();
             const ok = await customConfirm("Delete Media", `Are you sure you want to permanently delete "${this.state.media.title}" and all its logs?`, "btn-danger", "Delete");
             if (ok) {
                 await deleteMedia(this.state.media.id!);

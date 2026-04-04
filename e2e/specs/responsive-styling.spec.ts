@@ -116,17 +116,21 @@ describe('Responsive Styling CUJ', () => {
 
     const mediaLayout = await browser.execute(() => {
       const coverColumn = document.getElementById('media-cover-column');
-      const headerSpacer = document.getElementById('media-detail-header-spacer');
+      const backSlot = document.getElementById('media-back-slot');
       const header = document.getElementById('media-detail-header');
+      const titleGroup = document.getElementById('media-title-group');
+      const overflowRoot = document.getElementById('media-overflow-root');
       const statsGrid = document.getElementById('media-stats-grid');
       const contentArea = document.getElementById('media-content-area');
 
-      if (!coverColumn || !headerSpacer || !header || !statsGrid || !contentArea) {
+      if (!coverColumn || !backSlot || !header || !titleGroup || !overflowRoot || !statsGrid || !contentArea) {
         return {
           hasRequiredNodes: false,
           coverPosition: null,
-          headerSpacerDisplay: null,
+          backSlotDisplay: null,
           headerWrap: null,
+          titleGroupDisplay: null,
+          overflowRootDisplay: null,
           statsColumns: null,
           contentPaddingTop: null,
         };
@@ -135,8 +139,10 @@ describe('Responsive Styling CUJ', () => {
       return {
         hasRequiredNodes: true,
         coverPosition: getComputedStyle(coverColumn).position,
-        headerSpacerDisplay: getComputedStyle(headerSpacer).display,
+        backSlotDisplay: getComputedStyle(backSlot).display,
         headerWrap: getComputedStyle(header).flexWrap,
+        titleGroupDisplay: getComputedStyle(titleGroup).display,
+        overflowRootDisplay: getComputedStyle(overflowRoot).display,
         statsColumnCount: getComputedStyle(statsGrid).gridTemplateColumns.split(' ').length,
         contentPaddingTop: getComputedStyle(contentArea).paddingTop,
       };
@@ -144,8 +150,10 @@ describe('Responsive Styling CUJ', () => {
 
     expect(mediaLayout.hasRequiredNodes).toBe(true);
     expect(mediaLayout.coverPosition).toBe('absolute');
-    expect(mediaLayout.headerSpacerDisplay).toBe('none');
+    expect(mediaLayout.backSlotDisplay).toBe('none');
     expect(mediaLayout.headerWrap).toBe('wrap');
+    expect(mediaLayout.titleGroupDisplay).toBe('flex');
+    expect(mediaLayout.overflowRootDisplay).toBe('flex');
     expect(mediaLayout.statsColumnCount).toBe(1);
     expect(mediaLayout.contentPaddingTop).toBe('180px');
   });
