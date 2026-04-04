@@ -100,7 +100,7 @@ function triggerDownload(blob: Blob, filename: string): void {
 }
 
 function syncUnavailableError(): Error {
-    return new Error('Cloud Sync is only available in the desktop app.');
+    return new Error('Cloud Sync is only available in the app (not web).');
 }
 
 export class WebServices implements AppServices {

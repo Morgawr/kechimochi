@@ -64,15 +64,15 @@ Your logs are stored in local SQLite databases, giving you full control over you
 
 We take data preservation seriously. Kechimochi is designed to keep your data local, ships with explicit backup and restore support, and uses cautious database versioning and migration rules to reduce the risk of accidental data loss during updates. Even so, you should still keep regular backups of anything you care about.
 
-### Desktop and Self-Hosted Web
+### Apps and Self-Hosted Web
 
-Kechimochi supports both a desktop application and a self-hosted web mode powered by the same Rust backend. If you want a local native app, use the Tauri desktop build. If you want to host it for yourself, you can run the bundled web server or the published Docker image.
+Kechimochi supports desktop and Android apps plus a self-hosted web mode powered by the same Rust backend. If you want a local native app, use the desktop or Android build. If you want to host it for yourself, you can run the bundled web server or the published Docker image.
 
-The desktop application is the primary and most thoroughly tested way to use Kechimochi. The web mode is available as a best-effort option for self-hosting, but it has not been exercised as extensively as the desktop app.
+The desktop app is the primary and most thoroughly tested way to use Kechimochi. The web mode is available as a best-effort option for self-hosting, but it has not been exercised as extensively as the desktop app.
 
 ## Getting Started
 
-Kechimochi is built with Tauri for desktop and also supports a self-hosted web deployment.
+Kechimochi is built with Tauri for the app experience (desktop and Android) and also supports a self-hosted web deployment.
 
 For details on how to run the software on developer builds (and contribute!) see the [Development.md](Development.md) document.
 
@@ -103,7 +103,7 @@ Then open `http://<your-server-ip>:3000`.
 
 The `/data` volume contains your SQLite databases and covers, so keep it on persistent storage.
 
-The web deployment is still a best-effort option. If you want the most tested and supported experience today, prefer the desktop build.
+The web deployment is still a best-effort option. If you want the most tested and supported experience today, prefer the desktop app.
 
 ### Docker Compose Example
 

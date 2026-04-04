@@ -586,7 +586,7 @@ export class ProfileView extends Component<ProfileState> {
         return html`
             <div class="card" style="display: flex; flex-direction: column; gap: 1rem;">
                 <h3>Updates</h3>
-                <p style="color: var(--text-secondary); font-size: 0.9rem;">Check for new desktop releases and control whether Kechimochi checks automatically on startup.</p>
+                <p style="color: var(--text-secondary); font-size: 0.9rem;">Check for new releases and control whether Kechimochi checks automatically on startup.</p>
                 <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
                     <label for="profile-updates-auto-check" style="display: inline-flex; align-items: center; gap: 0.6rem; color: var(--text-primary); cursor: pointer;">
                         <input id="profile-updates-auto-check" type="checkbox" ${updateState.autoCheckEnabled ? 'checked' : ''} />
@@ -623,9 +623,9 @@ export class ProfileView extends Component<ProfileState> {
             <div class="card" id="profile-sync-card" style="display: flex; flex-direction: column; gap: 1rem;">
                 <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
                     <h3 style="margin: 0;">Cloud Sync</h3>
-                    <span style="font-size: 0.8rem; color: var(--text-secondary); border: 1px solid var(--border-color); border-radius: 999px; padding: 0.2rem 0.65rem;">Desktop Only</span>
+                    <span style="font-size: 0.8rem; color: var(--text-secondary); border: 1px solid var(--border-color); border-radius: 999px; padding: 0.2rem 0.65rem;">App Only</span>
                 </div>
-                <p style="color: var(--text-secondary); font-size: 0.9rem; margin: 0;">Cloud Sync is only available in the desktop app.</p>
+                <p style="color: var(--text-secondary); font-size: 0.9rem; margin: 0;">Cloud Sync is only available in the app (not web).</p>
             </div>
         `;
     }
@@ -1334,7 +1334,7 @@ export class ProfileView extends Component<ProfileState> {
 
     private async handleEnableSync() {
         if (!this.state.syncSupported) {
-            await customAlert('Cloud Sync', 'Cloud Sync is only available in the desktop app.');
+            await customAlert('Cloud Sync', 'Cloud Sync is only available in the app (not web).');
             return;
         }
 
