@@ -6,6 +6,12 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+### Added
+ - Android apk is now built for published releases
+
+### Changed
+ - Android login workflow now uses proper Android-native auth protocols
+
 ## [0.2.1] - 2026-04-04
 
 ### Added
