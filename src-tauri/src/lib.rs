@@ -13,6 +13,8 @@ pub mod sync_snapshot;
 pub mod sync_state;
 
 use rusqlite::Connection;
+#[cfg(target_os = "android")]
+use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -42,6 +44,26 @@ const SKIP_LEGACY_LOCAL_PROFILE_MIGRATION_ENV: &str =
 
 type SyncTokenStore = Box<dyn sync_auth::SecureTokenStore>;
 type SyncDbConn = Arc<Mutex<Connection>>;
+
+pub struct GoogleAuthMobileState(pub Option<tauri::plugin::PluginHandle<tauri::Wry>>);
+
+#[cfg(target_os = "android")]
+#[derive(Debug, Serialize, Default)]
+struct AndroidGoogleAuthRequest;
+
+#[cfg(target_os = "android")]
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AndroidGoogleClearTokenRequest {
+    access_token: String,
+}
+
+#[cfg(target_os = "android")]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AndroidGoogleAuthResponse {
+    access_token: String,
+}
 
 fn with_conn<T, F>(state: &State<DbState>, operation: F) -> Result<T, String>
 where
@@ -101,6 +123,30 @@ fn sync_command_setup(
         google_oauth_config(app_handle)?,
         sync_token_store(),
     ))
+}
+
+#[cfg(target_os = "android")]
+async fn ensure_android_google_drive_access_token(
+    app_handle: &tauri::AppHandle,
+    token_store: &dyn sync_auth::SecureTokenStore,
+) -> Result<(), String> {
+    let google_auth_mobile = app_handle.state::<GoogleAuthMobileState>();
+    let plugin = google_auth_mobile
+        .0
+        .as_ref()
+        .ok_or_else(|| "Google Drive sign-in is unavailable on this Android build.".to_string())?;
+    let response: AndroidGoogleAuthResponse = plugin
+        .run_mobile_plugin("authorizeGoogleDrive", AndroidGoogleAuthRequest)
+        .map_err(|e| e.to_string())?;
+    sync_auth::persist_google_drive_android_access_token(token_store, &response.access_token).await
+}
+
+#[cfg(not(target_os = "android"))]
+async fn ensure_android_google_drive_access_token(
+    _app_handle: &tauri::AppHandle,
+    _token_store: &dyn sync_auth::SecureTokenStore,
+) -> Result<(), String> {
+    Ok(())
 }
 
 fn sync_progress_reporter(
@@ -194,6 +240,7 @@ where
     Fut: Future<Output = Result<T, String>>,
 {
     let (app_dir, config, token_store) = sync_command_setup(app_handle)?;
+    ensure_android_google_drive_access_token(app_handle, token_store.as_ref()).await?;
     with_sync_command_timeout(
         operation_name,
         timeout_secs,
@@ -722,10 +769,17 @@ fn clear_sync_backups(app_handle: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 async fn connect_google_drive(
     app_handle: tauri::AppHandle,
+    _state: State<'_, DbState>,
 ) -> Result<sync_auth::GoogleDriveAuthSession, String> {
     let app_dir = db::get_data_dir(&app_handle);
-    let config = google_oauth_config(&app_handle)?;
     let token_store = sync_token_store();
+    #[cfg(target_os = "android")]
+    {
+        ensure_android_google_drive_access_token(&app_handle, token_store.as_ref()).await?;
+        return sync_auth::build_google_drive_auth_session(&app_dir, token_store.as_ref());
+    }
+
+    let config = google_oauth_config(&app_handle)?;
 
     sync_auth::connect_google_drive_with_browser(&app_dir, &config, token_store.as_ref(), {
         let app_handle = app_handle.clone();
@@ -967,6 +1021,16 @@ async fn resolve_sync_conflict(
 fn disconnect_google_drive(app_handle: tauri::AppHandle) -> Result<(), String> {
     let app_dir = db::get_data_dir(&app_handle);
     let token_store = sync_token_store();
+    #[cfg(target_os = "android")]
+    if let Some(access_token) = sync_auth::load_google_access_token(token_store.as_ref())? {
+        let google_auth_mobile = app_handle.state::<GoogleAuthMobileState>();
+        if let Some(plugin) = google_auth_mobile.0.as_ref() {
+            let _ = plugin.run_mobile_plugin::<()>(
+                "clearToken",
+                AndroidGoogleClearTokenRequest { access_token },
+            );
+        }
+    }
     sync_auth::disconnect_google_drive_data(&app_dir, token_store.as_ref())
 }
 
@@ -984,6 +1048,7 @@ pub fn get_username_logic() -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(init_google_auth_mobile_plugin())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
@@ -1076,4 +1141,21 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+fn init_google_auth_mobile_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    tauri::plugin::Builder::new("googleAuth")
+        .setup(|app, _api| {
+            #[cfg(target_os = "android")]
+            let plugin = Some(
+                _api.register_android_plugin("com.morg.kechimochi", "GoogleAuthPlugin")
+                    .map_err(|e| -> Box<dyn std::error::Error> { Box::new(e) })?,
+            );
+            #[cfg(not(target_os = "android"))]
+            let plugin = None;
+
+            app.manage(GoogleAuthMobileState(plugin));
+            Ok(())
+        })
+        .build()
 }

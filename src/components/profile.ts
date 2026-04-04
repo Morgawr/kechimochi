@@ -194,6 +194,7 @@ function syncCardBorderColor(state: SyncConnectionState): string {
 
 function isMissingGoogleOAuthConfigError(message: string): boolean {
     return message.includes('KECHIMOCHI_GOOGLE_CLIENT_ID')
+        || message.includes('KECHIMOCHI_GOOGLE_ANDROID_CLIENT_ID')
         || message.includes('Google Drive sync is not configured');
 }
 
@@ -1516,7 +1517,7 @@ export class ProfileView extends Component<ProfileState> {
     private async connectGoogleDriveForSync() {
         return connectGoogleDriveForSync(
             this.withBlockingStatus,
-            'Complete the Google sign-in flow in your browser to keep going.',
+            'Complete the Google sign-in flow to keep going.',
         );
     }
 
@@ -1695,21 +1696,21 @@ export class ProfileView extends Component<ProfileState> {
         if (isMissingGoogleOAuthConfigError(message)) {
             await customAlert(
                 'Cloud Sync Setup Needed',
-                'Google Drive sync is not configured for this app build yet. Provide `KECHIMOCHI_GOOGLE_CLIENT_ID` and `KECHIMOCHI_GOOGLE_CLIENT_SECRET` in a private `.env.local` or release build environment, rebuild the desktop app, then restart it.'
+                'Google Drive sign-in is unavailable right now because this app is missing required authentication settings. Please try a newer build or contact the app developer.'
             );
             return;
         }
         if (isMissingGoogleOAuthClientSecretError(message)) {
             await customAlert(
                 'Cloud Sync OAuth Config Error',
-                'This Google OAuth credential requires a client secret. For this desktop app, use a Google OAuth client created as `Desktop app`, then provide the matching `KECHIMOCHI_GOOGLE_CLIENT_SECRET` privately in `.env.local` or the release build environment and rebuild the app.'
+                'Google Drive sign-in could not be completed because this app is missing part of its authentication setup. Please try a newer build or contact the app developer.'
             );
             return;
         }
         if (message.includes(ENABLE_SYNC_AUTH_TIMEOUT_ERROR)) {
             await customAlert(
                 'Google Sign-In Timed Out',
-                'The browser sign-in did not return to the app in time. You can close the browser tab and try Enable Sync again.'
+                'The Google sign-in flow did not finish in time. Please try Enable Sync again.'
             );
             return;
         }

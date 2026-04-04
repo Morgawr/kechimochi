@@ -258,6 +258,15 @@ describe('DesktopServices', () => {
         expect(new DesktopServices().supportsWindowControls()).toBe(false);
     });
 
+    it('uses the Android native Google auth plugin before completing sign-in', async () => {
+        vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (Linux; Android 15; Pixel 8) Tauri/2.0' });
+        vi.mocked(invoke).mockResolvedValueOnce(buildGoogleDriveAuthSession({ google_account_email: null }));
+
+        await expect(new DesktopServices().connectGoogleDrive()).resolves.toMatchObject({ device_id: 'dev_1' });
+
+        expect(invoke).toHaveBeenCalledWith('connect_google_drive');
+    });
+
     it('loads timeline events through invoke', async () => {
         vi.mocked(invoke).mockResolvedValue([{ kind: 'started', mediaId: 1 }]);
 

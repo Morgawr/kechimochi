@@ -11,7 +11,7 @@ import type { GoogleDriveAuthSession, SyncAttachPreview, SyncProgressUpdate } fr
 
 export const ENABLE_SYNC_AUTH_TIMEOUT_MS = 60_000;
 export const ENABLE_SYNC_AUTH_TIMEOUT_ERROR =
-    'Google sign-in timed out before the app received the browser callback.';
+    'Google sign-in timed out before the app received the authorization result.';
 
 export type BlockingStatusRunner = <T>(
     title: string,
@@ -101,7 +101,7 @@ export async function runSyncProgressBlockingStatus<T>(
 
 export async function connectGoogleDriveForSync(
     withBlockingStatus: BlockingStatusRunner,
-    promptText = 'Complete the Google sign-in flow in your browser to keep going.',
+    promptText = 'Complete the Google sign-in flow to keep going.',
 ): Promise<GoogleDriveAuthSession> {
     return withBlockingStatus(
         'Connecting to Google Drive',

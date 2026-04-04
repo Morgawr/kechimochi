@@ -2,8 +2,9 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const CLIENT_ID_ENV: &str = "KECHIMOCHI_GOOGLE_CLIENT_ID";
-const CLIENT_SECRET_ENV: &str = "KECHIMOCHI_GOOGLE_CLIENT_SECRET";
+const DESKTOP_CLIENT_ID_ENV: &str = "KECHIMOCHI_GOOGLE_CLIENT_ID";
+const DESKTOP_CLIENT_SECRET_ENV: &str = "KECHIMOCHI_GOOGLE_CLIENT_SECRET";
+const ANDROID_CLIENT_ID_ENV: &str = "KECHIMOCHI_GOOGLE_ANDROID_CLIENT_ID";
 const BUNDLED_CLIENT_ID_ENV: &str = "KECHIMOCHI_BUNDLED_GOOGLE_CLIENT_ID";
 const BUNDLED_CLIENT_SECRET_ENV: &str = "KECHIMOCHI_BUNDLED_GOOGLE_CLIENT_SECRET";
 
@@ -19,30 +20,43 @@ fn main() {
         manifest_dir.join(".env.local"),
     ];
 
-    println!("cargo:rerun-if-env-changed={CLIENT_ID_ENV}");
-    println!("cargo:rerun-if-env-changed={CLIENT_SECRET_ENV}");
+    for key in [
+        DESKTOP_CLIENT_ID_ENV,
+        DESKTOP_CLIENT_SECRET_ENV,
+        ANDROID_CLIENT_ID_ENV,
+    ] {
+        println!("cargo:rerun-if-env-changed={key}");
+    }
     for path in &local_env_paths {
         println!("cargo:rerun-if-changed={}", path.display());
     }
 
-    for (source_key, bundled_key) in [
-        (CLIENT_ID_ENV, BUNDLED_CLIENT_ID_ENV),
-        (CLIENT_SECRET_ENV, BUNDLED_CLIENT_SECRET_ENV),
-    ] {
-        if let Some(value) = env::var(source_key)
-            .ok()
-            .filter(|value| !value.trim().is_empty())
-            .or_else(|| {
-                local_env_paths
-                    .iter()
-                    .find_map(|path| read_env_value(path, source_key))
-            })
-        {
+    let source_client_id_env = if env::var("CARGO_CFG_TARGET_OS").ok().as_deref() == Some("android") {
+        ANDROID_CLIENT_ID_ENV
+    } else {
+        DESKTOP_CLIENT_ID_ENV
+    };
+
+    for (source_key, bundled_key) in [(source_client_id_env, BUNDLED_CLIENT_ID_ENV)] {
+        if let Some(value) = resolve_env_value(&local_env_paths, source_key) {
             println!("cargo:rustc-env={bundled_key}={value}");
         }
     }
 
+    if source_client_id_env != ANDROID_CLIENT_ID_ENV {
+        if let Some(value) = resolve_env_value(&local_env_paths, DESKTOP_CLIENT_SECRET_ENV) {
+        println!("cargo:rustc-env={BUNDLED_CLIENT_SECRET_ENV}={value}");
+        }
+    }
+
     tauri_build::build()
+}
+
+fn resolve_env_value(local_env_paths: &[PathBuf], key: &str) -> Option<String> {
+    env::var(key)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| local_env_paths.iter().find_map(|path| read_env_value(path, key)))
 }
 
 fn read_env_value(path: &Path, key: &str) -> Option<String> {

@@ -461,7 +461,7 @@ describe('ProfileView', () => {
         );
 
         await renderAndClickEnableSync(container);
-        await expectLatestAlert('Cloud Sync Setup Needed', 'KECHIMOCHI_GOOGLE_CLIENT_SECRET');
+        await expectLatestAlert('Cloud Sync Setup Needed', 'missing required authentication settings');
     });
 
     it('should show a specific message when the configured Google OAuth client requires a secret', async () => {
@@ -470,7 +470,7 @@ describe('ProfileView', () => {
         );
 
         await renderAndClickEnableSync(container);
-        await expectLatestAlert('Cloud Sync OAuth Config Error', 'KECHIMOCHI_GOOGLE_CLIENT_SECRET');
+        await expectLatestAlert('Cloud Sync OAuth Config Error', 'missing part of its authentication setup');
     });
 
     it('should time out the enable sync browser handoff and close the blocking modal', async () => {

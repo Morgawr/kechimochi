@@ -369,7 +369,7 @@ export class App {
                 withBlockingStatus: runBlockingStatus,
                 wizardOptions: { allowCreateNew: false, title: 'Import From Google Drive' },
                 onNoProfiles: showNoCloudProfilesFoundAlert,
-                connectPromptText: 'Opening the browser sign-in flow for Google Drive...',
+                connectPromptText: 'Opening the Google sign-in flow for Google Drive...',
             });
             if (selection?.action !== 'attach') {
                 return false;
