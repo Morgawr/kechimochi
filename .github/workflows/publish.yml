@@ -7,6 +7,8 @@ on:
         required: true
       KECHIMOCHI_GOOGLE_CLIENT_SECRET:
         required: true
+      KECHIMOCHI_GOOGLE_ANDROID_CLIENT_ID:
+        required: true
 
 jobs:
   prepare:
@@ -401,8 +403,7 @@ jobs:
 
       - name: build android apk
         env:
-          KECHIMOCHI_GOOGLE_CLIENT_ID: ${{ secrets.KECHIMOCHI_GOOGLE_CLIENT_ID }}
-          KECHIMOCHI_GOOGLE_CLIENT_SECRET: ${{ secrets.KECHIMOCHI_GOOGLE_CLIENT_SECRET }}
+          KECHIMOCHI_GOOGLE_ANDROID_CLIENT_ID: ${{ secrets.KECHIMOCHI_GOOGLE_ANDROID_CLIENT_ID }}
           VITE_APP_VERSION: ${{ needs.prepare.outputs.display_version }}
           VITE_APP_CHANNEL: dev
           VITE_RELEASE_STAGE: beta

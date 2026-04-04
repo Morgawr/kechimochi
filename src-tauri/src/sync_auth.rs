@@ -30,12 +30,19 @@ const OAUTH_HTTP_REQUEST_TIMEOUT_SECS: u64 = 60;
 const APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
 const TOKEN_STORE_SERVICE: &str = "com.morg.kechimochi.google-drive";
 const TOKEN_STORE_ACCOUNT: &str = "oauth_tokens";
-const ENV_CLIENT_ID: &str = "KECHIMOCHI_GOOGLE_CLIENT_ID";
-const ENV_CLIENT_SECRET: &str = "KECHIMOCHI_GOOGLE_CLIENT_SECRET";
+const ENV_DESKTOP_CLIENT_ID: &str = "KECHIMOCHI_GOOGLE_CLIENT_ID";
+const ENV_DESKTOP_CLIENT_SECRET: &str = "KECHIMOCHI_GOOGLE_CLIENT_SECRET";
+const ENV_ANDROID_CLIENT_ID: &str = "KECHIMOCHI_GOOGLE_ANDROID_CLIENT_ID";
 const ENV_AUTH_ENDPOINT: &str = "KECHIMOCHI_GOOGLE_AUTH_ENDPOINT";
 const ENV_TOKEN_ENDPOINT: &str = "KECHIMOCHI_GOOGLE_TOKEN_ENDPOINT";
 const ENV_TEST_TOKEN_STORE_PATH: &str = "KECHIMOCHI_SYNC_TEST_TOKEN_STORE_PATH";
 const TAURI_PLUGIN_CONFIG_KEY: &str = "kechimochiSync";
+const GOOGLE_USERINFO_ENDPOINT: &str = "https://www.googleapis.com/oauth2/v3/userinfo";
+const GOOGLE_OPENID_SCOPE: &str = "openid";
+const GOOGLE_USERINFO_EMAIL_SCOPE: &str = "https://www.googleapis.com/auth/userinfo.email";
+const GOOGLE_USERINFO_PROFILE_SCOPE: &str = "https://www.googleapis.com/auth/userinfo.profile";
+const ANDROID_ACCESS_TOKEN_LIFETIME_SECS: i64 = 3600;
+const ANDROID_ACCESS_TOKEN_SENTINEL_REFRESH_TOKEN: &str = "__android_google_identity_access_token__";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GoogleOAuthClientConfig {
@@ -64,18 +71,44 @@ struct GoogleOAuthPluginConfig {
 }
 
 impl GoogleOAuthClientConfig {
+    fn active_client_id_env() -> &'static str {
+        if cfg!(target_os = "android") {
+            ENV_ANDROID_CLIENT_ID
+        } else {
+            ENV_DESKTOP_CLIENT_ID
+        }
+    }
+
+    fn active_client_secret_env() -> Option<&'static str> {
+        if cfg!(target_os = "android") {
+            None
+        } else {
+            Some(ENV_DESKTOP_CLIENT_SECRET)
+        }
+    }
+
+    fn build_platform_label() -> &'static str {
+        if cfg!(target_os = "android") {
+            "Android app"
+        } else {
+            "desktop app"
+        }
+    }
+
     fn configured_runtime_client_id() -> Option<String> {
-        std::env::var(ENV_CLIENT_ID)
+        std::env::var(Self::active_client_id_env())
             .ok()
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
     }
 
     fn configured_runtime_client_secret() -> Option<String> {
-        std::env::var(ENV_CLIENT_SECRET)
-            .ok()
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
+        Self::active_client_secret_env().and_then(|key| {
+            std::env::var(key)
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        })
     }
 
     fn configured_bundled_client_id() -> Option<String> {
@@ -92,19 +125,15 @@ impl GoogleOAuthClientConfig {
             .map(str::to_string)
     }
 
-    fn configured_client_id_override() -> Option<String> {
-        Self::configured_runtime_client_id().or_else(Self::configured_bundled_client_id)
-    }
-
     fn configured_client_secret_override() -> Option<String> {
         Self::configured_runtime_client_secret().or_else(Self::configured_bundled_client_secret)
     }
 
-    fn with_private_overrides(mut self) -> Self {
-        if let Some(client_id) = Self::configured_client_id_override() {
+    fn with_private_runtime_overrides(mut self) -> Self {
+        if let Some(client_id) = Self::configured_runtime_client_id() {
             self.client_id = client_id;
         }
-        if let Some(client_secret) = Self::configured_client_secret_override() {
+        if let Some(client_secret) = Self::configured_runtime_client_secret() {
             self.client_secret = Some(client_secret);
         }
         self
@@ -124,7 +153,12 @@ impl GoogleOAuthClientConfig {
 
     pub fn from_env() -> Result<Self, String> {
         let client_id = Self::configured_runtime_client_id()
-            .ok_or_else(|| format!("Missing Google OAuth client ID in {ENV_CLIENT_ID}"))?;
+            .ok_or_else(|| {
+                format!(
+                    "Missing Google OAuth client ID in {}",
+                    Self::active_client_id_env()
+                )
+            })?;
         let client_secret = Self::configured_client_secret_override();
         let auth_endpoint =
             std::env::var(ENV_AUTH_ENDPOINT).unwrap_or_else(|_| DEFAULT_AUTH_ENDPOINT.to_string());
@@ -206,12 +240,12 @@ impl GoogleOAuthClientConfig {
             return Self::from_env();
         }
 
-        if let Some(config) = Self::from_bundled_config() {
-            return Ok(config);
+        if let Some(config) = Self::from_plugin_config(plugin_config)? {
+            return Ok(config.with_private_runtime_overrides());
         }
 
-        if let Some(config) = Self::from_plugin_config(plugin_config)? {
-            return Ok(config.with_private_overrides());
+        if let Some(config) = Self::from_bundled_config() {
+            return Ok(config);
         }
 
         if Self::env_client_id_is_configured() {
@@ -219,7 +253,14 @@ impl GoogleOAuthClientConfig {
         }
 
         Err(format!(
-            "Google Drive sync is not configured for this build. Provide {ENV_CLIENT_ID} and {ENV_CLIENT_SECRET} in a private .env.local or release build environment before building the desktop app."
+            "Google Drive sync is not configured for this build. Provide {} and {} in a private .env.local or release build environment before building the {}.",
+            Self::active_client_id_env(),
+            if let Some(secret_env) = Self::active_client_secret_env() {
+                secret_env.to_string()
+            } else {
+                "the Android Google client configuration".to_string()
+            },
+            Self::build_platform_label()
         ))
     }
 }
@@ -378,6 +419,12 @@ struct GoogleTokenResponse {
     token_type: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct GoogleUserInfoResponse {
+    #[serde(default)]
+    email: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum TokenRefreshError {
     Revoked,
@@ -434,6 +481,52 @@ where
     .await
 }
 
+pub async fn persist_google_drive_android_access_token(
+    token_store: &dyn SecureTokenStore,
+    access_token: &str,
+) -> Result<(), String> {
+    let google_account_email = load_google_account_email_from_access_token(access_token).await?;
+    let mut tokens = token_store.load_tokens()?.unwrap_or(StoredGoogleTokens {
+        refresh_token: ANDROID_ACCESS_TOKEN_SENTINEL_REFRESH_TOKEN.to_string(),
+        access_token: None,
+        access_token_expires_at: None,
+        scope: None,
+        token_type: None,
+        google_account_email: None,
+    });
+
+    tokens.refresh_token = ANDROID_ACCESS_TOKEN_SENTINEL_REFRESH_TOKEN.to_string();
+    tokens.access_token = Some(access_token.to_string());
+    tokens.access_token_expires_at = Some(compute_expiry_timestamp(ANDROID_ACCESS_TOKEN_LIFETIME_SECS));
+    tokens.scope = Some(format!(
+        "{} {} {} {}",
+        GOOGLE_DRIVE_APPDATA_SCOPE,
+        GOOGLE_OPENID_SCOPE,
+        GOOGLE_USERINFO_EMAIL_SCOPE,
+        GOOGLE_USERINFO_PROFILE_SCOPE
+    ));
+    tokens.token_type = Some("Bearer".to_string());
+    if google_account_email.is_some() {
+        tokens.google_account_email = google_account_email;
+    }
+    token_store.save_tokens(&tokens)
+}
+
+pub fn build_google_drive_auth_session(
+    app_dir: &Path,
+    token_store: &dyn SecureTokenStore,
+) -> Result<GoogleDriveAuthSession, String> {
+    let tokens = token_store
+        .load_tokens()?
+        .ok_or_else(|| "Google Drive is not authenticated".to_string())?;
+
+    Ok(GoogleDriveAuthSession {
+        device_id: sync_state::get_or_create_device_id(app_dir)?,
+        google_account_email: tokens.google_account_email,
+        access_token_expires_at: tokens.access_token_expires_at,
+    })
+}
+
 pub async fn get_valid_google_access_token(
     config: &GoogleOAuthClientConfig,
     token_store: &dyn SecureTokenStore,
@@ -463,6 +556,10 @@ where
         if let Some(access_token) = tokens.access_token {
             return Ok(access_token);
         }
+    }
+
+    if tokens.refresh_token == ANDROID_ACCESS_TOKEN_SENTINEL_REFRESH_TOKEN {
+        return Err("Google Drive authorization expired. Please try again.".to_string());
     }
 
     let refresh_token = tokens.refresh_token.clone();
@@ -499,6 +596,12 @@ pub fn load_google_account_email(
     Ok(token_store
         .load_tokens()?
         .and_then(|tokens| tokens.google_account_email))
+}
+
+pub fn load_google_access_token(
+    token_store: &dyn SecureTokenStore,
+) -> Result<Option<String>, String> {
+    Ok(token_store.load_tokens()?.and_then(|tokens| tokens.access_token))
 }
 
 pub fn has_google_drive_tokens(token_store: &dyn SecureTokenStore) -> Result<bool, String> {
@@ -556,24 +659,7 @@ where
     )
     .await?;
 
-    let tokens = StoredGoogleTokens {
-        refresh_token: token_response
-            .refresh_token
-            .ok_or_else(|| "Google OAuth did not return a refresh token".to_string())?,
-        access_token: Some(token_response.access_token.clone()),
-        access_token_expires_at: token_response.expires_in.map(compute_expiry_timestamp),
-        scope: token_response.scope.clone(),
-        token_type: token_response.token_type.clone(),
-        google_account_email: None,
-    };
-    token_store.save_tokens(&tokens)?;
-
-    let device_id = sync_state::get_or_create_device_id(app_dir)?;
-    Ok(GoogleDriveAuthSession {
-        device_id,
-        google_account_email: tokens.google_account_email,
-        access_token_expires_at: tokens.access_token_expires_at,
-    })
+    persist_google_sign_in(app_dir, token_store, token_response).await
 }
 
 async fn exchange_authorization_code(
@@ -761,6 +847,30 @@ fn build_http_client() -> Result<reqwest::Client, String> {
         .map_err(|e| e.to_string())
 }
 
+async fn load_google_account_email_from_access_token(
+    access_token: &str,
+) -> Result<Option<String>, String> {
+    let http_client = build_http_client()?;
+    let response = http_client
+        .get(GOOGLE_USERINFO_ENDPOINT)
+        .bearer_auth(access_token)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        if body.trim().is_empty() {
+            return Err(format!("Google user info request failed with status {status}."));
+        }
+        return Err(format!("Google user info request failed: {body}"));
+    }
+
+    let user_info: GoogleUserInfoResponse = response.json().await.map_err(|e| e.to_string())?;
+    Ok(user_info.email.filter(|email| !email.trim().is_empty()))
+}
+
 fn map_refresh_token_error(
     error: BasicRequestTokenError<HttpClientError<reqwest::Error>>,
 ) -> TokenRefreshError {
@@ -792,6 +902,31 @@ fn convert_token_response(
         }),
         token_type: Some(format!("{:?}", token.token_type())),
     }
+}
+
+async fn persist_google_sign_in(
+    app_dir: &Path,
+    token_store: &dyn SecureTokenStore,
+    token_response: GoogleTokenResponse,
+) -> Result<GoogleDriveAuthSession, String> {
+    let tokens = StoredGoogleTokens {
+        refresh_token: token_response
+            .refresh_token
+            .ok_or_else(|| "Google OAuth did not return a refresh token".to_string())?,
+        access_token: Some(token_response.access_token.clone()),
+        access_token_expires_at: token_response.expires_in.map(compute_expiry_timestamp),
+        scope: token_response.scope.clone(),
+        token_type: token_response.token_type.clone(),
+        google_account_email: None,
+    };
+    token_store.save_tokens(&tokens)?;
+
+    let device_id = sync_state::get_or_create_device_id(app_dir)?;
+    Ok(GoogleDriveAuthSession {
+        device_id,
+        google_account_email: tokens.google_account_email,
+        access_token_expires_at: tokens.access_token_expires_at,
+    })
 }
 
 fn save_secret(service: &str, account: &str, secret: &str) -> Result<(), String> {
@@ -908,8 +1043,8 @@ mod tests {
     #[test]
     fn oauth_config_can_merge_private_env_secret_into_tauri_plugin_config() {
         let _lock = oauth_env_lock().lock().unwrap();
-        let previous_secret = std::env::var(ENV_CLIENT_SECRET).ok();
-        std::env::set_var(ENV_CLIENT_SECRET, "private-env-secret");
+        let previous_secret = std::env::var(ENV_DESKTOP_CLIENT_SECRET).ok();
+        std::env::set_var(ENV_DESKTOP_CLIENT_SECRET, "private-env-secret");
 
         let config = GoogleOAuthClientConfig::from_plugin_or_env(Some(&serde_json::json!({
             "clientId": "tauri-client-id"
@@ -920,9 +1055,9 @@ mod tests {
         assert_eq!(config.client_secret.as_deref(), Some("private-env-secret"));
 
         if let Some(previous_secret) = previous_secret {
-            std::env::set_var(ENV_CLIENT_SECRET, previous_secret);
+            std::env::set_var(ENV_DESKTOP_CLIENT_SECRET, previous_secret);
         } else {
-            std::env::remove_var(ENV_CLIENT_SECRET);
+            std::env::remove_var(ENV_DESKTOP_CLIENT_SECRET);
         }
     }
 
@@ -1067,6 +1202,36 @@ mod tests {
 
         assert!(err.contains("revoked"));
         assert!(token_store.load_tokens().unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn android_access_token_only_tokens_require_reauthorization_when_expired() {
+        let config = test_config("https://oauth.example.test/token".to_string());
+        let token_store = MemoryTokenStore::default();
+        token_store
+            .save_tokens(&StoredGoogleTokens {
+                refresh_token: ANDROID_ACCESS_TOKEN_SENTINEL_REFRESH_TOKEN.to_string(),
+                access_token: Some("expired".to_string()),
+                access_token_expires_at: Some(
+                    (Utc::now() - ChronoDuration::minutes(5)).to_rfc3339(),
+                ),
+                scope: Some(GOOGLE_DRIVE_APPDATA_SCOPE.to_string()),
+                token_type: Some("Bearer".to_string()),
+                google_account_email: Some("user@example.com".to_string()),
+            })
+            .unwrap();
+
+        let err = get_valid_google_access_token_with_refresh(
+            &config,
+            &token_store,
+            |_config, _refresh_token| async move {
+                panic!("android access-token-only auth should not try to refresh")
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(err, "Google Drive authorization expired. Please try again.");
     }
 
     #[test]
