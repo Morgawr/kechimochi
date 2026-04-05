@@ -523,14 +523,15 @@ async fn attach_remote_sync_profile_with_client<T: DriveTransport>(
     }
 
     apply_snapshot_and_materialize_with_client(
-        app_dir,
-        conn,
-        app_dir.join("covers").as_path(),
+        SnapshotMaterializationContext::new(
+            app_dir,
+            conn,
+            SyncProgressOperation::AttachRemoteSyncProfile,
+            progress,
+        ),
         &merge_outcome.merged_snapshot,
         client,
         token_store,
-        SyncProgressOperation::AttachRemoteSyncProfile,
-        progress,
     )
     .await?;
 
@@ -861,14 +862,15 @@ async fn run_sync_inner<T: DriveTransport>(
 
     if !merge_outcome.conflicts.is_empty() {
         apply_snapshot_and_materialize_with_client(
-            app_dir,
-            conn,
-            app_dir.join("covers").as_path(),
+            SnapshotMaterializationContext::new(
+                app_dir,
+                conn,
+                SyncProgressOperation::RunSync,
+                progress,
+            ),
             &merge_outcome.merged_snapshot,
             client,
             token_store,
-            SyncProgressOperation::RunSync,
-            progress,
         )
         .await?;
         sync_state::save_base_snapshot(app_dir, &remote_snapshot)?;
@@ -899,14 +901,15 @@ async fn run_sync_inner<T: DriveTransport>(
     }
 
     apply_snapshot_and_materialize_with_client(
-        app_dir,
-        conn,
-        app_dir.join("covers").as_path(),
+        SnapshotMaterializationContext::new(
+            app_dir,
+            conn,
+            SyncProgressOperation::RunSync,
+            progress,
+        ),
         &merge_outcome.merged_snapshot,
         client,
         token_store,
-        SyncProgressOperation::RunSync,
-        progress,
     )
     .await?;
     sync_state::clear_pending_conflicts(app_dir)?;
@@ -971,14 +974,15 @@ async fn replace_local_from_remote_inner<T: DriveTransport>(
         );
 
         apply_snapshot_and_materialize_with_client(
-            app_dir,
-            conn,
-            app_dir.join("covers").as_path(),
+            SnapshotMaterializationContext::new(
+                app_dir,
+                conn,
+                SyncProgressOperation::ReplaceLocalFromRemote,
+                progress,
+            ),
             &remote_snapshot,
             client,
             token_store,
-            SyncProgressOperation::ReplaceLocalFromRemote,
-            progress,
         )
         .await?;
 
@@ -1157,14 +1161,10 @@ async fn resolve_sync_conflict_with_client<T: DriveTransport>(
 
     apply_conflict_resolution_to_snapshot(&mut local_snapshot, &conflict, &resolution)?;
     apply_snapshot_and_materialize_with_client(
-        app_dir,
-        conn,
-        app_dir.join("covers").as_path(),
+        SnapshotMaterializationContext::new(app_dir, conn, SyncProgressOperation::RunSync, None),
         &local_snapshot,
         client,
         token_store,
-        SyncProgressOperation::RunSync,
-        None,
     )
     .await?;
 
@@ -1886,43 +1886,64 @@ async fn upload_cover_blob_with_retry<T: DriveTransport>(
     ))
 }
 
+struct SnapshotMaterializationContext<'a> {
+    app_dir: &'a Path,
+    conn: &'a Arc<Mutex<Connection>>,
+    covers_dir: PathBuf,
+    operation: SyncProgressOperation,
+    progress: Option<&'a SyncProgressReporter>,
+}
+
+impl<'a> SnapshotMaterializationContext<'a> {
+    fn new(
+        app_dir: &'a Path,
+        conn: &'a Arc<Mutex<Connection>>,
+        operation: SyncProgressOperation,
+        progress: Option<&'a SyncProgressReporter>,
+    ) -> Self {
+        Self {
+            app_dir,
+            conn,
+            covers_dir: app_dir.join("covers"),
+            operation,
+            progress,
+        }
+    }
+}
+
 async fn apply_snapshot_and_materialize_with_client<T: DriveTransport>(
-    app_dir: &Path,
-    conn: &Arc<Mutex<Connection>>,
-    covers_dir: &Path,
+    context: SnapshotMaterializationContext<'_>,
     snapshot: &SyncSnapshot,
     client: &GoogleDriveClient<T>,
     token_store: &dyn SecureTokenStore,
-    operation: SyncProgressOperation,
-    progress: Option<&SyncProgressReporter>,
 ) -> Result<(), String> {
     report_progress(
-        operation.clone(),
-        progress,
+        context.operation.clone(),
+        context.progress,
         SyncProgressStage::ApplyingRemoteChanges,
         0,
         1,
         "Applying remote changes to this device...".to_string(),
     );
     {
-        let conn_guard = conn.lock().map_err(|e| e.to_string())?;
+        let conn_guard = context.conn.lock().map_err(|e| e.to_string())?;
         sync_snapshot::apply_snapshot(&conn_guard, snapshot)?;
     }
-    sync_snapshot::apply_snapshot_theme_packs(app_dir, snapshot)?;
+    sync_snapshot::apply_snapshot_theme_packs(context.app_dir, snapshot)?;
 
     materialize_snapshot_cover_blobs_with_client(
-        conn,
-        covers_dir,
+        context.conn,
+        context.covers_dir.as_path(),
         snapshot,
         client,
         token_store,
-        operation.clone(),
-        progress,
+        context.operation.clone(),
+        context.progress,
     )
     .await?;
     report_progress(
-        operation,
-        progress,
+        context.operation,
+        context.progress,
         SyncProgressStage::ApplyingRemoteChanges,
         1,
         1,
@@ -1967,6 +1988,7 @@ async fn materialize_snapshot_cover_blobs_with_client<T: DriveTransport>(
             pending_hashes.insert(expected_hash.clone());
         }
     }
+
     let pending_downloads = pending_hashes.len();
 
     report_progress(
