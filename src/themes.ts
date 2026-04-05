@@ -235,37 +235,60 @@ function validateThemeAssetReference(value: unknown, label: string): string {
     return normalized;
 }
 
+function validateThemeBackgroundType(type: unknown): ThemeBackgroundDefinition['type'] {
+    if (type !== 'image' && type !== 'video') {
+        throw new Error('Theme pack background type must be "image" or "video".');
+    }
+
+    return type;
+}
+
+function validateThemeBackgroundFit(fit: unknown): ThemeBackgroundDefinition['fit'] | undefined {
+    if (fit === undefined) {
+        return undefined;
+    }
+    if (fit !== 'cover' && fit !== 'contain' && fit !== 'fill') {
+        throw new Error('Theme pack background fit must be "cover", "contain", or "fill".');
+    }
+
+    return fit;
+}
+
+function validateOptionalThemeBackgroundNumber(value: unknown, label: string): number | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (!isFiniteNumber(value)) {
+        throw new Error(`Theme pack background ${label} must be a finite number.`);
+    }
+
+    return value;
+}
+
+function validateOptionalThemeBackgroundBoolean(value: unknown, label: string): boolean | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (typeof value !== 'boolean') {
+        throw new Error(`Theme pack background ${label} must be a boolean.`);
+    }
+
+    return value;
+}
+
 function validateThemeBackground(input: unknown): ThemeBackgroundDefinition | undefined {
     if (input === undefined) return undefined;
     if (!isRecord(input)) {
         throw new Error('Theme pack background must be an object.');
     }
 
-    const type = input.type;
-    if (type !== 'image' && type !== 'video') {
-        throw new Error('Theme pack background type must be "image" or "video".');
-    }
-
-    const fit = input.fit;
-    if (fit !== undefined && fit !== 'cover' && fit !== 'contain' && fit !== 'fill') {
-        throw new Error('Theme pack background fit must be "cover", "contain", or "fill".');
-    }
-
-    if (input.opacity !== undefined && !isFiniteNumber(input.opacity)) {
-        throw new Error('Theme pack background opacity must be a finite number.');
-    }
-    if (input.blur_px !== undefined && !isFiniteNumber(input.blur_px)) {
-        throw new Error('Theme pack background blur_px must be a finite number.');
-    }
-    if (input.playback_rate !== undefined && !isFiniteNumber(input.playback_rate)) {
-        throw new Error('Theme pack background playback_rate must be a finite number.');
-    }
-    if (input.loop !== undefined && typeof input.loop !== 'boolean') {
-        throw new Error('Theme pack background loop must be a boolean.');
-    }
-    if (input.muted !== undefined && typeof input.muted !== 'boolean') {
-        throw new Error('Theme pack background muted must be a boolean.');
-    }
+    const type = validateThemeBackgroundType(input.type);
+    const fit = validateThemeBackgroundFit(input.fit);
+    const opacity = validateOptionalThemeBackgroundNumber(input.opacity, 'opacity');
+    const blurPx = validateOptionalThemeBackgroundNumber(input.blur_px, 'blur_px');
+    const playbackRate = validateOptionalThemeBackgroundNumber(input.playback_rate, 'playback_rate');
+    const loop = validateOptionalThemeBackgroundBoolean(input.loop, 'loop');
+    const muted = validateOptionalThemeBackgroundBoolean(input.muted, 'muted');
 
     const background: ThemeBackgroundDefinition = {
         type,
@@ -278,20 +301,20 @@ function validateThemeBackground(input: unknown): ThemeBackgroundDefinition | un
     if (fit !== undefined) {
         background.fit = fit;
     }
-    if (input.opacity !== undefined) {
-        background.opacity = Math.min(1, Math.max(0, input.opacity));
+    if (opacity !== undefined) {
+        background.opacity = Math.min(1, Math.max(0, opacity));
     }
-    if (input.blur_px !== undefined) {
-        background.blur_px = Math.max(0, input.blur_px);
+    if (blurPx !== undefined) {
+        background.blur_px = Math.max(0, blurPx);
     }
-    if (input.playback_rate !== undefined) {
-        background.playback_rate = Math.max(0.1, input.playback_rate);
+    if (playbackRate !== undefined) {
+        background.playback_rate = Math.max(0.1, playbackRate);
     }
-    if (input.loop !== undefined) {
-        background.loop = input.loop;
+    if (loop !== undefined) {
+        background.loop = loop;
     }
-    if (input.muted !== undefined) {
-        background.muted = input.muted;
+    if (muted !== undefined) {
+        background.muted = muted;
     }
 
     return background;
@@ -972,7 +995,7 @@ function syncThemeBackdrop(theme: ThemePackV1 | null, doc: Document = document):
 
     if (layer instanceof HTMLVideoElement && layer.autoplay) {
         queueMicrotask(() => {
-            void layer.play().catch(() => undefined);
+            layer.play().catch(() => undefined);
         });
     }
 }
