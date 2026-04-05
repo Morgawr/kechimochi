@@ -31,9 +31,14 @@ import { getBuildVersion } from '../app_version';
 import { getMockExternalJsonResponse } from './external_mocks';
 
 const API_BASE: string = import.meta.env.VITE_API_BASE_URL || '';
+const BACKSLASH = '\\';
 
 function apiUrl(path: string): string {
     return `${API_BASE}/api${path}`;
+}
+
+function normalizeThemeAssetPath(assetPath: string): string {
+    return assetPath.trim().replaceAll(BACKSLASH, '/');
 }
 
 async function parseJsonResponse<T>(res: Response): Promise<T> {
@@ -247,7 +252,7 @@ export class WebServices implements AppServices {
     }
 
     resolveManagedThemeAssetUrl(themeId: string, assetPath: string): Promise<string | null> {
-        const normalized = assetPath.trim().replace(/\\/g, '/');
+        const normalized = normalizeThemeAssetPath(assetPath);
         if (!normalized) return Promise.resolve(null);
         const encodedAssetPath = normalized.split('/').map(segment => encodeURIComponent(segment)).join('/');
         return Promise.resolve(apiUrl(`/themes/${encodeURIComponent(themeId)}/assets/${encodedAssetPath}`));

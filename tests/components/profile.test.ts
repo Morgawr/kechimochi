@@ -92,6 +92,52 @@ vi.mock('../../src/modals', () => ({
 
 import * as modals from '../../src/modals';
 
+const testThemeVariables = {
+    'surface-base': '#101010',
+    'surface-card': '#202020',
+    'surface-card-hover': '#303030',
+    'text-primary': '#ffffff',
+    'text-secondary': '#cccccc',
+    'accent-primary': '#00ff88',
+    'accent-primary-hover': '#22ffaa',
+    'accent-danger': '#ff4466',
+    'accent-interactive': '#4488ff',
+    'accent-highlight': '#ffdd44',
+    'accent-secondary': '#aa66ff',
+    'border-subtle': '#444444',
+    'shadow-soft': '0 2px 4px rgba(0,0,0,0.2)',
+    'shadow-strong': '0 4px 12px rgba(0,0,0,0.4)',
+    'heatmap-hue': '180',
+    'heatmap-saturation-base': '40',
+    'heatmap-saturation-range': '50',
+    'heatmap-lightness-base': '45',
+    'heatmap-lightness-range': '35',
+    'accent-contrast': '#000000',
+    'chart-series-1': '#111111',
+    'chart-series-2': '#222222',
+    'chart-series-3': '#333333',
+    'chart-series-4': '#444444',
+    'chart-series-5': '#555555',
+} as const;
+
+function createThemePack(overrides: Record<string, unknown> = {}) {
+    return {
+        version: 1,
+        id: 'custom:test-theme',
+        name: 'Test Theme',
+        variables: { ...testThemeVariables },
+        ...overrides,
+    };
+}
+
+function createThemePackContent(overrides: Record<string, unknown> = {}): string {
+    return JSON.stringify(createThemePack(overrides));
+}
+
+function createManagedThemeSummary(id = 'custom:test-theme', name = 'Test Theme', hasAssets?: boolean) {
+    return hasAssets === undefined ? { id, name } : { id, name, has_assets: hasAssets };
+}
+
 function mockStandardProfileLoad(options?: {
     appVersion?: string;
     profileName?: string;
@@ -319,46 +365,9 @@ describe('ProfileView', () => {
     });
 
     it('should import a custom theme pack and select it', async () => {
-        const importedThemeContent = JSON.stringify({
-            version: 1,
-            id: 'custom:test-theme',
-            name: 'Test Theme',
-            variables: {
-                'surface-base': '#101010',
-                'surface-card': '#202020',
-                'surface-card-hover': '#303030',
-                'text-primary': '#ffffff',
-                'text-secondary': '#cccccc',
-                'accent-primary': '#00ff88',
-                'accent-primary-hover': '#22ffaa',
-                'accent-danger': '#ff4466',
-                'accent-interactive': '#4488ff',
-                'accent-highlight': '#ffdd44',
-                'accent-secondary': '#aa66ff',
-                'border-subtle': '#444444',
-                'shadow-soft': '0 2px 4px rgba(0,0,0,0.2)',
-                'shadow-strong': '0 4px 12px rgba(0,0,0,0.4)',
-                'heatmap-hue': '180',
-                'heatmap-saturation-base': '40',
-                'heatmap-saturation-range': '50',
-                'heatmap-lightness-base': '45',
-                'heatmap-lightness-range': '35',
-                'accent-contrast': '#000000',
-                'chart-series-1': '#111111',
-                'chart-series-2': '#222222',
-                'chart-series-3': '#333333',
-                'chart-series-4': '#444444',
-                'chart-series-5': '#555555',
-            },
-            cssOverrides: '.btn { border-radius: 999px; }'
-        });
+        const importedThemeContent = createThemePackContent({ cssOverrides: '.btn { border-radius: 999px; }' });
 
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === SETTING_KEYS.THEME) return 'dark';
-            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
-            return '0';
-        });
-        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+        mockStandardProfileLoad({ theme: 'dark' });
         vi.mocked(api.pickThemePackImportSelection).mockResolvedValue({ kind: 'desktop', path: 'midnight-current.json' });
         vi.mocked(api.importThemePackFromSelection).mockResolvedValue({
             themeId: 'custom:test-theme',
@@ -368,7 +377,7 @@ describe('ProfileView', () => {
         });
         vi.mocked(api.listManagedThemePackSummaries)
             .mockResolvedValueOnce([])
-            .mockResolvedValueOnce([{ id: 'custom:test-theme', name: 'Test Theme' }]);
+            .mockResolvedValueOnce([createManagedThemeSummary()]);
 
         const view = new ProfileView(container);
         view.render();
@@ -388,12 +397,7 @@ describe('ProfileView', () => {
     });
 
     it('should export the selected theme pack', async () => {
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === SETTING_KEYS.THEME) return 'light';
-            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
-            return '0';
-        });
-        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+        mockStandardProfileLoad({ theme: 'light' });
         vi.mocked(api.pickThemePackExportSelection).mockResolvedValue({ kind: 'desktop', filePath: 'kechimochi_theme_light-theme-custom.json' });
         vi.mocked(api.exportThemePackToSelection).mockResolvedValue(true);
 
@@ -425,37 +429,9 @@ describe('ProfileView', () => {
     });
 
     it('should export managed asset-backed themes using the raw manifest and zip filename', async () => {
-        const managedThemeContent = JSON.stringify({
-            version: 1,
+        const managedThemeContent = createThemePackContent({
             id: 'custom:persona-3-reload-ui',
             name: 'Persona 3 Reload UI',
-            variables: {
-                'surface-base': '#101010',
-                'surface-card': '#202020',
-                'surface-card-hover': '#303030',
-                'text-primary': '#ffffff',
-                'text-secondary': '#cccccc',
-                'accent-primary': '#00ff88',
-                'accent-primary-hover': '#22ffaa',
-                'accent-danger': '#ff4466',
-                'accent-interactive': '#4488ff',
-                'accent-highlight': '#ffdd44',
-                'accent-secondary': '#aa66ff',
-                'border-subtle': '#444444',
-                'shadow-soft': '0 2px 4px rgba(0,0,0,0.2)',
-                'shadow-strong': '0 4px 12px rgba(0,0,0,0.4)',
-                'heatmap-hue': '180',
-                'heatmap-saturation-base': '40',
-                'heatmap-saturation-range': '50',
-                'heatmap-lightness-base': '45',
-                'heatmap-lightness-range': '35',
-                'accent-contrast': '#000000',
-                'chart-series-1': '#111111',
-                'chart-series-2': '#222222',
-                'chart-series-3': '#333333',
-                'chart-series-4': '#444444',
-                'chart-series-5': '#555555',
-            },
             background: {
                 type: 'video',
                 src: 'assets/p3r-background.mp4',
@@ -467,17 +443,12 @@ describe('ProfileView', () => {
             }],
         });
 
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === SETTING_KEYS.THEME) return 'custom:persona-3-reload-ui';
-            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
-            return '0';
-        });
-        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+        mockStandardProfileLoad({ theme: 'custom:persona-3-reload-ui' });
         vi.mocked(api.getManagedThemePack).mockResolvedValue(managedThemeContent);
         vi.mocked(api.resolveManagedThemeAssetUrl).mockImplementation(async (_themeId, assetPath) => `blob:${assetPath}`);
         vi.mocked(api.listManagedThemePackSummaries)
-            .mockResolvedValueOnce([{ id: 'custom:persona-3-reload-ui', name: 'Persona 3 Reload UI', has_assets: true }])
-            .mockResolvedValueOnce([{ id: 'custom:persona-3-reload-ui', name: 'Persona 3 Reload UI', has_assets: true }]);
+            .mockResolvedValueOnce([createManagedThemeSummary('custom:persona-3-reload-ui', 'Persona 3 Reload UI', true)])
+            .mockResolvedValueOnce([createManagedThemeSummary('custom:persona-3-reload-ui', 'Persona 3 Reload UI', true)]);
         vi.mocked(api.pickThemePackExportSelection).mockResolvedValue({ kind: 'desktop', filePath: 'kechimochi_theme_persona-3-reload-ui.zip' });
         vi.mocked(api.exportThemePackToSelection).mockResolvedValue(true);
 
@@ -514,38 +485,7 @@ describe('ProfileView', () => {
     });
 
     it('should wait to show blocking status until after import selection completes', async () => {
-        const importedThemeContent = JSON.stringify({
-            version: 1,
-            id: 'custom:test-theme',
-            name: 'Test Theme',
-            variables: {
-                'surface-base': '#101010',
-                'surface-card': '#202020',
-                'surface-card-hover': '#303030',
-                'text-primary': '#ffffff',
-                'text-secondary': '#cccccc',
-                'accent-primary': '#00ff88',
-                'accent-primary-hover': '#22ffaa',
-                'accent-danger': '#ff4466',
-                'accent-interactive': '#4488ff',
-                'accent-highlight': '#ffdd44',
-                'accent-secondary': '#aa66ff',
-                'border-subtle': '#444444',
-                'shadow-soft': '0 2px 4px rgba(0,0,0,0.2)',
-                'shadow-strong': '0 4px 12px rgba(0,0,0,0.4)',
-                'heatmap-hue': '180',
-                'heatmap-saturation-base': '40',
-                'heatmap-saturation-range': '50',
-                'heatmap-lightness-base': '45',
-                'heatmap-lightness-range': '35',
-                'accent-contrast': '#000000',
-                'chart-series-1': '#111111',
-                'chart-series-2': '#222222',
-                'chart-series-3': '#333333',
-                'chart-series-4': '#444444',
-                'chart-series-5': '#555555',
-            },
-        });
+        const importedThemeContent = createThemePackContent();
 
         let resolveSelection!: (value: { kind: 'desktop'; path: string }) => void;
         const selectionPromise = new Promise<{ kind: 'desktop'; path: string }>((resolve) => {
@@ -560,7 +500,7 @@ describe('ProfileView', () => {
         });
         vi.mocked(api.listManagedThemePackSummaries)
             .mockResolvedValueOnce([])
-            .mockResolvedValueOnce([{ id: 'custom:test-theme', name: 'Test Theme' }]);
+            .mockResolvedValueOnce([createManagedThemeSummary()]);
 
         const view = new ProfileView(container);
         view.render();
@@ -583,37 +523,7 @@ describe('ProfileView', () => {
     });
 
     it('should keep blocking status open until theme import finishes loading and applying', async () => {
-        const importedThemeContent = JSON.stringify({
-            version: 1,
-            id: 'custom:test-theme',
-            name: 'Test Theme',
-            variables: {
-                'surface-base': '#101010',
-                'surface-card': '#202020',
-                'surface-card-hover': '#303030',
-                'text-primary': '#ffffff',
-                'text-secondary': '#cccccc',
-                'accent-primary': '#00ff88',
-                'accent-primary-hover': '#22ffaa',
-                'accent-danger': '#ff4466',
-                'accent-interactive': '#4488ff',
-                'accent-highlight': '#ffdd44',
-                'accent-secondary': '#aa66ff',
-                'border-subtle': '#444444',
-                'shadow-soft': '0 2px 4px rgba(0,0,0,0.2)',
-                'shadow-strong': '0 4px 12px rgba(0,0,0,0.4)',
-                'heatmap-hue': '180',
-                'heatmap-saturation-base': '40',
-                'heatmap-saturation-range': '50',
-                'heatmap-lightness-base': '45',
-                'heatmap-lightness-range': '35',
-                'accent-contrast': '#000000',
-                'chart-series-1': '#111111',
-                'chart-series-2': '#222222',
-                'chart-series-3': '#333333',
-                'chart-series-4': '#444444',
-                'chart-series-5': '#555555',
-            },
+        const importedThemeContent = createThemePackContent({
             background: {
                 type: 'video',
                 src: 'assets/bg.mp4',
@@ -637,7 +547,7 @@ describe('ProfileView', () => {
         vi.mocked(api.resolveManagedThemeAssetUrl).mockImplementation(() => assetUrlPromise);
         vi.mocked(api.listManagedThemePackSummaries)
             .mockResolvedValueOnce([])
-            .mockResolvedValueOnce([{ id: 'custom:test-theme', name: 'Test Theme' }]);
+            .mockResolvedValueOnce([createManagedThemeSummary()]);
 
         const view = new ProfileView(container);
         view.render();
@@ -658,12 +568,7 @@ describe('ProfileView', () => {
     });
 
     it('should wait to show blocking status until after export selection completes', async () => {
-        vi.mocked(api.getSetting).mockImplementation(async (key) => {
-            if (key === SETTING_KEYS.THEME) return 'light';
-            if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
-            return '0';
-        });
-        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+        mockStandardProfileLoad({ theme: 'light' });
 
         let resolveSelection!: (value: { kind: 'desktop'; filePath: string }) => void;
         const selectionPromise = new Promise<{ kind: 'desktop'; filePath: string }>((resolve) => {

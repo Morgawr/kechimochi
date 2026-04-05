@@ -47,15 +47,21 @@ const THEME_ASSET_MIME_TYPES: Record<string, string> = {
     woff2: 'font/woff2',
 };
 
+const BACKSLASH = '\\';
+
+function normalizeThemeAssetPath(assetPath: string): string {
+    return assetPath.trim().replaceAll(BACKSLASH, '/');
+}
+
 function getThemeAssetMimeType(assetPath: string): string {
-    const normalized = assetPath.trim().replace(/\\/g, '/');
+    const normalized = normalizeThemeAssetPath(assetPath);
     const extension = normalized.split('.').pop()?.toLowerCase() || '';
     return THEME_ASSET_MIME_TYPES[extension] || 'application/octet-stream';
 }
 
 export class DesktopServices implements AppServices {
     private win: ReturnType<typeof getCurrentWindow> | null = null;
-    private themeAssetUrls = new Map<string, string>();
+    private readonly themeAssetUrls = new Map<string, string>();
 
     private isAndroidRuntime(): boolean {
         const ua = navigator.userAgent || '';
@@ -227,7 +233,7 @@ export class DesktopServices implements AppServices {
     }
 
     async resolveManagedThemeAssetUrl(themeId: string, assetPath: string): Promise<string | null> {
-        const normalized = assetPath.trim().replace(/\\/g, '/');
+        const normalized = normalizeThemeAssetPath(assetPath);
         if (!normalized) return null;
 
         const cacheKey = `${themeId}::${normalized}`;

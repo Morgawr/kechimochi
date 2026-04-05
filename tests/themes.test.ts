@@ -173,7 +173,7 @@ describe('themes.ts', () => {
         }]);
 
         expect(resolved).toBe('custom:bundle-theme');
-        const backdrop = document.getElementById('kechimochi-custom-theme-backdrop') as HTMLDivElement | null;
+        const backdrop = document.getElementById('kechimochi-custom-theme-backdrop');
         expect(backdrop?.style.display).toBe('block');
         expect(backdrop?.style.position).toBe('fixed');
         expect(backdrop?.firstElementChild).not.toBeNull();
@@ -201,21 +201,21 @@ describe('themes.ts', () => {
 
         expect(resolved).toBe('custom:video-theme');
 
-        const backdrop = document.getElementById('kechimochi-custom-theme-backdrop') as HTMLDivElement | null;
-        const video = backdrop?.firstElementChild as HTMLVideoElement | null;
+        const backdrop = document.getElementById('kechimochi-custom-theme-backdrop');
+        const video = backdrop?.firstElementChild;
         const content = document.getElementById('content') as HTMLElement | null;
         const appRoot = document.getElementById('app') as HTMLElement | null;
 
         expect(backdrop?.style.display).toBe('block');
         expect(backdrop?.style.position).toBe('fixed');
         expect(backdrop?.style.zIndex).toBe('0');
-        expect(video).not.toBeNull();
+        expect(video).toBeInstanceOf(HTMLVideoElement);
         expect(video?.tagName).toBe('VIDEO');
-        expect(video?.autoplay).toBe(true);
-        expect(video?.muted).toBe(true);
-        expect(video?.defaultMuted).toBe(true);
-        expect(video?.getAttribute('playsinline')).toBe('');
-        expect(video?.style.objectFit).toBe('cover');
+        expect((video as HTMLVideoElement | null)?.autoplay).toBe(true);
+        expect((video as HTMLVideoElement | null)?.muted).toBe(true);
+        expect((video as HTMLVideoElement | null)?.defaultMuted).toBe(true);
+        expect((video as HTMLVideoElement | null)?.getAttribute('playsinline')).toBe('');
+        expect((video as HTMLVideoElement | null)?.style.objectFit).toBe('cover');
         expect(appRoot?.style.zIndex).toBe('1');
         expect(content?.style.position).toBe('');
         expect(content?.style.zIndex).toBe('');
@@ -263,7 +263,7 @@ describe('themes.ts', () => {
             id: 'custom:slash-n-theme',
             name: 'Slash N Theme',
             variables: baseVariables,
-            cssOverrides: ".btn { border-radius: 999px; }\\n\\n.card { border-radius: 30px; }",
+            cssOverrides: String.raw`.btn { border-radius: 999px; }\n\n.card { border-radius: 30px; }`,
         });
 
         const css = buildCustomThemeStyles([theme]);

@@ -29,10 +29,47 @@ type ThemeOption = Pick<ThemeDefinition, 'id' | 'name' | 'builtIn'>;
 
 type ThemeVariableDescriptor = {
     key: ThemeVariableKey;
-    cssVar: string;
+    cssVar: BuiltInThemeCssVariableKey;
 };
 
-type BuiltInThemeCssVariables = Record<ThemeVariableDescriptor['cssVar'], string>;
+const BUILTIN_THEME_CSS_VARIABLE_KEYS = [
+    'bg-dark',
+    'bg-card',
+    'bg-card-hover',
+    'text-primary',
+    'text-secondary',
+    'accent-green',
+    'accent-green-hover',
+    'accent-red',
+    'accent-blue',
+    'accent-yellow',
+    'accent-purple',
+    'border-color',
+    'shadow-sm',
+    'shadow-md',
+    'heatmap-hue',
+    'heatmap-sat-base',
+    'heatmap-sat-range',
+    'heatmap-light-base',
+    'heatmap-light-range',
+    'accent-text',
+    'chart-1',
+    'chart-2',
+    'chart-3',
+    'chart-4',
+    'chart-5',
+] as const;
+
+type BuiltInThemeCssVariableKey = typeof BUILTIN_THEME_CSS_VARIABLE_KEYS[number];
+type BuiltInThemeCssVariables = Partial<Record<BuiltInThemeCssVariableKey, string>>;
+type BuiltInThemeSpec = readonly [id: string, name: string, values: readonly (string | undefined)[]];
+
+const BACKSLASH = '\\';
+const ESCAPED_BACKSLASH = '\\\\';
+const ESCAPED_SINGLE_QUOTE = "\\'";
+const ESCAPED_CRLF = String.raw`\r\n`;
+const ESCAPED_NEWLINE = String.raw`\n`;
+const ESCAPED_TAB = String.raw`\t`;
 
 const THEME_VARIABLE_DESCRIPTORS: readonly ThemeVariableDescriptor[] = [
     { key: 'surface-base', cssVar: 'bg-dark' },
@@ -104,369 +141,45 @@ function createThemeVariablesFromCssVariables(overrides: BuiltInThemeCssVariable
     return createThemeVariables(normalizedOverrides);
 }
 
-export const BUILTIN_THEMES: ThemeDefinition[] = [
-    {
+function createThemeVariablesFromCssValueList(values: readonly (string | undefined)[]): ThemeVariables {
+    const overrides: BuiltInThemeCssVariables = {};
+
+    BUILTIN_THEME_CSS_VARIABLE_KEYS.forEach((key, index) => {
+        const value = values[index];
+        if (value !== undefined) {
+            overrides[key] = value;
+        }
+    });
+
+    return createThemeVariablesFromCssVariables(overrides);
+}
+
+function createBuiltInTheme([id, name, values]: BuiltInThemeSpec): ThemeDefinition {
+    return {
         version: 1,
-        id: 'pastel-pink',
-        name: 'Pastel Pink (Default)',
+        id,
+        name,
         builtIn: true,
-        variables: createThemeVariablesFromCssVariables({
-            'bg-dark': '#2e232b',
-            'bg-card': '#3d2e37',
-            'bg-card-hover': '#4f3b47',
-            'text-primary': '#fff0f5',
-            'text-secondary': '#d8bfd8',
-            'accent-green': '#ffb3ba',
-            'accent-green-hover': '#ffdfba',
-            'accent-red': '#ff9eaa',
-            'accent-blue': '#b19cd9',
-            'accent-yellow': '#fadadd',
-            'accent-purple': '#f5c0c0',
-            'border-color': '#554460',
-            'shadow-sm': '0 2px 4px rgba(0, 0, 0, 0.2)',
-            'shadow-md': '0 4px 12px rgba(0, 0, 0, 0.3)',
-            'heatmap-hue': '353',
-            'heatmap-sat-base': '30',
-            'heatmap-sat-range': '70',
-            'accent-text': '#000000',
-            'chart-1': '#f4a6b8',
-            'chart-2': '#b8cdda',
-            'chart-3': '#e0bbe4',
-            'chart-4': '#957DAD',
-            'chart-5': '#D291BC',
-        }),
-    },
-    {
-        version: 1,
-        id: 'light',
-        name: 'Light Theme',
-        builtIn: true,
-        variables: createThemeVariablesFromCssVariables({
-            'bg-dark': '#f8f9fa',
-            'bg-card': '#ffffff',
-            'bg-card-hover': '#f1f3f5',
-            'text-primary': '#212529',
-            'text-secondary': '#495057',
-            'accent-green': '#228be6',
-            'accent-green-hover': '#1c7ed6',
-            'accent-red': '#fa5252',
-            'accent-blue': '#7950f2',
-            'accent-yellow': '#fab005',
-            'accent-purple': '#be4bdb',
-            'border-color': '#dee2e6',
-            'shadow-sm': '0 2px 4px rgba(0, 0, 0, 0.05)',
-            'shadow-md': '0 4px 12px rgba(0, 0, 0, 0.1)',
-            'heatmap-hue': '210',
-            'heatmap-sat-base': '40',
-            'heatmap-sat-range': '60',
-            'accent-text': '#ffffff',
-            'chart-1': '#228be6',
-            'chart-2': '#fa5252',
-            'chart-3': '#40c057',
-            'chart-4': '#fd7e14',
-            'chart-5': '#7950f2',
-        }),
-    },
-    {
-        version: 1,
-        id: 'dark',
-        name: 'Dark Theme',
-        builtIn: true,
-        variables: createThemeVariablesFromCssVariables({
-            'bg-dark': '#121212',
-            'bg-card': '#1e1e1e',
-            'bg-card-hover': '#2d2d2d',
-            'text-primary': '#e0e0e0',
-            'text-secondary': '#b0b0b0',
-            'accent-green': '#bb86fc',
-            'accent-green-hover': '#d1a8ff',
-            'accent-red': '#cf6679',
-            'accent-blue': '#03dac6',
-            'accent-yellow': '#fdd835',
-            'accent-purple': '#bb86fc',
-            'border-color': '#333333',
-            'shadow-sm': '0 2px 4px rgba(0, 0, 0, 0.5)',
-            'shadow-md': '0 4px 12px rgba(0, 0, 0, 0.7)',
-            'heatmap-hue': '260',
-            'heatmap-sat-base': '50',
-            'heatmap-sat-range': '50',
-            'accent-text': '#ffffff',
-            'chart-1': '#bb86fc',
-            'chart-2': '#03dac6',
-            'chart-3': '#fdd835',
-            'chart-4': '#ff8a65',
-            'chart-5': '#82b1ff',
-        }),
-    },
-    {
-        version: 1,
-        id: 'light-greyscale',
-        name: 'Light Greyscale',
-        builtIn: true,
-        variables: createThemeVariablesFromCssVariables({
-            'bg-dark': '#ffffff',
-            'bg-card': '#f5f5f5',
-            'bg-card-hover': '#e0e0e0',
-            'text-primary': '#000000',
-            'text-secondary': '#424242',
-            'accent-green': '#212121',
-            'accent-green-hover': '#424242',
-            'accent-red': '#424242',
-            'accent-blue': '#616161',
-            'accent-yellow': '#757575',
-            'accent-purple': '#212121',
-            'border-color': '#bdbdbd',
-            'shadow-sm': '0 2px 4px rgba(0,0,0,0.1)',
-            'shadow-md': '0 4px 12px rgba(0,0,0,0.15)',
-            'heatmap-hue': '0',
-            'heatmap-sat-base': '0',
-            'heatmap-sat-range': '0',
-            'heatmap-light-base': '80',
-            'heatmap-light-range': '-60',
-            'accent-text': '#ffffff',
-            'chart-1': '#212121',
-            'chart-2': '#424242',
-            'chart-3': '#616161',
-            'chart-4': '#757575',
-            'chart-5': '#9e9e9e',
-        }),
-    },
-    {
-        version: 1,
-        id: 'dark-greyscale',
-        name: 'Dark Greyscale',
-        builtIn: true,
-        variables: createThemeVariablesFromCssVariables({
-            'bg-dark': '#000000',
-            'bg-card': '#121212',
-            'bg-card-hover': '#1e1e1e',
-            'text-primary': '#ffffff',
-            'text-secondary': '#aaaaaa',
-            'accent-green': '#f5f5f5',
-            'accent-green-hover': '#e0e0e0',
-            'accent-red': '#bdbdbd',
-            'accent-blue': '#e0e0e0',
-            'accent-yellow': '#f5f5f5',
-            'accent-purple': '#eeeeee',
-            'border-color': '#333333',
-            'shadow-sm': '0 2px 4px rgba(0,0,0,0.5)',
-            'shadow-md': '0 4px 12px rgba(0,0,0,0.8)',
-            'heatmap-hue': '0',
-            'heatmap-sat-base': '0',
-            'heatmap-sat-range': '0',
-            'heatmap-light-base': '20',
-            'heatmap-light-range': '60',
-            'accent-text': '#000000',
-            'chart-1': '#f5f5f5',
-            'chart-2': '#e0e0e0',
-            'chart-3': '#bdbdbd',
-            'chart-4': '#9e9e9e',
-            'chart-5': '#757575',
-        }),
-    },
-    {
-        version: 1,
-        id: 'molokai',
-        name: 'Molokai',
-        builtIn: true,
-        variables: createThemeVariablesFromCssVariables({
-            'bg-dark': '#1b1d1e',
-            'bg-card': '#232526',
-            'bg-card-hover': '#3e3d32',
-            'text-primary': '#f8f8f2',
-            'text-secondary': '#8f908a',
-            'accent-green': '#a6e22e',
-            'accent-green-hover': '#c4e22e',
-            'accent-red': '#f92672',
-            'accent-blue': '#66d9ef',
-            'accent-yellow': '#e6db74',
-            'accent-purple': '#ae81ff',
-            'border-color': '#465457',
-            'shadow-sm': '0 2px 4px rgba(0,0,0,0.4)',
-            'shadow-md': '0 4px 12px rgba(0,0,0,0.6)',
-            'heatmap-hue': '80',
-            'heatmap-sat-base': '40',
-            'heatmap-sat-range': '60',
-            'accent-text': '#000000',
-            'chart-1': '#a6e22e',
-            'chart-2': '#f92672',
-            'chart-3': '#66d9ef',
-            'chart-4': '#e6db74',
-            'chart-5': '#ae81ff',
-        }),
-    },
-    {
-        version: 1,
-        id: 'green-olive',
-        name: 'Green Olive',
-        builtIn: true,
-        variables: createThemeVariablesFromCssVariables({
-            'bg-dark': '#232d20',
-            'bg-card': '#2d3a2a',
-            'bg-card-hover': '#3d4d38',
-            'text-primary': '#e8f0e5',
-            'text-secondary': '#a7bfa2',
-            'accent-green': '#89b07a',
-            'accent-green-hover': '#a3c498',
-            'accent-red': '#d17a7a',
-            'accent-blue': '#7a9cb0',
-            'accent-yellow': '#e5e8e5',
-            'accent-purple': '#9a7ab0',
-            'border-color': '#4a5d45',
-            'shadow-sm': '0 2px 4px rgba(0,0,0,0.3)',
-            'shadow-md': '0 4px 12px rgba(0,0,0,0.4)',
-            'heatmap-hue': '100',
-            'chart-1': '#89b07a',
-            'chart-2': '#a7bfa2',
-            'chart-3': '#7a9cb0',
-            'chart-4': '#9a7ab0',
-            'chart-5': '#bcc4bcc3',
-        }),
-    },
-    {
-        version: 1,
-        id: 'deep-blue',
-        name: 'Deep Blue',
-        builtIn: true,
-        variables: createThemeVariablesFromCssVariables({
-            'bg-dark': '#0a192f',
-            'bg-card': '#112240',
-            'bg-card-hover': '#233554',
-            'text-primary': '#e6f1ff',
-            'text-secondary': '#8892b0',
-            'accent-green': '#64ffda',
-            'accent-green-hover': '#80ffe2',
-            'accent-red': '#ff4d4d',
-            'accent-blue': '#3399ff',
-            'accent-yellow': '#ccd6f6',
-            'accent-purple': '#bd93f9',
-            'border-color': '#1d2d50',
-            'shadow-sm': '0 2px 4px rgba(0,0,0,0.5)',
-            'shadow-md': '0 4px 12px rgba(0,0,0,0.7)',
-            'heatmap-hue': '170',
-            'chart-1': '#64ffda',
-            'chart-2': '#3399ff',
-            'chart-3': '#bd93f9',
-            'chart-4': '#ff79c6',
-            'chart-5': '#8be9fd',
-        }),
-    },
-    {
-        version: 1,
-        id: 'purple',
-        name: 'Purple',
-        builtIn: true,
-        variables: createThemeVariablesFromCssVariables({
-            'bg-dark': '#1e1b2e',
-            'bg-card': '#2e2a44',
-            'bg-card-hover': '#3f3a5c',
-            'text-primary': '#f0ebff',
-            'text-secondary': '#b1a7d1',
-            'accent-green': '#d1a7ff',
-            'accent-green-hover': '#e0c7ff',
-            'accent-red': '#ff7eb6',
-            'accent-blue': '#7eb6ff',
-            'accent-yellow': '#ffeb3b',
-            'accent-purple': '#9c27b0',
-            'border-color': '#4a446a',
-            'shadow-sm': '0 2px 4px rgba(0,0,0,0.3)',
-            'shadow-md': '0 4px 12px rgba(0,0,0,0.5)',
-            'heatmap-hue': '270',
-            'chart-1': '#d1a7ff',
-            'chart-2': '#7eb6ff',
-            'chart-3': '#ff7eb6',
-            'chart-4': '#ffeb3b',
-            'chart-5': '#9c27b0',
-        }),
-    },
-    {
-        version: 1,
-        id: 'fire-red',
-        name: 'Fire Red',
-        builtIn: true,
-        variables: createThemeVariablesFromCssVariables({
-            'bg-dark': '#2b1111',
-            'bg-card': '#3d1a1a',
-            'bg-card-hover': '#542525',
-            'text-primary': '#ffeeee',
-            'text-secondary': '#d1a7a7',
-            'accent-green': '#ff4d4d',
-            'accent-green-hover': '#ff6666',
-            'accent-red': '#ff1a1a',
-            'accent-blue': '#ff7e7e',
-            'accent-yellow': '#ffd700',
-            'accent-purple': '#e91e63',
-            'border-color': '#6a2a2a',
-            'shadow-sm': '0 2px 4px rgba(0,0,0,0.4)',
-            'shadow-md': '0 4px 12px rgba(0,0,0,0.6)',
-            'heatmap-hue': '0',
-            'chart-1': '#ff4d4d',
-            'chart-2': '#ff7e7e',
-            'chart-3': '#ffd700',
-            'chart-4': '#ff1a1a',
-            'chart-5': '#e91e63',
-        }),
-    },
-    {
-        version: 1,
-        id: 'yellow-lime',
-        name: 'Yellow Lime',
-        builtIn: true,
-        variables: createThemeVariablesFromCssVariables({
-            'bg-dark': '#2a2b10',
-            'bg-card': '#3a3b1a',
-            'bg-card-hover': '#4a4b2a',
-            'text-primary': '#ffffef',
-            'text-secondary': '#d1d1a7',
-            'accent-green': '#d4ff00',
-            'accent-green-hover': '#e0ff33',
-            'accent-red': '#ff4d4d',
-            'accent-blue': '#33d4ff',
-            'accent-yellow': '#fdd835',
-            'accent-purple': '#9c27b0',
-            'border-color': '#5a5b2a',
-            'shadow-sm': '0 2px 4px rgba(0,0,0,0.3)',
-            'shadow-md': '0 4px 12px rgba(0,0,0,0.5)',
-            'heatmap-hue': '65',
-            'chart-1': '#d4ff00',
-            'chart-2': '#33d4ff',
-            'chart-3': '#fdd835',
-            'chart-4': '#ff4d4d',
-            'chart-5': '#9c27b0',
-        }),
-    },
-    {
-        version: 1,
-        id: 'noctua-brown',
-        name: 'Noctua Brown',
-        builtIn: true,
-        variables: createThemeVariablesFromCssVariables({
-            'bg-dark': '#3c2e28',
-            'bg-card': '#4d3c33',
-            'bg-card-hover': '#634d42',
-            'text-primary': '#f2e5d5',
-            'text-secondary': '#c2ada1',
-            'accent-green': '#d9bfa9',
-            'accent-green-hover': '#e6cec0',
-            'accent-red': '#ff7e7e',
-            'accent-blue': '#708090',
-            'accent-yellow': '#d9c5b2',
-            'accent-purple': '#c2ada1',
-            'border-color': '#5d4a3f',
-            'shadow-sm': '0 2px 4px rgba(0,0,0,0.4)',
-            'shadow-md': '0 4px 12px rgba(0,0,0,0.6)',
-            'heatmap-hue': '20',
-            'heatmap-sat-base': '20',
-            'heatmap-sat-range': '40',
-            'accent-text': '#3c2e28',
-            'chart-1': '#904732',
-            'chart-2': '#c2ada1',
-            'chart-3': '#d9c5b2',
-            'chart-4': '#708090',
-            'chart-5': '#46342e',
-        }),
-    },
-];
+        variables: createThemeVariablesFromCssValueList(values),
+    };
+}
+
+const BUILTIN_THEME_SPECS = [
+    ['pastel-pink', 'Pastel Pink (Default)', ['#2e232b', '#3d2e37', '#4f3b47', '#fff0f5', '#d8bfd8', '#ffb3ba', '#ffdfba', '#ff9eaa', '#b19cd9', '#fadadd', '#f5c0c0', '#554460', '0 2px 4px rgba(0, 0, 0, 0.2)', '0 4px 12px rgba(0, 0, 0, 0.3)', '353', '30', '70', undefined, undefined, '#000000', '#f4a6b8', '#b8cdda', '#e0bbe4', '#957DAD', '#D291BC']],
+    ['light', 'Light Theme', ['#f8f9fa', '#ffffff', '#f1f3f5', '#212529', '#495057', '#228be6', '#1c7ed6', '#fa5252', '#7950f2', '#fab005', '#be4bdb', '#dee2e6', '0 2px 4px rgba(0, 0, 0, 0.05)', '0 4px 12px rgba(0, 0, 0, 0.1)', '210', '40', '60', undefined, undefined, '#ffffff', '#228be6', '#fa5252', '#40c057', '#fd7e14', '#7950f2']],
+    ['dark', 'Dark Theme', ['#121212', '#1e1e1e', '#2d2d2d', '#e0e0e0', '#b0b0b0', '#bb86fc', '#d1a8ff', '#cf6679', '#03dac6', '#fdd835', '#bb86fc', '#333333', '0 2px 4px rgba(0, 0, 0, 0.5)', '0 4px 12px rgba(0, 0, 0, 0.7)', '260', '50', '50', undefined, undefined, '#ffffff', '#bb86fc', '#03dac6', '#fdd835', '#ff8a65', '#82b1ff']],
+    ['light-greyscale', 'Light Greyscale', ['#ffffff', '#f5f5f5', '#e0e0e0', '#000000', '#424242', '#212121', '#424242', '#424242', '#616161', '#757575', '#212121', '#bdbdbd', '0 2px 4px rgba(0,0,0,0.1)', '0 4px 12px rgba(0,0,0,0.15)', '0', '0', '0', '80', '-60', '#ffffff', '#212121', '#424242', '#616161', '#757575', '#9e9e9e']],
+    ['dark-greyscale', 'Dark Greyscale', ['#000000', '#121212', '#1e1e1e', '#ffffff', '#aaaaaa', '#f5f5f5', '#e0e0e0', '#bdbdbd', '#e0e0e0', '#f5f5f5', '#eeeeee', '#333333', '0 2px 4px rgba(0,0,0,0.5)', '0 4px 12px rgba(0,0,0,0.8)', '0', '0', '0', '20', '60', '#000000', '#f5f5f5', '#e0e0e0', '#bdbdbd', '#9e9e9e', '#757575']],
+    ['molokai', 'Molokai', ['#1b1d1e', '#232526', '#3e3d32', '#f8f8f2', '#8f908a', '#a6e22e', '#c4e22e', '#f92672', '#66d9ef', '#e6db74', '#ae81ff', '#465457', '0 2px 4px rgba(0,0,0,0.4)', '0 4px 12px rgba(0,0,0,0.6)', '80', '40', '60', undefined, undefined, '#000000', '#a6e22e', '#f92672', '#66d9ef', '#e6db74', '#ae81ff']],
+    ['green-olive', 'Green Olive', ['#232d20', '#2d3a2a', '#3d4d38', '#e8f0e5', '#a7bfa2', '#89b07a', '#a3c498', '#d17a7a', '#7a9cb0', '#e5e8e5', '#9a7ab0', '#4a5d45', '0 2px 4px rgba(0,0,0,0.3)', '0 4px 12px rgba(0,0,0,0.4)', '100', undefined, undefined, undefined, undefined, undefined, '#89b07a', '#a7bfa2', '#7a9cb0', '#9a7ab0', '#bcc4bcc3']],
+    ['deep-blue', 'Deep Blue', ['#0a192f', '#112240', '#233554', '#e6f1ff', '#8892b0', '#64ffda', '#80ffe2', '#ff4d4d', '#3399ff', '#ccd6f6', '#bd93f9', '#1d2d50', '0 2px 4px rgba(0,0,0,0.5)', '0 4px 12px rgba(0,0,0,0.7)', '170', undefined, undefined, undefined, undefined, undefined, '#64ffda', '#3399ff', '#bd93f9', '#ff79c6', '#8be9fd']],
+    ['purple', 'Purple', ['#1e1b2e', '#2e2a44', '#3f3a5c', '#f0ebff', '#b1a7d1', '#d1a7ff', '#e0c7ff', '#ff7eb6', '#7eb6ff', '#ffeb3b', '#9c27b0', '#4a446a', '0 2px 4px rgba(0,0,0,0.3)', '0 4px 12px rgba(0,0,0,0.5)', '270', undefined, undefined, undefined, undefined, undefined, '#d1a7ff', '#7eb6ff', '#ff7eb6', '#ffeb3b', '#9c27b0']],
+    ['fire-red', 'Fire Red', ['#2b1111', '#3d1a1a', '#542525', '#ffeeee', '#d1a7a7', '#ff4d4d', '#ff6666', '#ff1a1a', '#ff7e7e', '#ffd700', '#e91e63', '#6a2a2a', '0 2px 4px rgba(0,0,0,0.4)', '0 4px 12px rgba(0,0,0,0.6)', '0', undefined, undefined, undefined, undefined, undefined, '#ff4d4d', '#ff7e7e', '#ffd700', '#ff1a1a', '#e91e63']],
+    ['yellow-lime', 'Yellow Lime', ['#2a2b10', '#3a3b1a', '#4a4b2a', '#ffffef', '#d1d1a7', '#d4ff00', '#e0ff33', '#ff4d4d', '#33d4ff', '#fdd835', '#9c27b0', '#5a5b2a', '0 2px 4px rgba(0,0,0,0.3)', '0 4px 12px rgba(0,0,0,0.5)', '65', undefined, undefined, undefined, undefined, undefined, '#d4ff00', '#33d4ff', '#fdd835', '#ff4d4d', '#9c27b0']],
+    ['noctua-brown', 'Noctua Brown', ['#3c2e28', '#4d3c33', '#634d42', '#f2e5d5', '#c2ada1', '#d9bfa9', '#e6cec0', '#ff7e7e', '#708090', '#d9c5b2', '#c2ada1', '#5d4a3f', '0 2px 4px rgba(0,0,0,0.4)', '0 4px 12px rgba(0,0,0,0.6)', '20', '20', '40', undefined, undefined, '#3c2e28', '#904732', '#c2ada1', '#d9c5b2', '#708090', '#46342e']],
+] satisfies readonly BuiltInThemeSpec[];
+
+export const BUILTIN_THEMES: ThemeDefinition[] = BUILTIN_THEME_SPECS.map(createBuiltInTheme);
 
 const BUILTIN_THEME_MAP = new Map(BUILTIN_THEMES.map(theme => [theme.id, theme]));
 const BUILTIN_THEME_ID_SET = new Set(BUILTIN_THEMES.map(theme => theme.id));
@@ -494,7 +207,7 @@ function isFiniteNumber(value: unknown): value is number {
 }
 
 function normalizeThemeAssetReference(value: string): string {
-    return value.trim().replace(/\\/g, '/');
+    return value.trim().replaceAll(BACKSLASH, '/');
 }
 
 function isAbsoluteThemeAssetReference(value: string): boolean {
@@ -658,24 +371,24 @@ function slugifyThemeName(name: string): string {
         }
     }
 
-    slug = slug.replace(/^-/, '').replace(/-$/, '');
+    slug = slug.replace(/^-|-$/g, '');
     return slug || 'theme';
 }
 
-function escapeAttributeValue(value: string): string {
-    return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+function escapeSingleQuotedValue(value: string): string {
+    return value.replaceAll(BACKSLASH, ESCAPED_BACKSLASH).replaceAll("'", ESCAPED_SINGLE_QUOTE);
 }
 
 function selectorScope(themeId: string): string {
-    return `body[data-theme='${escapeAttributeValue(themeId)}']`;
+    return `body[data-theme='${escapeSingleQuotedValue(themeId)}']`;
 }
 
 function normalizeCssOverrides(cssOverrides: string): string {
     return cssOverrides
-        .replace(/\r\n/g, '\n')
-        .replace(/\\r\\n/g, '\n')
-        .replace(/\\n/g, '\n')
-        .replace(/\\t/g, '\t');
+        .replaceAll('\r\n', '\n')
+        .replaceAll(ESCAPED_CRLF, '\n')
+        .replaceAll(ESCAPED_NEWLINE, '\n')
+        .replaceAll(ESCAPED_TAB, '\t');
 }
 
 function stripComments(css: string): string {
@@ -790,10 +503,11 @@ function scopeSelector(selector: string, themeId: string): string {
 
     const scope = selectorScope(themeId);
     if (trimmed.includes(':root')) {
-        return trimmed.replace(/:root/g, scope);
+        return trimmed.replaceAll(':root', scope);
     }
-    if (/^body\b/i.test(trimmed)) {
-        return trimmed.replace(/^body\b/i, scope);
+    const bodyMatch = /^body\b/i.exec(trimmed);
+    if (bodyMatch) {
+        return `${scope}${trimmed.slice(bodyMatch[0].length)}`;
     }
     return `${scope} ${trimmed}`;
 }
@@ -1004,22 +718,18 @@ export function removeCustomTheme(existingThemes: ThemePackV1[], themeId: string
     return existingThemes.filter(theme => theme.id !== themeId);
 }
 
-function escapeCssString(value: string): string {
-    return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-}
-
 function escapeCssUrl(value: string): string {
-    return value.replace(/\\/g, '/').replace(/'/g, "\\'");
+    return value.replaceAll(BACKSLASH, '/').replaceAll("'", ESCAPED_SINGLE_QUOTE);
 }
 
 function buildFontFaceCss(theme: ThemePackV1): string {
     if (!theme.fonts || theme.fonts.length === 0) return '';
 
     return theme.fonts.map(font => {
-        const formatPart = font.format ? ` format('${escapeCssString(font.format)}')` : '';
+        const formatPart = font.format ? ` format('${escapeSingleQuotedValue(font.format)}')` : '';
         return [
             '@font-face {',
-            `  font-family: '${escapeCssString(font.family)}';`,
+            `  font-family: '${escapeSingleQuotedValue(font.family)}';`,
             `  src: url('${escapeCssUrl(font.src)}')${formatPart};`,
             `  font-weight: ${font.weight || 'normal'};`,
             `  font-style: ${font.style || 'normal'};`,
