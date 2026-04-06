@@ -1277,6 +1277,17 @@ input:focus, select:focus {
     filter: brightness(1.2);
 }
 
+.quick-log-item {
+  transition: background-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.quick-log-item:hover,
+.quick-log-item:focus-visible {
+  background: color-mix(in srgb, var(--bg-card-hover) 82%, transparent) !important;
+  border-radius: var(--radius-sm);
+  transform: translateX(2px);
+}
+
 /* Badges */
 .badge {
   display: inline-flex;
@@ -2106,14 +2117,27 @@ input:checked + .slider:before {
     grid-template-columns: 1fr !important;
   }
 
+  #dashboard-left-column,
+  #dashboard-right-column,
+  #heatmap-container,
+  #charts-container {
+    width: 100%;
+    min-width: 0;
+  }
+
   /* heatmap card uses height:100% for desktop side-by-side; reset on mobile */
   #heatmap-container .card {
     height: auto;
+    width: 100%;
   }
 
-  /* Stop heatmap row from stretching to match the taller stats card on mobile */
+  /* When stacked, the heatmap should stretch to the full mobile column width. */
   #heatmap-container {
-    align-self: start;
+    align-self: stretch;
+  }
+
+  #heatmap-container #heatmap-inner-container {
+    justify-content: stretch !important;
   }
 
   #activity-charts-grid {
@@ -2261,6 +2285,51 @@ input:checked + .slider:before {
     left: calc(50% + (var(--timeline-node-size) * 0.5));
     right: auto;
     width: calc((var(--timeline-axis-width) * 0.5) - (var(--timeline-node-size) * 0.5));
+  }
+}
+
+@media (max-width: 1024px) and (orientation: portrait) {
+  .quick-log-card {
+    gap: 0.7rem !important;
+  }
+
+  #quick-log-list {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(clamp(2.9rem, 14vw, 4.6rem), 1fr));
+    gap: clamp(0.35rem, 1.8vw, 0.7rem) !important;
+    align-items: start;
+  }
+
+  .quick-log-item {
+    display: block !important;
+    width: 100% !important;
+    min-width: 0;
+    padding: 0 !important;
+    transform: none !important;
+  }
+
+  .quick-log-item:hover,
+  .quick-log-item:focus-visible {
+    background: transparent !important;
+    border-radius: 0;
+    transform: none !important;
+  }
+
+  .quick-log-cover {
+    width: 100% !important;
+    border-radius: var(--radius-sm);
+    transition: transform var(--transition-fast), box-shadow var(--transition-fast), filter var(--transition-fast);
+  }
+
+  .quick-log-item:hover .quick-log-cover,
+  .quick-log-item:focus-visible .quick-log-cover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 20px color-mix(in srgb, var(--accent-red) 16%, transparent);
+    filter: saturate(1.05) brightness(1.04);
+  }
+
+  .quick-log-copy {
+    display: none !important;
   }
 }
 

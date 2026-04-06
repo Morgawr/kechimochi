@@ -5,6 +5,7 @@ import { customConfirm, showLogActivityModal } from '../modals';
 import { StatsCard } from './dashboard/StatsCard';
 import { HeatmapView } from './dashboard/HeatmapView';
 import { ActivityCharts } from './dashboard/ActivityCharts';
+import { QuickLog } from './dashboard/QuickLog';
 import { setupCopyButton } from '../utils/clipboard';
 import { formatLoggedDuration } from '../utils/time';
 import { Logger } from '../core/logger';
@@ -30,10 +31,14 @@ export class Dashboard extends Component<DashboardState> {
     private activeChartsComponent: ActivityCharts | null = null;
     private heatmapComponent: HeatmapView | null = null;
     private statsComponent: StatsCard | null = null;
+    private quickLogComponent: QuickLog | null = null;
     private isRefreshing: boolean = false;
 
     private readonly containers: {
+        leftColumn?: HTMLElement;
+        rightColumn?: HTMLElement;
         stats?: HTMLElement;
+        quickLog?: HTMLElement;
         heatmap?: HTMLElement;
         charts?: HTMLElement;
         logs?: HTMLElement;
@@ -101,6 +106,7 @@ export class Dashboard extends Component<DashboardState> {
         // Granular updates based on what changed
         if (newState.logs || newState.mediaList) {
             this.updateStats();
+            this.updateQuickLog();
             this.updateRecentLogs();
         }
 
@@ -130,6 +136,7 @@ export class Dashboard extends Component<DashboardState> {
         if (this.container.querySelector('.dashboard-root')) {
             // Layout already exists, just update components
             this.updateStats();
+            this.updateQuickLog();
             this.updateHeatmap();
             this.updateCharts();
             this.updateRecentLogs();
@@ -139,25 +146,35 @@ export class Dashboard extends Component<DashboardState> {
         this.clear();
         this.statsComponent = null;
         this.heatmapComponent = null;
+        this.quickLogComponent = null;
 
         const root = html`<div class="dashboard-root animate-fade-in" style="display: flex; flex-direction: column; gap: 2rem;"></div>`;
         this.container.appendChild(root);
 
-        // 1. Stats and Heatmap Row
-        const topRow = html`<div id="dashboard-top-row" style="display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 2rem;"></div>`;
+        // 1. Dashboard top layout
+        const topRow = html`<div id="dashboard-top-row" style="display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 2rem; align-items: start;"></div>`;
         root.appendChild(topRow);
 
-        this.containers.stats = html`<div class="card" id="stats-box-container" style="display: flex; flex-direction: column;"></div>`;
-        topRow.appendChild(this.containers.stats);
+        this.containers.leftColumn = html`<div id="dashboard-left-column" style="display: flex; flex-direction: column; gap: 1.25rem; min-width: 0;"></div>`;
+        topRow.appendChild(this.containers.leftColumn);
+
+        this.containers.stats = html`<div id="stats-box-container" style="display: flex; flex-direction: column;"></div>`;
+        this.containers.leftColumn.appendChild(this.containers.stats);
+
+        this.containers.quickLog = html`<div id="quick-log-container" style="display: flex; flex-direction: column; min-height: 0;"></div>`;
+        this.containers.leftColumn.appendChild(this.containers.quickLog);
+
+        this.containers.rightColumn = html`<div id="dashboard-right-column" style="display: flex; flex-direction: column; gap: 2rem; min-width: 0;"></div>`;
+        topRow.appendChild(this.containers.rightColumn);
 
         this.containers.heatmap = html`<div id="heatmap-container" style="min-width: 0;"></div>`;
-        topRow.appendChild(this.containers.heatmap);
+        this.containers.rightColumn.appendChild(this.containers.heatmap);
 
-        // 2. Charts Row
+        // 2. Charts block
         this.containers.charts = html`<div id="charts-container"></div>`;
-        root.appendChild(this.containers.charts);
+        this.containers.rightColumn.appendChild(this.containers.charts);
 
-        // 3. Recent Logs Row
+        // 3. Recent Logs block
         const logsCard = html`
             <div class="card">
                 <div id="logs-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
@@ -170,10 +187,11 @@ export class Dashboard extends Component<DashboardState> {
         this.containers.logs = logsCard;
         this.containers.pagination = logsCard.querySelector('#pagination-container') as HTMLElement;
         this.containers.logsList = logsCard.querySelector('#recent-logs-list') as HTMLElement;
-        root.appendChild(logsCard);
+        this.containers.rightColumn.appendChild(logsCard);
 
         // Initial component mounting
         this.updateStats();
+        this.updateQuickLog();
         this.updateHeatmap();
         this.updateCharts();
         this.updateRecentLogs();
@@ -188,6 +206,26 @@ export class Dashboard extends Component<DashboardState> {
             }
             this.statsComponent.render();
         }
+    }
+
+    private updateQuickLog() {
+        if (!this.containers.quickLog) return;
+
+        if (this.quickLogComponent) {
+            this.quickLogComponent.setState({ logs: this.state.logs, mediaList: this.state.mediaList });
+        } else {
+            this.quickLogComponent = new QuickLog(
+                this.containers.quickLog,
+                { logs: this.state.logs, mediaList: this.state.mediaList },
+                {
+                    onLogged: async () => {
+                        await this.loadData();
+                    }
+                }
+            );
+        }
+
+        this.quickLogComponent.render();
     }
 
     private updateHeatmap() {

@@ -17,6 +17,7 @@ vi.mock('../../src/api', () => ({
 
 vi.mock('../../src/modals', () => ({
     customConfirm: vi.fn(),
+    showLogActivityModal: vi.fn(),
     showAddMediaModal: vi.fn(),
 }));
 
