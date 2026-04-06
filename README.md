@@ -57,7 +57,7 @@ The application includes dedicated reading reports to help you understand your p
 ### Data Ownership and Portability
 
 Your logs are stored in local SQLite databases, giving you full control over your information.
-*   **CSV Import**: Migrate your existing logs from other spreadsheets or tools.
+*   **CSV Import**: Migrate your existing logs from other spreadsheets or tools (see [CSV Formats](docs/csv-formats.md)).
 *   **CSV Export**: Export your activity history, milestones, or library when you need a plain-text dataset.
 *   **Full Backup / Restore**: Save and restore the entire application state, including databases, settings, and covers.
 *   **Local First Storage**: Keep your data on your machine or your own server.
