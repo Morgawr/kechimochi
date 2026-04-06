@@ -18,7 +18,7 @@ Used for importing and exporting your daily activity history.
 | :--- | :--- | :--- | :--- |
 | **Date** | The date of the activity. Supports `YYYY-MM-DD` or `YYYY/MM/DD`. | Yes | 2024-01-15 |
 | **Log Name** | The title of the media being logged. | Yes | Frieren: Beyond Journey's End |
-| **Media Type** | The category of the media (e.g., Reading, Watching, Playing). | Yes | Watching |
+| **Media Type** | The category of the media. Must be one of: `Reading`, `Watching`, `Playing`, `Listening`, `None`. | Yes | Watching |
 | **Duration** | The time spent in minutes. | Yes | 24 |
 | **Language** | The language of the content. | Yes | Japanese |
 | **Characters** | The number of characters read or written (useful for books/writing). | No | 0 |
@@ -42,13 +42,16 @@ Used for bulk importing media metadata or exporting your entire library.
 | Column Name | Description | Required | Example |
 | :--- | :--- | :--- | :--- |
 | **Title** | The unique title of the media. | Yes | FF7 Rebirth |
-| **Media Type** | Category (e.g., Playing, Reading). | Yes | Playing |
-| **Status** | Your current status (e.g., Ongoing, Complete, Dropped, Plan to Watch). | Yes | Ongoing |
+| **Media Type** | Category. Must be one of: `Reading`, `Watching`, `Playing`, `Listening`, `None`. | Yes | Playing |
+| **Status** | Your current status. Must be one of: `Ongoing`, `Complete`, `Paused`, `Dropped`, `Not Started`, `Untracked`. | Yes | Ongoing |
 | **Language** | Primary language. | Yes | Japanese |
 | **Description** | A brief summary or notes. | Yes | Remake part 2. |
-| **Content Type** | Specific format (e.g., Novel, Anime, Game, Manga). | Yes | Game |
+| **Content Type** | Specific format. Must be one of: `Anime`, `Movie`, `Novel`, `WebNovel`, `NonFiction`, `Videogame`, `Visual Novel`, `Manga`, `Audio`, `Drama`, `Livestream`, `Youtube Video`, `Unknown`. | Yes | Videogame |
 | **Extra Data** | A JSON string containing additional metadata. | Yes | `{"vNDB_ID": "v123"}` |
 | **Cover Image (Base64)** | The cover image encoded as a Base64 string. | Yes | (long base64 string) |
+
+> [!NOTE]
+> Content Types are case-sensitive and should match the labels used in the application (e.g., `Videogame`, `Visual Novel`, `Novel`, `Anime`, `Manga`, `Movie`, `WebNovel`).
 
 ### Example
 ```csv
