@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-04-08
+
 ### Added
  - Dashboard has a quick log view of most recently logged non-complete media
 
