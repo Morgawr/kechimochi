@@ -32,10 +32,12 @@ export class HeatmapView extends Component<HeatmapViewState> {
 
         const card = html`
             <div class="card" style="display: flex; flex-direction: column; min-width: 0; height: 100%;">
-                <div style="display: flex; justify-content: center; align-items: center; margin-bottom: 2rem; gap: 1rem;">
-                    <button class="btn btn-ghost" style="padding: 0.2rem 0.5rem;" id="btn-heatmap-prev">&lt;</button>
-                    <h3 style="margin: 0; font-size: 1.1rem; color: var(--text-secondary);">Tracking Heatmap (<span id="heatmap-year-label">${this.state.year}</span>)</h3>
-                    <button class="btn btn-ghost" style="padding: 0.2rem 0.5rem;" id="btn-heatmap-next">&gt;</button>
+                <div class="heatmap-header">
+                    <div class="heatmap-title-controls">
+                        <button class="btn btn-ghost chart-nav-button" id="btn-heatmap-prev">&lt;</button>
+                        <h3 class="heatmap-title">Tracking Heatmap (<span id="heatmap-year-label">${this.state.year}</span>)</h3>
+                        <button class="btn btn-ghost chart-nav-button" id="btn-heatmap-next">&gt;</button>
+                    </div>
                 </div>
                 <div style="flex: 1; display: flex; align-items: center; justify-content: center; width: 100%;">
                     <div id="heatmap-inner-container" style="width: 100%; display: flex; justify-content: center;">

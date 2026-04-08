@@ -16,6 +16,9 @@ The format is based on Keep a Changelog, with one section per released version.
  - The "delete media" button has been moved to a context three-dots menu
  - New media added via "Log Activity" will now default to "Ongoing" status automatically
 
+### Fixed
+ - Graph UI elements no longer break through their containers
+
 ## [0.2.4] - 2026-04-04
 
 Re-Re-release of 0.2.2 because the sign APK key was incorrect.

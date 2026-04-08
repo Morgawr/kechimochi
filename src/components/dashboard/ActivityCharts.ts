@@ -35,16 +35,16 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                     </div>
                 </div>
                 <div class="card" style="display: flex; flex-direction: column; min-width: 0;">
-                    <div class="activity-charts-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                        <div class="activity-charts-title-controls" style="display: flex; align-items: center; gap: 0.5rem;">
-                            <button class="btn btn-ghost" style="padding: 0.1rem 0.4rem;" id="btn-chart-prev">&lt;</button>
-                            <h3 style="margin: 0;">Activity visualization</h3>
-                            <button class="btn btn-ghost" style="padding: 0.1rem 0.4rem;" id="btn-chart-next">&gt;</button>
+                    <div class="activity-charts-header">
+                        <div class="activity-charts-title-controls">
+                            <button class="btn btn-ghost chart-nav-button" id="btn-chart-prev">&lt;</button>
+                            <h3 class="activity-charts-title">Activity visualization</h3>
+                            <button class="btn btn-ghost chart-nav-button" id="btn-chart-next">&gt;</button>
                         </div>
                         <div class="chart-toolbar">
                             <!-- Chart Type Toggle -->
-                            <div style="display: flex; align-items: center; gap: 0.4rem;">
-                                <span class="toggle-label ${this.state.chartType === 'bar' ? 'active' : ''}" style="text-align: right;">Bar</span>
+                            <div class="chart-toolbar-group">
+                                <span class="toggle-label ${this.state.chartType === 'bar' ? 'active' : ''}">Bar</span>
                                 <label class="switch">
                                     <input type="checkbox" id="toggle-chart-type" ${this.state.chartType === 'line' ? 'checked' : ''}>
                                     <span class="slider"></span>
@@ -52,20 +52,22 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                                 <span class="toggle-label ${this.state.chartType === 'line' ? 'active' : ''}">Line</span>
                             </div>
 
-                            <div class="chart-toolbar-divider"></div>
+                            <div class="chart-toolbar-divider" aria-hidden="true"></div>
 
                             <!-- Time Range Select -->
-                            <select id="select-time-range" style="font-size: 0.65rem; padding: 0.1rem 0.3rem; border: none; background: transparent; cursor: pointer; color: var(--text-primary); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">
-                                <option value="7" ${this.state.timeRangeDays === 7 ? 'selected' : ''}>Weekly</option>
-                                <option value="30" ${this.state.timeRangeDays === 30 ? 'selected' : ''}>Monthly</option>
-                                <option value="365" ${this.state.timeRangeDays === 365 ? 'selected' : ''}>Yearly</option>
-                            </select>
+                            <div class="chart-toolbar-select-shell">
+                                <select id="select-time-range" class="chart-toolbar-select">
+                                    <option value="7" ${this.state.timeRangeDays === 7 ? 'selected' : ''}>Weekly</option>
+                                    <option value="30" ${this.state.timeRangeDays === 30 ? 'selected' : ''}>Monthly</option>
+                                    <option value="365" ${this.state.timeRangeDays === 365 ? 'selected' : ''}>Yearly</option>
+                                </select>
+                            </div>
 
-                            <div class="chart-toolbar-divider"></div>
+                            <div class="chart-toolbar-divider" aria-hidden="true"></div>
 
                             <!-- Group By Toggle -->
-                            <div style="display: flex; align-items: center; gap: 0.4rem;">
-                                <span class="toggle-label ${this.state.groupByMode === 'media_type' ? 'active' : ''}" style="text-align: right;">Type</span>
+                            <div class="chart-toolbar-group">
+                                <span class="toggle-label ${this.state.groupByMode === 'media_type' ? 'active' : ''}">Type</span>
                                 <label class="switch">
                                     <input type="checkbox" id="toggle-group-by" ${this.state.groupByMode === 'log_name' ? 'checked' : ''}>
                                     <span class="slider"></span>
@@ -73,11 +75,11 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                                 <span class="toggle-label ${this.state.groupByMode === 'log_name' ? 'active' : ''}">Name</span>
                             </div>
 
-                            <div class="chart-toolbar-divider"></div>
+                            <div class="chart-toolbar-divider" aria-hidden="true"></div>
 
                             <!-- Metric Toggle -->
-                            <div style="display: flex; align-items: center; gap: 0.4rem;">
-                                <span class="toggle-label ${this.state.metric === 'minutes' ? 'active' : ''}" style="text-align: right;">Time</span>
+                            <div class="chart-toolbar-group">
+                                <span class="toggle-label ${this.state.metric === 'minutes' ? 'active' : ''}">Time</span>
                                 <label class="switch">
                                     <input type="checkbox" id="toggle-metric" ${this.state.metric === 'characters' ? 'checked' : ''}>
                                     <span class="slider"></span>
