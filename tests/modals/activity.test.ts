@@ -86,7 +86,10 @@ describe('modals/activity.ts', () => {
             const result = await promise;
             expect(result).toBe(true);
             expect(customPrompt).toHaveBeenCalled();
-            expect(api.addMedia).toHaveBeenCalledWith(expect.objectContaining({ title: 'New Series' }));
+            expect(api.addMedia).toHaveBeenCalledWith(expect.objectContaining({
+                title: 'New Series',
+                tracking_status: 'Ongoing'
+            }));
             expect(api.addLog).toHaveBeenCalledWith(expect.objectContaining({ media_id: 99 }));
         });
         

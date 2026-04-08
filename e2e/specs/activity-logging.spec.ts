@@ -2,6 +2,8 @@ import { waitForAppReady } from '../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../helpers/navigation.js';
 import { logActivity } from '../helpers/dashboard.js';
 import { submitPrompt, dismissAlert, closeModal } from '../helpers/common.js';
+import { clickMediaItem } from '../helpers/library.js';
+import { backToGrid, getDetailTrackingStatus } from '../helpers/media-detail.js';
 
 describe('CUJ: Log Daily Activity', () => {
   before(async () => {
@@ -75,5 +77,9 @@ describe('CUJ: Log Daily Activity', () => {
     });
     
     expect(titleTexts).toContain('Final Fantasy 7');
+
+    await clickMediaItem('Final Fantasy 7');
+    expect(await getDetailTrackingStatus()).toBe('Ongoing');
+    await backToGrid();
   });
 });

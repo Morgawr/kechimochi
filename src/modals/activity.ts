@@ -153,7 +153,7 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
                 cover_image: "", 
                 extra_data: "{}", 
                 content_type: "Unknown", 
-                tracking_status: "Untracked" 
+                tracking_status: "Ongoing" 
             });
         };
 

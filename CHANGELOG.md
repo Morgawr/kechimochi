@@ -14,6 +14,7 @@ The format is based on Keep a Changelog, with one section per released version.
  - Removed desktop-specific references that showed up in the Android app
  - In minified mode, the "back to library" button has been removed
  - The "delete media" button has been moved to a context three-dots menu
+ - New media added via "Log Activity" will now default to "Ongoing" status automatically
 
 ## [0.2.4] - 2026-04-04
 
