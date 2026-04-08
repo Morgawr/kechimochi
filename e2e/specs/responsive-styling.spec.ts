@@ -71,6 +71,152 @@ describe('Responsive Styling CUJ', () => {
     expect(stacked.secondChartBelowFirst).toBe(true);
   });
 
+  it('should distribute dashboard visualization controls across the full row at desktop width', async () => {
+    await navigateTo('dashboard');
+    expect(await verifyActiveView('dashboard')).toBe(true);
+
+    await browser.setWindowSize(1280, 1200);
+    await browser.pause(350);
+
+    const alignment = await browser.execute(() => {
+      const heatmapCard = document.querySelector('#heatmap-container .card') as HTMLElement | null;
+      const heatmapTitleControls = document.querySelector('.heatmap-title-controls') as HTMLElement | null;
+      const chartCard = document.querySelector('#activity-charts-grid .card:last-child') as HTMLElement | null;
+      const chartTitleControls = document.querySelector('.activity-charts-title-controls') as HTMLElement | null;
+      const chartToolbar = document.querySelector('.chart-toolbar') as HTMLElement | null;
+
+      if (!heatmapCard || !heatmapTitleControls || !chartCard || !chartTitleControls || !chartToolbar) {
+        return {
+          hasRequiredNodes: false,
+          heatmapCenterOffset: Number.POSITIVE_INFINITY,
+          chartTitleCenterOffset: Number.POSITIVE_INFINITY,
+          chartToolbarCenterOffset: Number.POSITIVE_INFINITY,
+          chartToolbarWidthRatio: Number.POSITIVE_INFINITY,
+          chartToolbarColumnCount: 0,
+        };
+      }
+
+      const getCenterOffset = (element: HTMLElement, parent: HTMLElement) => {
+        const elementRect = element.getBoundingClientRect();
+        const parentRect = parent.getBoundingClientRect();
+        const elementCenter = elementRect.left + (elementRect.width / 2);
+        const parentCenter = parentRect.left + (parentRect.width / 2);
+        return Math.abs(elementCenter - parentCenter);
+      };
+
+      const chartToolbarRect = chartToolbar.getBoundingClientRect();
+      const chartCardRect = chartCard.getBoundingClientRect();
+      const chartToolbarColumnCount = getComputedStyle(chartToolbar).gridTemplateColumns.split(' ').length;
+
+      return {
+        hasRequiredNodes: true,
+        heatmapCenterOffset: getCenterOffset(heatmapTitleControls, heatmapCard),
+        chartTitleCenterOffset: getCenterOffset(chartTitleControls, chartCard),
+        chartToolbarCenterOffset: getCenterOffset(chartToolbar, chartCard),
+        chartToolbarWidthRatio: chartToolbarRect.width / chartCardRect.width,
+        chartToolbarColumnCount,
+      };
+    });
+
+    expect(alignment.hasRequiredNodes).toBe(true);
+    expect(alignment.heatmapCenterOffset).toBeLessThan(16);
+    expect(alignment.chartTitleCenterOffset).toBeLessThan(16);
+    expect(alignment.chartToolbarCenterOffset).toBeLessThan(16);
+    expect(alignment.chartToolbarWidthRatio).toBeGreaterThan(0.9);
+    expect(alignment.chartToolbarWidthRatio).toBeLessThan(1.02);
+    expect(alignment.chartToolbarColumnCount).toBe(4);
+  });
+
+  it('should keep dashboard visualization controls on one scaled row at narrow app widths', async () => {
+    await navigateTo('dashboard');
+    expect(await verifyActiveView('dashboard')).toBe(true);
+
+    await browser.setWindowSize(650, 1200);
+    await browser.pause(350);
+
+    const compactLayout = await browser.execute(() => {
+      const chartCard = document.querySelector('#activity-charts-grid .card:last-child') as HTMLElement | null;
+      const chartToolbar = document.querySelector('.chart-toolbar') as HTMLElement | null;
+
+      if (!chartCard || !chartToolbar) {
+        return {
+          hasRequiredNodes: false,
+          chartToolbarWidthRatio: Number.POSITIVE_INFINITY,
+          chartToolbarColumnCount: 0,
+          chartToolbarRowCount: Number.POSITIVE_INFINITY,
+          chartToolbarOverflow: true,
+        };
+      }
+
+      const chartToolbarRect = chartToolbar.getBoundingClientRect();
+      const chartCardRect = chartCard.getBoundingClientRect();
+      const toolbarItems = Array.from(chartToolbar.children).filter((child) =>
+        child instanceof HTMLElement && child.matches('.chart-toolbar-group, .chart-toolbar-select-shell'),
+      ) as HTMLElement[];
+      const rowCount = new Set(toolbarItems.map((item) => Math.round(item.getBoundingClientRect().top))).size;
+
+      return {
+        hasRequiredNodes: true,
+        chartToolbarWidthRatio: chartToolbarRect.width / chartCardRect.width,
+        chartToolbarColumnCount: getComputedStyle(chartToolbar).gridTemplateColumns.split(' ').length,
+        chartToolbarRowCount: rowCount,
+        chartToolbarOverflow: chartToolbar.scrollWidth > (chartToolbar.clientWidth + 1),
+      };
+    });
+
+    expect(compactLayout.hasRequiredNodes).toBe(true);
+    expect(compactLayout.chartToolbarWidthRatio).toBeGreaterThan(0.9);
+    expect(compactLayout.chartToolbarColumnCount).toBe(4);
+    expect(compactLayout.chartToolbarRowCount).toBe(1);
+    expect(compactLayout.chartToolbarOverflow).toBe(false);
+  });
+
+  it('should keep dashboard visualization headers inside their cards on narrow mobile widths', async () => {
+    await navigateTo('dashboard');
+    expect(await verifyActiveView('dashboard')).toBe(true);
+
+    await browser.setWindowSize(390, 960);
+    await browser.pause(350);
+
+    const overflow = await browser.execute(() => {
+      const heatmapCard = document.querySelector('#heatmap-container .card') as HTMLElement | null;
+      const heatmapTitleControls = document.querySelector('.heatmap-title-controls') as HTMLElement | null;
+      const chartCard = document.querySelector('#activity-charts-grid .card:last-child') as HTMLElement | null;
+      const chartHeader = document.querySelector('.activity-charts-header') as HTMLElement | null;
+      const chartToolbar = document.querySelector('.chart-toolbar') as HTMLElement | null;
+
+      if (!heatmapCard || !heatmapTitleControls || !chartCard || !chartHeader || !chartToolbar) {
+        return {
+          hasRequiredNodes: false,
+          heatmapTitleOverflow: true,
+          chartHeaderOverflow: true,
+          chartToolbarOverflow: true,
+          chartToolbarColumnCount: 0,
+        };
+      }
+
+      const exceedsParent = (element: HTMLElement, parent: HTMLElement) => {
+        const elementRect = element.getBoundingClientRect();
+        const parentRect = parent.getBoundingClientRect();
+        return elementRect.left < (parentRect.left - 1) || elementRect.right > (parentRect.right + 1);
+      };
+
+      return {
+        hasRequiredNodes: true,
+        heatmapTitleOverflow: exceedsParent(heatmapTitleControls, heatmapCard) || heatmapTitleControls.scrollWidth > (heatmapTitleControls.clientWidth + 1),
+        chartHeaderOverflow: exceedsParent(chartHeader, chartCard) || chartHeader.scrollWidth > (chartHeader.clientWidth + 1),
+        chartToolbarOverflow: exceedsParent(chartToolbar, chartCard) || chartToolbar.scrollWidth > (chartToolbar.clientWidth + 1),
+        chartToolbarColumnCount: getComputedStyle(chartToolbar).gridTemplateColumns.split(' ').length,
+      };
+    });
+
+    expect(overflow.hasRequiredNodes).toBe(true);
+    expect(overflow.heatmapTitleOverflow).toBe(false);
+    expect(overflow.chartHeaderOverflow).toBe(false);
+    expect(overflow.chartToolbarOverflow).toBe(false);
+    expect(overflow.chartToolbarColumnCount).toBe(2);
+  });
+
   it('should switch the library to list mode on narrow widths and restore grid when widened again', async () => {
     await browser.setWindowSize(1280, 1200);
     await navigateTo('media');

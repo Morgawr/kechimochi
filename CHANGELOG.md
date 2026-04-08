@@ -15,6 +15,9 @@ The format is based on Keep a Changelog, with one section per released version.
  - In minified mode, the "back to library" button has been removed
  - The "delete media" button has been moved to a context three-dots menu
 
+### Fixed
+ - Graph UI elements no longer break through their containers
+
 ## [0.2.4] - 2026-04-04
 
 Re-Re-release of 0.2.2 because the sign APK key was incorrect.
