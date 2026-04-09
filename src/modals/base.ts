@@ -7,7 +7,7 @@ function sanitizeButtonClass(input: string): string {
     return 'btn-danger';
 }
 
-export function createOverlay(): { overlay: HTMLDivElement, cleanup: () => void } {
+export function createOverlay(): { overlay: HTMLDivElement, cleanup: () => Promise<void> } {
     const g = globalThis as unknown as Record<string, number>;
     g.__modalCounter = (g.__modalCounter || 0) + 1;
     const overlay = document.createElement('div');
@@ -22,14 +22,19 @@ export function createOverlay(): { overlay: HTMLDivElement, cleanup: () => void 
     const cleanup = () => {
         overlay.classList.remove('active');
         delete overlay.dataset.modalId;
-        setTimeout(() => overlay.remove(), 300);
+        return new Promise<void>((resolve) => {
+            setTimeout(() => {
+                overlay.remove();
+                resolve();
+            }, 300);
+        });
     };
 
     return { overlay, cleanup };
 }
 
 export interface BlockingStatusHandle {
-    close: () => void;
+    close: () => Promise<void>;
     setText?: (text: string) => void;
     setProgress?: (current: number, total: number, label?: string) => void;
 }
@@ -79,10 +84,10 @@ export function showBlockingStatus(title: string, text: string): BlockingStatusH
             progressBar.style.width = `${percent}%`;
             progressLabel.textContent = label || `${safeCurrent} / ${total}`;
         },
-        close: () => {
+        close: async () => {
             if (isClosed) return;
             isClosed = true;
-            cleanup();
+            await cleanup();
         }
     };
 }

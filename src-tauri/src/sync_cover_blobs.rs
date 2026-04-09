@@ -284,6 +284,7 @@ mod tests {
         build_snapshot(
             conn,
             SnapshotBuildOptions {
+                app_dir: None,
                 snapshot_id: "snap_1",
                 created_at: "2026-04-02T00:00:00Z",
                 created_by_device_id: "dev_local",

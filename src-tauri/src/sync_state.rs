@@ -445,6 +445,7 @@ mod tests {
             },
             library: Default::default(),
             settings: Default::default(),
+            theme_packs: Some(Default::default()),
             profile_picture: None,
             tombstones: Vec::new(),
         };

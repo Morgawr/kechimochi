@@ -1,6 +1,6 @@
 import { Logger } from '../core/logger';
 import { Component } from '../core/component';
-import { html } from '../core/html';
+import { escapeHTML, html, rawHtml } from '../core/html';
 import {
     getAllMedia,
     getLogsForMedia,
@@ -26,6 +26,14 @@ import {
     resolveSyncConflict,
     clearSyncBackups,
     isDesktop,
+    pickThemePackImportSelection,
+    importThemePackFromSelection,
+    pickThemePackExportSelection,
+    exportThemePackToSelection,
+    listManagedThemePackSummaries,
+    getManagedThemePack,
+    resolveManagedThemeAssetUrl,
+    deleteManagedThemePack,
 } from '../api';
 import {
     customPrompt,
@@ -38,6 +46,7 @@ import {
 import { getServices } from '../services';
 import { formatProductVersionLabel, getAppVersionInfo } from '../app_version';
 import type {
+    ManagedThemePackSummary,
     MergeSide,
     ProfilePicture,
     SyncActionResult,
@@ -62,11 +71,27 @@ import {
     runBlockingStatus,
     runSyncProgressBlockingStatus,
 } from '../sync_enablement';
+import {
+    applyTheme,
+    createExportableThemePack,
+    getThemeDefinition,
+    getThemeOptions,
+    getThemePackFilename,
+    isBuiltInTheme,
+    parseThemePackText,
+    removeCustomTheme,
+    resolveThemePackAssets,
+    upsertCustomTheme,
+    writeThemeCache,
+    type ThemePackV1,
+} from '../themes';
 
 interface ProfileState {
     currentProfile: string;
     theme: string;
     profilePicture: ProfilePicture | null;
+    customThemes: ThemePackV1[];
+    customThemeSummaries: ManagedThemePackSummary[];
     report: {
         novelSpeed: string;
         novelCount: string;
@@ -128,18 +153,23 @@ function formatSyncStatusLabel(syncStatus: SyncStatus): string {
     return formatSyncStateLabel(syncStatus.state);
 }
 
+const SYNC_WARNING_BORDER = 'color-mix(in srgb, var(--accent-yellow) 35%, transparent)';
+const SYNC_WARNING_BACKGROUND = 'color-mix(in srgb, var(--accent-yellow) 8%, transparent)';
+const SYNC_ERROR_BORDER = 'color-mix(in srgb, var(--accent-red) 35%, transparent)';
+const SYNC_ERROR_BACKGROUND = 'color-mix(in srgb, var(--accent-red) 8%, transparent)';
+
 function syncStateColor(state: SyncConnectionState): string {
     switch (state) {
         case 'connected_clean':
-            return '#2ed573';
+            return 'var(--accent-green)';
         case 'dirty':
-            return '#f59e0b';
+            return 'var(--accent-yellow)';
         case 'syncing':
             return 'var(--accent-blue)';
         case 'conflict_pending':
-            return '#ff7f50';
+            return 'var(--accent-yellow)';
         case 'error':
-            return '#ff4757';
+            return 'var(--accent-red)';
         case 'disconnected':
         default:
             return 'var(--text-secondary)';
@@ -148,7 +178,7 @@ function syncStateColor(state: SyncConnectionState): string {
 
 function syncStatusColor(syncStatus: SyncStatus): string {
     if (syncStatus.sync_profile_id && !syncStatus.google_authenticated) {
-        return '#ff4757';
+        return 'var(--accent-red)';
     }
     return syncStateColor(syncStatus.state);
 }
@@ -184,10 +214,10 @@ function profilePictureLabel(picture: SyncConflictProfilePicture | null): string
 
 function syncCardBorderColor(state: SyncConnectionState): string {
     if (state === 'error') {
-        return 'rgba(255, 71, 87, 0.25)';
+        return SYNC_ERROR_BORDER;
     }
     if (state === 'conflict_pending') {
-        return 'rgba(255, 127, 80, 0.25)';
+        return SYNC_WARNING_BORDER;
     }
     return 'var(--border-color)';
 }
@@ -232,6 +262,8 @@ export class ProfileView extends Component<ProfileState> {
             currentProfile: localStorage.getItem(STORAGE_KEYS.CURRENT_PROFILE) || DEFAULTS.PROFILE,
             theme: localStorage.getItem(STORAGE_KEYS.THEME_CACHE) || DEFAULTS.THEME,
             profilePicture: null,
+            customThemes: [],
+            customThemeSummaries: [],
             report: {
                 novelSpeed: '0',
                 novelCount: '0',
@@ -275,7 +307,8 @@ export class ProfileView extends Component<ProfileState> {
         const syncStatePromise = this.loadSyncState(syncSupported);
 
         const [
-            theme,
+            themeSetting,
+            managedThemeSummaries,
             novelSpeed,
             novelCount,
             mangaSpeed,
@@ -285,10 +318,14 @@ export class ProfileView extends Component<ProfileState> {
             timestamp,
             appVersion,
             profilePicture,
-            currentProfile,
+            currentProfileSetting,
             syncState,
         ] = await Promise.all([
             getSetting(SETTING_KEYS.THEME),
+            listManagedThemePackSummaries().catch(error => {
+                Logger.warn('[kechimochi] Failed to load managed theme pack summaries for profile view', error);
+                return [] as ManagedThemePackSummary[];
+            }),
             getSetting(SETTING_KEYS.STATS_NOVEL_SPEED),
             getSetting(SETTING_KEYS.STATS_NOVEL_COUNT),
             getSetting(SETTING_KEYS.STATS_MANGA_SPEED),
@@ -302,14 +339,25 @@ export class ProfileView extends Component<ProfileState> {
             syncStatePromise,
         ]);
 
-        const resolvedTheme = theme || DEFAULTS.THEME;
-        const resolvedProfileName = currentProfile || DEFAULTS.PROFILE;
+        const requestedTheme = themeSetting || DEFAULTS.THEME;
+        const selectedCustomTheme = isBuiltInTheme(requestedTheme)
+            ? null
+            : await this.loadManagedThemePack(requestedTheme);
+        const customThemes = selectedCustomTheme ? [selectedCustomTheme] : [];
+        const resolvedTheme = applyTheme(requestedTheme, customThemes);
+        writeThemeCache(resolvedTheme, customThemes);
 
-        localStorage.setItem(STORAGE_KEYS.THEME_CACHE, resolvedTheme);
+        if (requestedTheme !== resolvedTheme) {
+            await setSetting(SETTING_KEYS.THEME, resolvedTheme);
+        }
+
+        const currentProfile = currentProfileSetting || DEFAULTS.PROFILE;
         this.setState({
-            currentProfile: resolvedProfileName,
+            currentProfile,
             theme: resolvedTheme,
             profilePicture,
+            customThemes,
+            customThemeSummaries: this.mergeThemeSummary(managedThemeSummaries, selectedCustomTheme),
             report: {
                 novelSpeed: novelSpeed || '0',
                 novelCount: novelCount || '0',
@@ -378,6 +426,87 @@ export class ProfileView extends Component<ProfileState> {
         }
     }
 
+    private mergeThemeSummary(summaries: ManagedThemePackSummary[], theme: ThemePackV1 | null): ManagedThemePackSummary[] {
+        if (!theme) {
+            return [...summaries].sort((left, right) => left.name.localeCompare(right.name));
+        }
+
+        const summaryMap = new Map(summaries.map(summary => [summary.id, summary]));
+        summaryMap.set(theme.id, { id: theme.id, name: theme.name });
+        return [...summaryMap.values()].sort((left, right) => left.name.localeCompare(right.name));
+    }
+
+    private getSelectedThemeSummary() {
+        const builtInTheme = getThemeDefinition(this.state.theme, []);
+        if (builtInTheme) {
+            return builtInTheme;
+        }
+
+        const summary = this.state.customThemeSummaries.find(theme => theme.id === this.state.theme);
+        if (summary) {
+            return { ...summary, builtIn: false };
+        }
+
+        return getThemeDefinition(this.state.theme, this.state.customThemes);
+    }
+
+    private async loadManagedThemePack(themeId: string, fallbackTheme: ThemePackV1 | null = null): Promise<ThemePackV1 | null> {
+        const cached = this.state.customThemes.find(theme => theme.id === themeId);
+        if (cached) {
+            return cached;
+        }
+
+        try {
+            const content = await getManagedThemePack(themeId);
+            if (!content) {
+                return fallbackTheme;
+            }
+
+            return this.resolveThemeForRuntime(parseThemePackText(content));
+        } catch (error) {
+            Logger.warn('[kechimochi] Failed to load managed custom theme pack', error);
+            return fallbackTheme;
+        }
+    }
+
+    private async readManagedThemePack(themeId: string): Promise<ThemePackV1 | null> {
+        try {
+            const content = await getManagedThemePack(themeId);
+            return content ? parseThemePackText(content) : null;
+        } catch (error) {
+            Logger.warn('[kechimochi] Failed to read managed custom theme pack', error);
+            return null;
+        }
+    }
+
+    private async getThemePackForExport(): Promise<{ themePack: ThemePackV1; hasAssets: boolean }> {
+        if (isBuiltInTheme(this.state.theme)) {
+            return {
+                themePack: createExportableThemePack(this.state.theme, []),
+                hasAssets: false,
+            };
+        }
+
+        const [rawManagedTheme, runtimeManagedTheme, managedThemeSummaries] = await Promise.all([
+            this.readManagedThemePack(this.state.theme),
+            this.loadManagedThemePack(this.state.theme),
+            listManagedThemePackSummaries().catch(error => {
+                Logger.warn('[kechimochi] Failed to refresh managed theme pack summaries before export', error);
+                return this.state.customThemeSummaries;
+            }),
+        ]);
+
+        const themePack = rawManagedTheme
+            ?? createExportableThemePack(this.state.theme, runtimeManagedTheme ? [runtimeManagedTheme] : []);
+        const hasAssets = managedThemeSummaries.some(theme => theme.id === this.state.theme && theme.has_assets === true);
+
+        return { themePack, hasAssets };
+    }
+
+    private resolveThemeForRuntime(theme: ThemePackV1): Promise<ThemePackV1> {
+        return resolveThemePackAssets(theme, (themeId, assetPath) => resolveManagedThemeAssetUrl(themeId, assetPath));
+    }
+
     render() {
         const needsLoad = !this.state.isInitialized;
         if (!this.isRefreshing && needsLoad) {
@@ -389,9 +518,12 @@ export class ProfileView extends Component<ProfileState> {
         }
 
         this.clear();
-        const { currentProfile, theme, profilePicture, appVersion } = this.state;
+    const { currentProfile, theme, profilePicture, customThemeSummaries, appVersion } = this.state;
         const profilePictureSrc = profilePictureToDataUrl(profilePicture);
         const initials = getProfileInitials(currentProfile);
+        const themeOptions = getThemeOptions(customThemeSummaries);
+        const selectedTheme = this.getSelectedThemeSummary();
+        const canDeleteTheme = Boolean(selectedTheme && !selectedTheme.builtIn);
 
         const content = html`
             <div id="profile-root" class="animate-fade-in" style="display: flex; flex-direction: column; gap: 2rem; max-width: 600px; margin: 0 auto; padding-top: 1rem; padding-bottom: 2rem;">
@@ -424,24 +556,26 @@ export class ProfileView extends Component<ProfileState> {
 
                 <div class="card" style="display: flex; flex-direction: column; gap: 1rem;">
                     <h3>Appearance</h3>
-                    <p style="color: var(--text-secondary); font-size: 0.9rem;">Choose your preferred theme for this profile. Double click the profile picture above to change it.</p>
+                    <p style="color: var(--text-secondary); font-size: 0.9rem;">Choose, import, or export a theme pack for this profile. Double click the profile picture above to change it.</p>
 
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">
                         <label for="profile-select-theme" style="font-size: 0.85rem; font-weight: 500;">Theme</label>
                         <select id="profile-select-theme" style="width: 100%;">
-                            <option value="pastel-pink" ${theme === 'pastel-pink' ? 'selected' : ''}>Pastel Pink (Default)</option>
-                            <option value="light" ${theme === 'light' ? 'selected' : ''}>Light Theme</option>
-                            <option value="dark" ${theme === 'dark' ? 'selected' : ''}>Dark Theme</option>
-                            <option value="light-greyscale" ${theme === 'light-greyscale' ? 'selected' : ''}>Light Greyscale</option>
-                            <option value="dark-greyscale" ${theme === 'dark-greyscale' ? 'selected' : ''}>Dark Greyscale</option>
-                            <option value="molokai" ${theme === 'molokai' ? 'selected' : ''}>Molokai</option>
-                            <option value="green-olive" ${theme === 'green-olive' ? 'selected' : ''}>Green Olive</option>
-                            <option value="deep-blue" ${theme === 'deep-blue' ? 'selected' : ''}>Deep Blue</option>
-                            <option value="purple" ${theme === 'purple' ? 'selected' : ''}>Purple</option>
-                            <option value="fire-red" ${theme === 'fire-red' ? 'selected' : ''}>Fire Red</option>
-                            <option value="yellow-lime" ${theme === 'yellow-lime' ? 'selected' : ''}>Yellow Lime</option>
-                            <option value="noctua-brown" ${theme === 'noctua-brown' ? 'selected' : ''}>Noctua Brown</option>
+                            ${rawHtml(this.renderThemeOptions(theme, themeOptions))}
                         </select>
+                    </div>
+
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-color); background: color-mix(in srgb, var(--bg-dark) 70%, transparent);">
+                        <div>
+                            <div style="font-size: 0.9rem; font-weight: 600; color: var(--text-primary);">${selectedTheme?.name || 'Unknown Theme'}</div>
+                            <div id="profile-theme-kind" style="font-size: 0.8rem; color: var(--text-secondary);">${canDeleteTheme ? 'Custom theme pack' : 'Built-in theme'}</div>
+                        </div>
+                        <button class="btn btn-ghost" id="profile-btn-delete-theme" ${canDeleteTheme ? '' : 'disabled'}>Delete Theme</button>
+                    </div>
+
+                    <div style="display: flex; gap: 1rem; margin-top: 0.25rem;">
+                        <button class="btn btn-primary" id="profile-btn-import-theme" style="flex: 1;">Import Theme Pack</button>
+                        <button class="btn btn-primary" id="profile-btn-export-theme" style="flex: 1;">Export Theme Pack</button>
                     </div>
                 </div>
 
@@ -488,24 +622,25 @@ export class ProfileView extends Component<ProfileState> {
                     </div>
                 </div>
 
-                <div class="card" style="display: flex; flex-direction: column; gap: 1rem; border: 1px solid #ff4757;">
-                    <h3 style="color: #ff4757;">Danger Zone</h3>
+                <!-- Danger Zone -->
+                <div class="card" style="display: flex; flex-direction: column; gap: 1rem; border: 1px solid var(--accent-red);">
+                    <h3 style="color: var(--accent-red);">Danger Zone</h3>
 
                     <div style="display: flex; flex-direction: column; gap: 1rem; margin-top: 0.5rem;">
                         <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
                             <div>
-                                <strong style="color: #ff4757;">Clear User Activities</strong>
+                                <strong style="color: var(--accent-red);">Clear User Activities</strong>
                                 <p style="color: var(--text-secondary); font-size: 0.8rem; margin: 0;">Removes all recorded activity logs, but keeps the profile and media library intact.</p>
                             </div>
-                            <button class="btn btn-danger" id="profile-btn-clear-activities" style="background-color: transparent !important; border: 1px solid #ff4757; color: #ff4757 !important; min-width: 140px;">Clear Activities</button>
+                            <button class="btn btn-danger" id="profile-btn-clear-activities" style="background-color: transparent !important; border: 1px solid var(--accent-red); color: var(--accent-red) !important; min-width: 140px;">Clear Activities</button>
                         </div>
 
                         <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem;">
                             <div>
-                                <strong style="color: #ff4757;">Delete Everything</strong>
+                                <strong style="color: var(--accent-red);">Delete Everything</strong>
                                 <p style="color: var(--text-secondary); font-size: 0.8rem; margin: 0;">Perform a total factory reset. Deletes ALL profiles, ALL activity logs, and the ENTIRE media library along with its cover images. Irreversible.</p>
                             </div>
-                            <button class="btn btn-danger" id="profile-btn-wipe-everything" style="background-color: darkred !important; color: #ffffff !important; border: none; min-width: 140px; font-weight: bold;">Factory Reset</button>
+                            <button class="btn btn-danger" id="profile-btn-wipe-everything" style="background-color: var(--accent-red) !important; color: var(--accent-text) !important; border: none; min-width: 140px; font-weight: bold;">Factory Reset</button>
                         </div>
                     </div>
                 </div>
@@ -577,6 +712,37 @@ export class ProfileView extends Component<ProfileState> {
         `;
     }
 
+    private renderThemeOptions(selectedThemeId: string, options: ReturnType<typeof getThemeOptions>): string {
+        const builtInOptions = options.builtIn
+            .map(theme => `<option value="${theme.id}" ${theme.id === selectedThemeId ? 'selected' : ''}>${escapeHTML(theme.name)}</option>`)
+            .join('');
+        const customOptions = options.custom
+            .map(theme => `<option value="${theme.id}" ${theme.id === selectedThemeId ? 'selected' : ''}>${escapeHTML(theme.name)}</option>`)
+            .join('');
+
+        if (!customOptions) {
+            return builtInOptions;
+        }
+
+        return `
+            <optgroup label="Built-in Themes">${builtInOptions}</optgroup>
+            <optgroup label="Custom Theme Packs">${customOptions}</optgroup>
+        `;
+    }
+
+    private async applySelectedTheme(theme: string, fallbackTheme: ThemePackV1 | null = null) {
+        const selectedCustomTheme = isBuiltInTheme(theme)
+            ? null
+            : await this.loadManagedThemePack(theme, fallbackTheme);
+        const customThemes = selectedCustomTheme
+            ? upsertCustomTheme(this.state.customThemes, selectedCustomTheme)
+            : this.state.customThemes;
+        const resolvedTheme = applyTheme(theme, selectedCustomTheme ? [selectedCustomTheme] : []);
+        await setSetting(SETTING_KEYS.THEME, resolvedTheme);
+        writeThemeCache(resolvedTheme, customThemes);
+        this.setState({ theme: resolvedTheme, customThemes });
+    }
+
     private renderUpdatesCard() {
         const { updateState } = this.state;
         if (!updateState.isSupported) {
@@ -632,10 +798,10 @@ export class ProfileView extends Component<ProfileState> {
 
     private renderSyncUnavailableCard(message: string) {
         return html`
-            <div class="card" id="profile-sync-card" style="display: flex; flex-direction: column; gap: 1rem; border: 1px solid rgba(255, 71, 87, 0.25);">
+            <div class="card" id="profile-sync-card" style="display: flex; flex-direction: column; gap: 1rem; border: 1px solid ${SYNC_ERROR_BORDER};">
                 <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
                     <h3 style="margin: 0;">Cloud Sync</h3>
-                    <span style="font-size: 0.8rem; color: #ff4757; border: 1px solid rgba(255, 71, 87, 0.35); border-radius: 999px; padding: 0.2rem 0.65rem;">Unavailable</span>
+                    <span style="font-size: 0.8rem; color: var(--accent-red); border: 1px solid ${SYNC_ERROR_BORDER}; border-radius: 999px; padding: 0.2rem 0.65rem;">Unavailable</span>
                 </div>
                 <p style="color: var(--text-secondary); font-size: 0.9rem; margin: 0;">${message}</p>
                 <div style="display: flex; justify-content: flex-end;">
@@ -677,7 +843,7 @@ export class ProfileView extends Component<ProfileState> {
 
                 ${this.state.syncError
                     ? html`
-                        <div style="padding: 0.9rem 1rem; border-radius: var(--radius-md); border: 1px solid rgba(255, 71, 87, 0.35); background: rgba(255, 71, 87, 0.08); color: var(--text-primary);">
+                        <div style="padding: 0.9rem 1rem; border-radius: var(--radius-md); border: 1px solid ${SYNC_ERROR_BORDER}; background: ${SYNC_ERROR_BACKGROUND}; color: var(--text-primary);">
                             ${this.state.syncError}
                         </div>
                     `
@@ -704,7 +870,7 @@ export class ProfileView extends Component<ProfileState> {
         const chips: HTMLElement[] = [];
         if (hasConflicts) {
             chips.push(html`
-                <span style="font-size: 0.76rem; color: var(--text-primary); border: 1px solid rgba(255, 127, 80, 0.35); border-radius: 999px; padding: 0.22rem 0.65rem; background: rgba(255, 127, 80, 0.08);">
+                <span style="font-size: 0.76rem; color: var(--text-primary); border: 1px solid ${SYNC_WARNING_BORDER}; border-radius: 999px; padding: 0.22rem 0.65rem; background: ${SYNC_WARNING_BACKGROUND};">
                     ${syncStatus.conflict_count} pending conflict${syncStatus.conflict_count === 1 ? '' : 's'}
                 </span>
             `);
@@ -786,7 +952,7 @@ export class ProfileView extends Component<ProfileState> {
                 </button>
                 ${this.state.showSyncRecoveryTools
                     ? html`
-                        <div style="display: flex; flex-direction: column; gap: 0.75rem; padding: 0.9rem 1rem; border-radius: var(--radius-md); border: 1px solid rgba(255, 71, 87, 0.28); background: rgba(255, 71, 87, 0.06);">
+                        <div style="display: flex; flex-direction: column; gap: 0.75rem; padding: 0.9rem 1rem; border-radius: var(--radius-md); border: 1px solid ${SYNC_ERROR_BORDER}; background: ${SYNC_ERROR_BACKGROUND};">
                             <span style="color: var(--text-secondary); font-size: 0.85rem;">
                                 These actions are destructive. ${hint}
                             </span>
@@ -902,7 +1068,7 @@ export class ProfileView extends Component<ProfileState> {
             : conflict.media_uid;
 
         return html`
-            <div style="display: flex; flex-direction: column; gap: 0.8rem; padding: 1rem; border: 1px solid rgba(255, 127, 80, 0.24); border-radius: var(--radius-md); background: rgba(255, 127, 80, 0.05);">
+            <div style="display: flex; flex-direction: column; gap: 0.8rem; padding: 1rem; border: 1px solid ${SYNC_WARNING_BORDER}; border-radius: var(--radius-md); background: ${SYNC_WARNING_BACKGROUND};">
                 <div style="display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
                     <div style="display: flex; flex-direction: column; gap: 0.25rem;">
                         <strong>${formatFieldLabel(conflict.field_name)} conflict</strong>
@@ -926,7 +1092,7 @@ export class ProfileView extends Component<ProfileState> {
         const remoteLabel = conflict.remote_value === null ? 'Discard entry' : 'Use Remote Entry';
 
         return html`
-            <div style="display: flex; flex-direction: column; gap: 0.8rem; padding: 1rem; border: 1px solid rgba(255, 127, 80, 0.24); border-radius: var(--radius-md); background: rgba(255, 127, 80, 0.05);">
+            <div style="display: flex; flex-direction: column; gap: 0.8rem; padding: 1rem; border: 1px solid ${SYNC_WARNING_BORDER}; border-radius: var(--radius-md); background: ${SYNC_WARNING_BACKGROUND};">
                 <div style="display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
                     <div style="display: flex; flex-direction: column; gap: 0.25rem;">
                         <strong>Extra data entry conflict</strong>
@@ -954,7 +1120,7 @@ export class ProfileView extends Component<ProfileState> {
                 : conflict.local_media?.title || conflict.media_uid;
 
         return html`
-            <div style="display: flex; flex-direction: column; gap: 0.8rem; padding: 1rem; border: 1px solid rgba(255, 127, 80, 0.24); border-radius: var(--radius-md); background: rgba(255, 127, 80, 0.05);">
+            <div style="display: flex; flex-direction: column; gap: 0.8rem; padding: 1rem; border: 1px solid ${SYNC_WARNING_BORDER}; border-radius: var(--radius-md); background: ${SYNC_WARNING_BACKGROUND};">
                 <div style="display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
                     <div style="display: flex; flex-direction: column; gap: 0.25rem;">
                         <strong>Delete vs update conflict</strong>
@@ -977,7 +1143,7 @@ export class ProfileView extends Component<ProfileState> {
 
     private renderProfilePictureConflict(conflict: Extract<SyncConflict, { kind: 'profile_picture_conflict' }>, index: number) {
         return html`
-            <div style="display: flex; flex-direction: column; gap: 0.8rem; padding: 1rem; border: 1px solid rgba(255, 127, 80, 0.24); border-radius: var(--radius-md); background: rgba(255, 127, 80, 0.05);">
+            <div style="display: flex; flex-direction: column; gap: 0.8rem; padding: 1rem; border: 1px solid ${SYNC_WARNING_BORDER}; border-radius: var(--radius-md); background: ${SYNC_WARNING_BACKGROUND};">
                 <div style="display: flex; flex-direction: column; gap: 0.25rem;">
                     <strong>Profile picture conflict</strong>
                     <span style="color: var(--text-secondary); font-size: 0.85rem;">Choose which picture should become the synced version.</span>
@@ -1030,10 +1196,100 @@ export class ProfileView extends Component<ProfileState> {
 
         root.querySelector('#profile-select-theme')?.addEventListener('change', async (e) => {
             const theme = (e.target as HTMLSelectElement).value;
-            await setSetting(SETTING_KEYS.THEME, theme);
-            document.body.dataset.theme = theme;
-            localStorage.setItem(STORAGE_KEYS.THEME_CACHE, theme);
-            this.setState({ theme });
+            if (isBuiltInTheme(theme)) {
+                await this.applySelectedTheme(theme);
+            } else {
+                await this.withBlockingStatus(
+                    'Switching Theme Pack',
+                    'Loading theme pack. This can take a moment while assets are resolved.',
+                    () => this.applySelectedTheme(theme),
+                );
+            }
+            this.render();
+        });
+
+        root.querySelector('#profile-btn-import-theme')?.addEventListener('click', async () => {
+            try {
+                const importSelection = await pickThemePackImportSelection();
+                if (!importSelection) return;
+
+                const importedThemeName = await this.withBlockingStatus(
+                    'Importing Theme Pack',
+                    'Importing theme pack. This can take a moment while assets are unpacked.',
+                    async () => {
+                        const importedFile = await importThemePackFromSelection(importSelection);
+                        const importedTheme = await this.resolveThemeForRuntime(parseThemePackText(importedFile.content));
+                        const customThemes = upsertCustomTheme(this.state.customThemes, importedTheme);
+                        const refreshedThemeSummaries = await listManagedThemePackSummaries().catch(error => {
+                            Logger.warn('[kechimochi] Failed to refresh managed theme pack summaries after import', error);
+                            return this.mergeThemeSummary(this.state.customThemeSummaries, importedTheme);
+                        });
+
+                        this.setState({
+                            customThemes,
+                            customThemeSummaries: refreshedThemeSummaries,
+                        });
+                        await this.applySelectedTheme(importedTheme.id, importedTheme);
+                        this.render();
+
+                        return importedFile.themeName;
+                    },
+                );
+
+                await customAlert('Success', `Imported theme pack "${importedThemeName}".`);
+            } catch (e) {
+                await customAlert('Error', `Theme import failed: ${e}`);
+            }
+        });
+
+        root.querySelector('#profile-btn-export-theme')?.addEventListener('click', async () => {
+            try {
+                let exportedThemeName = 'Theme Pack';
+                const { themePack, hasAssets } = await this.getThemePackForExport();
+                const exportSelection = await pickThemePackExportSelection(getThemePackFilename(themePack, hasAssets));
+                if (!exportSelection) return;
+
+                const exported = await this.withBlockingStatus(
+                    'Exporting Theme Pack',
+                    'Exporting theme pack. This can take a moment while assets are bundled.',
+                    async () => {
+                        exportedThemeName = themePack.name;
+                        return exportThemePackToSelection(
+                            themePack.id,
+                            JSON.stringify(themePack, null, 2),
+                            exportSelection,
+                        );
+                    },
+                );
+                if (exported) {
+                    await customAlert('Success', `Exported theme pack "${exportedThemeName}".`);
+                }
+            } catch (e) {
+                await customAlert('Error', `Theme export failed: ${e}`);
+            }
+        });
+
+        root.querySelector('#profile-btn-delete-theme')?.addEventListener('click', async () => {
+            if (isBuiltInTheme(this.state.theme)) {
+                return;
+            }
+
+            const selectedTheme = this.getSelectedThemeSummary();
+            if (!selectedTheme || selectedTheme.builtIn) {
+                return;
+            }
+
+            if (!(await customConfirm('Delete Theme Pack', `Delete "${selectedTheme.name}" from this profile?`, 'btn-danger', 'Delete'))) {
+                return;
+            }
+
+            await deleteManagedThemePack(selectedTheme.id);
+            const customThemes = removeCustomTheme(this.state.customThemes, selectedTheme.id);
+            const customThemeSummaries = this.state.customThemeSummaries.filter(theme => theme.id !== selectedTheme.id);
+            this.setState({ customThemes, customThemeSummaries });
+            await this.applySelectedTheme(DEFAULTS.THEME);
+            this.render();
+            await customAlert('Success', `Deleted theme pack "${selectedTheme.name}".`);
         });
 
         root.querySelector('#profile-updates-auto-check')?.addEventListener('change', async (e) => {

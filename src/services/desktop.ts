@@ -7,7 +7,7 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open as tauriOpen, save as tauriSave } from '@tauri-apps/plugin-dialog';
 
-import type { AppServices } from './types';
+import type { AppServices, ImportedThemePackFile, ThemePackExportSelection, ThemePackImportSelection } from './types';
 import type {
     Media,
     ActivityLog,
@@ -26,12 +26,42 @@ import type {
     SyncConflictResolution,
     SyncProgressUpdate,
     SyncStatus,
+    ManagedThemePackSummary,
 } from '../types';
 import { getBuildVersion } from '../app_version';
 import { getMockExternalJsonResponse } from './external_mocks';
 
+const THEME_ASSET_MIME_TYPES: Record<string, string> = {
+    css: 'text/css;charset=utf-8',
+    gif: 'image/gif',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    json: 'application/json;charset=utf-8',
+    mp4: 'video/mp4',
+    otf: 'font/otf',
+    png: 'image/png',
+    svg: 'image/svg+xml',
+    ttf: 'font/ttf',
+    webp: 'image/webp',
+    woff: 'font/woff',
+    woff2: 'font/woff2',
+};
+
+const BACKSLASH = '\\';
+
+function normalizeThemeAssetPath(assetPath: string): string {
+    return assetPath.trim().replaceAll(BACKSLASH, '/');
+}
+
+function getThemeAssetMimeType(assetPath: string): string {
+    const normalized = normalizeThemeAssetPath(assetPath);
+    const extension = normalized.split('.').pop()?.toLowerCase() || '';
+    return THEME_ASSET_MIME_TYPES[extension] || 'application/octet-stream';
+}
+
 export class DesktopServices implements AppServices {
     private win: ReturnType<typeof getCurrentWindow> | null = null;
+    private readonly themeAssetUrls = new Map<string, string>();
 
     private isAndroidRuntime(): boolean {
         const ua = navigator.userAgent || '';
@@ -59,6 +89,18 @@ export class DesktopServices implements AppServices {
 
     private getMockSavePath(): string | null {
         return this.getMockValue('mockSavePath');
+    }
+
+    private revokeThemeAssetUrls(themeId: string): void {
+        const prefix = `${themeId}::`;
+        for (const [cacheKey, objectUrl] of this.themeAssetUrls.entries()) {
+            if (!cacheKey.startsWith(prefix)) {
+                continue;
+            }
+
+            URL.revokeObjectURL(objectUrl);
+            this.themeAssetUrls.delete(cacheKey);
+        }
     }
 
     // ── Data operations ───────────────────────────────────────────────────────
@@ -164,6 +206,85 @@ export class DesktopServices implements AppServices {
         const selected = this.getMockOpenPath() ?? await tauriOpen({ multiple: false, filters: [{ name: 'ZIP', extensions: ['zip'] }] });
         if (!selected || typeof selected !== 'string') return null;
         return invoke('import_full_backup', { filePath: selected });
+    }
+
+    async pickThemePackImportSelection(): Promise<ThemePackImportSelection | null> {
+        const selected = this.getMockOpenPath() ?? await tauriOpen({ multiple: false, filters: [{ name: 'Theme Pack', extensions: ['json', 'zip'] }] });
+        if (!selected || typeof selected !== 'string') return null;
+        return { kind: 'desktop', path: selected };
+    }
+
+    async importThemePackFromSelection(selection: ThemePackImportSelection): Promise<ImportedThemePackFile> {
+        if (selection.kind !== 'desktop') {
+            throw new Error('Theme pack import selection is not valid for the desktop runtime.');
+        }
+
+        const imported = await invoke<ImportedThemePackFile>('import_theme_pack', { path: selection.path });
+        this.revokeThemeAssetUrls(imported.themeId);
+        return imported;
+    }
+
+    listManagedThemePackSummaries(): Promise<ManagedThemePackSummary[]> {
+        return invoke('list_theme_pack_summaries');
+    }
+
+    getManagedThemePack(themeId: string): Promise<string | null> {
+        return invoke('read_theme_pack', { themeId });
+    }
+
+    async resolveManagedThemeAssetUrl(themeId: string, assetPath: string): Promise<string | null> {
+        const normalized = normalizeThemeAssetPath(assetPath);
+        if (!normalized) return null;
+
+        const cacheKey = `${themeId}::${normalized}`;
+        const cached = this.themeAssetUrls.get(cacheKey);
+        if (cached) {
+            return cached;
+        }
+
+        const bytes = await invoke<number[] | null>('read_theme_pack_asset_bytes', { themeId, assetPath: normalized });
+        if (!bytes || bytes.length === 0) {
+            return null;
+        }
+
+        const objectUrl = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: getThemeAssetMimeType(normalized) }));
+        this.themeAssetUrls.set(cacheKey, objectUrl);
+        return objectUrl;
+    }
+
+    listManagedThemePacks(): Promise<string[]> {
+        return invoke('list_theme_packs');
+    }
+
+    saveManagedThemePack(themeId: string, content: string, preferredFileName?: string | null): Promise<void> {
+        this.revokeThemeAssetUrls(themeId);
+        return invoke('save_theme_pack', { themeId, content, preferredFileName });
+    }
+
+    deleteManagedThemePack(themeId: string): Promise<void> {
+        this.revokeThemeAssetUrls(themeId);
+        return invoke('delete_theme_pack', { themeId });
+    }
+
+    async pickThemePackExportSelection(defaultFileName: string): Promise<ThemePackExportSelection | null> {
+        const exportIsArchive = defaultFileName.toLowerCase().endsWith('.zip');
+        const savePath = this.getMockSavePath() ?? await tauriSave({
+            filters: [exportIsArchive
+                ? { name: 'Theme Pack Archive', extensions: ['zip'] }
+                : { name: 'Theme Pack JSON', extensions: ['json'] }],
+            defaultPath: defaultFileName,
+        });
+        if (!savePath) return null;
+        return { kind: 'desktop', filePath: savePath };
+    }
+
+    async exportThemePackToSelection(themeId: string, content: string, selection: ThemePackExportSelection): Promise<boolean> {
+        if (selection.kind !== 'desktop') {
+            throw new Error('Theme pack export selection is not valid for the desktop runtime.');
+        }
+
+        await invoke('export_theme_pack', { themeId, filePath: selection.filePath, content });
+        return true;
     }
 
     // ── Milestone operations ─────────────────────────────────────────────────

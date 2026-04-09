@@ -16,7 +16,7 @@ import { Logger } from '../src/core/logger';
 interface TauriSessionCaps {
     port?: number;
     'tauri:options': {
-        envs?: Record<string, string>;
+    args?: string[];
         [key: string]: unknown;
     };
     [key: string]: unknown;
@@ -150,6 +150,10 @@ async function seedSyncBackupManagementFixture(testDir: string): Promise<void> {
   writeFileSync(path.join(syncDir, 'pre_sync_backup_1.zip'), Buffer.alloc(1024 * 1024));
   writeFileSync(path.join(syncDir, 'pre_sync_backup_2.zip'), Buffer.alloc(1024 * 1024));
   writeFileSync(path.join(syncDir, 'important_data.txt'), 'do not touch');
+}
+
+function buildAppOverrideArgs(env: Record<string, string>): string[] {
+  return Object.entries(env).map(([key, value]) => `--kechimochi-env=${key}=${value}`);
 }
 
 export const config: WebdriverIO.Config = {
@@ -320,12 +324,14 @@ export const config: WebdriverIO.Config = {
     process.env.SPEC_STAGE_DIR = STAGE_DIR;
     process.env.SPEC_NAME = specName;
 
-    // 4. Pass isolated environment to the app via capabilities
-    caps['tauri:options'].envs = {
-        ...caps['tauri:options'].envs,
+    // 4. Pass isolated overrides to the app via CLI args because tauri-driver does not forward envs.
+    caps['tauri:options'].args = [
+      ...(caps['tauri:options'].args ?? []),
+      ...buildAppOverrideArgs({
         KECHIMOCHI_DATA_DIR: testDir,
         ...syncEnv,
-    };
+      }),
+    ];
 
     // 5. Proactively create the requested subfolders
     mkdirSync(path.join(STAGE_DIR, 'visual', 'actual'), { recursive: true });

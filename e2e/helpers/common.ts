@@ -314,20 +314,18 @@ export async function takeAndCompareScreenshot(tag: string): Promise<void> {
  * If expectedText is provided, it verifies the alert content.
  */
 export async function dismissAlert(expectedText?: string, timeout = 5000): Promise<void> {
-    const okBtn = $('#alert-ok');
     try {
-        if (timeout > 0) {
-            await okBtn.waitForDisplayed({ timeout });
-        }
-        
-        if (await okBtn.isDisplayed()) {
+        const overlay = timeout > 0
+            ? await getTopmostVisibleOverlay('#alert-ok')
+            : await getTopmostVisibleOverlay('#alert-ok').catch(() => null);
+
+        if (overlay) {
             if (expectedText) {
-                const alertBody = $('#alert-body');
+                const alertBody = overlay.$('#alert-body');
+                await alertBody.waitForDisplayed({ timeout: 2000 });
                 expect(await alertBody.getText()).toContain(expectedText);
             }
 
-            // Target the currently visible alert overlay in case another modal is fading out.
-            const overlay = await getTopmostVisibleOverlay('#alert-ok');
             const scopedOkBtn = overlay.$('#alert-ok');
             await safeClick(scopedOkBtn);
 

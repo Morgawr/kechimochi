@@ -16,6 +16,7 @@ import type {
     SyncConflictResolution,
     SyncProgressUpdate,
     SyncStatus,
+    ManagedThemePackSummary,
 } from '../types';
 
 export type {
@@ -36,7 +37,23 @@ export type {
     SyncConflictResolution,
     SyncProgressUpdate,
     SyncStatus,
+    ManagedThemePackSummary,
 } from '../types';
+
+export interface ImportedThemePackFile {
+    themeId: string;
+    themeName: string;
+    content: string;
+    fileName: string | null;
+}
+
+export type ThemePackImportSelection =
+    | { kind: 'desktop'; path: string }
+    | { kind: 'web'; file: File };
+
+export type ThemePackExportSelection =
+    | { kind: 'desktop'; filePath: string }
+    | { kind: 'web'; fileName: string };
 
 /**
  * The single capability contract every part of the application uses.
@@ -108,6 +125,16 @@ export interface AppServices {
     // ── Full Backup operations ──────────────────────────────────────────────
     pickAndExportFullBackup(localStorageData: string, version: string): Promise<boolean>;
     pickAndImportFullBackup(): Promise<string | null>;
+    pickThemePackImportSelection(): Promise<ThemePackImportSelection | null>;
+    importThemePackFromSelection(selection: ThemePackImportSelection): Promise<ImportedThemePackFile>;
+    listManagedThemePackSummaries(): Promise<ManagedThemePackSummary[]>;
+    getManagedThemePack(themeId: string): Promise<string | null>;
+    resolveManagedThemeAssetUrl(themeId: string, assetPath: string): Promise<string | null>;
+    listManagedThemePacks(): Promise<string[]>;
+    saveManagedThemePack(themeId: string, content: string, preferredFileName?: string | null): Promise<void>;
+    deleteManagedThemePack(themeId: string): Promise<void>;
+    pickThemePackExportSelection(defaultFileName: string): Promise<ThemePackExportSelection | null>;
+    exportThemePackToSelection(themeId: string, content: string, selection: ThemePackExportSelection): Promise<boolean>;
 
     // ── Milestone operations ────────────────────────────────────────────────
     getMilestones(mediaTitle: string): Promise<Milestone[]>;

@@ -47,3 +47,6 @@ tower-http = { version = "0.5", features = ["cors", "fs"] }
 tempfile = "3"
 zip = "8.3.0"
 walkdir = "2.5.0"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

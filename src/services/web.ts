@@ -6,7 +6,7 @@
  * The server base URL is set at build time via VITE_API_BASE_URL, defaulting
  * to the same origin (so the Vite dev proxy or a bundled server both work).
  */
-import type { AppServices } from './types';
+import type { AppServices, ImportedThemePackFile, ThemePackExportSelection, ThemePackImportSelection } from './types';
 import type {
     Media,
     ActivityLog,
@@ -25,14 +25,20 @@ import type {
     SyncConflictResolution,
     SyncProgressUpdate,
     SyncStatus,
+    ManagedThemePackSummary,
 } from '../types';
 import { getBuildVersion } from '../app_version';
 import { getMockExternalJsonResponse } from './external_mocks';
 
 const API_BASE: string = import.meta.env.VITE_API_BASE_URL || '';
+const BACKSLASH = '\\';
 
 function apiUrl(path: string): string {
     return `${API_BASE}/api${path}`;
+}
+
+function normalizeThemeAssetPath(assetPath: string): string {
+    return assetPath.trim().replaceAll(BACKSLASH, '/');
 }
 
 async function parseJsonResponse<T>(res: Response): Promise<T> {
@@ -218,6 +224,70 @@ export class WebServices implements AppServices {
         if (!res.ok) throw new Error(await res.text());
         const { localStorage: ls } = await res.json();
         return ls as string;
+    }
+
+    async pickThemePackImportSelection(): Promise<ThemePackImportSelection | null> {
+        const file = await pickFile('.json,.zip,application/json,application/zip');
+        if (!file) return null;
+        return { kind: 'web', file };
+    }
+
+    async importThemePackFromSelection(selection: ThemePackImportSelection): Promise<ImportedThemePackFile> {
+        if (selection.kind !== 'web') {
+            throw new Error('Theme pack import selection is not valid for web mode.');
+        }
+
+        const form = new FormData();
+        form.append('file', selection.file);
+        const res = await fetch(apiUrl('/themes/import'), { method: 'POST', body: form });
+        return parseJsonResponse<ImportedThemePackFile>(res);
+    }
+
+    listManagedThemePackSummaries(): Promise<ManagedThemePackSummary[]> {
+        return get('/themes/summaries');
+    }
+
+    getManagedThemePack(themeId: string): Promise<string | null> {
+        return get(`/themes/${encodeURIComponent(themeId)}`);
+    }
+
+    resolveManagedThemeAssetUrl(themeId: string, assetPath: string): Promise<string | null> {
+        const normalized = normalizeThemeAssetPath(assetPath);
+        if (!normalized) return Promise.resolve(null);
+        const encodedAssetPath = normalized.split('/').map(segment => encodeURIComponent(segment)).join('/');
+        return Promise.resolve(apiUrl(`/themes/${encodeURIComponent(themeId)}/assets/${encodedAssetPath}`));
+    }
+
+    listManagedThemePacks(): Promise<string[]> {
+        return get('/themes');
+    }
+
+    saveManagedThemePack(themeId: string, content: string, preferredFileName?: string | null): Promise<void> {
+        return post('/themes', { themeId, content, preferredFileName });
+    }
+
+    deleteManagedThemePack(themeId: string): Promise<void> {
+        return del(`/themes/${encodeURIComponent(themeId)}`);
+    }
+
+    pickThemePackExportSelection(defaultFileName: string): Promise<ThemePackExportSelection | null> {
+        return Promise.resolve({ kind: 'web', fileName: defaultFileName });
+    }
+
+    async exportThemePackToSelection(themeId: string, content: string, selection: ThemePackExportSelection): Promise<boolean> {
+        if (selection.kind !== 'web') {
+            throw new Error('Theme pack export selection is not valid for web mode.');
+        }
+
+        const res = await fetch(apiUrl('/themes/export'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ themeId, content }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const blob = await res.blob();
+        triggerDownload(blob, selection.fileName);
+        return true;
     }
 
     // ── Milestone operations ─────────────────────────────────────────────────

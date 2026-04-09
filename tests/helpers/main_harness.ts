@@ -9,6 +9,7 @@ const defaultActivitySummary: ActivitySummary = {
     id: 0,
     date: '2024-01-01',
     duration_minutes: 0,
+    characters: 0,
     title: 'T',
     media_id: 1,
     media_type: 'M',
@@ -24,11 +25,25 @@ export function createMainApiMock() {
         getSetting: vi.fn((key: string) => Promise.resolve(getDefaultSettingValue(key))),
         setSetting: vi.fn(() => Promise.resolve()),
         getProfilePicture: vi.fn(() => Promise.resolve(null)),
+        pickThemePackImportSelection: vi.fn(() => Promise.resolve(null)),
+        importThemePackFromSelection: vi.fn(() => Promise.resolve({
+            themeId: 'custom:test-theme',
+            themeName: 'Test Theme',
+            content: '{"name":"Theme"}',
+            fileName: 'theme.json',
+        })),
+        pickThemePackExportSelection: vi.fn(() => Promise.resolve(null)),
+        exportThemePackToSelection: vi.fn(() => Promise.resolve(true)),
+        listManagedThemePackSummaries: vi.fn(() => Promise.resolve([])),
+        getManagedThemePack: vi.fn(() => Promise.resolve(null)),
+        resolveManagedThemeAssetUrl: vi.fn(() => Promise.resolve(null)),
+        saveManagedThemePack: vi.fn(() => Promise.resolve()),
+        deleteManagedThemePack: vi.fn(() => Promise.resolve()),
         getLogs: vi.fn(() => Promise.resolve([defaultActivitySummary])),
         getLogsForMedia: vi.fn(() => Promise.resolve([])),
         getAllMedia: vi.fn(() => Promise.resolve([])),
         getTimelineEvents: vi.fn(() => Promise.resolve([])),
-        getHeatmap: vi.fn(() => Promise.resolve([{ date: '2024-01-01', total_minutes: 10 }])),
+        getHeatmap: vi.fn(() => Promise.resolve([{ date: '2024-01-01', total_minutes: 10, total_characters: 0 }])),
         getMilestones: vi.fn(() => Promise.resolve([])),
         getAppVersion: vi.fn(() => Promise.resolve('1.0.0')),
         connectGoogleDrive: vi.fn(() => Promise.resolve({
@@ -105,11 +120,25 @@ export function resetMainApiMocks(mockedApi: ApiModule) {
     vi.mocked(mockedApi.getSetting).mockImplementation(async (key) => getDefaultSettingValue(key));
     vi.mocked(mockedApi.setSetting).mockResolvedValue();
     vi.mocked(mockedApi.getProfilePicture).mockResolvedValue(null);
+    vi.mocked(mockedApi.pickThemePackImportSelection).mockResolvedValue(null);
+    vi.mocked(mockedApi.importThemePackFromSelection).mockResolvedValue({
+        themeId: 'custom:test-theme',
+        themeName: 'Test Theme',
+        content: '{"name":"Theme"}',
+        fileName: 'theme.json',
+    });
+    vi.mocked(mockedApi.pickThemePackExportSelection).mockResolvedValue(null);
+    vi.mocked(mockedApi.exportThemePackToSelection).mockResolvedValue(true);
+    vi.mocked(mockedApi.listManagedThemePackSummaries).mockResolvedValue([]);
+    vi.mocked(mockedApi.getManagedThemePack).mockResolvedValue(null);
+    vi.mocked(mockedApi.resolveManagedThemeAssetUrl).mockResolvedValue(null);
+    vi.mocked(mockedApi.saveManagedThemePack).mockResolvedValue();
+    vi.mocked(mockedApi.deleteManagedThemePack).mockResolvedValue();
     vi.mocked(mockedApi.getLogs).mockResolvedValue([defaultActivitySummary]);
     vi.mocked(mockedApi.getLogsForMedia).mockResolvedValue([]);
     vi.mocked(mockedApi.getAllMedia).mockResolvedValue([]);
     vi.mocked(mockedApi.getTimelineEvents).mockResolvedValue([]);
-    vi.mocked(mockedApi.getHeatmap).mockResolvedValue([{ date: '2024-01-01', total_minutes: 10 }]);
+    vi.mocked(mockedApi.getHeatmap).mockResolvedValue([{ date: '2024-01-01', total_minutes: 10, total_characters: 0 }]);
     vi.mocked(mockedApi.getMilestones).mockResolvedValue([]);
     vi.mocked(mockedApi.getAppVersion).mockResolvedValue('1.0.0');
     vi.mocked(mockedApi.connectGoogleDrive).mockResolvedValue({
@@ -145,8 +174,8 @@ export function resetMainApiMocks(mockedApi: ApiModule) {
         remote_changed: false,
     });
     vi.mocked(mockedApi.subscribeSyncProgress).mockResolvedValue(() => undefined);
-    vi.mocked(mockedApi.clearMilestones).mockImplementation(() => {});
-    vi.mocked(mockedApi.deleteMilestone).mockImplementation(() => {});
+    vi.mocked(mockedApi.clearMilestones).mockResolvedValue();
+    vi.mocked(mockedApi.deleteMilestone).mockResolvedValue();
 }
 
 export function resetMainModalMocks(mockedModals: ModalsModule) {

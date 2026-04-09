@@ -50,6 +50,8 @@ Are we missing some sites? Let us know by opening an [issue](https://github.com/
 
 Customizable themes and a profile picture let you personalize the app while keeping the local-first workflow simple.
 
+Managed custom theme packs can be imported, exported, and shared as JSON files, with optional scoped CSS overrides for deeper styling tweaks. The full pack format and workflow are documented in [docs/custom-themes.md](docs/custom-themes.md).
+
 ### Reading Analysis
 
 The application includes dedicated reading reports to help you understand your pace across different media. It estimates your reading speed from completed content and provides progress projections to calculate when you might finish your current book, manga, or visual novel based on your past activity.
