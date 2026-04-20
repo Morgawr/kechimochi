@@ -41,6 +41,6 @@ describe('CUJ: Content Lifecycle (Manual Archiving)', () => {
 
         // Verify archived visual indicator (opacity 0.6)
         const item = $(`[data-title="呪術廻戦"]`);
-        expect(await item.getCSSProperty('opacity')).toMatchObject({ value: 0.6 });
+        expect((await item.getCSSProperty('opacity')).value).toBe(0.6);
     });
 });
