@@ -6,7 +6,7 @@ import { clickMediaItem } from '../helpers/library.js';
 import { backToGrid, getDetailTrackingStatus } from '../helpers/media-detail.js';
 
 describe('CUJ: Log Daily Activity', () => {
-  before(async () => {
+  beforeAll(async () => {
     await waitForAppReady();
   });
 

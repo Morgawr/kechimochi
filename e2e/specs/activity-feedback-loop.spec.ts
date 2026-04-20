@@ -9,7 +9,7 @@ import {
 } from '../helpers/dashboard.js';
 
 describe('CUJ: Activity Feedback Loop (Dashboard Management)', () => {
-    before(async () => {
+    beforeAll(async () => {
         await waitForAppReady();
     });
 

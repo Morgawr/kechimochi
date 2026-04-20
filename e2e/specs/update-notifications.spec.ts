@@ -15,11 +15,11 @@ describe('CUJ: Update Notifications', () => {
   const [major, minor, patch] = currentVersion.split('.').map(Number);
   const nextVersion = `${major}.${minor}.${patch + 1}`;
 
-  before(async () => {
+  beforeAll(async () => {
     await waitForAppReady();
   });
 
-  after(async () => {
+  afterAll(async () => {
     await clearMockUpstreamRelease();
   });
 

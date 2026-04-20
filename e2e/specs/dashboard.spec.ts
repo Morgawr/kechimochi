@@ -10,7 +10,7 @@ import {
 } from '../helpers/dashboard.js';
 
 describe('Dashboard CUJ', () => {
-  before(async () => {
+  beforeAll(async () => {
     await waitForAppReady();
   });
 

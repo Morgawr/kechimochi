@@ -17,7 +17,7 @@ import { takeAndCompareScreenshot } from '../helpers/common.js';
 import { backToLibrary } from '../helpers/media-detail.js';
 
 describe('Media Grid CUJ', () => {
-  before(async () => {
+  beforeAll(async () => {
     await waitForAppReady();
     await navigateTo('media');
   });

@@ -3,7 +3,7 @@ import { navigateTo, verifyActiveView } from '../helpers/navigation.js';
 import { dismissAlert } from '../helpers/common.js';
 
 describe('CUJ: Reading Analysis (Report Card)', () => {
-  before(async () => {
+  beforeAll(async () => {
     await waitForAppReady();
   });
 

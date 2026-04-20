@@ -10,7 +10,7 @@ import {
 import { getDescription, getExtraField } from '../helpers/media-detail.js';
 
 describe('CUJ: Information Enrichment (Mocked Metadata Fetching)', () => {
-    before(async () => {
+    beforeAll(async () => {
         await waitForAppReady();
     });
 

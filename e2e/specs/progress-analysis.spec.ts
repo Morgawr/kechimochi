@@ -6,7 +6,7 @@ import { calculateReport } from '../helpers/profile.js';
 import { logActivityGlobal } from '../helpers/dashboard.js';
 
 describe('CUJ: Progress Analysis (Projections)', () => {
-    before(async () => {
+    beforeAll(async () => {
         await waitForAppReady();
     });
 

@@ -9,7 +9,7 @@ describe('Local Sync Backup Management', () => {
     const dataDir = process.env.KECHIMOCHI_DATA_DIR!;
     const syncDir = path.join(dataDir, 'sync');
 
-    before(async () => {
+    beforeAll(async () => {
         // The WDIO session seeds the sync fixture before the desktop app launches.
         await waitForAppReady();
     });

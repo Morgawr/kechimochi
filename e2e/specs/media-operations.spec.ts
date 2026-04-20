@@ -3,7 +3,7 @@ import { navigateTo, verifyActiveView } from '../helpers/navigation.js';
 import { submitPrompt, confirmAction, safeClick } from '../helpers/common.js';
 
 describe('CUJ: Media Extra Fields and Metadata Management', () => {
-  before(async () => {
+  beforeAll(async () => {
     await waitForAppReady();
   });
 

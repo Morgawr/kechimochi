@@ -12,7 +12,7 @@ const MEDIA_CSV = path.join(FIXTURES_DIR, 'bulk_media.csv');
 const ACTIVITY_CSV = path.join(FIXTURES_DIR, 'bulk_activities.csv');
 
 describe('CUJ: Bulk Management (Data Import)', () => {
-    before(async () => {
+    beforeAll(async () => {
         await waitForAppReady();
     });
 

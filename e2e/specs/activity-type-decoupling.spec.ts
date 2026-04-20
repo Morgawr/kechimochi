@@ -4,7 +4,7 @@ import { clickMediaItem } from '../helpers/library.js';
 import { addExtraField, logActivityFromDetail, backToGrid } from '../helpers/media-detail.js';
 
 describe('CUJ: Activity Type Decoupling', () => {
-    before(async () => {
+    beforeAll(async () => {
         await waitForAppReady();
     });
 

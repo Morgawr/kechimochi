@@ -1,7 +1,7 @@
 import { waitForAppReady } from '../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../helpers/navigation.js';
 describe('Factory Reset CUJ', () => {
-  before(async () => {
+  beforeAll(async () => {
     // We set the profile in localStorage and THEN refresh to ensure the app picks it up
     await browser.execute(() => {
       localStorage.clear();

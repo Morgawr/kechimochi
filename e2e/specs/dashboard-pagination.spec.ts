@@ -33,7 +33,7 @@ async function seedLogsViaCsv(count: number) {
 }
 
 describe('Dashboard Pagination E2E', () => {
-    before(async () => {
+    beforeAll(async () => {
         await waitForAppReady();
         await navigateTo('dashboard');
         expect(await verifyActiveView('dashboard')).toBe(true);

@@ -10,7 +10,7 @@ import {
 } from '../helpers/media-detail.js';
 
 describe('CUJ: Content Lifecycle (Manual Archiving)', () => {
-    before(async () => {
+    beforeAll(async () => {
         await waitForAppReady();
     });
 

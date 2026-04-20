@@ -14,7 +14,7 @@ describe('Single-User Profile Renaming CUJ', () => {
     'profile_placeholder.png',
   );
 
-  before(async () => {
+  beforeAll(async () => {
     await waitForAppReady();
   });
 

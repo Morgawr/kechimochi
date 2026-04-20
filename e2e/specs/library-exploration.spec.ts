@@ -57,7 +57,7 @@ async function runSharedFilterAssertions() {
 }
 
 describe('CUJ: Library Exploration (Search & Filter)', () => {
-    before(async () => {
+    beforeAll(async () => {
         await waitForAppReady();
     });
 

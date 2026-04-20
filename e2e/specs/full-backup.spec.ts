@@ -110,14 +110,14 @@ async function completeFirstTimeSetup(profileName: string): Promise<void> {
 describe('CUJ: Full Backup Import Export', () => {
   let backupZipPath: string;
 
-  before(async () => {
+  beforeAll(async () => {
     await waitForAppReady();
 
     const exportBaseDir = process.env.SPEC_STAGE_DIR || os.tmpdir();
     backupZipPath = path.join(exportBaseDir, `kechimochi-full-backup-${Date.now()}.zip`);
   });
 
-  after(() => {
+  afterAll(() => {
     if (!process.env.SPEC_STAGE_DIR && backupZipPath && fs.existsSync(backupZipPath)) {
       fs.unlinkSync(backupZipPath);
     }

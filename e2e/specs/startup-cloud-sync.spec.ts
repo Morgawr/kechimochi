@@ -11,7 +11,7 @@ const REMOTE_DESCRIPTION = 'Imported from the fake Google Drive startup sync flo
 describe('CUJ: Startup Cloud Sync', () => {
   let remoteProfileId = '';
 
-  before(async () => {
+  beforeAll(async () => {
     remoteProfileId = seedRemoteSyncProfile({
       profileName: REMOTE_PROFILE_NAME,
       media: [{

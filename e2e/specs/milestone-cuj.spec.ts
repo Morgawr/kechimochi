@@ -44,7 +44,7 @@ describe('Milestone CUJ Test', () => {
         await $('#milestone-list-container').waitForDisplayed({ timeout: 5000 });
     }
 
-    before(async () => {
+    beforeAll(async () => {
         await waitForAppReady();
         const exportBaseDir = process.env.SPEC_STAGE_DIR || os.tmpdir();
         tempExportPath = path.join(exportBaseDir, `milestones_export_${Date.now()}.csv`);
@@ -57,7 +57,7 @@ describe('Milestone CUJ Test', () => {
         await openTargetMediaDetail();
     });
 
-    after(() => {
+    afterAll(() => {
         if (!process.env.SPEC_STAGE_DIR && fs.existsSync(tempExportPath)) {
             fs.unlinkSync(tempExportPath);
         }

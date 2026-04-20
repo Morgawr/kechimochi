@@ -64,7 +64,7 @@ describe('CUJ: Cloud Sync', () => {
     }
   }
 
-  before(async () => {
+  beforeAll(async () => {
     await waitForAppReady();
     const exportBaseDir = process.env.SPEC_STAGE_DIR || os.tmpdir();
     backupZipPath = path.join(exportBaseDir, `kechimochi-sync-roundtrip-${Date.now()}.zip`);
@@ -74,7 +74,7 @@ describe('CUJ: Cloud Sync', () => {
     await waitForNoActiveOverlays(5_000).catch(() => undefined);
   });
 
-  after(() => {
+  afterAll(() => {
     if (!process.env.SPEC_STAGE_DIR && backupZipPath && fs.existsSync(backupZipPath)) {
       fs.unlinkSync(backupZipPath);
     }

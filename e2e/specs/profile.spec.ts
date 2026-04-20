@@ -7,7 +7,7 @@ import {
 import { takeAndCompareScreenshot } from '../helpers/common.js';
 
 describe('Profile CUJ', () => {
-  before(async () => {
+  beforeAll(async () => {
     await waitForAppReady();
     await navigateTo('profile');
   });

@@ -22,14 +22,14 @@ describe('CUJ: Data Management (CSV Export)', () => {
     let tempExportAll: string;
     let tempExportRange: string;
   
-    before(async () => {
+    beforeAll(async () => {
       await waitForAppReady();
       const exportBaseDir = process.env.SPEC_STAGE_DIR || os.tmpdir();
       tempExportAll = path.join(exportBaseDir, `kechimochi_full_${Date.now()}.csv`);
       tempExportRange = path.join(exportBaseDir, `kechimochi_range_${Date.now()}.csv`);
     });
   
-    after(() => {
+    afterAll(() => {
       // Only cleanup if we are NOT in a staging environment (where we want to capture artifacts)
       if (!process.env.SPEC_STAGE_DIR) {
           if (fs.existsSync(tempExportAll)) fs.unlinkSync(tempExportAll);

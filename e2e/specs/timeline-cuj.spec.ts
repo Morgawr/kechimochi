@@ -7,7 +7,7 @@ import {
 } from '../helpers/timeline.js';
 
 describe('CUJ: Timeline View', () => {
-    before(async () => {
+    beforeAll(async () => {
         await waitForAppReady();
     });
 

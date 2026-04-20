@@ -3,11 +3,11 @@ import { navigateTo, verifyActiveView } from '../helpers/navigation.js';
 import { setLibraryLayout, waitForLibraryLayout } from '../helpers/library.js';
 
 describe('Responsive Styling CUJ', () => {
-  before(async () => {
+  beforeAll(async () => {
     await waitForAppReady();
   });
 
-  after(async () => {
+  afterAll(async () => {
     await browser.setWindowSize(1280, 1200);
   });
 

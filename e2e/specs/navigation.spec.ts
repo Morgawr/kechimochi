@@ -8,7 +8,7 @@ import {
 type ViewName = 'dashboard' | 'media' | 'timeline' | 'profile';
 
 describe('Navigation CUJ', () => {
-  before(async () => {
+  beforeAll(async () => {
     await waitForAppReady();
   });
 

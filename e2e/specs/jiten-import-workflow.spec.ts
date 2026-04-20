@@ -5,7 +5,7 @@ import { confirmMerge } from '../helpers/import.js';
 import { getExtraField } from '../helpers/media-detail.js';
 
 describe('CUJ: Jiten Media Search and Import Workflow', () => {
-    before(async () => {
+    beforeAll(async () => {
         await waitForAppReady();
     });
 

@@ -5,7 +5,7 @@ import { logActivity } from '../helpers/dashboard.js';
 import { addExtraField, editDescription, editExtraField, getExtraField, isDescriptionCollapsed, logActivityFromDetail, editMostRecentLogFromDetail, toggleDescriptionVisibility } from '../helpers/media-detail.js';
 
 describe('Media Management CUJs', () => {
-  before(async () => {
+  beforeAll(async () => {
     await waitForAppReady();
   });
 

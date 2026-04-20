@@ -3,7 +3,7 @@ import { navigateTo, verifyActiveView } from '../helpers/navigation.js';
 import { takeAndCompareScreenshot } from '../helpers/common.js';
 
 describe('CUJ: User Personalization', () => {
-  before(async () => {
+  beforeAll(async () => {
     await waitForAppReady();
   });
 
