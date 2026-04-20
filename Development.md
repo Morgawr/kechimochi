@@ -12,7 +12,7 @@ Before you begin, ensure you have the following installed on your system:
     ```bash
     # Debian/Ubuntu
     sudo apt update
-    sudo apt install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev webkitgtk-webdriver
+    sudo apt install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev webkitgtk-webdriver tesseract-ocr
 
     # Fedora
     sudo dnf install webkit2gtk4.1-devel gtk3-devel libappindicator-gtk3-devel librsvg2-devel
