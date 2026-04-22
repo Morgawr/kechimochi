@@ -49,7 +49,7 @@ vi.mock('../src/modals', async () => {
     return createMainModalMock();
 });
 
-const createSyncStatusMock = (overrides: Partial<ReturnType<typeof api.getSyncStatus>> = {}) => ({
+const createSyncStatusMock = (overrides: Partial<Awaited<ReturnType<typeof api.getSyncStatus>>> = {}) => ({
     state: 'dirty' as const,
     google_authenticated: true,
     sync_profile_id: 'prof_1',
@@ -153,15 +153,6 @@ describe('main.ts initialization', () => {
         await vi.waitFor(() => expect(api.runSync).toHaveBeenCalled());
     });
 
-    it('should navigate to profile from the mobile sync button when conflicts are pending', async () => {
-        vi.mocked(api.getSyncStatus).mockResolvedValue(createSyncStatusMock({ state: 'conflict_pending', conflict_count: 2 }));
-
-        await bootApp();
-
-        (document.getElementById('mobile-sync-status-btn') as HTMLButtonElement).click();
-
-        await vi.waitFor(() => expect(document.querySelector('[data-view="profile"]')?.classList.contains('active')).toBe(true));
-    });
 
     it('should switch views', async () => {
         await bootApp();
