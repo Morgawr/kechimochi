@@ -898,6 +898,16 @@ input:focus, select:focus {
   text-transform: uppercase;
 }
 
+.timeline-month-marker.is-start .timeline-month-label {
+  border-color: color-mix(in srgb, var(--accent-blue) 36%, var(--border-color) 64%);
+}
+
+.timeline-month-marker.is-end .timeline-month-label {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--accent-yellow) 42%, var(--border-color) 58%);
+  color: color-mix(in srgb, var(--text-primary) 80%, var(--accent-yellow) 20%);
+}
+
 .timeline-entry {
   --timeline-accent: var(--accent-blue);
   --timeline-axis-width: 110px;

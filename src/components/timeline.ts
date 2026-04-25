@@ -23,6 +23,8 @@ interface TimelineGroup {
     events: TimelineEvent[];
 }
 
+type TimelineMonthBoundary = 'start' | 'end';
+
 interface TimelineSummaryItem {
     label: string;
     value: string;
@@ -290,13 +292,22 @@ export class TimelineView extends Component<TimelineState> {
     private renderGroup(group: TimelineGroup, groupIndex: number): string {
         return `
             <section class="timeline-group" data-group-key="${escapeHTML(group.key)}">
-                <div class="timeline-month-marker">
-                    <div class="timeline-month-label">${escapeHTML(group.label)}</div>
-                </div>
+                ${this.renderMonthBoundaryMarker(group.label, 'start')}
                 ${group.events
                     .map((event, eventIndex) => this.renderEvent(event, (groupIndex + eventIndex) % 2 === 0))
                     .join('')}
+                ${this.renderMonthBoundaryMarker(group.label, 'end')}
             </section>
+        `;
+    }
+
+    private renderMonthBoundaryMarker(label: string, boundary: TimelineMonthBoundary): string {
+        const copy = boundary === 'start' ? `Start of ${label}` : `End of ${label}`;
+        const boundaryClass = boundary === 'start' ? 'is-start' : 'is-end';
+        return `
+            <div class="timeline-month-marker ${boundaryClass}">
+                <div class="timeline-month-label">${escapeHTML(copy)}</div>
+            </div>
         `;
     }
 
