@@ -346,14 +346,16 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         const activeKeys = this.getActiveKeys(logs, getBucketIndex, groupByMode);
         const datasetsMap = this.aggregateDailyData(logs, activeKeys, getBucketIndex, labels.length, groupByMode);
 
-        return Array.from(datasetsMap.entries()).map(([key, data], i) => ({
-            label: key,
-            data: data,
-            backgroundColor: colors[i % colors.length],
-            borderColor: colors[i % colors.length],
-            fill: chartType === 'line' ? false : undefined,
-            tension: 0.3
-        }));
+        return Array.from(datasetsMap.entries())
+            .sort((a, b) => b[1].reduce((s, v) => s + v, 0) - a[1].reduce((s, v) => s + v, 0))
+            .map(([key, data], i) => ({
+                label: key,
+                data: data,
+                backgroundColor: colors[i % colors.length],
+                borderColor: colors[i % colors.length],
+                fill: chartType === 'line' ? false : undefined,
+                tension: 0.3
+            }));
     }
 
     private getActiveKeys(logs: ActivitySummary[], getBucketIndex: (date: string) => number, mode: 'media_type' | 'log_name'): Set<string> {

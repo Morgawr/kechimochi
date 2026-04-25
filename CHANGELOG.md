@@ -8,6 +8,7 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ### Fixed
  - Quick log now shows more clearly in tablet mode
+ - Circle and bar activity graphs now use a consistent color mapping
 
 
 ## [0.2.5] - 2026-04-08
