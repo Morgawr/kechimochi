@@ -233,8 +233,12 @@ describe('MediaDetail', () => {
         vi.mocked(api.getMilestones).mockResolvedValue([]);
         const newMilestone = { name: 'M1', duration: 100 };
         vi.mocked(modals.showAddMilestoneModal).mockResolvedValue(newMilestone as unknown as Milestone);
+        const logs = [
+            { id: 1, duration_minutes: 40, characters: 200, date: '2024-03-01', media_id: 1, title: 'T1', media_type: 'Reading', language: 'Japanese' },
+            { id: 2, duration_minutes: 20, characters: 300, date: '2024-03-02', media_id: 1, title: 'T1', media_type: 'Reading', language: 'Japanese' }
+        ] as unknown as api.ActivitySummary[];
 
-        const component = new MediaDetail(container, { ...mockMedia } as unknown as Media, [], [mockMedia as unknown as Media], 0, mockCallbacks);
+        const component = new MediaDetail(container, { ...mockMedia } as unknown as Media, logs, [mockMedia as unknown as Media], 0, mockCallbacks);
         component.triggerMount();
         component.render();
 
@@ -242,7 +246,7 @@ describe('MediaDetail', () => {
         addBtn.click();
 
         await vi.waitFor(() => {
-            expect(modals.showAddMilestoneModal).toHaveBeenCalled();
+            expect(modals.showAddMilestoneModal).toHaveBeenCalledWith('Test Media', { duration: 60, characters: 500 });
             expect(api.addMilestone).toHaveBeenCalledWith(newMilestone);
         });
     });

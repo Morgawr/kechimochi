@@ -370,6 +370,19 @@ export async function addMilestone(name: string, hours: string, minutes: string,
     return selectedDate;
 }
 
+export async function getMilestonePrefillValues(): Promise<{ hours: string; minutes: string; characters: string; }> {
+    const overlay = await openMilestoneModal();
+    const hours = await overlay.$('#milestone-hours').getValue();
+    const minutes = await overlay.$('#milestone-minutes').getValue();
+    const characters = await overlay.$('#milestone-characters').getValue();
+
+    await safeClick(() => overlay.$('#milestone-cancel'));
+    await waitForOverlayToDisappear(overlay, 5000);
+    await waitForMilestoneActionToSettle();
+
+    return { hours, minutes, characters };
+}
+
 export async function submitInvalidMilestone(name: string, hours: string, minutes: string, characters: string = '0'): Promise<void> {
     const overlay = await openMilestoneModal();
     await populateMilestoneForm(overlay, { name, hours, minutes, characters });

@@ -9,6 +9,9 @@ The format is based on Keep a Changelog, with one section per released version.
 ### Fixed
  - Quick log now shows more clearly in tablet mode
  - Circle and bar activity graphs now use a consistent color mapping
+
+### Changed
+ - Milestones now pre-fill the textboxes with time and/or char already recorded
  - Updated backloggd importer which had stopped working
 
 ## [0.2.5] - 2026-04-08
