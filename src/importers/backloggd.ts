@@ -1,6 +1,12 @@
 import { BaseImporter } from './base';
 import { ScrapedMetadata } from './index';
 
+const BACKLOGGD_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+};
+
 export class BackloggdImporter extends BaseImporter {
     name = "Backloggd";
     supportedContentTypes = ["Videogame"];
@@ -14,7 +20,7 @@ export class BackloggdImporter extends BaseImporter {
     }
 
     async fetch(url: string): Promise<ScrapedMetadata> {
-        const doc = await this.fetchHtml(url);
+        const doc = await this.fetchHtml(url, BACKLOGGD_HEADERS);
 
         // 1. Description from Meta Tags
         let description = "";
@@ -49,7 +55,8 @@ export class BackloggdImporter extends BaseImporter {
         const extraData = this.createExtraData(url);
 
         // 3. Game Details (Released, Genres, Platforms)
-        // Backloggd uses detail rows
+        // Backloggd uses detail rows for genres/platforms, while release date
+        // appears in the title section on current pages.
         const detailRows = doc.querySelectorAll('.row.mt-2');
         detailRows.forEach(row => {
             const header = row.querySelector('.game-details-header')?.textContent?.trim();
@@ -70,13 +77,15 @@ export class BackloggdImporter extends BaseImporter {
                 if (platforms.length > 0) extraData["Platforms"] = platforms.join(", ");
             }
         });
+        this.extractReleaseDate(doc, extraData);
 
         // 4. Developer & Publisher (Heuristic from subtitle)
         // Example: "by Feelplus, Microsoft Game Studios"
         const companies = Array.from(doc.querySelectorAll('.game-subtitle a, .sub-title a'))
             .filter(el => el.getAttribute('href')?.startsWith('/company/'))
             .map(el => el.textContent?.trim())
-            .filter(Boolean);
+            .filter(Boolean)
+            .filter((company, index, allCompanies) => allCompanies.indexOf(company) === index);
 
         if (companies.length > 0) {
             // Usually the first one is the main developer
@@ -94,5 +103,16 @@ export class BackloggdImporter extends BaseImporter {
             coverImageUrl,
             extraData
         };
+    }
+
+    private extractReleaseDate(doc: Document, extraData: Record<string, string>) {
+        if (extraData["Release Date"]) return;
+
+        const releaseLink = doc.querySelector('.game-title-section .backloggd-container a[href*="release_year:"]')
+            || doc.querySelector('.game-title-section a[href*="release_year:"]');
+        const releaseDate = releaseLink?.textContent?.trim();
+        if (releaseDate) {
+            extraData["Release Date"] = releaseDate;
+        }
     }
 }
