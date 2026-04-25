@@ -10,6 +10,7 @@ vi.mock('../../../src/api', () => ({
     getSetting: vi.fn(),
     deleteMedia: vi.fn(),
     addMilestone: vi.fn(),
+    updateMilestone: vi.fn(),
     deleteMilestone: vi.fn(),
     clearMilestones: vi.fn(),
     downloadAndSaveImage: vi.fn(),
@@ -248,6 +249,26 @@ describe('MediaDetail', () => {
         await vi.waitFor(() => {
             expect(modals.showAddMilestoneModal).toHaveBeenCalledWith('Test Media', { duration: 60, characters: 500 });
             expect(api.addMilestone).toHaveBeenCalledWith(newMilestone);
+        });
+    });
+
+    it('should handle editing a milestone', async () => {
+        const milestones = [{ id: 123, media_title: 'Test Media', name: 'M1', duration: 10, characters: 100, date: '2025-01-01' }];
+        vi.mocked(api.getMilestones).mockResolvedValue(milestones as unknown as Milestone[]);
+        const updatedMilestone = { ...milestones[0], name: 'M1 updated', duration: 20 };
+        vi.mocked(modals.showAddMilestoneModal).mockResolvedValue(updatedMilestone as unknown as Milestone);
+
+        const component = new MediaDetail(container, { ...mockMedia } as unknown as Media, [], [mockMedia as unknown as Media], 0, mockCallbacks);
+        component.triggerMount();
+        await vi.waitUntil(() => container.querySelector('.edit-milestone-btn') !== null);
+        component.render();
+
+        const editBtn = container.querySelector('.edit-milestone-btn') as HTMLElement;
+        editBtn.click();
+
+        await vi.waitFor(() => {
+            expect(modals.showAddMilestoneModal).toHaveBeenCalledWith('Test Media', milestones[0]);
+            expect(api.updateMilestone).toHaveBeenCalledWith(updatedMilestone);
         });
     });
 

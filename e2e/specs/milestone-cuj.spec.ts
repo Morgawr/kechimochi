@@ -2,7 +2,7 @@ import { waitForAppReady } from '../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../helpers/navigation.js';
 import { addMedia, clickMediaItem } from '../helpers/library.js';
 import { setDialogMockPath, dismissAlert, closeModal } from '../helpers/common.js';
-import { addMilestone, submitInvalidMilestone, deleteMilestoneByName, clearAllMilestones, getMilestoneListText, logActivityFromDetail, getMilestonePrefillValues } from '../helpers/media-detail.js';
+import { addMilestone, submitInvalidMilestone, editMilestoneByName, deleteMilestoneByName, clearAllMilestones, getMilestoneListText, logActivityFromDetail, getMilestonePrefillValues } from '../helpers/media-detail.js';
 import { exportMilestones, importMilestones } from '../helpers/profile.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -113,7 +113,26 @@ describe('Milestone CUJ Test', () => {
         await closeModal('#milestone-cancel');
     });
 
+    it('should edit existing milestones', async () => {
+        await editMilestoneByName('Char Milestone', {
+            name: 'Char Milestone Updated',
+            hours: '0',
+            minutes: '30',
+            characters: '2500',
+            pickDate: true
+        });
+
+        await browser.waitUntil(async () => {
+            const updatedMilestone = $(`.milestone-item[data-milestone-name="Char Milestone Updated"]`);
+            if (!(await updatedMilestone.isExisting())) return false;
+            const text = await updatedMilestone.getText();
+            const tooltip = await updatedMilestone.getAttribute('title');
+            return text.includes('30min') && /2,?500 chars/.test(text) && !!tooltip && tooltip.startsWith('Achieved on ');
+        }, { timeout: 5000, interval: 100, timeoutMsg: 'Milestone edit did not update name, metrics, and date as expected' });
+    });
+
     it('should support single and bulk deletion', async () => {
+
         await deleteMilestoneByName('Dated Milestone');
 
         await browser.waitUntil(async () => {
@@ -125,7 +144,7 @@ describe('Milestone CUJ Test', () => {
         const textAfterSingle = await getMilestoneListText();
         expect(textAfterSingle).not.toContain('Dated Milestone');
         expect(textAfterSingle).toContain('First Milestone');
-        expect(textAfterSingle).toContain('Char Milestone');
+        expect(textAfterSingle).toContain('Char Milestone Updated');
 
         // Bulk clear
         await clearAllMilestones();
