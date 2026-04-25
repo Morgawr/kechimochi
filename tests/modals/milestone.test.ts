@@ -76,8 +76,6 @@ describe('modals/milestone.ts', () => {
         expect(minutesInput.value).toBe('5');
         expect(charactersInput.value).toBe('3210');
     });
-<<<<<<< ours
-=======
 
     it('should prefill and update existing milestone in edit mode', async () => {
         const existing = {
@@ -113,5 +111,4 @@ describe('modals/milestone.ts', () => {
             date: '2025-05-14'
         });
     });
->>>>>>> theirs
 });

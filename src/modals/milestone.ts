@@ -108,7 +108,7 @@ export async function showAddMilestoneModal(mediaTitle: string, initialValues?: 
         const charactersInput = overlay.querySelector<HTMLInputElement>('#milestone-characters')!;
         nameInput.value = existingMilestone?.name ?? '';
         if (hasExistingDate) {
-            buildCalendar('milestone-calendar', existingDate!, (d) => {
+            buildCalendar('milestone-calendar', existingDate, (d) => {
                 selectedDate = d;
             });
         }
