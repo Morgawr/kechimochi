@@ -760,7 +760,12 @@ export class MediaDetail extends Component<MediaDetailState> {
         });
 
         root.querySelector('#btn-add-milestone')?.addEventListener('click', async () => {
-            const milestone = await showAddMilestoneModal(this.state.media.title);
+            const currentDuration = this.state.logs.reduce((acc, log) => acc + log.duration_minutes, 0);
+            const currentCharacters = this.state.logs.reduce((acc, log) => acc + log.characters, 0);
+            const milestone = await showAddMilestoneModal(this.state.media.title, {
+                duration: currentDuration,
+                characters: currentCharacters
+            });
             if (milestone) {
                 try {
                     await addMilestone(milestone);

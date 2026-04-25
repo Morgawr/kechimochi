@@ -62,4 +62,17 @@ describe('modals/milestone.ts', () => {
         const result = await promise;
         expect(result).toBeNull();
     });
+
+    it('should prefill duration and characters from defaults', async () => {
+        showAddMilestoneModal('Test Media', { duration: 125, characters: 3210 });
+        await vi.waitFor(() => document.querySelector('#milestone-hours'));
+
+        const hoursInput = document.querySelector('#milestone-hours') as HTMLInputElement;
+        const minutesInput = document.querySelector('#milestone-minutes') as HTMLInputElement;
+        const charactersInput = document.querySelector('#milestone-characters') as HTMLInputElement;
+
+        expect(hoursInput.value).toBe('2');
+        expect(minutesInput.value).toBe('5');
+        expect(charactersInput.value).toBe('3210');
+    });
 });

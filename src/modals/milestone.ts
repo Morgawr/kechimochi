@@ -2,9 +2,18 @@ import { Milestone } from '../api';
 import { buildCalendar } from './calendar';
 import { createOverlay, customAlert } from './base';
 
-export async function showAddMilestoneModal(mediaTitle: string): Promise<Milestone | null> {
+type MilestoneDefaults = {
+    duration?: number;
+    characters?: number;
+};
+
+export async function showAddMilestoneModal(mediaTitle: string, defaults?: MilestoneDefaults): Promise<Milestone | null> {
     return new Promise((resolve) => {
         const { overlay, cleanup: baseCleanup } = createOverlay();
+        const initialDuration = Math.max(0, Math.floor(defaults?.duration ?? 0));
+        const initialCharacters = Math.max(0, Math.floor(defaults?.characters ?? 0));
+        const initialHours = Math.floor(initialDuration / 60);
+        const initialMinutes = initialDuration % 60;
         
         const today = new Date().toISOString().split('T')[0];
         let selectedDate: string | undefined = undefined;
@@ -38,16 +47,16 @@ export async function showAddMilestoneModal(mediaTitle: string): Promise<Milesto
                     <div style="display: flex; flex-direction: column; gap: 0.3rem;">
                         <label style="font-size: 0.85rem; color: var(--text-secondary);">Duration</label>
                         <div style="display: flex; align-items: center; gap: 0.5rem;">
-                            <input type="number" id="milestone-hours" class="milestone-input" value="0" min="0" style="width: 70px; background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); text-align: center;" />
+                            <input type="number" id="milestone-hours" class="milestone-input" value="${initialHours}" min="0" style="width: 70px; background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); text-align: center;" />
                             <span style="font-size: 0.85rem;">h</span>
-                            <input type="number" id="milestone-minutes" class="milestone-input" value="0" min="0" style="width: 70px; background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); text-align: center;" />
+                            <input type="number" id="milestone-minutes" class="milestone-input" value="${initialMinutes}" min="0" style="width: 70px; background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); text-align: center;" />
                             <span style="font-size: 0.85rem;">m</span>
                         </div>
                     </div>
 
                     <div style="display: flex; flex-direction: column; gap: 0.3rem;">
                         <label style="font-size: 0.85rem; color: var(--text-secondary);">Characters</label>
-                        <input type="number" id="milestone-characters" class="milestone-input" value="0" min="0" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm);" />
+                        <input type="number" id="milestone-characters" class="milestone-input" value="${initialCharacters}" min="0" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm);" />
                     </div>
 
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">
