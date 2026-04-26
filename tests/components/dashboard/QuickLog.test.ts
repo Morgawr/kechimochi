@@ -24,7 +24,7 @@ describe('QuickLog', () => {
         vi.clearAllMocks();
     });
 
-    it('sorts unfinished media first, then by latest created log proxy', () => {
+    it('sorts unfinished media first, then by latest log date', () => {
         const mediaList: Media[] = [
             { id: 1, title: 'Complete Recent', media_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Complete' },
             { id: 2, title: 'Ongoing Older', media_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Novel', tracking_status: 'Ongoing' },
@@ -45,6 +45,23 @@ describe('QuickLog', () => {
         expect(titles[1]).toContain('Ongoing Older');
         expect(titles[2]).toContain('Complete Recent');
         expect(titles.some(text => text.includes('Archived Item'))).toBe(false);
+    });
+
+    it('prefers a newer log date over a larger log id', () => {
+        const mediaList: Media[] = [
+            { id: 10, title: 'Older Date Newer Id', media_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Ongoing' },
+            { id: 11, title: 'Newer Date Older Id', media_type: 'Watching', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Anime', tracking_status: 'Ongoing' },
+        ];
+        const logs: ActivitySummary[] = [
+            { id: 55, media_id: 10, title: 'Older Date Newer Id', media_type: 'Reading', duration_minutes: 20, characters: 0, date: '2026-04-10', language: 'Japanese' },
+            { id: 12, media_id: 11, title: 'Newer Date Older Id', media_type: 'Watching', duration_minutes: 20, characters: 0, date: '2026-04-11', language: 'Japanese' },
+        ];
+
+        const component = new QuickLog(container, { logs, mediaList }, { onLogged: vi.fn().mockResolvedValue(undefined) });
+        component.render();
+
+        const titles = Array.from(container.querySelectorAll('.quick-log-item')).map(node => node.textContent || '');
+        expect(titles[0]).toContain('Newer Date Older Id');
     });
 
     it('opens the activity modal for the clicked media and refreshes after success', async () => {
