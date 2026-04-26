@@ -63,11 +63,11 @@ export class QuickLog extends Component<QuickLogState> {
     }
 
     private getSortedMedia(): Media[] {
-        const latestLogIdByMedia = new Map<number, number>();
+        const latestLogByMedia = new Map<number, { date: string; id: number }>();
         for (const log of this.state.logs) {
-            const previous = latestLogIdByMedia.get(log.media_id) || 0;
-            if (log.id > previous) {
-                latestLogIdByMedia.set(log.media_id, log.id);
+            const previous = latestLogByMedia.get(log.media_id);
+            if (!previous || this.compareLogRecency(log, previous) > 0) {
+                latestLogByMedia.set(log.media_id, { date: log.date, id: log.id });
             }
         }
 
@@ -80,8 +80,16 @@ export class QuickLog extends Component<QuickLogState> {
                     return leftCompleteRank - rightCompleteRank;
                 }
 
-                const leftLatestLogId = latestLogIdByMedia.get(left.id!) || 0;
-                const rightLatestLogId = latestLogIdByMedia.get(right.id!) || 0;
+                const leftLatestLog = latestLogByMedia.get(left.id!);
+                const rightLatestLog = latestLogByMedia.get(right.id!);
+                const leftLatestDate = leftLatestLog?.date || '';
+                const rightLatestDate = rightLatestLog?.date || '';
+                if (leftLatestDate !== rightLatestDate) {
+                    return this.compareDateRecency(rightLatestDate, leftLatestDate);
+                }
+
+                const leftLatestLogId = leftLatestLog?.id || 0;
+                const rightLatestLogId = rightLatestLog?.id || 0;
                 if (leftLatestLogId !== rightLatestLogId) {
                     return rightLatestLogId - leftLatestLogId;
                 }
@@ -89,6 +97,23 @@ export class QuickLog extends Component<QuickLogState> {
                 return left.title.localeCompare(right.title);
             })
             .slice(0, MAX_QUICK_LOG_ITEMS);
+    }
+
+    private compareLogRecency(left: { date: string; id: number }, right: { date: string; id: number }): number {
+        const dateComparison = this.compareDateRecency(left.date, right.date);
+        if (dateComparison !== 0) {
+            return dateComparison;
+        }
+        return left.id - right.id;
+    }
+
+    private compareDateRecency(left: string, right: string): number {
+        const leftTime = Date.parse(left);
+        const rightTime = Date.parse(right);
+        if (!Number.isNaN(leftTime) && !Number.isNaN(rightTime) && leftTime !== rightTime) {
+            return leftTime - rightTime;
+        }
+        return left.localeCompare(right);
     }
 
     private renderItem(media: Media): string {
