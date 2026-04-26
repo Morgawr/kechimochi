@@ -114,6 +114,10 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
         let selectedDate = editLog?.date || getTodayStr();
         buildCalendar('activity-cal-container', selectedDate, (d) => selectedDate = d);
 
+        // Set default date for mobile input
+        const mobileDateInput = overlay.querySelector<HTMLInputElement>('#mobile-date-input')!;
+        mobileDateInput.value = selectedDate;
+
         if (editLog || prefillMediaTitle) {
             overlay.querySelector<HTMLInputElement>('#activity-duration')!.focus();
         } else {
@@ -171,6 +175,13 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
             const duration = Number.parseInt(overlay.querySelector<HTMLInputElement>('#activity-duration')!.value, 10) || 0;
             const characters = Number.parseInt(overlay.querySelector<HTMLInputElement>('#activity-characters')!.value, 10) || 0;
             
+            // Use mobile date input if visible, otherwise use calendar date
+            const mobileDateField = overlay.querySelector<HTMLElement>('#mobile-date-field')!;
+            const isMobileDateVisible = globalThis.getComputedStyle(mobileDateField).display !== 'none';
+            const dateToSave = isMobileDateVisible 
+                ? overlay.querySelector<HTMLInputElement>('#mobile-date-input')!.value || selectedDate
+                : selectedDate;
+            
             if (!mediaTitle) {
                 await customAlert("Required Field", "Please enter a Media Title.");
                 return;
@@ -188,13 +199,13 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
                         media_id: editLog.media_id,
                         duration_minutes: duration,
                         characters,
-                        date: selectedDate,
+                        date: dateToSave,
                         activity_type: activityType
                     });
                 } else {
                     const mediaId = await resolveMediaId(mediaTitle);
                     if (mediaId === null) return;
-                    await addLog({ media_id: mediaId, duration_minutes: duration, characters, date: selectedDate, activity_type: activityType });
+                    await addLog({ media_id: mediaId, duration_minutes: duration, characters, date: dateToSave, activity_type: activityType });
                 }
                 newCleanup();
                 resolve(true);

@@ -6,6 +6,22 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+### Added
+ - Sync button shortcut in the navigation bar
+
+### Changed
+ - Improved consistency of titles and navigation buttons
+ - Navigation bar moved to the bottom for mobiles for easier accessibility
+ - Improved compactness of study stats in tablet layout
+ - Library tab header is cleaner on mobile and media grid elements have properly sized covers
+ - Made the Log popup more compact in mobiles
+
+### Fixed
+ - Text in recent activity uses the whole width to be more readable in mobiles
+ - pagination of recent activity is no longer cropped / sticked to the title in mobile
+ - hover animation of media grid elements no longer cropped
+ - navigation header in media details is better centered on desktop. 
+
 ## [0.2.6] - 2026-04-26
 
 ### Added
