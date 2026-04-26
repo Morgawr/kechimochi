@@ -6,15 +6,17 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-04-26
+
 ### Added
  - Milestones can now be edited
 
 ### Changed
  - Milestones now pre-fill the textboxes with time and/or char already recorded
- - Updated backloggd importer which had stopped working
  - Timeline now shows direction and month/year badge for easier recognition
 
 ### Fixed
+ - Updated backloggd importer which had stopped working
  - Quick log now shows more clearly in tablet mode
  - Circle and bar activity graphs now use a consistent color mapping
  - Activity csv import now forces YYYY/MM/DD or YYYY-MM-DD date formats
