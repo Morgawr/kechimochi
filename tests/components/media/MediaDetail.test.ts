@@ -10,6 +10,7 @@ vi.mock('../../../src/api', () => ({
     getSetting: vi.fn(),
     deleteMedia: vi.fn(),
     addMilestone: vi.fn(),
+    updateMilestone: vi.fn(),
     deleteMilestone: vi.fn(),
     clearMilestones: vi.fn(),
     downloadAndSaveImage: vi.fn(),
@@ -233,8 +234,12 @@ describe('MediaDetail', () => {
         vi.mocked(api.getMilestones).mockResolvedValue([]);
         const newMilestone = { name: 'M1', duration: 100 };
         vi.mocked(modals.showAddMilestoneModal).mockResolvedValue(newMilestone as unknown as Milestone);
+        const logs = [
+            { id: 1, duration_minutes: 40, characters: 200, date: '2024-03-01', media_id: 1, title: 'T1', media_type: 'Reading', language: 'Japanese' },
+            { id: 2, duration_minutes: 20, characters: 300, date: '2024-03-02', media_id: 1, title: 'T1', media_type: 'Reading', language: 'Japanese' }
+        ] as unknown as api.ActivitySummary[];
 
-        const component = new MediaDetail(container, { ...mockMedia } as unknown as Media, [], [mockMedia as unknown as Media], 0, mockCallbacks);
+        const component = new MediaDetail(container, { ...mockMedia } as unknown as Media, logs, [mockMedia as unknown as Media], 0, mockCallbacks);
         component.triggerMount();
         component.render();
 
@@ -242,8 +247,28 @@ describe('MediaDetail', () => {
         addBtn.click();
 
         await vi.waitFor(() => {
-            expect(modals.showAddMilestoneModal).toHaveBeenCalled();
+            expect(modals.showAddMilestoneModal).toHaveBeenCalledWith('Test Media', { duration: 60, characters: 500 });
             expect(api.addMilestone).toHaveBeenCalledWith(newMilestone);
+        });
+    });
+
+    it('should handle editing a milestone', async () => {
+        const milestones = [{ id: 123, media_title: 'Test Media', name: 'M1', duration: 10, characters: 100, date: '2025-01-01' }];
+        vi.mocked(api.getMilestones).mockResolvedValue(milestones as unknown as Milestone[]);
+        const updatedMilestone = { ...milestones[0], name: 'M1 updated', duration: 20 };
+        vi.mocked(modals.showAddMilestoneModal).mockResolvedValue(updatedMilestone as unknown as Milestone);
+
+        const component = new MediaDetail(container, { ...mockMedia } as unknown as Media, [], [mockMedia as unknown as Media], 0, mockCallbacks);
+        component.triggerMount();
+        await vi.waitUntil(() => container.querySelector('.edit-milestone-btn') !== null);
+        component.render();
+
+        const editBtn = container.querySelector('.edit-milestone-btn') as HTMLElement;
+        editBtn.click();
+
+        await vi.waitFor(() => {
+            expect(modals.showAddMilestoneModal).toHaveBeenCalledWith('Test Media', milestones[0]);
+            expect(api.updateMilestone).toHaveBeenCalledWith(updatedMilestone);
         });
     });
 

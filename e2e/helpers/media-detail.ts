@@ -330,8 +330,20 @@ async function populateMilestoneForm(overlay: WebdriverIO.Element, values: Miles
     await setInputValue(() => overlay.$('#milestone-characters'), values.characters ?? '0');
 
     let selectedDate: string | null = null;
+    if (typeof values.pickDate === 'boolean') {
+        const recordDateCheckbox = overlay.$('#milestone-record-date');
+        const checked = await recordDateCheckbox.isSelected();
+        if (checked !== values.pickDate) {
+            await safeClick(recordDateCheckbox);
+        }
+    }
+
     if (values.pickDate) {
-        await safeClick(() => overlay.$('#milestone-record-date'));
+        const recordDateCheckbox = overlay.$('#milestone-record-date');
+        await browser.waitUntil(async () => recordDateCheckbox.isSelected(), {
+            timeout: 5000,
+            timeoutMsg: 'Milestone date checkbox did not become selected'
+        });
 
         const firstDay = overlay.$('.cal-day');
         await firstDay.waitForDisplayed({ timeout: 5000 });
@@ -368,6 +380,19 @@ export async function addMilestone(name: string, hours: string, minutes: string,
     await waitForMilestoneActionToSettle();
 
     return selectedDate;
+}
+
+export async function getMilestonePrefillValues(): Promise<{ hours: string; minutes: string; characters: string; }> {
+    const overlay = await openMilestoneModal();
+    const hours = await overlay.$('#milestone-hours').getValue();
+    const minutes = await overlay.$('#milestone-minutes').getValue();
+    const characters = await overlay.$('#milestone-characters').getValue();
+
+    await safeClick(() => overlay.$('#milestone-cancel'));
+    await waitForOverlayToDisappear(overlay, 5000);
+    await waitForMilestoneActionToSettle();
+
+    return { hours, minutes, characters };
 }
 
 export async function submitInvalidMilestone(name: string, hours: string, minutes: string, characters: string = '0'): Promise<void> {
@@ -409,6 +434,25 @@ export async function deleteMilestoneByName(name: string): Promise<void> {
         timeoutMsg: `Milestone "${name}" did not disappear after deletion`
     });
 
+    await waitForMilestoneActionToSettle();
+}
+
+export async function editMilestoneByName(name: string, values: MilestoneFormValues): Promise<void> {
+    await waitForMilestoneCardReady();
+
+    const item = $(`.milestone-item[data-milestone-name="${name}"]`);
+    await item.waitForDisplayed({ timeout: 5000 });
+    await item.scrollIntoView();
+
+    const editBtn = item.$('.edit-milestone-btn');
+    await safeClick(editBtn);
+
+    const overlay = await getTopmostVisibleOverlay('#milestone-name');
+    await overlay.$('#milestone-name').waitForDisplayed({ timeout: 5000 });
+
+    await populateMilestoneForm(overlay, values);
+    await safeClick(() => overlay.$('#milestone-confirm'));
+    await waitForOverlayToDisappear(overlay, 5000);
     await waitForMilestoneActionToSettle();
 }
 

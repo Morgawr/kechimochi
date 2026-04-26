@@ -1,7 +1,7 @@
 import { Logger } from '../../core/logger';
 import { Component } from '../../core/component';
 import { html, escapeHTML, rawHtml } from '../../core/html';
-import { Media, ActivitySummary, Milestone, updateMedia, deleteMedia, getSetting, getMilestones, addMilestone, deleteMilestone, clearMilestones, getLogsForMedia, readFileBytes, downloadAndSaveImage } from '../../api';
+import { Media, ActivitySummary, Milestone, updateMedia, deleteMedia, getSetting, getMilestones, addMilestone, updateMilestone, deleteMilestone, clearMilestones, getLogsForMedia, readFileBytes, downloadAndSaveImage } from '../../api';
 import { customAlert, customConfirm, customPrompt, showJitenSearchModal, showImportMergeModal, showAddMilestoneModal, showLogActivityModal } from '../../modals';
 import { isValidImporterUrl, fetchMetadataForUrl } from '../../importers';
 import { getServices } from '../../services';
@@ -432,9 +432,14 @@ export class MediaDetail extends Component<MediaDetailState> {
                             ${m.duration > 0 ? formatHhMm(m.duration) : ''}${(m.duration > 0 && m.characters > 0) ? ' • ' : ''}${m.characters > 0 ? `${m.characters.toLocaleString()} chars` : ''}
                         </span>
                     </div>
-                    <button class="delete-milestone-btn" data-id="${m.id}" style="background: transparent; border: none; color: var(--accent-red); cursor: pointer; padding: 0.15rem; display: flex; align-items: center; justify-content: center; opacity: 0.4; transition: opacity 0.2s;">
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg>
-                    </button>
+                    <div style="display: flex; align-items: center; gap: 0.2rem;">
+                        <button class="edit-milestone-btn" data-id="${m.id}" title="Edit milestone" style="background: transparent; border: none; color: var(--text-secondary); cursor: pointer; padding: 0.15rem; display: flex; align-items: center; justify-content: center; opacity: 0.6; transition: opacity 0.2s;">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                        </button>
+                        <button class="delete-milestone-btn" data-id="${m.id}" style="background: transparent; border: none; color: var(--accent-red); cursor: pointer; padding: 0.15rem; display: flex; align-items: center; justify-content: center; opacity: 0.4; transition: opacity 0.2s;">
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg>
+                        </button>
+                    </div>
                 </div>
             `;
         }).join('');
@@ -775,7 +780,12 @@ export class MediaDetail extends Component<MediaDetailState> {
         });
 
         root.querySelector('#btn-add-milestone')?.addEventListener('click', async () => {
-            const milestone = await showAddMilestoneModal(this.state.media.title);
+            const currentDuration = this.state.logs.reduce((acc, log) => acc + log.duration_minutes, 0);
+            const currentCharacters = this.state.logs.reduce((acc, log) => acc + log.characters, 0);
+            const milestone = await showAddMilestoneModal(this.state.media.title, {
+                duration: currentDuration,
+                characters: currentCharacters
+            });
             if (milestone) {
                 try {
                     await addMilestone(milestone);
@@ -785,6 +795,24 @@ export class MediaDetail extends Component<MediaDetailState> {
                     await customAlert("Error", "Failed to add milestone: " + e);
                 }
             }
+        });
+
+        root.querySelectorAll('.edit-milestone-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const id = Number.parseInt((e.currentTarget as HTMLElement).dataset.id || "0", 10);
+                const existingMilestone = this.state.milestones.find(m => m.id === id);
+                if (!existingMilestone) return;
+
+                const updatedMilestone = await showAddMilestoneModal(this.state.media.title, existingMilestone);
+                if (!updatedMilestone) return;
+                try {
+                    await updateMilestone(updatedMilestone);
+                    await this.loadMilestones();
+                    this.render();
+                } catch (error) {
+                    await customAlert("Error", "Failed to update milestone: " + error);
+                }
+            });
         });
 
         root.querySelector('#btn-clear-milestones')?.addEventListener('click', async () => {

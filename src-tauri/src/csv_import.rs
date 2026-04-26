@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
+use chrono::NaiveDate;
 
 use crate::db;
 use crate::models::{ActivityLog, Media, Milestone};
@@ -84,7 +85,7 @@ pub fn import_csv_from_reader<R: Read>(conn: &mut Connection, reader: R) -> Resu
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     let mut imported_count = 0;
 
-    for result in rdr.deserialize() {
+    for (index, result) in rdr.deserialize().enumerate() {
         let record: CsvRow = match result {
             Ok(r) => r,
             Err(e) => {
@@ -93,8 +94,7 @@ pub fn import_csv_from_reader<R: Read>(conn: &mut Connection, reader: R) -> Resu
             }
         };
 
-        // Format Date from YYYY/MM/DD to YYYY-MM-DD
-        let formatted_date = record.date.replace("/", "-");
+        let formatted_date = normalize_activity_date(&record.date, index + 2)?;
 
         // Check if media exists
         let media_id: i64 = match tx.query_row(
@@ -153,6 +153,32 @@ pub fn import_csv_from_reader<R: Read>(conn: &mut Connection, reader: R) -> Resu
 
     tx.commit().map_err(|e| e.to_string())?;
     Ok(imported_count)
+}
+
+fn normalize_activity_date(value: &str, row_number: usize) -> Result<String, String> {
+    let is_slash_format = value.len() == 10
+        && value.chars().nth(4) == Some('/')
+        && value.chars().nth(7) == Some('/');
+    let is_dash_format = value.len() == 10
+        && value.chars().nth(4) == Some('-')
+        && value.chars().nth(7) == Some('-');
+
+    if !(is_slash_format || is_dash_format) {
+        return Err(format!(
+            "Invalid date format on CSV row {}: '{}'. Expected YYYY/MM/DD or YYYY-MM-DD.",
+            row_number, value
+        ));
+    }
+
+    let parse_format = if is_slash_format { "%Y/%m/%d" } else { "%Y-%m-%d" };
+    let parsed_date = NaiveDate::parse_from_str(value, parse_format).map_err(|_| {
+        format!(
+            "Invalid date value on CSV row {}: '{}'. Expected YYYY/MM/DD or YYYY-MM-DD.",
+            row_number, value
+        )
+    })?;
+
+    Ok(parsed_date.format("%Y-%m-%d").to_string())
 }
 
 pub fn export_media_csv(conn: &Connection, file_path: &str) -> Result<usize, String> {
@@ -860,6 +886,28 @@ mod tests {
         assert_eq!(logs[0].title, "Old Format");
         assert_eq!(logs[0].duration_minutes, 45);
         assert_eq!(logs[0].characters, 0); // Default value
+
+        std::fs::remove_file(csv_path).ok();
+    }
+
+    #[test]
+    fn test_import_csv_rejects_invalid_date_format_and_rolls_back() {
+        let mut conn = setup_test_db();
+        let csv_path = write_csv(
+            "Date,Log Name,Media Type,Duration,Language\n\
+             2024-01-15,Valid Row,Reading,45,Japanese\n\
+             01/16/2024,Invalid Row,Reading,30,Japanese\n",
+        );
+
+        let result = import_csv(&mut conn, &csv_path);
+        assert!(result.is_err());
+
+        let error = result.err().unwrap();
+        assert!(error.contains("Invalid date format on CSV row 3"));
+        assert!(error.contains("Expected YYYY/MM/DD or YYYY-MM-DD"));
+
+        let logs = db::get_logs(&conn).unwrap();
+        assert_eq!(logs.len(), 0);
 
         std::fs::remove_file(csv_path).ok();
     }

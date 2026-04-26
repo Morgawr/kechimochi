@@ -289,14 +289,26 @@ export class TimelineView extends Component<TimelineState> {
 
     private renderGroup(group: TimelineGroup, groupIndex: number): string {
         return `
-            <section class="timeline-group" data-group-key="${escapeHTML(group.key)}">
-                <div class="timeline-month-marker">
-                    <div class="timeline-month-label">${escapeHTML(group.label)}</div>
-                </div>
+            <section
+                class="timeline-group"
+                data-group-key="${escapeHTML(group.key)}"
+                aria-label="${escapeHTML(group.label)}"
+            >
+                ${this.renderMonthMarker(group.label)}
                 ${group.events
                     .map((event, eventIndex) => this.renderEvent(event, (groupIndex + eventIndex) % 2 === 0))
                     .join('')}
             </section>
+        `;
+    }
+
+    private renderMonthMarker(label: string): string {
+        return `
+            <div class="timeline-month-marker">
+                <div class="timeline-month-label">
+                    <span class="timeline-month-label-text">${escapeHTML(label)}</span>
+                </div>
+            </div>
         `;
     }
 
