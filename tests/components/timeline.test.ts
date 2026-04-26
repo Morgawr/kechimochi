@@ -201,13 +201,12 @@ describe('TimelineView', () => {
 
         const monthLabels = Array.from(container.querySelectorAll('.timeline-month-label')).map(node => node.textContent?.trim());
         expect(monthLabels).toEqual([
-            'Start of March 2024',
-            'End of March 2024',
-            'Start of February 2024',
-            'End of February 2024',
-            'Start of January 2024',
-            'End of January 2024',
+            'March 2024',
+            'February 2024',
+            'January 2024',
         ]);
+        expect(normalizedText()).not.toContain('Start of');
+        expect(normalizedText()).not.toContain('End of');
 
         expect(normalizedText()).toContain('Finished reading');
         expect(normalizedText()).toContain('Reached "Chapter 10"');
