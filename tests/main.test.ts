@@ -267,6 +267,67 @@ describe('main.ts initialization', () => {
         await vi.waitFor(() => expect(document.getElementById('nav-user-name')?.textContent).toBe('updated-user'));
     });
 
+    it('should resolve bundled asset URLs when loading a managed custom theme at startup', async () => {
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
+            if (key === SETTING_KEYS.THEME) return 'custom:bundle-theme';
+            return null;
+        });
+        vi.mocked(api.getManagedThemePack).mockResolvedValue(JSON.stringify({
+            version: 1,
+            id: 'custom:bundle-theme',
+            name: 'Bundle Theme',
+            variables: {
+                'surface-base': '#101010',
+                'surface-card': '#202020',
+                'surface-card-hover': '#303030',
+                'text-primary': '#ffffff',
+                'text-secondary': '#cccccc',
+                'accent-primary': '#00ff88',
+                'accent-primary-hover': '#22ffaa',
+                'accent-danger': '#ff4466',
+                'accent-interactive': '#4488ff',
+                'accent-highlight': '#ffdd44',
+                'accent-secondary': '#aa66ff',
+                'border-subtle': '#444444',
+                'shadow-soft': '0 2px 4px rgba(0,0,0,0.2)',
+                'shadow-strong': '0 4px 12px rgba(0,0,0,0.4)',
+                'heatmap-hue': '180',
+                'heatmap-saturation-base': '40',
+                'heatmap-saturation-range': '50',
+                'heatmap-lightness-base': '45',
+                'heatmap-lightness-range': '35',
+                'accent-contrast': '#000000',
+                'chart-series-1': '#111111',
+                'chart-series-2': '#222222',
+                'chart-series-3': '#333333',
+                'chart-series-4': '#444444',
+                'chart-series-5': '#555555'
+            },
+            background: {
+                type: 'video',
+                src: 'assets/bg.mp4',
+                poster: 'assets/poster.webp'
+            },
+            fonts: [{
+                family: 'Reload Sans',
+                src: 'assets/reload.woff2',
+                format: 'woff2'
+            }],
+        }));
+        vi.mocked(api.resolveManagedThemeAssetUrl).mockImplementation(async (_themeId, assetPath) => `asset://${assetPath}`);
+
+        await bootApp();
+
+        expect(api.getManagedThemePack).toHaveBeenCalledWith('custom:bundle-theme');
+        expect(api.resolveManagedThemeAssetUrl).toHaveBeenCalledWith('custom:bundle-theme', 'assets/bg.mp4');
+        expect(api.resolveManagedThemeAssetUrl).toHaveBeenCalledWith('custom:bundle-theme', 'assets/poster.webp');
+        expect(api.resolveManagedThemeAssetUrl).toHaveBeenCalledWith('custom:bundle-theme', 'assets/reload.woff2');
+        const backdrop = document.getElementById('kechimochi-custom-theme-backdrop');
+        expect(backdrop).not.toBeNull();
+        expect((backdrop?.firstElementChild as HTMLVideoElement | null)?.src).toContain('asset://assets/bg.mp4');
+    });
+
     it('should show avatar image when a profile picture exists', async () => {
         vi.mocked(api.getProfilePicture).mockResolvedValue({
             mime_type: 'image/png',

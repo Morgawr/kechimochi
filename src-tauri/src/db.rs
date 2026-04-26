@@ -1082,6 +1082,11 @@ pub fn wipe_everything(app_dir: std::path::PathBuf) -> std::result::Result<(), S
         let _ = std::fs::remove_dir_all(&covers_dir);
     }
 
+    let themes_dir = app_dir.join("theme-packs");
+    if themes_dir.exists() {
+        let _ = std::fs::remove_dir_all(&themes_dir);
+    }
+
     // Delete all DBs
     if let Ok(entries) = std::fs::read_dir(&app_dir) {
         for entry in entries.filter_map(std::result::Result::ok) {
@@ -3127,13 +3132,16 @@ mod tests {
         let temp_dir = std::env::temp_dir().join(format!("wipe_test_{}", std::process::id()));
         std::fs::create_dir_all(&temp_dir).unwrap();
         std::fs::create_dir_all(temp_dir.join("covers")).unwrap();
+        std::fs::create_dir_all(temp_dir.join("theme-packs")).unwrap();
         std::fs::write(temp_dir.join("kechimochi_user.db"), "").unwrap();
         std::fs::write(temp_dir.join("covers/test.png"), "").unwrap();
+        std::fs::write(temp_dir.join("theme-packs/test.json"), "{}").unwrap();
         std::fs::write(temp_dir.join("not_a_db.txt"), "").unwrap();
 
         wipe_everything(temp_dir.clone()).unwrap();
 
         assert!(!temp_dir.join("covers").exists());
+        assert!(!temp_dir.join("theme-packs").exists());
         assert!(!temp_dir.join("kechimochi_user.db").exists());
         assert!(temp_dir.join("not_a_db.txt").exists()); // Should preserve non-db files
 

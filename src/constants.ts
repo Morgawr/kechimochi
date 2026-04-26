@@ -17,12 +17,14 @@ export const EVENTS = {
 export const STORAGE_KEYS = {
     CURRENT_PROFILE: 'kechimochi_profile',
     THEME_CACHE: 'kechimochi_theme',
+    CUSTOM_THEMES_CACHE: 'kechimochi_custom_themes',
     MOCK_DATE: 'kechimochi_mock_date',
 } as const;
 
 export const SETTING_KEYS = {
     THEME: 'theme',
     PROFILE_NAME: 'profile_name',
+    CUSTOM_THEMES: 'custom_themes',
     STATS_NOVEL_SPEED: 'stats_novel_speed',
     STATS_NOVEL_COUNT: 'stats_novel_count',
     STATS_MANGA_SPEED: 'stats_manga_speed',

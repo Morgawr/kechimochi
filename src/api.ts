@@ -12,6 +12,7 @@ export type {
   ActivitySummary,
   DailyHeatmap,
   GoogleDriveAuthSession,
+  ManagedThemePackSummary,
   TimelineEventKind,
   TimelineEvent,
   MediaCsvRow,
@@ -27,12 +28,16 @@ export type {
   SyncStatus,
 } from './types';
 
+export type { ImportedThemePackFile } from './services';
+export type { ThemePackExportSelection, ThemePackImportSelection } from './services';
+
 import type {
   Media,
   ActivityLog,
   ActivitySummary,
   DailyHeatmap,
   GoogleDriveAuthSession,
+  ManagedThemePackSummary,
   TimelineEvent,
   MediaCsvRow,
   MediaConflict,
@@ -164,4 +169,44 @@ export function exportFullBackup(localStorageData: string, version: string): Pro
 
 export function importFullBackup(): Promise<string | null> {
   return getServices().pickAndImportFullBackup();
+}
+
+export function pickThemePackImportSelection(): Promise<import('./services').ThemePackImportSelection | null> {
+  return getServices().pickThemePackImportSelection();
+}
+
+export function importThemePackFromSelection(selection: import('./services').ThemePackImportSelection): Promise<import('./services').ImportedThemePackFile> {
+  return getServices().importThemePackFromSelection(selection);
+}
+
+export function listManagedThemePackSummaries(): Promise<ManagedThemePackSummary[]> {
+  return getServices().listManagedThemePackSummaries();
+}
+
+export function getManagedThemePack(themeId: string): Promise<string | null> {
+  return getServices().getManagedThemePack(themeId);
+}
+
+export function resolveManagedThemeAssetUrl(themeId: string, assetPath: string): Promise<string | null> {
+  return getServices().resolveManagedThemeAssetUrl(themeId, assetPath);
+}
+
+export function listManagedThemePacks(): Promise<string[]> {
+  return getServices().listManagedThemePacks();
+}
+
+export function saveManagedThemePack(themeId: string, content: string, preferredFileName?: string | null): Promise<void> {
+  return getServices().saveManagedThemePack(themeId, content, preferredFileName);
+}
+
+export function deleteManagedThemePack(themeId: string): Promise<void> {
+  return getServices().deleteManagedThemePack(themeId);
+}
+
+export function pickThemePackExportSelection(defaultFileName: string): Promise<import('./services').ThemePackExportSelection | null> {
+  return getServices().pickThemePackExportSelection(defaultFileName);
+}
+
+export function exportThemePackToSelection(themeId: string, content: string, selection: import('./services').ThemePackExportSelection): Promise<boolean> {
+  return getServices().exportThemePackToSelection(themeId, content, selection);
 }

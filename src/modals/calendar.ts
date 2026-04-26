@@ -18,7 +18,7 @@ export function buildCalendar(containerId: string, initialDate: string, onSelect
                     <button type="button" class="btn btn-ghost" style="padding: 0 0.5rem; height: 24px; min-width: 24px; font-size: 0.8rem;" id="c-n-${containerId}">&gt;</button>
                 </div>
                 <div style="display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
-                    <div style="color: #ff4757;">Su</div><div>Mo</div><div>Tu</div><div>We</div><div>Th</div><div>Fr</div><div style="color: #1e90ff;">Sa</div>
+                    <div style="color: var(--accent-red);">Su</div><div>Mo</div><div>Tu</div><div>We</div><div>Th</div><div>Fr</div><div style="color: var(--accent-blue);">Sa</div>
                 </div>
                 <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px;">
         `;
@@ -28,7 +28,7 @@ export function buildCalendar(containerId: string, initialDate: string, onSelect
             const dStr = `${vY}-${pad(vM + 1)}-${pad(i)}`;
             const isSel = dStr === activeDateStr;
             const bg = isSel ? 'var(--accent-blue)' : 'transparent';
-            const fg = isSel ? '#fff' : 'var(--text-primary)';
+            const fg = isSel ? 'var(--accent-text)' : 'var(--text-primary)';
             
             const today = new Date();
             const todayStr = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;

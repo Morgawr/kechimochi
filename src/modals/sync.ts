@@ -68,6 +68,13 @@ function buildAttachPreviewStats(preview: SyncAttachPreview): Array<{
     return stats;
 }
 
+const SYNC_INFO_BORDER = 'color-mix(in srgb, var(--accent-blue) 28%, transparent)';
+const SYNC_INFO_BACKGROUND = 'color-mix(in srgb, var(--accent-blue) 7%, transparent)';
+const SYNC_WARNING_BORDER = 'color-mix(in srgb, var(--accent-yellow) 35%, transparent)';
+const SYNC_WARNING_BACKGROUND = 'color-mix(in srgb, var(--accent-yellow) 8%, transparent)';
+const SYNC_DANGER_BORDER = 'color-mix(in srgb, var(--accent-red) 35%, transparent)';
+const SYNC_DANGER_BACKGROUND = 'color-mix(in srgb, var(--accent-red) 8%, transparent)';
+
 export async function showSyncEnablementWizard(
     profiles: RemoteSyncProfileSummary[],
     googleEmail?: string | null,
@@ -102,7 +109,7 @@ export async function showSyncEnablementWizard(
                 ${hasProfiles
                     ? `<div style="margin-top: 1.25rem; display: flex; flex-direction: column; gap: 0.8rem; overflow: auto; padding-right: 0.25rem;">
                         ${profiles.map((profile, index) => `
-                            <label style="display: flex; gap: 0.9rem; align-items: flex-start; padding: 0.95rem 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: rgba(255,255,255,0.02); cursor: pointer;">
+                            <label style="display: flex; gap: 0.9rem; align-items: flex-start; padding: 0.95rem 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: color-mix(in srgb, var(--bg-card-hover) 45%, transparent); cursor: pointer;">
                                 <input
                                     type="radio"
                                     name="sync-profile-choice"
@@ -118,7 +125,7 @@ export async function showSyncEnablementWizard(
                             </label>
                         `).join('')}
                     </div>`
-                    : `<div style="margin-top: 1.25rem; padding: 1rem 1.1rem; border-radius: var(--radius-md); border: 1px solid rgba(56, 189, 248, 0.28); background: rgba(56, 189, 248, 0.07); color: var(--text-primary);">
+                    : `<div style="margin-top: 1.25rem; padding: 1rem 1.1rem; border-radius: var(--radius-md); border: 1px solid ${SYNC_INFO_BORDER}; background: ${SYNC_INFO_BACKGROUND}; color: var(--text-primary);">
                         This will upload your current local state as the first remote snapshot for this Google account.
                     </div>`}
                 <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem; flex-wrap: wrap;">
@@ -184,19 +191,19 @@ export async function showSyncAttachPreview(preview: SyncAttachPreview): Promise
                 <p style="margin: 0; color: var(--text-secondary);">
                     Review how <strong style="color: var(--text-primary);">${escapeHTML(preview.profile_name)}</strong> compares with this device before attaching it.
                 </p>
-                <div style="margin-top: 1rem; padding: 0.9rem 1rem; border-radius: var(--radius-md); border: 1px solid rgba(56, 189, 248, 0.24); background: rgba(56, 189, 248, 0.06); color: var(--text-primary);">
+                <div style="margin-top: 1rem; padding: 0.9rem 1rem; border-radius: var(--radius-md); border: 1px solid ${SYNC_INFO_BORDER}; background: ${SYNC_INFO_BACKGROUND}; color: var(--text-primary);">
                     ${escapeHTML(summary)}
                 </div>
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.8rem; margin-top: 1.25rem;">
                     ${stats.map((stat, index) => `
-                        <div style="${stats.length % 2 === 1 && index === stats.length - 1 ? 'grid-column: 1 / -1;' : ''} padding: 0.9rem 1rem; border: 1px solid ${stat.highlight ? 'rgba(255, 99, 132, 0.45)' : 'var(--border-color)'}; border-radius: var(--radius-md); background: ${stat.highlight ? 'rgba(255, 99, 132, 0.07)' : 'transparent'};">
+                        <div style="${stats.length % 2 === 1 && index === stats.length - 1 ? 'grid-column: 1 / -1;' : ''} padding: 0.9rem 1rem; border: 1px solid ${stat.highlight ? SYNC_DANGER_BORDER : 'var(--border-color)'}; border-radius: var(--radius-md); background: ${stat.highlight ? SYNC_DANGER_BACKGROUND : 'transparent'};">
                             <div style="font-size: 0.8rem; color: var(--text-secondary);">${escapeHTML(stat.label)}</div>
                             <div style="font-size: 1.5rem; font-weight: 700; color: var(--text-primary);">${stat.value}</div>
                         </div>
                     `).join('')}
                 </div>
                 ${preview.potential_duplicate_titles.length > 0
-                    ? `<div style="margin-top: 1rem; padding: 0.95rem 1rem; border-radius: var(--radius-md); border: 1px solid rgba(245, 158, 11, 0.35); background: rgba(245, 158, 11, 0.08);">
+                    ? `<div style="margin-top: 1rem; padding: 0.95rem 1rem; border-radius: var(--radius-md); border: 1px solid ${SYNC_WARNING_BORDER}; background: ${SYNC_WARNING_BACKGROUND};">
                         <strong style="display: block; margin-bottom: 0.4rem;">Potential duplicate titles</strong>
                         <div style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 0.6rem;">These titles appear on both sides with different sync UIDs, so you should sanity-check the merge result after attaching.</div>
                         <ul style="margin: 0; padding-left: 1.2rem; max-height: 160px; overflow: auto;">
@@ -205,7 +212,7 @@ export async function showSyncAttachPreview(preview: SyncAttachPreview): Promise
                     </div>`
                     : ''}
                 ${preview.conflict_count > 0
-                    ? `<div style="margin-top: 1rem; padding: 0.95rem 1rem; border-radius: var(--radius-md); border: 1px solid rgba(255, 99, 132, 0.35); background: rgba(255, 99, 132, 0.08); color: var(--text-primary);">
+                    ? `<div style="margin-top: 1rem; padding: 0.95rem 1rem; border-radius: var(--radius-md); border: 1px solid ${SYNC_DANGER_BORDER}; background: ${SYNC_DANGER_BACKGROUND}; color: var(--text-primary);">
                         Attaching will keep your local data safe, but you will land in conflict review before the merged state can be published.
                     </div>`
                     : ''}

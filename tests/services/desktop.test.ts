@@ -25,6 +25,7 @@ vi.mock('@tauri-apps/api/event', () => ({
 const minimize = vi.fn();
 const toggleMaximize = vi.fn();
 const close = vi.fn();
+const revokeObjectURL = vi.fn();
 
 vi.mock('@tauri-apps/api/window', () => ({
     getCurrentWindow: vi.fn(() => ({
@@ -52,6 +53,7 @@ describe('DesktopServices', () => {
         vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (X11; Linux x86_64) Tauri/2.0' });
         vi.stubGlobal('URL', {
             createObjectURL: vi.fn(() => 'blob:desktop'),
+            revokeObjectURL,
         });
     });
 
@@ -94,11 +96,16 @@ describe('DesktopServices', () => {
     it('exports media and full backups through invoke', async () => {
         vi.mocked(tauriSave)
             .mockResolvedValueOnce(`${SAFE_DIR}/library.csv`)
-            .mockResolvedValueOnce(`${SAFE_DIR}/backup.zip`);
-        vi.mocked(invoke).mockResolvedValueOnce(12).mockResolvedValueOnce(undefined);
+            .mockResolvedValueOnce(`${SAFE_DIR}/backup.zip`)
+            .mockResolvedValueOnce(`${SAFE_DIR}/theme.zip`);
+        vi.mocked(invoke).mockResolvedValueOnce(12).mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined);
 
         await expect(services.exportMediaLibrary('TESTUSER')).resolves.toBe(12);
         await expect(services.pickAndExportFullBackup('{"theme":"molokai"}', '1.0.0')).resolves.toBe(true);
+        await expect(services.pickThemePackExportSelection('theme.zip')).resolves.toEqual({ kind: 'desktop', filePath: `${SAFE_DIR}/theme.zip` });
+        await expect(
+            services.exportThemePackToSelection('custom:test-theme', '{"name":"Test"}', { kind: 'desktop', filePath: `${SAFE_DIR}/theme.zip` })
+        ).resolves.toBe(true);
 
         expect(invoke).toHaveBeenNthCalledWith(1, 'export_media_csv', { filePath: `${SAFE_DIR}/library.csv` });
         expect(invoke).toHaveBeenNthCalledWith(2, 'export_full_backup', {
@@ -106,6 +113,99 @@ describe('DesktopServices', () => {
             localStorage: '{"theme":"molokai"}',
             version: '1.0.0',
         });
+        expect(invoke).toHaveBeenNthCalledWith(3, 'export_theme_pack', {
+            themeId: 'custom:test-theme',
+            filePath: `${SAFE_DIR}/theme.zip`,
+            content: '{"name":"Test"}',
+        });
+    });
+
+    it('imports theme packs from mock and dialog-selected paths', async () => {
+        (globalThis as Record<string, unknown>).mockOpenPath = `${SAFE_DIR}/theme.json`;
+        vi.mocked(invoke)
+            .mockResolvedValueOnce({
+                themeId: 'custom:mock-theme',
+                themeName: 'Mock Theme',
+                content: '{"name":"Mock"}',
+                fileName: 'theme.json',
+            })
+            .mockResolvedValueOnce({
+                themeId: 'custom:dialog-theme',
+                themeName: 'Dialog Theme',
+                content: '{"name":"Dialog"}',
+                fileName: 'from-dialog.json',
+            });
+        vi.mocked(tauriOpen).mockResolvedValue(`${SAFE_DIR}/from-dialog.json`);
+
+        await expect(services.pickThemePackImportSelection()).resolves.toEqual({ kind: 'desktop', path: `${SAFE_DIR}/theme.json` });
+        await expect(services.importThemePackFromSelection({ kind: 'desktop', path: `${SAFE_DIR}/theme.json` })).resolves.toEqual({
+            themeId: 'custom:mock-theme',
+            themeName: 'Mock Theme',
+            content: '{"name":"Mock"}',
+            fileName: 'theme.json',
+        });
+        delete (globalThis as Record<string, unknown>).mockOpenPath;
+        await expect(services.pickThemePackImportSelection()).resolves.toEqual({ kind: 'desktop', path: `${SAFE_DIR}/from-dialog.json` });
+        await expect(services.importThemePackFromSelection({ kind: 'desktop', path: `${SAFE_DIR}/from-dialog.json` })).resolves.toEqual({
+            themeId: 'custom:dialog-theme',
+            themeName: 'Dialog Theme',
+            content: '{"name":"Dialog"}',
+            fileName: 'from-dialog.json',
+        });
+
+        expect(invoke).toHaveBeenNthCalledWith(1, 'import_theme_pack', { path: `${SAFE_DIR}/theme.json` });
+        expect(invoke).toHaveBeenNthCalledWith(2, 'import_theme_pack', { path: `${SAFE_DIR}/from-dialog.json` });
+    });
+
+    it('passes preferred theme filenames to managed theme storage', async () => {
+        vi.mocked(invoke).mockResolvedValue(undefined);
+
+        await expect(services.saveManagedThemePack('custom:test-theme', '{"name":"Theme"}', 'midnight-current.json')).resolves.toBeUndefined();
+
+        expect(invoke).toHaveBeenCalledWith('save_theme_pack', {
+            themeId: 'custom:test-theme',
+            content: '{"name":"Theme"}',
+            preferredFileName: 'midnight-current.json',
+        });
+    });
+
+    it('lists lightweight theme summaries and fetches managed theme packs on demand', async () => {
+        vi.mocked(invoke)
+            .mockResolvedValueOnce([{ id: 'custom:test-theme', name: 'Test Theme' }])
+            .mockResolvedValueOnce('{"version":1,"id":"custom:test-theme","name":"Test Theme","variables":{}}')
+            .mockResolvedValueOnce([1, 2, 3, 4]);
+
+        await expect(services.listManagedThemePackSummaries()).resolves.toEqual([{ id: 'custom:test-theme', name: 'Test Theme' }]);
+        await expect(services.getManagedThemePack('custom:test-theme')).resolves.toBe('{"version":1,"id":"custom:test-theme","name":"Test Theme","variables":{}}');
+        await expect(services.resolveManagedThemeAssetUrl('custom:test-theme', 'assets/bg.mp4')).resolves.toBe('blob:desktop');
+        await expect(services.resolveManagedThemeAssetUrl('custom:test-theme', 'assets/bg.mp4')).resolves.toBe('blob:desktop');
+
+        expect(invoke).toHaveBeenNthCalledWith(1, 'list_theme_pack_summaries');
+        expect(invoke).toHaveBeenNthCalledWith(2, 'read_theme_pack', { themeId: 'custom:test-theme' });
+        expect(invoke).toHaveBeenNthCalledWith(3, 'read_theme_pack_asset_bytes', { themeId: 'custom:test-theme', assetPath: 'assets/bg.mp4' });
+        expect(URL.createObjectURL).toHaveBeenCalledOnce();
+    });
+
+    it('revokes cached theme asset blobs when a managed theme is replaced or deleted', async () => {
+        vi.mocked(invoke)
+            .mockResolvedValueOnce([1, 2, 3])
+            .mockResolvedValueOnce({
+                themeId: 'custom:test-theme',
+                themeName: 'Test Theme',
+                content: '{"name":"Test"}',
+                fileName: 'test-theme.zip',
+            })
+            .mockResolvedValueOnce(undefined)
+            .mockResolvedValueOnce(undefined);
+
+        await expect(services.resolveManagedThemeAssetUrl('custom:test-theme', 'assets/bg.mp4')).resolves.toBe('blob:desktop');
+        (globalThis as Record<string, unknown>).mockOpenPath = `${SAFE_DIR}/theme.json`;
+        await expect(services.pickThemePackImportSelection()).resolves.toEqual({ kind: 'desktop', path: `${SAFE_DIR}/theme.json` });
+        await expect(services.importThemePackFromSelection({ kind: 'desktop', path: `${SAFE_DIR}/theme.json` })).resolves.toMatchObject({ themeId: 'custom:test-theme' });
+        await expect(services.saveManagedThemePack('custom:test-theme', '{"name":"Updated"}')).resolves.toBeUndefined();
+        await expect(services.deleteManagedThemePack('custom:test-theme')).resolves.toBeUndefined();
+
+        expect(revokeObjectURL).toHaveBeenCalledWith('blob:desktop');
     });
 
     it('uses direct file paths or picker fallbacks for milestone import/export', async () => {

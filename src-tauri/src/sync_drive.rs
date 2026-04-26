@@ -1148,6 +1148,7 @@ mod tests {
                     updated_by_device_id: "dev_local".to_string(),
                 },
             )]),
+            theme_packs: Some(BTreeMap::new()),
             profile_picture: None,
             tombstones: vec![],
         }

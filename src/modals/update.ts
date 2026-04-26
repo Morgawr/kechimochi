@@ -22,7 +22,7 @@ async function showUpdateModal(options: UpdateModalOptions): Promise<void> {
                 <h3 style="margin-bottom: 0.5rem;">${escapeHTML(options.title)}</h3>
                 <p style="margin: 0 0 1rem; color: var(--text-secondary);">${escapeHTML(options.subtitle)}</p>
                 ${options.showBackupWarning
-                    ? '<p style="margin: 0 0 1rem; padding: 0.75rem 0.9rem; border-radius: var(--radius-md); border: 1px solid rgba(255, 166, 0, 0.35); background: rgba(255, 166, 0, 0.08); color: var(--text-primary);">Make sure to back up your data before updating, just in case a migration goes wrong.</p>'
+                    ? '<p style="margin: 0 0 1rem; padding: 0.75rem 0.9rem; border-radius: var(--radius-md); border: 1px solid color-mix(in srgb, var(--accent-yellow) 35%, transparent); background: color-mix(in srgb, var(--accent-yellow) 10%, transparent); color: var(--text-primary);">Make sure to back up your data before updating, just in case a migration goes wrong.</p>'
                     : ''}
                 <div style="overflow: auto; padding-right: 0.25rem; margin-right: -0.25rem;">
                     ${releaseNotesHtml}

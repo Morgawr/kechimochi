@@ -2197,6 +2197,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tempfile",
  "tokio",
+ "tower",
  "tower-http 0.5.2",
  "url",
  "uuid",

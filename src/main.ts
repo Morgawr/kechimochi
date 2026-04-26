@@ -4,8 +4,10 @@ import { ProfileView } from './components/profile';
 import { TimelineView } from './components/timeline';
 import {
     initializeUserDb,
+    getManagedThemePack,
     getUsername,
     getSetting,
+    resolveManagedThemeAssetUrl,
     setSetting,
     getProfilePicture,
     getStartupError,
@@ -33,6 +35,8 @@ import {
     showNoCloudProfilesFoundAlert,
     stringifySyncEnablementError,
 } from './sync_enablement';
+import { applyTheme, parseThemePackText, resolveThemePackAssets, writeThemeCache } from './themes';
+import type { ThemePackV1 } from './themes';
 
 // Support global date mocking for E2E tests
 let mockDateStr: string | null = null;
@@ -390,10 +394,38 @@ export class App {
         }
     }
 
-    private async loadTheme() {
-        const theme = await getSetting(SETTING_KEYS.THEME) || DEFAULTS.THEME;
-        document.body.dataset.theme = theme;
-        localStorage.setItem(STORAGE_KEYS.THEME_CACHE, theme);
+    private async loadTheme(): Promise<void> {
+        const storedTheme = await getSetting(SETTING_KEYS.THEME);
+        const requestedTheme = storedTheme || DEFAULTS.THEME;
+        let customThemes: ThemePackV1[] = [];
+
+        if (!requestedTheme || requestedTheme === DEFAULTS.THEME) {
+            customThemes = [];
+        } else if (!requestedTheme.includes(':')) {
+            customThemes = [];
+        } else {
+            try {
+                const managedThemeContent = await getManagedThemePack(requestedTheme);
+                if (managedThemeContent) {
+                    const parsedTheme = parseThemePackText(managedThemeContent);
+                    const resolvedTheme = await resolveThemePackAssets(
+                        parsedTheme,
+                        (themeId, assetPath) => resolveManagedThemeAssetUrl(themeId, assetPath),
+                    );
+                    customThemes = [resolvedTheme];
+                }
+            } catch (error) {
+                Logger.warn('[kechimochi] Failed to load managed theme pack', error);
+            }
+        }
+
+        const effectiveTheme = applyTheme(requestedTheme, customThemes);
+
+        writeThemeCache(effectiveTheme, customThemes);
+
+        if (requestedTheme !== effectiveTheme) {
+            await setSetting(SETTING_KEYS.THEME, effectiveTheme);
+        }
     }
 
     private async refreshProfileChrome() {
@@ -439,11 +471,15 @@ export class App {
             n.classList.toggle('active', dataView === view);
         });
 
-        // Always reload data when switching views to ensure freshness
-        if (view === 'dashboard') await this.dashboard.loadData();
-        else if (view === 'media') await this.mediaView.resetView();
-        else if (view === 'timeline') await this.timelineView.loadData();
-        else if (view === 'profile') await this.profileView.loadData();
+        try {
+            // Render still proceeds even if a view load fails so navigation remains usable.
+            if (view === 'dashboard') await this.dashboard.loadData();
+            else if (view === 'media') await this.mediaView.resetView();
+            else if (view === 'timeline') await this.timelineView.loadData();
+            else if (view === 'profile') await this.profileView.loadData();
+        } catch (error) {
+            Logger.error(`[kechimochi] Failed to load ${view} view`, error);
+        }
 
         this.renderCurrentView();
     }

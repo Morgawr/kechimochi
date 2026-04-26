@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use axum::{
     body::Body,
-    extract::{Multipart, Path, Query, State},
+    extract::{DefaultBodyLimit, Multipart, Path, Query, State},
     http::{header, StatusCode},
     response::{IntoResponse, Response},
     routing::{any, delete, get, post, put},
@@ -23,7 +23,25 @@ use serde::Deserialize;
 use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
 
-use kechimochi_lib::{csv_import, db, get_username_logic, models, profile_picture};
+use kechimochi_lib::{
+    csv_import,
+    db,
+    delete_theme_pack_logic,
+    export_theme_pack_logic,
+    get_username_logic,
+    get_theme_pack_asset_path_logic,
+    import_theme_pack_logic,
+    ImportedThemePackFile,
+    list_theme_pack_contents_logic,
+    list_theme_pack_summaries_logic,
+    models,
+    theme_pack_has_assets_logic,
+    read_theme_pack_logic,
+    save_theme_pack_logic,
+    theme_packs_dir,
+    ThemePackSummary,
+    profile_picture,
+};
 
 // ── Error handling ────────────────────────────────────────────────────────────
 
@@ -48,6 +66,8 @@ impl<T, E: std::fmt::Display> AeExt<T> for std::result::Result<T, E> {
 }
 
 type HandlerResult<T> = std::result::Result<T, AppError>;
+
+const MAX_MULTIPART_UPLOAD_BYTES: usize = 64 * 1024 * 1024;
 
 // ── Shared state ──────────────────────────────────────────────────────────────
 
@@ -90,12 +110,25 @@ async fn main() {
         static_dir: static_dir.clone(),
     });
 
+    let app = build_app(state);
+
+    let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
+    let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
+    let addr = format!("{}:{}", host, port);
+    println!("[kechimochi] listening on http://{}", addr);
+    let listener = tokio::net::TcpListener::bind(&addr)
+        .await
+        .expect("Failed to bind");
+    axum::serve(listener, app).await.expect("Server error");
+}
+
+fn build_app(state: Shared) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any);
 
-    let app = Router::new()
+    Router::new()
         // Media
         .route("/api/media", get(get_all_media).post(add_media))
         .route(
@@ -124,7 +157,13 @@ async fn main() {
                 .delete(delete_profile_picture_handler),
         )
         // Settings
-        .route("/api/settings/:key", get(get_setting).put(set_setting))
+    .route("/api/settings/:key", get(get_setting).put(set_setting))
+        .route("/api/themes",               get(list_theme_packs_handler).post(save_theme_pack_handler))
+        .route("/api/themes/import",        post(import_theme_pack_handler))
+        .route("/api/themes/export",        post(export_theme_pack_handler))
+        .route("/api/themes/summaries",     get(list_theme_pack_summaries_handler))
+        .route("/api/themes/:theme_id/assets/*asset_path", get(get_theme_pack_asset_handler))
+        .route("/api/themes/:theme_id",     get(get_theme_pack_handler).delete(delete_theme_pack_handler))
         // Utility
         .route("/api/username", get(get_username))
         .route("/api/version", get(get_version))
@@ -153,16 +192,8 @@ async fn main() {
         .route("/", get(serve_spa_index))
         .route("/*path", get(serve_static_or_spa))
         .with_state(state)
-        .layer(cors);
-
-    let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
-    let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
-    let addr = format!("{}:{}", host, port);
-    println!("[kechimochi] listening on http://{}", addr);
-    let listener = tokio::net::TcpListener::bind(&addr)
-        .await
-        .expect("Failed to bind");
-    axum::serve(listener, app).await.expect("Server error");
+        .layer(DefaultBodyLimit::max(MAX_MULTIPART_UPLOAD_BYTES))
+        .layer(cors)
 }
 
 fn resolve_static_dir() -> PathBuf {
@@ -425,6 +456,132 @@ async fn set_setting(
 ) -> HandlerResult<Json<()>> {
     let conn = s.conn.lock().await;
     db::set_setting(&conn, &key, &body.value)
+        .ae()
+        .map(|_| Json(()))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveThemePackBody {
+    theme_id: String,
+    content: String,
+    preferred_file_name: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ExportThemePackBody {
+    theme_id: String,
+    content: String,
+}
+
+async fn list_theme_packs_handler(State(s): State<Shared>) -> HandlerResult<Json<Vec<String>>> {
+    list_theme_pack_contents_logic(&theme_packs_dir(&s.data_dir)).ae().map(Json)
+}
+
+async fn list_theme_pack_summaries_handler(State(s): State<Shared>) -> HandlerResult<Json<Vec<ThemePackSummary>>> {
+    list_theme_pack_summaries_logic(&theme_packs_dir(&s.data_dir)).ae().map(Json)
+}
+
+async fn get_theme_pack_handler(
+    State(s): State<Shared>,
+    Path(theme_id): Path<String>,
+) -> HandlerResult<Json<Option<String>>> {
+    read_theme_pack_logic(&theme_packs_dir(&s.data_dir), &theme_id).ae().map(Json)
+}
+
+async fn save_theme_pack_handler(
+    State(s): State<Shared>,
+    Json(body): Json<SaveThemePackBody>,
+) -> HandlerResult<Json<()>> {
+    save_theme_pack_logic(&theme_packs_dir(&s.data_dir), &body.theme_id, &body.content, body.preferred_file_name.as_deref())
+        .ae()
+        .map(|_| Json(()))
+}
+
+async fn import_theme_pack_handler(
+    State(s): State<Shared>,
+    mut multipart: Multipart,
+) -> HandlerResult<Json<ImportedThemePackFile>> {
+    let (tmp, file_name) = field_to_tempfile_with_name(&mut multipart).await?;
+    let bytes = std::fs::read(tmp.path()).ae()?;
+    import_theme_pack_logic(&theme_packs_dir(&s.data_dir), &bytes, file_name.as_deref())
+        .ae()
+        .map(Json)
+}
+
+async fn export_theme_pack_handler(
+    State(s): State<Shared>,
+    Json(body): Json<ExportThemePackBody>,
+) -> HandlerResult<Response> {
+    let has_assets = theme_pack_has_assets_logic(&theme_packs_dir(&s.data_dir), &body.theme_id).ae()?;
+    let tmp = tempfile::NamedTempFile::new().ae()?;
+    let path = tmp
+        .path()
+        .to_str()
+        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .to_owned();
+
+    export_theme_pack_logic(&theme_packs_dir(&s.data_dir), &body.theme_id, &body.content, &path).ae()?;
+    let bytes = std::fs::read(tmp.path()).ae()?;
+    Response::builder()
+        .header(
+            header::CONTENT_TYPE,
+            if has_assets {
+                "application/zip"
+            } else {
+                "application/json; charset=utf-8"
+            },
+        )
+        .header(
+            header::CONTENT_DISPOSITION,
+            format!(
+                "attachment; filename=\"{}.{}\"",
+                body.theme_id.replace(':', "-"),
+                if has_assets { "zip" } else { "json" }
+            ),
+        )
+        .body(Body::from(bytes))
+        .ae()
+}
+
+async fn get_theme_pack_asset_handler(
+    State(s): State<Shared>,
+    Path((theme_id, asset_path)): Path<(String, String)>,
+) -> HandlerResult<Response> {
+    let Some(asset_path) = get_theme_pack_asset_path_logic(&theme_packs_dir(&s.data_dir), &theme_id, &asset_path).ae()? else {
+        return Err(AppError("Theme asset not found".into()));
+    };
+
+    let path = PathBuf::from(asset_path);
+    let bytes = std::fs::read(&path).ae()?;
+    let content_type = match path.extension().and_then(|e| e.to_str()).unwrap_or_default() {
+        "css" => "text/css; charset=utf-8",
+        "json" => "application/json; charset=utf-8",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "jpg" | "jpeg" => "image/jpeg",
+        "mp4" => "video/mp4",
+        "woff2" => "font/woff2",
+        "woff" => "font/woff",
+        "ttf" => "font/ttf",
+        "otf" => "font/otf",
+        _ => "application/octet-stream",
+    };
+
+    Response::builder()
+        .header(header::CONTENT_TYPE, content_type)
+        .body(Body::from(bytes))
+        .ae()
+}
+
+async fn delete_theme_pack_handler(
+    State(s): State<Shared>,
+    Path(theme_id): Path<String>,
+) -> HandlerResult<Json<()>> {
+    delete_theme_pack_logic(&theme_packs_dir(&s.data_dir), &theme_id)
         .ae()
         .map(|_| Json(()))
 }
@@ -826,20 +983,29 @@ async fn fetch_bytes_proxy(
 /// Reads the first multipart field into a temporary file and returns it.
 /// The caller must keep `tmp` alive until the path has been consumed.
 async fn field_to_tempfile(multipart: &mut Multipart) -> HandlerResult<tempfile::NamedTempFile> {
+    field_to_tempfile_with_name(multipart).await.map(|(tmp, _)| tmp)
+}
+
+async fn field_to_tempfile_with_name(
+    multipart: &mut Multipart,
+) -> HandlerResult<(tempfile::NamedTempFile, Option<String>)> {
     let field = multipart
         .next_field()
         .await
         .ae()?
         .ok_or_else(|| AppError("No file in multipart".into()))?;
+    let file_name = field.file_name().map(|value| value.to_string());
     let bytes = field.bytes().await.ae()?;
     let mut tmp = tempfile::NamedTempFile::new().ae()?;
     tmp.write_all(&bytes).ae()?;
-    Ok(tmp)
+    Ok((tmp, file_name))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::http::{header::CONTENT_TYPE, Request};
+    use tower::ServiceExt;
 
     fn unique_data_dir() -> std::path::PathBuf {
         let ts = std::time::SystemTime::now()
@@ -940,6 +1106,129 @@ mod tests {
             .unwrap()
             .0;
         assert_eq!(value, Some("molokai".to_string()));
+
+        let _ = std::fs::remove_dir_all(state_dir);
+    }
+
+    #[tokio::test]
+    async fn test_theme_pack_handlers_roundtrip() {
+        let state = setup_state();
+        let state_dir = state.data_dir.clone();
+
+        let body = SaveThemePackBody {
+            theme_id: "custom:web-theme".to_string(),
+            content: r#"{"version":1,"id":"custom:web-theme","name":"Web Theme","variables":{}}"#.to_string(),
+            preferred_file_name: Some("web-theme.json".to_string()),
+        };
+
+        let _ = save_theme_pack_handler(State(state.clone()), Json(body)).await.unwrap();
+
+        let listed = list_theme_packs_handler(State(state.clone())).await.unwrap().0;
+        assert_eq!(listed.len(), 1);
+        assert!(listed[0].contains("custom:web-theme"));
+
+        let summaries = list_theme_pack_summaries_handler(State(state.clone())).await.unwrap().0;
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].id, "custom:web-theme");
+        assert_eq!(summaries[0].name, "Web Theme");
+
+        let fetched = get_theme_pack_handler(State(state.clone()), Path("custom:web-theme".to_string())).await.unwrap().0;
+        assert!(fetched.as_deref().is_some_and(|value| value.contains("custom:web-theme")));
+
+        let _ = delete_theme_pack_handler(State(state.clone()), Path("custom:web-theme".to_string())).await.unwrap();
+
+        let listed_after_delete = list_theme_packs_handler(State(state)).await.unwrap().0;
+        assert!(listed_after_delete.is_empty());
+
+        let _ = std::fs::remove_dir_all(state_dir);
+    }
+
+    #[tokio::test]
+    async fn test_theme_import_route_accepts_large_multipart_payloads() {
+        let state = setup_state();
+        let state_dir = state.data_dir.clone();
+        let app = build_app(state.clone());
+
+        let theme_json = serde_json::json!({
+            "version": 1,
+            "id": "custom:web-large-theme",
+            "name": "Web Large Theme",
+            "variables": {
+                "surface-base": "#111111",
+                "surface-card": "#222222",
+                "surface-card-hover": "#333333",
+                "text-primary": "#ffffff",
+                "text-secondary": "#cccccc",
+                "accent-primary": "#ff0000",
+                "accent-primary-hover": "#ee0000",
+                "accent-danger": "#dd0000",
+                "accent-interactive": "#00ff00",
+                "accent-highlight": "#0000ff",
+                "accent-secondary": "#ff00ff",
+                "border-subtle": "#444444",
+                "shadow-soft": "0 1px 2px rgba(0,0,0,0.2)",
+                "shadow-strong": "0 4px 12px rgba(0,0,0,0.4)",
+                "heatmap-hue": "353",
+                "heatmap-saturation-base": "30",
+                "heatmap-saturation-range": "70",
+                "heatmap-lightness-base": "45",
+                "heatmap-lightness-range": "41",
+                "accent-contrast": "#ffffff",
+                "chart-series-1": "#ff0000",
+                "chart-series-2": "#00ff00",
+                "chart-series-3": "#0000ff",
+                "chart-series-4": "#ffff00",
+                "chart-series-5": "#ff00ff"
+            },
+            "background": {
+                "type": "video",
+                "src": "assets/background.mp4"
+            }
+        })
+        .to_string();
+        let asset_bytes = vec![0_u8; 3 * 1024 * 1024];
+
+        let mut archive = std::io::Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut archive);
+            let options = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            zip.start_file("theme.json", options).unwrap();
+            zip.write_all(theme_json.as_bytes()).unwrap();
+            zip.start_file("assets/background.mp4", options).unwrap();
+            zip.write_all(&asset_bytes).unwrap();
+            zip.finish().unwrap();
+        }
+        let zip_bytes = archive.into_inner();
+        assert!(zip_bytes.len() > 2 * 1024 * 1024);
+        assert!(zip_bytes.len() < MAX_MULTIPART_UPLOAD_BYTES);
+
+        let boundary = "X-BOUNDARY";
+        let mut body = Vec::new();
+        body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
+        body.extend_from_slice(b"Content-Disposition: form-data; name=\"file\"; filename=\"large-theme.zip\"\r\n");
+        body.extend_from_slice(b"Content-Type: application/zip\r\n\r\n");
+        body.extend_from_slice(&zip_bytes);
+        body.extend_from_slice(format!("\r\n--{}--\r\n", boundary).as_bytes());
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/themes/import")
+                    .header(CONTENT_TYPE, format!("multipart/form-data; boundary={}", boundary))
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let summaries = list_theme_pack_summaries_handler(State(state)).await.unwrap().0;
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].id, "custom:web-large-theme");
+        assert_eq!(summaries[0].has_assets, Some(true));
 
         let _ = std::fs::remove_dir_all(state_dir);
     }

@@ -68,7 +68,7 @@ export async function runBlockingStatus<T>(
         if (timeoutHandle !== undefined) {
             globalThis.clearTimeout(timeoutHandle);
         }
-        progress.close();
+        await progress.close();
     }
 }
 
@@ -95,7 +95,7 @@ export async function runSyncProgressBlockingStatus<T>(
         return await operation();
     } finally {
         unsubscribe?.();
-        progress.close();
+        await progress.close();
     }
 }
 

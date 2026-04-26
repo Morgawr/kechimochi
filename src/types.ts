@@ -298,3 +298,78 @@ export type SyncConflictResolution =
         kind: 'profile_picture';
         side: MergeSide;
     };
+
+export const THEME_VARIABLE_KEYS = [
+    'surface-base',
+    'surface-card',
+    'surface-card-hover',
+    'text-primary',
+    'text-secondary',
+    'accent-primary',
+    'accent-primary-hover',
+    'accent-danger',
+    'accent-interactive',
+    'accent-highlight',
+    'accent-secondary',
+    'border-subtle',
+    'shadow-soft',
+    'shadow-strong',
+    'heatmap-hue',
+    'heatmap-saturation-base',
+    'heatmap-saturation-range',
+    'heatmap-lightness-base',
+    'heatmap-lightness-range',
+    'accent-contrast',
+    'chart-series-1',
+    'chart-series-2',
+    'chart-series-3',
+    'chart-series-4',
+    'chart-series-5',
+] as const;
+
+export type ThemeVariableKey = typeof THEME_VARIABLE_KEYS[number];
+export type ThemeVariables = Record<ThemeVariableKey, string>;
+
+export interface ThemeBackgroundDefinition {
+    type: 'image' | 'video';
+    src: string;
+    poster?: string;
+    fit?: 'cover' | 'contain' | 'fill';
+    opacity?: number;
+    blur_px?: number;
+    playback_rate?: number;
+    loop?: boolean;
+    muted?: boolean;
+}
+
+export interface ThemeFontDefinition {
+    family: string;
+    src: string;
+    weight?: string;
+    style?: 'normal' | 'italic' | 'oblique';
+    format?: 'woff2' | 'woff' | 'truetype' | 'opentype';
+}
+
+export interface ThemeTypographyDefinition {
+    body_family?: string;
+    heading_family?: string;
+    monospace_family?: string;
+}
+
+export interface ThemePackV1 {
+    version: 1;
+    id: string;
+    name: string;
+    variables: ThemeVariables;
+    cssOverrides?: string;
+    background?: ThemeBackgroundDefinition;
+    fonts?: ThemeFontDefinition[];
+    typography?: ThemeTypographyDefinition;
+}
+
+export interface ManagedThemePackSummary {
+    id: string;
+    name: string;
+    version?: 1;
+    has_assets?: boolean;
+}

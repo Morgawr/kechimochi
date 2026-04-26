@@ -7,7 +7,7 @@ use serde_json::{Map, Value};
 use crate::db;
 use crate::sync_snapshot::{
     SnapshotActivity, SnapshotMediaAggregate, SnapshotMilestone, SnapshotProfile,
-    SnapshotProfilePicture, SnapshotSettingValue, SnapshotTombstone, SyncSnapshot,
+    SnapshotProfilePicture, SnapshotSettingValue, SnapshotThemePack, SnapshotTombstone, SyncSnapshot,
     SYNC_PROTOCOL_VERSION,
 };
 
@@ -114,6 +114,7 @@ pub fn merge_snapshots(
     }
 
     let merged_settings = merge_settings(base, local, remote);
+    let merged_theme_packs = merge_theme_packs(base, local, remote);
     let merged_profile = merge_profile(base, local, remote);
     let (merged_profile_picture, picture_conflict) = merge_profile_picture(base, local, remote);
     if let Some(conflict) = picture_conflict {
@@ -134,6 +135,7 @@ pub fn merge_snapshots(
     merged_snapshot.profile = merged_profile;
     merged_snapshot.library = merged_library;
     merged_snapshot.settings = merged_settings;
+    merged_snapshot.theme_packs = merged_theme_packs;
     merged_snapshot.profile_picture = merged_profile_picture;
     merged_snapshot.tombstones = merged_tombstones.into_values().collect();
 
@@ -923,6 +925,93 @@ fn merge_settings(
     merged
 }
 
+fn merge_theme_packs(
+    base: Option<&SyncSnapshot>,
+    local: &SyncSnapshot,
+    remote: &SyncSnapshot,
+) -> Option<BTreeMap<String, SnapshotThemePack>> {
+    let base_theme_packs = base.and_then(|snapshot| snapshot.theme_packs.as_ref());
+    let local_theme_packs = local.theme_packs.as_ref();
+    let remote_theme_packs = remote.theme_packs.as_ref();
+
+    match (local_theme_packs, remote_theme_packs) {
+        (None, None) => base.and_then(|snapshot| snapshot.theme_packs.clone()),
+        (Some(local), None) => Some(local.clone()),
+        (None, Some(remote)) => Some(remote.clone()),
+        (Some(local), Some(remote)) => {
+            let mut keys = BTreeSet::new();
+            if let Some(base) = base_theme_packs {
+                keys.extend(base.keys().cloned());
+            }
+            keys.extend(local.keys().cloned());
+            keys.extend(remote.keys().cloned());
+
+            let mut merged = BTreeMap::new();
+            for key in keys {
+                let chosen = choose_lww_theme_pack_value(
+                    base_theme_packs.and_then(|packs| packs.get(&key)),
+                    local.get(&key),
+                    remote.get(&key),
+                );
+
+                if let Some(chosen) = chosen {
+                    merged.insert(key, chosen);
+                }
+            }
+
+            Some(merged)
+        }
+    }
+}
+
+fn choose_lww_theme_pack_value(
+    base: Option<&SnapshotThemePack>,
+    local: Option<&SnapshotThemePack>,
+    remote: Option<&SnapshotThemePack>,
+) -> Option<SnapshotThemePack> {
+    let local_changed = local != base;
+    let remote_changed = remote != base;
+
+    match (local_changed, remote_changed) {
+        (false, false) => base
+            .cloned()
+            .or_else(|| local.cloned())
+            .or_else(|| remote.cloned()),
+        (true, false) => local.cloned(),
+        (false, true) => remote.cloned(),
+        (true, true) => match (local, remote) {
+            (Some(local), Some(remote)) => {
+                if local.content == remote.content {
+                    if compare_timestamp_and_device(
+                        &local.updated_at,
+                        &local.updated_by_device_id,
+                        &remote.updated_at,
+                        &remote.updated_by_device_id,
+                    ) == Ordering::Greater
+                    {
+                        Some(local.clone())
+                    } else {
+                        Some(remote.clone())
+                    }
+                } else if compare_timestamp_and_device(
+                    &local.updated_at,
+                    &local.updated_by_device_id,
+                    &remote.updated_at,
+                    &remote.updated_by_device_id,
+                ) == Ordering::Greater
+                {
+                    Some(local.clone())
+                } else {
+                    Some(remote.clone())
+                }
+            }
+            (Some(local), None) => Some(local.clone()),
+            (None, Some(remote)) => Some(remote.clone()),
+            (None, None) => None,
+        },
+    }
+}
+
 fn choose_lww_setting_value(
     base: Option<&SnapshotSettingValue>,
     local: Option<&SnapshotSettingValue>,
@@ -1114,6 +1203,7 @@ mod tests {
             },
             library: BTreeMap::new(),
             settings: BTreeMap::new(),
+            theme_packs: Some(BTreeMap::new()),
             profile_picture: None,
             tombstones: Vec::new(),
         }
@@ -1718,6 +1808,65 @@ mod tests {
             outcome.merged_snapshot.profile.updated_at,
             "2026-04-01T10:00:00Z"
         );
+    }
+
+    #[test]
+    fn test_merge_theme_packs_uses_lww_when_supported_on_both_sides() {
+        let mut base = empty_snapshot();
+        let mut local = empty_snapshot();
+        let mut remote = empty_snapshot();
+
+        base.theme_packs = Some(BTreeMap::from([(
+            "custom:aurora".to_string(),
+            SnapshotThemePack {
+                content: r#"{"version":1,"id":"custom:aurora","name":"Aurora","variables":{}}"#.to_string(),
+                assets: BTreeMap::new(),
+                updated_at: "2026-04-01T00:00:00Z".to_string(),
+                updated_by_device_id: "dev_base".to_string(),
+            },
+        )]));
+        local.theme_packs = base.theme_packs.clone();
+        remote.theme_packs = Some(BTreeMap::from([(
+            "custom:aurora".to_string(),
+            SnapshotThemePack {
+                content: r#"{"version":1,"id":"custom:aurora","name":"Aurora Remote","variables":{}}"#.to_string(),
+                assets: BTreeMap::new(),
+                updated_at: "2026-04-03T00:00:00Z".to_string(),
+                updated_by_device_id: "dev_remote".to_string(),
+            },
+        )]));
+
+        let outcome = merge_snapshots(Some(&base), &local, &remote).unwrap();
+        let merged = outcome.merged_snapshot.theme_packs.as_ref().unwrap();
+        assert_eq!(
+            merged["custom:aurora"].content,
+            r#"{"version":1,"id":"custom:aurora","name":"Aurora Remote","variables":{}}"#
+        );
+        assert_eq!(merged["custom:aurora"].updated_by_device_id, "dev_remote");
+    }
+
+    #[test]
+    fn test_merge_theme_packs_preserves_local_data_when_remote_snapshot_is_older_format() {
+        let mut base = empty_snapshot();
+        let mut local = empty_snapshot();
+        let mut remote = empty_snapshot();
+
+        let local_theme_packs = BTreeMap::from([(
+            "custom:aurora".to_string(),
+            SnapshotThemePack {
+                content: r#"{"version":1,"id":"custom:aurora","name":"Aurora","variables":{}}"#.to_string(),
+                assets: BTreeMap::new(),
+                updated_at: "2026-04-02T00:00:00Z".to_string(),
+                updated_by_device_id: "dev_local".to_string(),
+            },
+        )]);
+
+        base.theme_packs = Some(local_theme_packs.clone());
+        local.theme_packs = Some(local_theme_packs.clone());
+        remote.theme_packs = None;
+
+        let outcome = merge_snapshots(Some(&base), &local, &remote).unwrap();
+        assert_eq!(outcome.merged_snapshot.theme_packs, Some(local_theme_packs));
     }
 
     #[test]

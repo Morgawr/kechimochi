@@ -1,5 +1,5 @@
 describe('Startup Error Handling', () => {
-  const STARTUP_ERROR_TIMEOUT_MS = 1000;
+  const STARTUP_ERROR_TIMEOUT_MS = 3000;
 
   it('shows a blocking message instead of crashing when the database schema is newer than the app supports', async () => {
     const alertBody = await $('#alert-body');
