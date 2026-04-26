@@ -33,6 +33,7 @@ import {
     showNoCloudProfilesFoundAlert,
     stringifySyncEnablementError,
 } from './sync_enablement';
+import {applyTheme, resolveEffectiveTheme} from "./theme.ts";
 
 // Support global date mocking for E2E tests
 let mockDateStr: string | null = null;
@@ -391,9 +392,8 @@ export class App {
     }
 
     private async loadTheme() {
-        const theme = await getSetting(SETTING_KEYS.THEME) || DEFAULTS.THEME;
-        document.body.dataset.theme = theme;
-        localStorage.setItem(STORAGE_KEYS.THEME_CACHE, theme);
+        const syncedTheme = await getSetting(SETTING_KEYS.THEME) || DEFAULTS.THEME;
+        applyTheme(resolveEffectiveTheme(syncedTheme));
     }
 
     private async refreshProfileChrome() {
