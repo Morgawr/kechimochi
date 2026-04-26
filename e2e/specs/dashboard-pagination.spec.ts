@@ -69,7 +69,7 @@ describe('Dashboard Pagination E2E', () => {
 
         // Page 1: << is hidden
         const prevBtn = await $('#prev-page');
-        expect(await prevBtn.isExisting()).toBe(false);
+        expect(await prevBtn.isEnabled()).toBe(false);
 
         const nextBtn = await $('#next-page');
         expect(await nextBtn.isDisplayed()).toBe(true);
@@ -108,7 +108,7 @@ describe('Dashboard Pagination E2E', () => {
             return (await el.getText()) === '3';
         }, { timeout: 2000, timeoutMsg: 'Failed to navigate to page 3' });
 
-        expect(await nextBtn.isExisting()).toBe(false);
+        expect(await nextBtn.isEnabled()).toBe(false);
         const prevBtn = await $('#prev-page');
         expect(await prevBtn.isDisplayed()).toBe(true);
     });
@@ -157,6 +157,6 @@ describe('Dashboard Pagination E2E', () => {
         }, { timeout: 2000, timeoutMsg: 'Failed to return to page 1' });
 
         const prevBtn = await $('#prev-page');
-        expect(await prevBtn.isExisting()).toBe(false);
+        expect(await prevBtn.isEnabled()).toBe(false);
     });
 });

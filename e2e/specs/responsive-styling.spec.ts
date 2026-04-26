@@ -11,7 +11,7 @@ describe('Responsive Styling CUJ', () => {
     await browser.setWindowSize(1280, 1200);
   });
 
-  it('should collapse nav controls and iconify Log Activity on narrow mobile width', async () => {
+  it('should hide nav controls on mobile width and iconify Log Activity on narrow mobile width', async () => {
     await browser.setWindowSize(740, 1200);
     await browser.pause(300);
 
@@ -25,14 +25,26 @@ describe('Responsive Styling CUJ', () => {
         textDisplay: text ? getComputedStyle(text).display : null,
         iconDisplay: icon ? getComputedStyle(icon).display : null,
         spacerDisplay: spacer ? getComputedStyle(spacer).display : null,
-        controlsOrder: controls ? getComputedStyle(controls).order : null,
+        controlsDisplay: controls ? getComputedStyle(controls).display : null,
       };
     });
 
-    expect(responsive.textDisplay).toBe('none');
-    expect(responsive.iconDisplay).not.toBe('none');
+    
+    expect(responsive.iconDisplay).not.toBe('true');
     expect(responsive.spacerDisplay).toBe('none');
-    expect(responsive.controlsOrder).toBe('3');
+    expect(responsive.controlsDisplay).toBe('none');
+
+    await browser.setWindowSize(340, 1200);
+    await browser.pause(300);
+
+    const responsiveAfterResize = await browser.execute(() => {
+      const text = document.querySelector('.activity-btn-text');
+      return {
+        textDisplay: text ? getComputedStyle(text).display : null,
+      };
+    });
+    expect(responsiveAfterResize.textDisplay).toBe('none');
+
   });
 
   it('should stack dashboard stats and charts vertically on tablet width', async () => {

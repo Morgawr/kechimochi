@@ -741,11 +741,9 @@ a {
 .mobile-sync-status-btn svg {
   width: 14px;
   height: 14px;
-}
-
-.mobile-sync-status-btn svg {
   transition: transform var(--transition-fast), color var(--transition-fast);
 }
+
 
 .mobile-sync-status-btn .sync-status-dot {
   top: 0.2rem;
@@ -1457,7 +1455,7 @@ input:focus, select:focus {
   flex: 0 0 auto;
 }
 
-@media (min-width: 751px) and (max-width: 1024px) {
+@media (min-width: 768px) and (max-width: 1024px) {
   #study-stats-top {
     display: grid !important;
     grid-template-columns: minmax(0, 1.6fr) minmax(12rem, 0.9fr);
@@ -2465,6 +2463,7 @@ input:checked + .slider:before {
 #media-title-group {
   min-width: 0;
   flex: 1 1 auto;
+  justify-content: space-between;
 }
 
 #media-overflow-root {
@@ -2566,7 +2565,7 @@ input:checked + .slider:before {
   }
 
   #media-content-area {
-    /*position: relative;*/
+  
     flex-direction: column !important;
     gap: 0.75rem !important;
     padding-top: 220px;
@@ -2750,7 +2749,7 @@ input:checked + .slider:before {
   }
 }
 
-@media (max-width: 751px) {
+@media (max-width: 768px) {
   .mobile-top-bar {
     display: flex;
     padding: 0.2rem 0rem;
@@ -2921,7 +2920,7 @@ input:checked + .slider:before {
   }
 /*Empty Space in the middle for the add button only between 750 and 340 */ 
 /*there may be a better way*/  
-@media (min-width : 340px) {
+@media (min-width : 341px) {
     .topbar-nav{
       display: grid;
       grid-template-columns: repeat(5,1fr);
@@ -3336,6 +3335,3 @@ button:hover{
   padding-top: 0.1rem; /*fixes the cuttof when hovering*/
 }
 
- #media-title-group{
-  justify-content: space-between;
- }

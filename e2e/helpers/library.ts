@@ -326,6 +326,17 @@ export async function setTrackingStatusFilters(statuses: string[]): Promise<void
  * Toggle the "Hide Archived" checkbox in the library grid.
  */
 export async function setHideArchived(hide: boolean): Promise<void> {
+    // First, expand the filter panel if it's not already open
+    const filterToggle = $('#btn-toggle-filters');
+    await filterToggle.waitForDisplayed({ timeout: 5000 });
+    const isExpanded = (await filterToggle.getAttribute('aria-expanded')) === 'true';
+    if (!isExpanded) {
+        await filterToggle.click();
+        // Wait for the panel to be visible
+        const filterPanel = $('#media-grid-filter-panel');
+        await filterPanel.waitForDisplayed({ timeout: 5000 });
+    }
+
     const checkbox = $('#grid-hide-archived');
     await checkbox.waitForExist({ timeout: 5000 });
     const isChecked = await checkbox.isSelected();
