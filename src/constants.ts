@@ -17,6 +17,8 @@ export const EVENTS = {
 export const STORAGE_KEYS = {
     CURRENT_PROFILE: 'kechimochi_profile',
     THEME_CACHE: 'kechimochi_theme',
+    THEME_OVERRIDE_ENABLED: 'kechimochi_theme_override_enabled',
+    THEME_OVERRIDE: 'kechimochi_theme_override',
     MOCK_DATE: 'kechimochi_mock_date',
 } as const;
 
