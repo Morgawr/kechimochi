@@ -12,6 +12,7 @@ The format is based on Keep a Changelog, with one section per released version.
 ### Changed
  - Milestones now pre-fill the textboxes with time and/or char already recorded
  - Updated backloggd importer which had stopped working
+ - Timeline now shows direction and month/year badge for easier recognition
 
 ### Fixed
  - Quick log now shows more clearly in tablet mode

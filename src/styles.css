@@ -878,24 +878,48 @@ input:focus, select:focus {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 110px minmax(0, 1fr);
   align-items: center;
-  min-height: 3.5rem;
+  min-height: 2.6rem;
 }
 
 .timeline-month-label {
   grid-column: 2;
   justify-self: center;
-  min-width: 110px;
-  padding: 0.55rem 0.85rem;
-  border-radius: var(--radius-full);
-  border: 1px solid var(--border-color);
-  background: color-mix(in srgb, var(--bg-card) 86%, transparent);
-  box-shadow: var(--shadow-sm);
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-width: 148px;
+  padding: 0.38rem 1rem;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent-blue) 24%, var(--border-color) 76%);
+  background: color-mix(in srgb, var(--bg-dark) 88%, var(--bg-card) 12%);
   color: var(--text-primary);
-  font-size: 0.82rem;
+  font-size: 0.9rem;
   font-weight: 800;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   text-align: center;
-  text-transform: uppercase;
+}
+
+.timeline-month-label::before,
+.timeline-month-label::after {
+  color: color-mix(in srgb, var(--accent-blue) 70%, var(--text-secondary) 30%);
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.timeline-month-label::before {
+  content: '';
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.timeline-month-label::after {
+  content: '↓';
+  transform: translateY(-0.02rem);
 }
 
 .timeline-entry {
