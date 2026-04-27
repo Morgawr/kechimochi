@@ -64,6 +64,33 @@ describe('QuickLog', () => {
         expect(titles[0]).toContain('Newer Date Older Id');
     });
 
+    it('uses latest log id as tiebreaker when two media share the same latest date', () => {
+        const mediaList: Media[] = [
+            { id: 1, title: 'Top 1', media_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Ongoing' },
+            { id: 2, title: 'Top 2', media_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Ongoing' },
+            { id: 3, title: 'Top 3', media_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Ongoing' },
+            { id: 4, title: 'Top 4', media_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Ongoing' },
+            { id: 5, title: 'Same Day Higher Id', media_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Ongoing' },
+            { id: 6, title: 'Same Day Lower Id', media_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Ongoing' },
+        ];
+        const logs: ActivitySummary[] = [
+            { id: 101, media_id: 1, title: 'Top 1', media_type: 'Reading', duration_minutes: 10, characters: 0, date: '2026-04-20', language: 'Japanese' },
+            { id: 102, media_id: 2, title: 'Top 2', media_type: 'Reading', duration_minutes: 10, characters: 0, date: '2026-04-19', language: 'Japanese' },
+            { id: 103, media_id: 3, title: 'Top 3', media_type: 'Reading', duration_minutes: 10, characters: 0, date: '2026-04-18', language: 'Japanese' },
+            { id: 104, media_id: 4, title: 'Top 4', media_type: 'Reading', duration_minutes: 10, characters: 0, date: '2026-04-17', language: 'Japanese' },
+            { id: 250, media_id: 5, title: 'Same Day Higher Id', media_type: 'Reading', duration_minutes: 10, characters: 0, date: '2026-04-16', language: 'Japanese' },
+            { id: 200, media_id: 6, title: 'Same Day Lower Id', media_type: 'Reading', duration_minutes: 10, characters: 0, date: '2026-04-16', language: 'Japanese' },
+        ];
+
+        const component = new QuickLog(container, { logs, mediaList }, { onLogged: vi.fn().mockResolvedValue(undefined) });
+        component.render();
+
+        const titles = Array.from(container.querySelectorAll('.quick-log-item .quick-log-title')).map(node => node.textContent || '');
+        expect(titles).toHaveLength(5);
+        expect(titles).toContain('Same Day Higher Id');
+        expect(titles).not.toContain('Same Day Lower Id');
+    });
+
     it('opens the activity modal for the clicked media and refreshes after success', async () => {
         vi.mocked(showLogActivityModal).mockResolvedValue(true);
         const onLogged = vi.fn().mockResolvedValue(undefined);

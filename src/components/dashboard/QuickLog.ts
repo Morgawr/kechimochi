@@ -66,7 +66,7 @@ export class QuickLog extends Component<QuickLogState> {
         const latestLogByMedia = new Map<number, { date: string; id: number }>();
         for (const log of this.state.logs) {
             const previous = latestLogByMedia.get(log.media_id);
-            if (!previous || log.date > previous.date || (log.date === previous.date && log.id > previous.id)) {
+            if (!previous || this.compareLogRecency(log, previous) > 0) {
                 latestLogByMedia.set(log.media_id, { date: log.date, id: log.id });
             }
         }
@@ -85,7 +85,7 @@ export class QuickLog extends Component<QuickLogState> {
                 const leftLatestDate = leftLatestLog?.date || '';
                 const rightLatestDate = rightLatestLog?.date || '';
                 if (leftLatestDate !== rightLatestDate) {
-                    return rightLatestDate.localeCompare(leftLatestDate);
+                    return this.compareDateRecency(rightLatestDate, leftLatestDate);
                 }
 
                 const leftLatestLogId = leftLatestLog?.id || 0;
@@ -97,6 +97,23 @@ export class QuickLog extends Component<QuickLogState> {
                 return left.title.localeCompare(right.title);
             })
             .slice(0, MAX_QUICK_LOG_ITEMS);
+    }
+
+    private compareLogRecency(left: { date: string; id: number }, right: { date: string; id: number }): number {
+        const dateComparison = this.compareDateRecency(left.date, right.date);
+        if (dateComparison !== 0) {
+            return dateComparison;
+        }
+        return left.id - right.id;
+    }
+
+    private compareDateRecency(left: string, right: string): number {
+        const leftTime = Date.parse(left);
+        const rightTime = Date.parse(right);
+        if (!Number.isNaN(leftTime) && !Number.isNaN(rightTime) && leftTime !== rightTime) {
+            return leftTime - rightTime;
+        }
+        return left.localeCompare(right);
     }
 
     private renderItem(media: Media): string {
