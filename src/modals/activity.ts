@@ -1,4 +1,4 @@
-import { getAllMedia, addLog, updateLog, addMedia, updateMedia, ActivitySummary } from '../api';
+import { getAllMedia, getLogs, addLog, updateLog, addMedia, updateMedia, ActivitySummary } from '../api';
 import { ACTIVITY_TYPES } from '../constants';
 import { buildCalendar } from './calendar';
 import { customPrompt, customAlert, createOverlay } from './base';
@@ -57,10 +57,26 @@ export async function showExportCsvModal(): Promise<{mode: 'all' | 'range', star
 
 export async function showLogActivityModal(prefillMediaTitle?: string, editLog?: ActivitySummary): Promise<boolean> {
     const mediaList = await getAllMedia();
+    const allLogs = await getLogs();
     return new Promise((resolve) => {
         const { overlay, cleanup } = createOverlay();
 
         const activeMedia = mediaList.filter(m => m.status !== 'Archived' && m.tracking_status === 'Ongoing');
+        const totalsByMediaId = new Map<number, { duration: number; characters: number }>();
+        for (const log of allLogs) {
+            const current = totalsByMediaId.get(log.media_id) || { duration: 0, characters: 0 };
+            totalsByMediaId.set(log.media_id, {
+                duration: current.duration + (log.duration_minutes || 0),
+                characters: current.characters + (log.characters || 0)
+            });
+        }
+        if (editLog) {
+            const current = totalsByMediaId.get(editLog.media_id) || { duration: 0, characters: 0 };
+            totalsByMediaId.set(editLog.media_id, {
+                duration: Math.max(0, current.duration - (editLog.duration_minutes || 0)),
+                characters: Math.max(0, current.characters - (editLog.characters || 0))
+            });
+        }
 
         const escapedTitle = escapeHTML(editLog?.title || prefillMediaTitle || '');
         const activeMediaOptions = activeMedia.map(m => `<option value="${escapeHTML(m.title)}">`).join('');
@@ -92,12 +108,26 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
                     </div>
                     <div style="display: flex; gap: 1rem; width: 100%;">
                         <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.5rem;">
-                            <label style="font-size: 0.85rem; color: var(--text-secondary);">Duration (mins)</label>
+                            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+                                <label style="font-size: 0.85rem; color: var(--text-secondary);">Duration (mins)</label>
+                                <div id="activity-duration-mode-toggle" style="display: flex; gap: 0.25rem;">
+                                    <button type="button" id="activity-duration-mode-incremental" class="btn btn-sm btn-primary" style="padding: 0.2rem 0.45rem;">Session</button>
+                                    <button type="button" id="activity-duration-mode-differential" class="btn btn-sm btn-ghost" style="padding: 0.2rem 0.45rem;">Total</button>
+                                </div>
+                            </div>
                             <input type="number" id="activity-duration" value="${editLog?.duration_minutes || 0}" min="0" step="1" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); width: 100%;" />
+                            <div id="activity-duration-helper" style="font-size: 0.74rem; color: var(--text-secondary); min-height: 1.1em;"></div>
                         </div>
                         <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.5rem;">
-                            <label style="font-size: 0.85rem; color: var(--text-secondary);">Characters</label>
+                            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+                                <label style="font-size: 0.85rem; color: var(--text-secondary);">Characters</label>
+                                <div id="activity-characters-mode-toggle" style="display: flex; gap: 0.25rem;">
+                                    <button type="button" id="activity-characters-mode-incremental" class="btn btn-sm btn-primary" style="padding: 0.2rem 0.45rem;">Session</button>
+                                    <button type="button" id="activity-characters-mode-differential" class="btn btn-sm btn-ghost" style="padding: 0.2rem 0.45rem;">Total</button>
+                                </div>
+                            </div>
                             <input type="number" id="activity-characters" value="${editLog?.characters || 0}" min="0" step="1" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); width: 100%;" />
+                            <div id="activity-characters-helper" style="font-size: 0.74rem; color: var(--text-secondary); min-height: 1.1em;"></div>
                         </div>
                     </div>
                     <div id="desktop-date-field" style="display: flex; flex-direction: column; gap: 0.5rem; align-items: center;">
@@ -117,11 +147,125 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
         // Set default date for mobile input
         const mobileDateInput = overlay.querySelector<HTMLInputElement>('#mobile-date-input')!;
         mobileDateInput.value = selectedDate;
+        const mediaInput = overlay.querySelector<HTMLInputElement>('#activity-media')!;
+        const durationInput = overlay.querySelector<HTMLInputElement>('#activity-duration')!;
+        const charactersInput = overlay.querySelector<HTMLInputElement>('#activity-characters')!;
+        const durationHelper = overlay.querySelector<HTMLElement>('#activity-duration-helper')!;
+        const charactersHelper = overlay.querySelector<HTMLElement>('#activity-characters-helper')!;
+        const durationModeIncBtn = overlay.querySelector<HTMLButtonElement>('#activity-duration-mode-incremental')!;
+        const durationModeDiffBtn = overlay.querySelector<HTMLButtonElement>('#activity-duration-mode-differential')!;
+        const charactersModeIncBtn = overlay.querySelector<HTMLButtonElement>('#activity-characters-mode-incremental')!;
+        const charactersModeDiffBtn = overlay.querySelector<HTMLButtonElement>('#activity-characters-mode-differential')!;
+
+        const parseInput = (value: string): number => Math.max(0, Number.parseInt(value, 10) || 0);
+        const formatNumber = (value: number): string => value.toLocaleString();
+        const findSelectedMedia = () =>
+            mediaList.find(m => m.title.toLowerCase() === mediaInput.value.trim().toLowerCase()) || null;
+
+        let durationMode: 'incremental' | 'differential' = 'incremental';
+        let charactersMode: 'incremental' | 'differential' = 'incremental';
+        let baselineDuration = 0;
+        let baselineCharacters = 0;
+
+        const setModeButtonState = () => {
+            durationModeIncBtn.classList.toggle('btn-primary', durationMode === 'incremental');
+            durationModeIncBtn.classList.toggle('btn-ghost', durationMode !== 'incremental');
+            durationModeDiffBtn.classList.toggle('btn-primary', durationMode === 'differential');
+            durationModeDiffBtn.classList.toggle('btn-ghost', durationMode !== 'differential');
+            charactersModeIncBtn.classList.toggle('btn-primary', charactersMode === 'incremental');
+            charactersModeIncBtn.classList.toggle('btn-ghost', charactersMode !== 'incremental');
+            charactersModeDiffBtn.classList.toggle('btn-primary', charactersMode === 'differential');
+            charactersModeDiffBtn.classList.toggle('btn-ghost', charactersMode !== 'differential');
+        };
+
+        const updateFieldHints = () => {
+            const rawDuration = parseInput(durationInput.value);
+            const rawCharacters = parseInput(charactersInput.value);
+            if (durationMode === 'differential') {
+                const deltaDuration = rawDuration - baselineDuration;
+                durationHelper.textContent = deltaDuration < 0
+                    ? `Total is ${formatNumber(Math.abs(deltaDuration))} below current (${formatNumber(baselineDuration)}).`
+                    : `Current total: ${formatNumber(baselineDuration)} → Session log: ${formatNumber(deltaDuration)}.`;
+            } else {
+                durationHelper.textContent = `Session log: ${formatNumber(rawDuration)} mins.`;
+            }
+
+            if (charactersMode === 'differential') {
+                const deltaCharacters = rawCharacters - baselineCharacters;
+                charactersHelper.textContent = deltaCharacters < 0
+                    ? `Total is ${formatNumber(Math.abs(deltaCharacters))} below current (${formatNumber(baselineCharacters)}).`
+                    : `Current total: ${formatNumber(baselineCharacters)} → Session log: ${formatNumber(deltaCharacters)}.`;
+            } else {
+                charactersHelper.textContent = `Session log: ${formatNumber(rawCharacters)} chars.`;
+            }
+        };
+
+        const refreshBaselines = () => {
+            const selectedMedia = editLog
+                ? mediaList.find(m => m.id === editLog.media_id) || findSelectedMedia()
+                : findSelectedMedia();
+            const totals = selectedMedia?.id ? totalsByMediaId.get(selectedMedia.id) : undefined;
+            baselineDuration = totals?.duration || 0;
+            baselineCharacters = totals?.characters || 0;
+            updateFieldHints();
+        };
+
+        const setDurationMode = (nextMode: 'incremental' | 'differential') => {
+            if (durationMode === nextMode) return;
+            const currentRaw = parseInput(durationInput.value);
+            if (nextMode === 'differential') {
+                durationInput.value = String(baselineDuration + currentRaw);
+            } else {
+                durationInput.value = String(Math.max(0, currentRaw - baselineDuration));
+            }
+            durationMode = nextMode;
+            setModeButtonState();
+            updateFieldHints();
+        };
+
+        const setCharactersMode = (nextMode: 'incremental' | 'differential') => {
+            if (charactersMode === nextMode) return;
+            const currentRaw = parseInput(charactersInput.value);
+            if (nextMode === 'differential') {
+                charactersInput.value = String(baselineCharacters + currentRaw);
+            } else {
+                charactersInput.value = String(Math.max(0, currentRaw - baselineCharacters));
+            }
+            charactersMode = nextMode;
+            setModeButtonState();
+            updateFieldHints();
+        };
+
+        const validateDifferentialInput = async (rawDuration: number, rawCharacters: number): Promise<boolean> => {
+            if (durationMode === 'differential' && rawDuration < baselineDuration) {
+                await customAlert("Invalid Total", `Duration total cannot be lower than current total (${formatNumber(baselineDuration)} mins).`);
+                return false;
+            }
+            if (charactersMode === 'differential' && rawCharacters < baselineCharacters) {
+                await customAlert("Invalid Total", `Character total cannot be lower than current total (${formatNumber(baselineCharacters)} chars).`);
+                return false;
+            }
+            return true;
+        };
+
+        const normalizeIncrementalValue = (mode: 'incremental' | 'differential', rawValue: number, baseline: number): number =>
+            mode === 'differential' ? Math.max(0, rawValue - baseline) : rawValue;
+
+        durationModeIncBtn.addEventListener('click', () => setDurationMode('incremental'));
+        durationModeDiffBtn.addEventListener('click', () => setDurationMode('differential'));
+        charactersModeIncBtn.addEventListener('click', () => setCharactersMode('incremental'));
+        charactersModeDiffBtn.addEventListener('click', () => setCharactersMode('differential'));
+        mediaInput.addEventListener('change', refreshBaselines);
+        mediaInput.addEventListener('input', refreshBaselines);
+        durationInput.addEventListener('input', updateFieldHints);
+        charactersInput.addEventListener('input', updateFieldHints);
+        setModeButtonState();
+        refreshBaselines();
 
         if (editLog || prefillMediaTitle) {
-            overlay.querySelector<HTMLInputElement>('#activity-duration')!.focus();
+            durationInput.focus();
         } else {
-            overlay.querySelector<HTMLInputElement>('#activity-media')!.focus();
+            mediaInput.focus();
         }
 
         const handleEscape = (e: KeyboardEvent) => {
@@ -170,10 +314,16 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
         overlay.querySelector('#activity-cancel')!.addEventListener('click', () => { newCleanup(); resolve(false); });
         overlay.querySelector('#add-activity-form')!.addEventListener('submit', async (e) => {
             e.preventDefault();
-            const mediaTitleRaw = overlay.querySelector<HTMLInputElement>('#activity-media')!.value.trim();
+            const mediaTitleRaw = mediaInput.value.trim();
             const mediaTitle = mediaTitleRaw || (editLog ? editLog.title : '');
-            const duration = Number.parseInt(overlay.querySelector<HTMLInputElement>('#activity-duration')!.value, 10) || 0;
-            const characters = Number.parseInt(overlay.querySelector<HTMLInputElement>('#activity-characters')!.value, 10) || 0;
+            const rawDuration = parseInput(durationInput.value);
+            const rawCharacters = parseInput(charactersInput.value);
+            refreshBaselines();
+            if (!await validateDifferentialInput(rawDuration, rawCharacters)) {
+                return;
+            }
+            const duration = normalizeIncrementalValue(durationMode, rawDuration, baselineDuration);
+            const characters = normalizeIncrementalValue(charactersMode, rawCharacters, baselineCharacters);
             
             // Use mobile date input if visible, otherwise use calendar date
             const mobileDateField = overlay.querySelector<HTMLElement>('#mobile-date-field')!;
