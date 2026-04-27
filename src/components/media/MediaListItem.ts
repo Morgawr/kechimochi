@@ -100,7 +100,6 @@ export class MediaListItem extends Component<MediaListItemState> {
 
         const root = html`
             <div class="media-list-item ${isArchived ? 'is-archived' : ''}">
-                <div class="media-list-cover-shell"></div>
                 <div class="media-list-copy">
                     <div class="media-list-header">
                         <div class="media-list-title-block">
@@ -114,20 +113,22 @@ export class MediaListItem extends Component<MediaListItemState> {
                     </div>
 
                     <p class="media-list-description">${description}</p>
+                </div>
 
-                    <div class="media-list-stats">
-                        <div class="media-list-stat">
-                            <span class="media-list-stat-label">First Logged</span>
-                            <strong class="media-list-stat-value">${firstActivity}</strong>
-                        </div>
-                        <div class="media-list-stat">
-                            <span class="media-list-stat-label">Last Logged</span>
-                            <strong class="media-list-stat-value">${lastActivity}</strong>
-                        </div>
-                        <div class="media-list-stat">
-                            <span class="media-list-stat-label">Time Logged</span>
-                            <strong class="media-list-stat-value">${duration}</strong>
-                        </div>
+                <div class="media-list-cover-shell"></div>
+
+                <div class="media-list-stats">
+                    <div class="media-list-stat">
+                        <span class="media-list-stat-label">First Logged</span>
+                        <strong class="media-list-stat-value">${firstActivity}</strong>
+                    </div>
+                    <div class="media-list-stat">
+                        <span class="media-list-stat-label">Last Logged</span>
+                        <strong class="media-list-stat-value">${lastActivity}</strong>
+                    </div>
+                    <div class="media-list-stat">
+                        <span class="media-list-stat-label">Time Logged</span>
+                        <strong class="media-list-stat-value">${duration}</strong>
                     </div>
                 </div>
             </div>

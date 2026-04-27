@@ -3,7 +3,15 @@ export function syncAppShell(
     supportsWindowControls: boolean = isDesktop,
     doc: Document = document,
 ): void {
-    doc.body.dataset.runtime = isDesktop ? 'desktop' : 'web';
+    let runtime: string;
+    if (supportsWindowControls) {
+        runtime = 'desktop';
+    } else if (isDesktop) {
+        runtime = 'mobile-app';
+    } else {
+        runtime = 'web';
+    }
+    doc.body.dataset.runtime = runtime;
 
     if (supportsWindowControls) {
         return;

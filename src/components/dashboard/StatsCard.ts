@@ -29,37 +29,38 @@ export class StatsCard extends Component<StatsCardState> {
         const breakdownHtml = this.renderBreakdown(mediaBreakdown, loggedDaysCount);
 
         const content = html`
-            <div style="display: flex; flex-direction: column; height: 100%;">
+            <div id="study-stats-root" style="display: flex; flex-direction: column; height: 100%;">
                 <div style="text-align: center; margin-bottom: 1rem;">
                     <h3 style="color: var(--text-secondary); font-size: 1.1rem; margin: 0;">Study Stats</h3>
                     <div style="font-size: 0.7rem; color: var(--text-secondary); opacity: 0.7; margin-top: 0.2rem;">Since: ${sinceDate}</div>
                 </div>
-                <div style="display: flex; flex-direction: column; gap: 0.75rem; flex: 1;">
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; width: 100%; text-align: center;">
-                        <div style="background: var(--bg-dark); padding: 0.4rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+                <div id="study-stats-content" style="display: flex; flex-direction: column; gap: 0.75rem; flex: 1;">
+                    <div id="study-stats-top" style="display: flex; flex-direction: column; gap: 0.75rem; width: 100%;">
+                        <div id="study-stats-primary-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; width: 100%; text-align: center;">
+                        <div class="study-stats-metric" style="background: var(--bg-dark); padding: 0.4rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
                             <div id="stat-total-logs" style="font-size: 1.1rem; font-weight: bold; color: var(--text-primary);">${totalLogs}</div>
                             <div style="font-size: 0.65rem; color: var(--text-secondary);">logs</div>
                         </div>
-                        <div style="background: var(--bg-dark); padding: 0.4rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+                        <div class="study-stats-metric" style="background: var(--bg-dark); padding: 0.4rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
                             <div id="stat-total-media" style="font-size: 1.1rem; font-weight: bold; color: var(--text-primary);">${totalMedia}</div>
                             <div style="font-size: 0.65rem; color: var(--text-secondary);">media items</div>
                         </div>
-                        <div style="background: var(--bg-dark); padding: 0.4rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+                        <div class="study-stats-metric" style="background: var(--bg-dark); padding: 0.4rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
                             <div id="stat-max-streak" style="font-size: 1.1rem; font-weight: bold; color: var(--text-primary);">${maxStreak}</div>
                             <div style="font-size: 0.65rem; color: var(--text-secondary);">max streak</div>
                         </div>
-                        <div style="background: var(--bg-dark); padding: 0.4rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+                        <div class="study-stats-metric" style="background: var(--bg-dark); padding: 0.4rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
                             <div id="stat-current-streak" style="font-size: 1.1rem; font-weight: bold; color: var(--text-primary);">${currentStreak}</div>
                             <div style="font-size: 0.65rem; color: var(--text-secondary);">day streak</div>
                         </div>
                         ${totalChars > 0 ? html`
-                        <div style="background: var(--bg-dark); padding: 0.4rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color); grid-column: span 2;">
+                        <div class="study-stats-metric study-stats-metric-total-chars" style="background: var(--bg-dark); padding: 0.4rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color); grid-column: span 2;">
                             <div id="stat-total-chars" style="font-size: 1.1rem; font-weight: bold; color: var(--text-primary);">${totalChars.toLocaleString()}</div>
                             <div style="font-size: 0.65rem; color: var(--text-secondary);">total characters</div>
                         </div>
                         ` : ''}
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 0.5rem; width: 100%;">
+                        </div>
+                    <div id="study-stats-averages" style="display: flex; flex-direction: column; gap: 0.5rem; width: 100%;">
                         <div id="stat-total-avg" style="background: var(--accent-purple); padding: 0.5rem; border-radius: var(--radius-sm); text-align: center; color: var(--accent-text); font-weight: 600; font-size: 0.85rem;">
                             Avg Time: ${totalAvgFormat} / day
                         </div>
@@ -69,8 +70,9 @@ export class StatsCard extends Component<StatsCardState> {
                         </div>
                         ` : ''}
                     </div>
+                    </div>
                     <div style="width: 100%; height: 1px; background: var(--border-color); margin: 0.2rem 0;"></div>
-                    <div style="width: 100%; display: flex; flex-direction: column; gap: 0.4rem;">
+                    <div id="study-stats-breakdown" style="width: 100%; display: flex; flex-direction: column; gap: 0.4rem;">
                         ${rawHtml(breakdownHtml)}
                     </div>
                 </div>
@@ -154,7 +156,7 @@ export class StatsCard extends Component<StatsCardState> {
                     </div>` : '';
 
             return `
-                <div style="display: flex; flex-direction: column; gap: 0.2rem; background: rgba(255,255,255,0.03); padding: 0.4rem; border-radius: var(--radius-sm);">
+                <div class="study-stats-breakdown-item" style="display: flex; flex-direction: column; gap: 0.2rem; background: rgba(255,255,255,0.03); padding: 0.4rem; border-radius: var(--radius-sm);">
                     <div style="display: flex; justify-content: space-between; font-size: 0.85rem;">
                         <span style="color: var(--text-secondary);">${mtype}</span>
                         <span style="font-weight: bold; color: var(--text-primary);">${totalFormat}</span>

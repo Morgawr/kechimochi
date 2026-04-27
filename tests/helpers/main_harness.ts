@@ -31,6 +31,18 @@ export function createMainApiMock() {
         getHeatmap: vi.fn(() => Promise.resolve([{ date: '2024-01-01', total_minutes: 10 }])),
         getMilestones: vi.fn(() => Promise.resolve([])),
         getAppVersion: vi.fn(() => Promise.resolve('1.0.0')),
+        isDesktop: vi.fn(() => true),
+        getSyncStatus: vi.fn(() => Promise.resolve({
+            state: 'connected_clean',
+            google_authenticated: true,
+            sync_profile_id: 'prof_1',
+            profile_name: 'Remote User',
+            google_account_email: 'sync@example.com',
+            last_sync_at: '2026-04-03T00:00:00Z',
+            device_name: 'Desktop',
+            conflict_count: 0,
+            backup_size_bytes: 0,
+        })),
         connectGoogleDrive: vi.fn(() => Promise.resolve({
             device_id: 'dev_1',
             google_account_email: 'sync@example.com',
@@ -47,6 +59,23 @@ export function createMainApiMock() {
             conflict_count: 0,
         })),
         attachRemoteSyncProfile: vi.fn(() => Promise.resolve({
+            sync_status: {
+                state: 'connected_clean',
+                google_authenticated: true,
+                sync_profile_id: 'prof_1',
+                profile_name: 'Remote User',
+                google_account_email: 'sync@example.com',
+                last_sync_at: '2026-04-03T00:00:00Z',
+                device_name: 'Desktop',
+                conflict_count: 0,
+                backup_size_bytes: 0,
+            },
+            safety_backup_path: null,
+            published_snapshot_id: 'snap_1',
+            lost_race: false,
+            remote_changed: false,
+        })),
+        runSync: vi.fn(() => Promise.resolve({
             sync_status: {
                 state: 'connected_clean',
                 google_authenticated: true,
@@ -112,6 +141,18 @@ export function resetMainApiMocks(mockedApi: ApiModule) {
     vi.mocked(mockedApi.getHeatmap).mockResolvedValue([{ date: '2024-01-01', total_minutes: 10 }]);
     vi.mocked(mockedApi.getMilestones).mockResolvedValue([]);
     vi.mocked(mockedApi.getAppVersion).mockResolvedValue('1.0.0');
+    vi.mocked(mockedApi.isDesktop).mockReturnValue(true);
+    vi.mocked(mockedApi.getSyncStatus).mockResolvedValue({
+        state: 'connected_clean',
+        google_authenticated: true,
+        sync_profile_id: 'prof_1',
+        profile_name: 'Remote User',
+        google_account_email: 'sync@example.com',
+        last_sync_at: '2026-04-03T00:00:00Z',
+        device_name: 'Desktop',
+        conflict_count: 0,
+        backup_size_bytes: 0,
+    });
     vi.mocked(mockedApi.connectGoogleDrive).mockResolvedValue({
         device_id: 'dev_1',
         google_account_email: 'sync@example.com',
@@ -128,6 +169,23 @@ export function resetMainApiMocks(mockedApi: ApiModule) {
         conflict_count: 0,
     });
     vi.mocked(mockedApi.attachRemoteSyncProfile).mockResolvedValue({
+        sync_status: {
+            state: 'connected_clean',
+            google_authenticated: true,
+            sync_profile_id: 'prof_1',
+            profile_name: 'Remote User',
+            google_account_email: 'sync@example.com',
+            last_sync_at: '2026-04-03T00:00:00Z',
+            device_name: 'Desktop',
+            conflict_count: 0,
+            backup_size_bytes: 0,
+        },
+        safety_backup_path: null,
+        published_snapshot_id: 'snap_1',
+        lost_race: false,
+        remote_changed: false,
+    });
+    vi.mocked(mockedApi.runSync).mockResolvedValue({
         sync_status: {
             state: 'connected_clean',
             google_authenticated: true,
@@ -174,9 +232,15 @@ export function renderMainAppShell() {
                 <div id="nav-user-avatar"></div>
                 <img id="nav-user-avatar-image" />
                 <span id="nav-user-avatar-fallback"></span>
+                <div id="nav-profile-tab-avatar"></div>
+                <img id="nav-profile-tab-avatar-image" />
+                <span id="nav-profile-tab-avatar-fallback"></span>
                 <span id="nav-user-name"></span>
                 <div id="dev-build-badge"></div>
+                <div id="mobile-build-badge"></div>
                 <button id="update-available-badge"></button>
+                <button id="nav-sync-status-btn"><span id="nav-sync-status-dot"></span></button>
+                <button id="mobile-sync-status-btn"><span id="mobile-sync-status-dot"></span></button>
                 <div class="nav-link" data-view="dashboard"></div>
                 <div class="nav-link" data-view="media"></div>
                 <div class="nav-link" data-view="timeline"></div>

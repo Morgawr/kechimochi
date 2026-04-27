@@ -3,6 +3,7 @@ import { Component } from '../../core/component';
 import { html, escapeHTML } from '../../core/html';
 import { Logger } from '../../core/logger';
 import { showLogActivityModal } from '../../modals';
+import { EVENTS } from '../../constants';
 import { MediaCoverLoader } from '../media/cover_loader';
 
 interface QuickLogState {
@@ -32,7 +33,7 @@ export class QuickLog extends Component<QuickLogState> {
         const items = this.getSortedMedia();
         const content = html`
             <div class="card quick-log-card" style="display: flex; flex-direction: column; gap: 0.9rem; min-height: 0;">
-                <h3 style="color: var(--text-secondary); font-size: 1.1rem; margin: 0;">Quick Log</h3>
+                <h3 class="dashboard-module-title">Quick Log</h3>
                 <div id="quick-log-list" style="display: flex; flex-direction: column; gap: 0.2rem;"></div>
             </div>
         `;
@@ -145,5 +146,6 @@ export class QuickLog extends Component<QuickLogState> {
         }
 
         await this.props.onLogged();
+        globalThis.dispatchEvent(new CustomEvent(EVENTS.LOCAL_DATA_CHANGED));
     }
 }

@@ -9,7 +9,7 @@ import { MediaLog } from './MediaLog';
 import { setupCopyButton } from '../../utils/clipboard';
 import { getCharacterCountFromExtraData, mergeExtraData, normalizeExtraData, removeExtraDataKey, renameExtraDataKey, upsertExtraDataValue } from '../../utils/extra_data';
 import { formatHhMm } from '../../utils/time';
-import { TRACKING_STATUSES, ACTIVITY_TYPES, MEDIA_STATUS, CONTENT_TYPE_TO_ACTIVITY_TYPE } from '../../constants';
+import { TRACKING_STATUSES, ACTIVITY_TYPES, MEDIA_STATUS, CONTENT_TYPE_TO_ACTIVITY_TYPE, EVENTS } from '../../constants';
 
 interface MediaDetailState {
     media: Media;
@@ -37,6 +37,16 @@ export class MediaDetail extends Component<MediaDetailState> {
     private overflowMenuRoot: HTMLElement | null = null;
     private overflowMenu: HTMLElement | null = null;
     private overflowMenuButton: HTMLButtonElement | null = null;
+
+    private notifyLocalDataChanged() {
+        globalThis.dispatchEvent(new CustomEvent(EVENTS.LOCAL_DATA_CHANGED));
+    }
+
+    private async persistMediaChanges() {
+        await updateMedia(this.state.media);
+        this.notifyLocalDataChanged();
+        this.render();
+    }
 
     constructor(container: HTMLElement, media: Media, logs: ActivitySummary[], mediaList: Media[], currentIndex: number, callbacks: { onBack: () => void, onNext: () => void, onPrev: () => void, onNavigate: (index: number) => void, onDelete: () => void }) {
         super(container, { media, logs, milestones: [], imgSrc: null, isDescriptionExpanded: false });
@@ -177,14 +187,18 @@ export class MediaDetail extends Component<MediaDetailState> {
             <div class="animate-fade-in" style="display: flex; flex-direction: column; height: 100%; gap: 1rem;" id="media-root">
                 <!-- Header Controls -->
                 <div id="media-detail-header" style="display: flex; gap: 1rem; align-items: center; justify-content: space-between; background: var(--bg-dark); padding: 0.5rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-color);">
-                    <div id="media-back-slot" style="flex: 1; display: flex; justify-content: flex-start;">
+                    <div id="media-back-slot" style="display: flex; justify-content: flex-start;">
                         <button class="btn btn-ghost" id="btn-back-grid" style="font-size: 0.9rem; padding: 0.4rem 0.8rem; display: flex; align-items: center; gap: 0.3rem;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> Back to Library</button>
                     </div>
                     
-                    <div id="media-detail-nav" style="display: flex; justify-content: center; align-items: center; gap: 1rem;">
-                        <button class="btn btn-ghost" id="media-prev" style="font-size: 1.2rem; padding: 0.2rem 1rem;">&lt;&lt;</button>
+                    <div id="media-detail-nav" style="flex: 1; display: flex; justify-content: center; align-items: center; gap: 1rem;">
+                        <button class="btn btn-ghost single-char-btn" id="media-prev" style="font-size: 1.2rem; padding: 0.2rem 1rem;">
+                            <svg class="nav-svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                <path d="M10 4l-4 4 4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </button>
                         <div id="media-title-group" style="position: relative; display: flex; align-items: center; gap: 0.45rem; min-width: 0;">
-                            <select id="media-select" style="flex: 1 1 auto; min-width: 0; max-width: 800px; text-align: center; border: none; background: transparent; font-size: 1.1rem; color: var(--text-primary); outline: none; appearance: none; cursor: pointer; text-align-last: center; text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">
+                            <select id="media-select" style="flex: 1 1 auto; min-width: 0; text-align: center; border: none; background: transparent; font-size: 1.1rem; color: var(--text-primary); outline: none; appearance: none; cursor: pointer; text-align-last: center; text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">
                                 ${rawHtml(this.mediaList.map((m, i) => `<option value="${i}" ${i === this.currentIndex ? 'selected' : ''}>${escapeHTML(m.title)}</option>`).join(''))}
                             </select>
                             <div id="media-overflow-root" style="position: relative; flex: 0 0 auto;">
@@ -195,21 +209,30 @@ export class MediaDetail extends Component<MediaDetailState> {
                                     aria-haspopup="menu"
                                     aria-expanded="false"
                                     title="More actions"
-                                    style="width: 2.4rem; height: 2.4rem; padding: 0; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; font-size: 1.3rem; line-height: 1;"
-                                >⋯</button>
+                                    style="width: 2.4rem; height: 2.4rem; padding: 0; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; font-size: 1.3rem; line-height: 1; font-family:initial;"
+                                >
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                                        <circle cx="3" cy="8" r="1.5"/>
+                                        <circle cx="8" cy="8" r="1.5"/>
+                                        <circle cx="13" cy="8" r="1.5"/>
+                                    </svg>
+                                </button>
                                 <div id="media-overflow-menu" hidden style="position: absolute; top: calc(100% + 0.5rem); right: 0; min-width: 12rem; padding: 0.35rem; border: 1px solid var(--border-color); border-radius: 12px; background: color-mix(in srgb, var(--bg-card) 94%, black 6%); box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35); z-index: 20;">
                                     <button
                                         type="button"
                                         id="btn-delete-media-detail"
-                                        style="width: 100%; display: flex; align-items: center; gap: 0.5rem; padding: 0.55rem 0.7rem; border: none; border-radius: 9px; background: transparent; color: #ff7582; font: inherit; font-size: 0.9rem; text-align: left; cursor: pointer;"
-                                    >
+                                        style="width: 100%; display: flex; align-items: center; gap: 0.5rem; padding: 0.55rem 0.7rem; border: none; border-radius: 9px; background: transparent; color: #ff7582; font: inherit; font-size: 0.9rem; text-align: left; cursor: pointer;">
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg>
                                         Delete media
                                     </button>
                                 </div>
                             </div>
                         </div>
-                        <button class="btn btn-ghost" id="media-next" style="font-size: 1.2rem; padding: 0.2rem 1rem;">&gt;&gt;</button>
+                        <button class="btn btn-ghost single-char-btn" id="media-next" style="font-size: 1.2rem; padding: 0.2rem 1rem;">
+                            <svg class="nav-svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </button>
                     </div>
                 </div>
 
@@ -314,6 +337,7 @@ export class MediaDetail extends Component<MediaDetailState> {
             if (this.state.media.id) {
                 const updatedLogs = await getLogsForMedia(this.state.media.id);
                 this.setState({ logs: updatedLogs });
+                this.notifyLocalDataChanged();
             }
         });
     }
@@ -586,8 +610,7 @@ export class MediaDetail extends Component<MediaDetailState> {
             } else {
                 (this.state.media as unknown as Record<string, unknown>)[field] = value;
             }
-            await updateMedia(this.state.media);
-            this.render();
+            await this.persistMediaChanges();
         };
 
         const onRenameKey = async (oldKey: string, newKey: string) => {
@@ -597,8 +620,7 @@ export class MediaDetail extends Component<MediaDetailState> {
             }
             const extraData = normalizeExtraData(JSON.parse(this.state.media.extra_data || "{}"));
             this.state.media.extra_data = JSON.stringify(renameExtraDataKey(extraData, oldKey, newKey));
-            await updateMedia(this.state.media);
-            this.render();
+            await this.persistMediaChanges();
         };
 
         const setupEditable = (el: HTMLElement, field: string, options: { isExtra?: boolean, isTextArea?: boolean, isRenameKey?: boolean } = {}) => {
@@ -678,33 +700,28 @@ export class MediaDetail extends Component<MediaDetailState> {
 
         root.querySelector('#media-tracking-status')?.addEventListener('change', async (e) => {
             this.state.media.tracking_status = (e.target as HTMLSelectElement).value;
-            await updateMedia(this.state.media);
-            this.render();
+            await this.persistMediaChanges();
         });
 
         root.querySelector('#media-type')?.addEventListener('change', async (e) => {
             this.state.media.media_type = (e.target as HTMLSelectElement).value;
-            await updateMedia(this.state.media);
-            this.render();
+            await this.persistMediaChanges();
         });
 
         root.querySelector('#media-content-type')?.addEventListener('change', async (e) => {
             this.state.media.content_type = (e.target as HTMLSelectElement).value;
-            await updateMedia(this.state.media);
-            this.render();
+            await this.persistMediaChanges();
         });
 
         root.querySelector('#status-toggle')?.addEventListener('change', async (e) => {
             const active = (e.target as HTMLInputElement).checked;
             this.state.media.status = active ? MEDIA_STATUS.ACTIVE : MEDIA_STATUS.ARCHIVED;
-            await updateMedia(this.state.media);
-            this.render();
+            await this.persistMediaChanges();
         });
 
         root.querySelector('#btn-mark-complete')?.addEventListener('click', async () => {
             this.state.media.tracking_status = 'Complete';
-            await updateMedia(this.state.media);
-            this.render();
+            await this.persistMediaChanges();
         });
 
         root.querySelector('#btn-media-overflow')?.addEventListener('click', (e) => {
@@ -718,6 +735,7 @@ export class MediaDetail extends Component<MediaDetailState> {
             const ok = await customConfirm("Delete Media", `Are you sure you want to permanently delete "${this.state.media.title}" and all its logs?`, "btn-danger", "Delete");
             if (ok) {
                 await deleteMedia(this.state.media.id!);
+                this.notifyLocalDataChanged();
                 this.onDelete();
             }
         });
@@ -728,8 +746,7 @@ export class MediaDetail extends Component<MediaDetailState> {
             const val = await customPrompt(`Enter value for "${key}":`);
             const extraData = normalizeExtraData(JSON.parse(this.state.media.extra_data || "{}"));
             this.state.media.extra_data = JSON.stringify(upsertExtraDataValue(extraData, key, val || ""));
-            await updateMedia(this.state.media);
-            this.render();
+            await this.persistMediaChanges();
         });
 
         root.querySelectorAll('.delete-extra-btn').forEach(btn => {
@@ -738,8 +755,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                 if (!key) return;
                 const extraData = normalizeExtraData(JSON.parse(this.state.media.extra_data || "{}"));
                 this.state.media.extra_data = JSON.stringify(removeExtraDataKey(extraData, key));
-                await updateMedia(this.state.media);
-                this.render();
+                await this.persistMediaChanges();
             });
         });
 
@@ -751,8 +767,7 @@ export class MediaDetail extends Component<MediaDetailState> {
         root.querySelector('#btn-clear-meta')?.addEventListener('click', async () => {
             if (await customConfirm("Clear Metadata", "This will delete all extra fields for this media. Continue?")) {
                 this.state.media.extra_data = "{}";
-                await updateMedia(this.state.media);
-                this.render();
+                await this.persistMediaChanges();
             }
         });
 
@@ -834,6 +849,7 @@ export class MediaDetail extends Component<MediaDetailState> {
             if (success) {
                 const logs = await getLogsForMedia(this.state.media.id!);
                 this.setState({ logs });
+                this.notifyLocalDataChanged();
             }
         });
     }
@@ -886,8 +902,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                 }
             }
 
-            await updateMedia(this.state.media);
-            this.render();
+            await this.persistMediaChanges();
         } catch (e) {
             await customAlert("Import Failed", "Metadata import failed: " + e);
         }

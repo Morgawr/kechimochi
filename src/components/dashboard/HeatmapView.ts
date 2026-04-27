@@ -34,9 +34,17 @@ export class HeatmapView extends Component<HeatmapViewState> {
             <div class="card" style="display: flex; flex-direction: column; min-width: 0; height: 100%;">
                 <div class="heatmap-header">
                     <div class="heatmap-title-controls">
-                        <button class="btn btn-ghost chart-nav-button" id="btn-heatmap-prev">&lt;</button>
-                        <h3 class="heatmap-title">Tracking Heatmap (<span id="heatmap-year-label">${this.state.year}</span>)</h3>
-                        <button class="btn btn-ghost chart-nav-button" id="btn-heatmap-next">&gt;</button>
+                        <button class="btn btn-ghost chart-nav-button" id="btn-heatmap-prev">
+                            <svg class="nav-svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                <path d="M10 4l-4 4 4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </button>
+                        <h3 class="heatmap-title dashboard-module-title">Tracking Heatmap (<span id="heatmap-year-label">${this.state.year}</span>)</h3>
+                        <button class="btn btn-ghost chart-nav-button" id="btn-heatmap-next">
+                            <svg class="nav-svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </button>
                     </div>
                 </div>
                 <div style="flex: 1; display: flex; align-items: center; justify-content: center; width: 100%;">

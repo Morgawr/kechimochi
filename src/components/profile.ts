@@ -644,6 +644,10 @@ export class ProfileView extends Component<ProfileState> {
             </div>
         `;
     }
+    public async runSyncNowFromShell(): Promise<void> {
+        await this.loadData();
+        await this.handleRunSync();
+    }
 
     private renderSyncCard() {
         if (!this.state.syncSupported) {

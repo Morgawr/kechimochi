@@ -29,7 +29,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         const chartsLayout = html`
             <div id="activity-charts-grid" style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 2rem;">
                 <div class="card" style="display: flex; flex-direction: column; min-width: 0;">
-                    <h3 style="text-align: center; margin-bottom: 1rem;">Activity Breakdown</h3>
+                    <h3 class="dashboard-module-title" style="text-align: center; margin-bottom: 1rem;">Activity Breakdown</h3>
                     <div class="chart-container-wrapper" style="flex: 1; min-height: 0;">
                         <canvas id="pieChart"></canvas>
                     </div>
@@ -37,9 +37,17 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                 <div class="card" style="display: flex; flex-direction: column; min-width: 0;">
                     <div class="activity-charts-header">
                         <div class="activity-charts-title-controls">
-                            <button class="btn btn-ghost chart-nav-button" id="btn-chart-prev">&lt;</button>
-                            <h3 class="activity-charts-title">Activity visualization</h3>
-                            <button class="btn btn-ghost chart-nav-button" id="btn-chart-next">&gt;</button>
+                            <button class="btn btn-ghost chart-nav-button" id="btn-chart-prev">
+                                <svg class="nav-svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                    <path d="M10 4l-4 4 4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </button>
+                            <h3 class="activity-charts-title dashboard-module-title">Activity visualization</h3>
+                            <button class="btn btn-ghost chart-nav-button" id="btn-chart-next">
+                                <svg class="nav-svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                    <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </button>
                         </div>
                         <div class="chart-toolbar">
                             <!-- Chart Type Toggle -->

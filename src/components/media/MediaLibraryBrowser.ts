@@ -2,7 +2,7 @@ import { Component } from '../../core/component';
 import { html, escapeHTML, rawHtml } from '../../core/html';
 import { Media, addMedia } from '../../api';
 import { showAddMediaModal } from '../../modals';
-import { FILTERS, TRACKING_STATUSES, MEDIA_STATUS } from '../../constants';
+import { EVENTS, FILTERS, TRACKING_STATUSES, MEDIA_STATUS } from '../../constants';
 import { MediaGrid } from './MediaGrid';
 import { MediaList } from './MediaList';
 import type { LibraryActivityMetrics, LibraryLayoutMode } from './library_types';
@@ -160,11 +160,11 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
             <div class="media-grid-toolbar-shell">
                 <div class="media-grid-toolbar">
                     <div class="media-grid-toolbar-primary">
-                        <h2 style="margin: 0.5rem 0; color: var(--text-primary); white-space: nowrap;">Library</h2>
-                        <button class="btn btn-ghost" id="btn-add-media-grid" style="font-size: 0.8rem; padding: 0.3rem 0.6rem;">+ New Media</button>
+                        <h2 style="margin: 0.5rem auto 0.5em 0; color: var(--text-primary); white-space: nowrap;">Library</h2>
+                        <button class="btn btn-ghost" id="btn-add-media-grid" style="font-size: 0.9rem; padding: 0.4rem 0.6rem;">+ New Media</button>
                         <button class="btn btn-ghost" id="btn-refresh-grid" title="Refresh Library" style="padding: 0.4rem; display: flex; align-items: center; justify-content: center;">
-                            <svg id="refresh-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                            <svg id="refresh-icon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
+                                <g transform="rotate(0 0 30)">><path d="M17.91 14c-.478 2.833-2.943 5-5.91 5-3.308 0-6-2.692-6-6s2.692-6 6-6h2.172l-2.086 2.086L13.5 10.5 18 6l-4.5-4.5-1.414 1.414L14.172 5H12c-4.418 0-8 3.582-8 8s3.582 8 8 8c4.08 0 7.438-3.055 7.93-7h-2.02z"/></g>
                             </svg>
                         </button>
                     </div>
@@ -204,14 +204,6 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
                                 <path d="M2.5 4.5L6 7.5L9.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
                             </svg>
                         </button>
-
-                        <div class="media-grid-archive-toggle">
-                            <span style="font-size: 0.85rem; color: var(--text-secondary);">Hide Archived</span>
-                            <label class="switch" style="font-size: 0.7rem;">
-                                <input type="checkbox" id="grid-hide-archived" ${this.state.hideArchived ? 'checked' : ''}>
-                                <span class="slider round"></span>
-                            </label>
-                        </div>
                     </div>
                 </div>
 
@@ -220,6 +212,16 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
                         <div id="media-grid-filter-tray" class="media-grid-filter-tray">
                             ${rawHtml(this.renderFilterChipGroup('Status', 'status', TRACKING_STATUSES, this.state.statusFilters))}
                             ${rawHtml(this.renderFilterChipGroup('Type', 'type', uniqueTypes, this.state.typeFilters))}
+                            <div class="media-grid-filter-row">
+                                <div class="media-grid-filter-label">Other</div>
+                                <div class="media-grid-archive-toggle" style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <span style="font-size: 0.85rem; color: var(--text-secondary);">Hide Archived</span>
+                                    <label class="switch" style="font-size: 0.7rem;">
+                                        <input type="checkbox" id="grid-hide-archived" ${this.state.hideArchived ? 'checked' : ''}>
+                                        <span class="slider round"></span>
+                                    </label>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -277,6 +279,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
                 tracking_status: 'Untracked',
             });
             await this.onDataChange(newId);
+            globalThis.dispatchEvent(new CustomEvent(EVENTS.LOCAL_DATA_CHANGED));
         });
 
         header.querySelector('#btn-refresh-grid')?.addEventListener('click', async (e) => {

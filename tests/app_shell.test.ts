@@ -29,7 +29,7 @@ describe('syncAppShell', () => {
     it('removes the desktop title bar when native window controls are unavailable', () => {
         syncAppShell(true, false);
 
-        expect(document.body.dataset.runtime).toBe('desktop');
+        expect(document.body.dataset.runtime).toBe('mobile-app');
         expect(document.getElementById('desktop-title-bar')).toBeNull();
     });
 });

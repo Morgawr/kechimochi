@@ -11,6 +11,7 @@ export const VIEW_NAMES = {
 
 export const EVENTS = {
     APP_NAVIGATE: 'app-navigate',
+    LOCAL_DATA_CHANGED: 'local-data-changed',
     PROFILE_UPDATED: 'profile-updated',
 } as const;
 

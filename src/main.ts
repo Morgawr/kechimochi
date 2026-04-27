@@ -9,6 +9,7 @@ import {
     setSetting,
     getProfilePicture,
     getStartupError,
+    getSyncStatus,
     shouldSkipLegacyLocalProfileMigration,
 } from './api';
 import {
@@ -151,8 +152,16 @@ export class App {
     private readonly navUserAvatarEl: HTMLElement | null;
     private readonly navUserAvatarImgEl: HTMLImageElement | null;
     private readonly navUserAvatarFallbackEl: HTMLElement | null;
+    private readonly navProfileTabAvatarEl: HTMLElement | null;
+    private readonly navProfileTabAvatarImgEl: HTMLImageElement | null;
+    private readonly navProfileTabAvatarFallbackEl: HTMLElement | null;
     private readonly devBuildBadgeEl: HTMLElement | null;
+    private readonly mobileBuildBadgeEl: HTMLElement | null;
     private readonly updateBadgeEl: HTMLButtonElement | null;
+    private readonly navSyncButtonEl: HTMLButtonElement | null;
+    private readonly navSyncDotEl: HTMLElement | null;
+    private readonly mobileSyncButtonEl: HTMLButtonElement | null;
+    private readonly mobileSyncDotEl: HTMLElement | null;
     private readonly navLinks: NodeListOf<HTMLElement>;
 
     constructor(updateManager: UpdateManager = new UpdateManager()) {
@@ -165,8 +174,16 @@ export class App {
         this.navUserAvatarEl = document.getElementById('nav-user-avatar');
         this.navUserAvatarImgEl = document.getElementById('nav-user-avatar-image') as HTMLImageElement | null;
         this.navUserAvatarFallbackEl = document.getElementById('nav-user-avatar-fallback');
+        this.navProfileTabAvatarEl = document.getElementById('nav-profile-tab-avatar');
+        this.navProfileTabAvatarImgEl = document.getElementById('nav-profile-tab-avatar-image') as HTMLImageElement | null;
+        this.navProfileTabAvatarFallbackEl = document.getElementById('nav-profile-tab-avatar-fallback');
         this.devBuildBadgeEl = document.getElementById('dev-build-badge');
+        this.mobileBuildBadgeEl = document.getElementById('mobile-build-badge');
         this.updateBadgeEl = document.getElementById('update-available-badge') as HTMLButtonElement | null;
+        this.navSyncButtonEl = document.getElementById('nav-sync-status-btn') as HTMLButtonElement | null;
+        this.navSyncDotEl = document.getElementById('nav-sync-status-dot');
+        this.mobileSyncButtonEl = document.getElementById('mobile-sync-status-btn') as HTMLButtonElement | null;
+        this.mobileSyncDotEl = document.getElementById('mobile-sync-status-dot');
         this.navLinks = document.querySelectorAll('.nav-link');
 
         this.dashboardContainer = document.createElement('div');
@@ -230,9 +247,13 @@ export class App {
             this.devBuildBadgeEl.style.display = 'inline-flex';
             this.devBuildBadgeEl.textContent = formatBuildBadge();
         }
+        if (this.mobileBuildBadgeEl) {
+            this.mobileBuildBadgeEl.textContent = formatBuildBadge();
+        }
 
         const isFreshInstall = await this.initProfile();
         await this.loadTheme();
+        await this.refreshSyncChrome();
 
         await this.switchView(this.currentView);
         this.setBootState(APP_BOOT_STATES.READY);
@@ -278,7 +299,15 @@ export class App {
                 else if (this.currentView === VIEW_NAMES.MEDIA) await this.mediaView.loadData();
                 else if (this.currentView === VIEW_NAMES.TIMELINE) await this.timelineView.loadData();
                 this.renderCurrentView();
+                await this.refreshSyncChrome();
             }
+        });
+
+        this.navSyncButtonEl?.addEventListener('click', async () => {
+            await this.handleSyncAction();
+        });
+        this.mobileSyncButtonEl?.addEventListener('click', async () => {
+            await this.handleSyncAction();
         });
     }
 
@@ -296,6 +325,11 @@ export class App {
         globalThis.addEventListener(EVENTS.PROFILE_UPDATED, async () => {
             await this.loadTheme();
             await this.refreshProfileChrome();
+            await this.refreshSyncChrome();
+        });
+
+        globalThis.addEventListener(EVENTS.LOCAL_DATA_CHANGED, async () => {
+            await this.refreshSyncChrome();
         });
     }
 
@@ -402,24 +436,25 @@ export class App {
         this.navUserNameEl.textContent = this.currentProfile;
 
         const initials = getProfileInitials(this.currentProfile);
-        if (this.navUserAvatarFallbackEl) {
-            this.navUserAvatarFallbackEl.textContent = initials;
+        const fallbacks = [this.navUserAvatarFallbackEl, this.navProfileTabAvatarFallbackEl];
+        for (const fallback of fallbacks) {
+            if (fallback) fallback.textContent = initials;
         }
 
         const profilePicture = await this.loadProfilePicture();
         const profilePictureSrc = profilePictureToDataUrl(profilePicture);
-        if (this.navUserAvatarImgEl) {
-            if (profilePictureSrc) {
-                this.navUserAvatarImgEl.src = profilePictureSrc;
-                this.navUserAvatarImgEl.style.display = 'block';
-                if (this.navUserAvatarFallbackEl) this.navUserAvatarFallbackEl.style.display = 'none';
-            } else {
-                this.navUserAvatarImgEl.removeAttribute('src');
-                this.navUserAvatarImgEl.style.display = 'none';
-                if (this.navUserAvatarFallbackEl) this.navUserAvatarFallbackEl.style.display = 'flex';
+
+        const updateAvatar = (img: HTMLImageElement | null, fallback: HTMLElement | null, el: HTMLElement | null) => {
+            if (img) {
+                img.src = profilePictureSrc || '';
+                img.style.display = profilePictureSrc ? 'block' : 'none';
+                if (fallback) fallback.style.display = profilePictureSrc ? 'none' : 'flex';
             }
-        }
-        this.navUserAvatarEl?.setAttribute('aria-label', `${this.currentProfile} profile picture`);
+            el?.setAttribute('aria-label', `${this.currentProfile} profile picture`);
+        };
+
+        updateAvatar(this.navUserAvatarImgEl, this.navUserAvatarFallbackEl, this.navUserAvatarEl);
+        updateAvatar(this.navProfileTabAvatarImgEl, this.navProfileTabAvatarFallbackEl, this.navProfileTabAvatarEl);
     }
 
     private async loadProfilePicture(): Promise<ProfilePicture | null> {
@@ -446,6 +481,97 @@ export class App {
         else if (view === 'profile') await this.profileView.loadData();
 
         this.renderCurrentView();
+        await this.refreshSyncChrome();
+    }
+
+    private async refreshSyncChrome() {
+        const buttons = [
+            { button: this.navSyncButtonEl, dot: this.navSyncDotEl },
+            { button: this.mobileSyncButtonEl, dot: this.mobileSyncDotEl },
+        ].filter(entry => entry.button && entry.dot) as Array<{ button: HTMLButtonElement; dot: HTMLElement }>;
+
+        if (buttons.length === 0) {
+            return;
+        }
+
+        if (!getServices().isDesktop()) {
+            buttons.forEach(({ button }) => {
+                button.dataset.visible = 'false';
+            });
+            return;
+        }
+
+        try {
+            const syncStatus = await getSyncStatus();
+
+            let attentionState: string;
+            if (syncStatus.conflict_count > 0 || syncStatus.state === 'conflict_pending') {
+                attentionState = 'conflict';
+            } else if (syncStatus.state === 'dirty') {
+                attentionState = 'dirty';
+            } else if (syncStatus.state === 'syncing') {
+                attentionState = 'syncing';
+            } else if (syncStatus.state === 'error' || (syncStatus.sync_profile_id && !syncStatus.google_authenticated)) {
+                attentionState = 'error';
+            } else {
+                attentionState = 'idle';
+            }
+
+            let title: string;
+            if (attentionState === 'conflict') {
+                title = `Resolve ${syncStatus.conflict_count} sync conflict${syncStatus.conflict_count === 1 ? '' : 's'}`;
+            } else if (attentionState === 'dirty') {
+                title = 'Sync pending changes';
+            } else if (attentionState === 'idle') {
+                title = 'Cloud sync';
+            } else {
+                title = 'Cloud sync status';
+            }
+
+            buttons.forEach(({ button }) => {
+                button.dataset.visible = 'true';
+                button.dataset.syncState = attentionState;
+                button.disabled = syncStatus.state === 'syncing';
+                button.title = title;
+            });
+        } catch {
+            buttons.forEach(({ button }) => {
+                button.dataset.visible = 'true';
+                button.dataset.syncState = 'error';
+                button.disabled = false;
+                button.title = 'Open cloud sync settings';
+            });
+        }
+    }
+
+    private async handleSyncAction() {
+        if (!getServices().isDesktop()) {
+            return;
+        }
+
+        try {
+            const syncStatus = await getSyncStatus();
+            const canRunSync = syncStatus.sync_profile_id && syncStatus.google_authenticated && syncStatus.state !== 'syncing';
+
+          
+            if (canRunSync) {
+                await this.profileView.runSyncNowFromShell();
+                if (this.currentView === VIEW_NAMES.DASHBOARD) await this.dashboard.loadData();
+                else if (this.currentView === VIEW_NAMES.MEDIA) await this.mediaView.loadData();
+                else if (this.currentView === VIEW_NAMES.TIMELINE) await this.timelineView.loadData();
+                else if (this.currentView === VIEW_NAMES.PROFILE) await this.profileView.loadData();
+
+                this.renderCurrentView();
+                await this.refreshSyncChrome();
+                return;
+            }
+
+            await this.switchView(VIEW_NAMES.PROFILE);
+            return;
+        } catch {
+            await this.refreshSyncChrome();
+            return;
+        }
     }
 
     private renderCurrentView() {

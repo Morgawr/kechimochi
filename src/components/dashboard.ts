@@ -177,9 +177,9 @@ export class Dashboard extends Component<DashboardState> {
         // 3. Recent Logs block
         const logsCard = html`
             <div class="card">
-                <div id="logs-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                    <h3 style="margin: 0;">Recent Activity</h3>
-                    <div id="pagination-container"></div>
+                <div id="logs-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap:wrap;">
+                    <h3 class="dashboard-module-title" style="margin: 0;">Recent Activity</h3>
+                    <div id="pagination-container" style="margin 0 auto 0 auto"></div>
                 </div>
                 <div id="recent-logs-list" style="display: flex; flex-direction: column; gap: 0.5rem;"></div>
             </div>
@@ -315,17 +315,24 @@ export class Dashboard extends Component<DashboardState> {
 
         // Update Pagination
         if (showPagination) {
-            const prevButtonHtml = currentPage > 1
-                ? `<button class="btn btn-ghost" id="prev-page" style="font-size: 1.2rem; padding: 0.2rem 1rem;">&lt;&lt;</button>`
-                : '<div style="width: 3rem;"></div>';
-            const nextButtonHtml = currentPage < totalPages
-                ? `<button class="btn btn-ghost" id="next-page" style="font-size: 1.2rem; padding: 0.2rem 1rem;">&gt;&gt;</button>`
-                : '<div style="width: 3rem;"></div>';
 
+            const prevButtonHtml = `
+                <button class="btn btn-ghost single-char-btn" id="prev-page" ${currentPage > 1 ? '' : 'disabled'}>
+                    <svg class="nav-svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <path d="M10 4l-4 4 4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </button>`;
+
+            const nextButtonHtml = `
+                <button class="btn btn-ghost single-char-btn" id="next-page" ${currentPage < totalPages ? '' : 'disabled'}>
+                    <svg class="nav-svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </button>`;
             this.containers.pagination.innerHTML = `
                 <div style="display: flex; align-items: center; gap: 1rem;">
                     ${prevButtonHtml}
-                    <span style="font-size: 0.9rem; color: var(--text-secondary); display: flex; align-items: center; gap: 0.5rem; white-space: nowrap;">
+                    <span style="font-size: 0.8rem; color: var(--text-secondary); display: flex; align-items: center; gap: 0.5rem; white-space: nowrap;">
                         PAGE <span id="current-page-display" title="Double click to edit" style="cursor: pointer; color: var(--text-primary); font-weight: bold; border: 1px solid var(--border-color); padding: 0.1rem 0.5rem; border-radius: 4px; min-width: 2rem; text-align: center;">${currentPage}</span> OF ${totalPages}
                     </span>
                     ${nextButtonHtml}
@@ -374,10 +381,7 @@ export class Dashboard extends Component<DashboardState> {
                 input.focus();
                 input.select();
             });
-
-            // Adjust layout for pagination
-            (this.containers.logs.querySelector('#logs-header') as HTMLElement).style.display = 'grid';
-            (this.containers.logs.querySelector('#logs-header') as HTMLElement).style.gridTemplateColumns = '1fr auto 1fr';
+            
         } else {
             this.containers.pagination.innerHTML = '';
             (this.containers.logs.querySelector('#logs-header') as HTMLElement).style.display = 'flex';
@@ -417,18 +421,22 @@ export class Dashboard extends Component<DashboardState> {
 
             return `
                 <div class="dashboard-activity-item" data-activity-title="${escapedTitle}" style="display: flex; justify-content: space-between; align-items: center; padding: 1rem; background: var(--bg-dark); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
-                    <div style="display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap;">
-                        <span style="color: var(--accent-green); font-weight: 500;">${escapedProfile}</span> 
-                        <span style="color: var(--text-secondary);">logged</span> 
-                        ${activityDesc} 
-                        <span style="color: var(--text-secondary);">of ${escapedMediaType}</span> 
-                        <a class="dashboard-media-link" data-media-id="${log.media_id}" style="color: var(--text-primary); font-weight: 600; cursor: pointer; text-decoration: underline; text-decoration-color: var(--accent-blue);">${escapedTitle}</a>
-                        <button class="copy-btn copy-activity-title" data-title="${escapeHTML(String(log.title || ''))}" title="Copy Title" style="background: transparent; border: none; padding: 0; cursor: pointer; display: flex; align-items: center; justify-content: center;">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-secondary);"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                        </button>
+                    <div class="dashboard-activity-main" style="display: flex; flex-wrap: wrap; gap: 0.25rem; min-width: 0;">
+                        <div class="dashboard-activity-meta" style="display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap; min-width: 0;">
+                            <span style="color: var(--accent-green); font-weight: 500;">${escapedProfile}</span>
+                            <span style="color: var(--text-secondary);">logged</span>
+                            ${activityDesc}
+                            <span style="color: var(--text-secondary);">of ${escapedMediaType}</span>
+                        </div>
+                        <div class="dashboard-activity-title-row" style="display: inline; align-items: center; gap: 0.35rem; min-width: 0;">
+                            <a class="dashboard-media-link dashboard-activity-title" data-media-id="${log.media_id}" style="display: inline; color: var(--text-primary); font-weight: 600; cursor: pointer; text-decoration: underline; text-decoration-color: var(--accent-blue); min-width: 0;">${escapedTitle}</a>
+                            <button class="copy-btn copy-activity-title" data-title="${escapeHTML(String(log.title || ''))}" title="Copy Title" style="background: transparent; border: none; padding: 0; cursor: pointer; display: inline; align-items: center; justify-content: center; flex: 0 0 auto; white-space:nowrap;">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-secondary);"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                            </button>
+                        </div>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 0.5rem;">
-                        <div style="color: var(--text-secondary); margin-right: 0.5rem;">${escapedDate}</div>
+                    <div class="dashboard-activity-actions" style="display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0;">
+                        <div class="dashboard-activity-date" style="color: var(--text-secondary); margin-right: 0.5rem;">${escapedDate}</div>
                         <button class="btn btn-ghost btn-sm edit-log-btn" data-id="${log.id}" title="Edit Log" style="padding: 2px 6px;">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                         </button>
@@ -451,6 +459,7 @@ export class Dashboard extends Component<DashboardState> {
                 const success = await showLogActivityModal(log.title, log);
                 if (success) {
                     await this.loadData();
+                    globalThis.dispatchEvent(new CustomEvent(EVENTS.LOCAL_DATA_CHANGED));
                 }
             });
         });
@@ -463,6 +472,7 @@ export class Dashboard extends Component<DashboardState> {
                     if (confirm) {
                         await deleteLog(log.id);
                         await this.loadData();
+                        globalThis.dispatchEvent(new CustomEvent(EVENTS.LOCAL_DATA_CHANGED));
                     }
                 })().catch(err => Logger.error("Failed to delete log", err));
             });
