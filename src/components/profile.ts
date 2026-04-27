@@ -466,7 +466,7 @@ export class ProfileView extends Component<ProfileState> {
                         </label>
                     </div>
                     <p style="color: var(--text-secondary); font-size: 0.85rem; margin: 0;">
-                        When enabled, this device uses a local theme that won't be synced or overwritten by other devices.
+                        When enabled, this device will use a local theme that won't be synced or overwritten by other devices.
                     </p>
 
                     ${themeOverrideEnabled ? html`
