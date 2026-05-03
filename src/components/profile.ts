@@ -1,6 +1,6 @@
 import { Logger } from '../core/logger';
 import { Component } from '../core/component';
-import { html } from '../core/html';
+import { html, rawHtml, escapeHTML } from '../core/html';
 import {
     getAllMedia,
     getLogsForMedia,
@@ -62,6 +62,28 @@ import {
     runBlockingStatus,
     runSyncProgressBlockingStatus,
 } from '../sync_enablement';
+import {
+    isThemeOverrideEnabled,
+    getThemeOverrideValue,
+    setThemeOverrideEnabled,
+    setThemeOverrideValue,
+    applyTheme,
+} from "../theme.ts";
+
+const THEME_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+    { value: 'pastel-pink', label: 'Pastel Pink (Default)' },
+    { value: 'light', label: 'Light Theme' },
+    { value: 'dark', label: 'Dark Theme' },
+    { value: 'light-greyscale', label: 'Light Greyscale' },
+    { value: 'dark-greyscale', label: 'Dark Greyscale' },
+    { value: 'molokai', label: 'Molokai' },
+    { value: 'green-olive', label: 'Green Olive' },
+    { value: 'deep-blue', label: 'Deep Blue' },
+    { value: 'purple', label: 'Purple' },
+    { value: 'fire-red', label: 'Fire Red' },
+    { value: 'yellow-lime', label: 'Yellow Lime' },
+    { value: 'noctua-brown', label: 'Noctua Brown' },
+];
 
 interface ProfileState {
     currentProfile: string;
@@ -85,6 +107,8 @@ interface ProfileState {
     syncError: string | null;
     showSyncConflicts: boolean;
     showSyncRecoveryTools: boolean;
+    themeOverrideEnabled: boolean;
+    themeOverrideValue: string;
 }
 
 function stringifyError(error: unknown): string {
@@ -256,6 +280,8 @@ export class ProfileView extends Component<ProfileState> {
             syncError: null,
             showSyncConflicts: false,
             showSyncRecoveryTools: false,
+            themeOverrideEnabled: isThemeOverrideEnabled(),
+            themeOverrideValue: getThemeOverrideValue(),
         });
     }
 
@@ -389,7 +415,7 @@ export class ProfileView extends Component<ProfileState> {
         }
 
         this.clear();
-        const { currentProfile, theme, profilePicture, appVersion } = this.state;
+        const { currentProfile, theme, profilePicture, appVersion, themeOverrideEnabled, themeOverrideValue } = this.state;
         const profilePictureSrc = profilePictureToDataUrl(profilePicture);
         const initials = getProfileInitials(currentProfile);
 
@@ -429,20 +455,28 @@ export class ProfileView extends Component<ProfileState> {
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">
                         <label for="profile-select-theme" style="font-size: 0.85rem; font-weight: 500;">Theme</label>
                         <select id="profile-select-theme" style="width: 100%;">
-                            <option value="pastel-pink" ${theme === 'pastel-pink' ? 'selected' : ''}>Pastel Pink (Default)</option>
-                            <option value="light" ${theme === 'light' ? 'selected' : ''}>Light Theme</option>
-                            <option value="dark" ${theme === 'dark' ? 'selected' : ''}>Dark Theme</option>
-                            <option value="light-greyscale" ${theme === 'light-greyscale' ? 'selected' : ''}>Light Greyscale</option>
-                            <option value="dark-greyscale" ${theme === 'dark-greyscale' ? 'selected' : ''}>Dark Greyscale</option>
-                            <option value="molokai" ${theme === 'molokai' ? 'selected' : ''}>Molokai</option>
-                            <option value="green-olive" ${theme === 'green-olive' ? 'selected' : ''}>Green Olive</option>
-                            <option value="deep-blue" ${theme === 'deep-blue' ? 'selected' : ''}>Deep Blue</option>
-                            <option value="purple" ${theme === 'purple' ? 'selected' : ''}>Purple</option>
-                            <option value="fire-red" ${theme === 'fire-red' ? 'selected' : ''}>Fire Red</option>
-                            <option value="yellow-lime" ${theme === 'yellow-lime' ? 'selected' : ''}>Yellow Lime</option>
-                            <option value="noctua-brown" ${theme === 'noctua-brown' ? 'selected' : ''}>Noctua Brown</option>
+                            ${this.renderThemeOptions(theme)}
                         </select>
                     </div>
+
+                    <div style="display: flex; align-items: center; gap: 0.6rem; margin-top: 0.5rem;">
+                        <input id="profile-checkbox-theme-override" type="checkbox" ${themeOverrideEnabled ? 'checked' : ''} />
+                        <label for="profile-checkbox-theme-override" style="cursor: pointer;">
+                            Override remote theme on this device
+                        </label>
+                    </div>
+                    <p style="color: var(--text-secondary); font-size: 0.85rem; margin: 0;">
+                        When enabled, this device will use a local theme that won't be synced or overwritten by other devices.
+                    </p>
+
+                    ${themeOverrideEnabled ? html`
+                        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                            <label for="profile-select-theme-local" style="font-size: 0.85rem; font-weight: 500;">Local theme</label>
+                                <select id="profile-select-theme-local" style="width: 100%;">
+                                    ${this.renderThemeOptions(themeOverrideValue)}
+                                </select>
+                        </div>
+                    ` : ''}
                 </div>
 
                 ${this.renderUpdatesCard()}
@@ -564,6 +598,14 @@ export class ProfileView extends Component<ProfileState> {
                 </div>
             </div>
         `;
+    }
+
+    private renderThemeOptions(currentValue: string) {
+        const optionsHtml = THEME_OPTIONS.map(({ value, label }) => {
+            const selected = value === currentValue ? ' selected' : '';
+            return `<option value="${escapeHTML(value)}"${selected}>${escapeHTML(label)}</option>`;
+        }).join('');
+        return rawHtml(optionsHtml);
     }
 
     private renderReportTimestamp() {
@@ -1035,9 +1077,28 @@ export class ProfileView extends Component<ProfileState> {
         root.querySelector('#profile-select-theme')?.addEventListener('change', async (e) => {
             const theme = (e.target as HTMLSelectElement).value;
             await setSetting(SETTING_KEYS.THEME, theme);
-            document.body.dataset.theme = theme;
-            localStorage.setItem(STORAGE_KEYS.THEME_CACHE, theme);
+            if (!isThemeOverrideEnabled()) {
+                applyTheme(theme);
+            }
             this.setState({ theme });
+        });
+
+        root.querySelector('#profile-checkbox-theme-override')?.addEventListener('change', (e) => {
+            const enabled = (e.target as HTMLInputElement).checked;
+            setThemeOverrideEnabled(enabled);
+            const effectiveTheme = enabled ? getThemeOverrideValue() : this.state.theme;
+            applyTheme(effectiveTheme);
+            this.setState({ themeOverrideEnabled: enabled });
+            this.render();
+        });
+
+        root.querySelector('#profile-select-theme-local')?.addEventListener('change', (e) => {
+            const localTheme = (e.target as HTMLSelectElement).value;
+            setThemeOverrideValue(localTheme);
+            if (isThemeOverrideEnabled()) {
+                applyTheme(localTheme);
+            }
+            this.setState({ themeOverrideValue: localTheme });
         });
 
         root.querySelector('#profile-updates-auto-check')?.addEventListener('change', async (e) => {
@@ -1256,6 +1317,8 @@ export class ProfileView extends Component<ProfileState> {
             if (await customPrompt("DANGER! Type 'WIPE_EVERYTHING' to confirm a total factory reset:") === 'WIPE_EVERYTHING') {
                 await wipeEverything();
                 localStorage.removeItem(STORAGE_KEYS.CURRENT_PROFILE);
+                localStorage.removeItem(STORAGE_KEYS.THEME_OVERRIDE_ENABLED);
+                localStorage.removeItem(STORAGE_KEYS.THEME_OVERRIDE);
                 globalThis.location.reload();
             }
         });

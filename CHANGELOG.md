@@ -8,6 +8,7 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ### Added
  - Sync button shortcut in the navigation bar
+ - Ability to select a local theme which overrides the remote sync theme on current device only
 
 ### Changed
  - Improved consistency of titles and navigation buttons
