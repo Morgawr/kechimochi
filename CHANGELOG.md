@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-05-04
+
 ### Added
  - Sync button shortcut in the navigation bar
  - Ability to select a local theme which overrides the remote sync theme on current device only
@@ -21,7 +23,7 @@ The format is based on Keep a Changelog, with one section per released version.
  - Text in recent activity uses the whole width to be more readable in mobiles
  - pagination of recent activity is no longer cropped / sticked to the title in mobile
  - hover animation of media grid elements no longer cropped
- - navigation header in media details is better centered on desktop. 
+ - navigation header in media details is better centered on desktop.
 
 ## [0.2.6] - 2026-04-26
 
