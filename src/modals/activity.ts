@@ -5,6 +5,8 @@ import { customPrompt, customAlert, createOverlay } from './base';
 import { Logger } from '../core/logger';
 import { escapeHTML } from '../core/html';
 
+type ActivityType = typeof ACTIVITY_TYPES[number];
+
 const pad = (n: number) => n.toString().padStart(2, '0');
 const getTodayStr = () => {
     const today = new Date();
@@ -65,9 +67,22 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
         const escapedTitle = escapeHTML(editLog?.title || prefillMediaTitle || '');
         const activeMediaOptions = activeMedia.map(m => `<option value="${escapeHTML(m.title)}">`).join('');
 
+        const findMediaByTitle = (title: string) => {
+            const normalizedTitle = title.trim().toLowerCase();
+            if (!normalizedTitle) return undefined;
+            return mediaList.find(m => m.title.trim().toLowerCase() === normalizedTitle);
+        };
+
+        const isActivityType = (activityType: string | undefined): activityType is ActivityType =>
+            typeof activityType === 'string' && ACTIVITY_TYPES.includes(activityType as ActivityType);
+
+        const getDefaultActivityTypeForTitle = (title: string): ActivityType | undefined => {
+            const defaultActivityType = findMediaByTitle(title)?.media_type;
+            return isActivityType(defaultActivityType) ? defaultActivityType : undefined;
+        };
+
         // Determine the default activity type
-        const prefillMedia = mediaList.find(m => m.title.toLowerCase() === (editLog?.title || prefillMediaTitle || '').toLowerCase());
-        const defaultActivityType = editLog?.media_type || prefillMedia?.media_type || 'Reading';
+        const defaultActivityType = editLog?.media_type || getDefaultActivityTypeForTitle(editLog?.title || prefillMediaTitle || '') || 'Reading';
             
         overlay.innerHTML = `
             <div class="modal-content" style="width: 450px;">
@@ -124,6 +139,20 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
             overlay.querySelector<HTMLInputElement>('#activity-media')!.focus();
         }
 
+        const mediaInput = overlay.querySelector<HTMLInputElement>('#activity-media')!;
+        const activityTypeSelect = overlay.querySelector<HTMLSelectElement>('#activity-type')!;
+        const syncActivityTypeFromSelectedMedia = () => {
+            const defaultActivityType = getDefaultActivityTypeForTitle(mediaInput.value);
+            if (defaultActivityType) {
+                activityTypeSelect.value = defaultActivityType;
+            }
+        };
+
+        if (!editLog) {
+            mediaInput.addEventListener('input', syncActivityTypeFromSelectedMedia);
+            mediaInput.addEventListener('change', syncActivityTypeFromSelectedMedia);
+        }
+
         const handleEscape = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
                 e.preventDefault();
@@ -142,7 +171,7 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
         };
 
         const resolveMediaId = async (title: string): Promise<number | null> => {
-            const existingMedia = mediaList.find(m => m.title.toLowerCase() === title.toLowerCase());
+            const existingMedia = findMediaByTitle(title);
             if (existingMedia?.id) {
                 if (existingMedia.status === 'Archived') {
                     existingMedia.status = 'Active';

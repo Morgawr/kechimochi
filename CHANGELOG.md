@@ -6,6 +6,9 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+### Fixed
+ - Activity logs from the main activity modal now set the right activity type
+
 ## [0.2.7] - 2026-05-04
 
 ### Added

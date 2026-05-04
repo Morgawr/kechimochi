@@ -66,6 +66,48 @@ describe('modals/activity.ts', () => {
             });
         });
 
+        it('should default activity type from the selected existing media title', async () => {
+            const mockMedia = [
+                {
+                    id: 10,
+                    title: 'Anime Item',
+                    media_type: 'Watching',
+                    status: 'Active',
+                    language: 'Japanese',
+                    description: '',
+                    cover_image: '',
+                    extra_data: '{}',
+                    content_type: 'Anime',
+                    tracking_status: 'Ongoing'
+                }
+            ];
+            vi.mocked(api.getAllMedia).mockResolvedValue(mockMedia);
+
+            const promise = showLogActivityModal();
+            await vi.waitFor(() => document.querySelector('#add-activity-form'));
+
+            const titleInput = document.querySelector('#activity-media') as HTMLInputElement;
+            const typeSelect = document.querySelector('#activity-type') as HTMLSelectElement;
+            const durationInput = document.querySelector('#activity-duration') as HTMLInputElement;
+
+            expect(typeSelect.value).toBe('Reading');
+
+            titleInput.value = 'Anime Item';
+            titleInput.dispatchEvent(new Event('change', { bubbles: true }));
+            durationInput.value = '45';
+
+            expect(typeSelect.value).toBe('Watching');
+
+            document.querySelector('#add-activity-form')!.dispatchEvent(new Event('submit'));
+
+            const result = await promise;
+            expect(result).toBe(true);
+            expect(api.addLog).toHaveBeenCalledWith(expect.objectContaining({
+                media_id: 10,
+                activity_type: 'Watching'
+            }));
+        });
+
         it('should create new media if it does not exist', async () => {
             vi.mocked(api.getAllMedia).mockResolvedValue([]);
             const { customPrompt } = await import('../../src/modals/base');
