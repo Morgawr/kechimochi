@@ -1,181 +1,167 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ImdbImporter } from '../../src/importers/imdb';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
+import { ImdbImporter } from '../../src/importers/imdb';
+import type { ScrapedMetadata } from '../../src/importers';
+
+const mockedInvoke = vi.mocked(invoke);
+const imdbUrl = 'https://imdb.com/title/tt123/';
+
+type ExpectedImport = {
+    description?: string;
+    coverImageUrl?: string;
+    extraData?: Record<string, string>;
+};
+
+function imdbPage(body = '', head = ''): string {
+    return `<html><head>${head}</head><body>${body}</body></html>`;
+}
+
+function imdbJsonLdPage(payload: Record<string, unknown>): string {
+    return imdbPage('', `<script type="application/ld+json">${JSON.stringify(payload)}</script>`);
+}
+
+function imdbGraphQlPayload() {
+    return JSON.stringify({
+        data: {
+            title: {
+                plot: { plotText: { plainText: 'Gabby&amp;apos;s road trip takes an unexpected turn.' } },
+                primaryImage: { url: 'https://m.media-amazon.com/images/M/test.jpg' },
+                releaseYear: { year: 2025 },
+                runtime: { seconds: 5880 },
+                genres: { genres: [{ text: 'Animation' }, { text: 'Adventure' }] },
+                ratingsSummary: { aggregateRating: 5.5 },
+                principalCredits: [{
+                    category: { text: 'Director' },
+                    credits: [{ name: { nameText: { text: 'Ryan Crego' } } }]
+                }]
+            }
+        }
+    });
+}
+
+async function importFromImdb(responses: string[], url = imdbUrl): Promise<ScrapedMetadata> {
+    for (const response of responses) mockedInvoke.mockResolvedValueOnce(response);
+    return new ImdbImporter().fetch(url);
+}
+
+async function expectImdbImport(responses: string[], expected: ExpectedImport, url = imdbUrl) {
+    const result = await importFromImdb(responses, url);
+
+    if (expected.description !== undefined) expect(result.description).toBe(expected.description);
+    if (expected.coverImageUrl !== undefined) expect(result.coverImageUrl).toBe(expected.coverImageUrl);
+    if (expected.extraData) expect(result.extraData).toEqual(expect.objectContaining(expected.extraData));
+
+    return result;
+}
 
 describe('ImdbImporter', () => {
-    let importer: ImdbImporter;
-
     beforeEach(() => {
-        importer = new ImdbImporter();
-        vi.clearAllMocks();
+        mockedInvoke.mockReset();
     });
 
-    describe('matchUrl', () => {
-        it('should match valid IMDb URLs', () => {
-            expect(importer.matchUrl('https://www.imdb.com/title/tt12345/', 'Movie')).toBe(true);
-            expect(importer.matchUrl('https://imdb.com/title/tt12345/', 'Anime')).toBe(true);
-        });
+    it('matches supported title URLs', () => {
+        const subject = new ImdbImporter();
 
+        expect([
+            subject.matchUrl('https://www.imdb.com/title/tt12345/', 'Movie'),
+            subject.matchUrl('https://imdb.com/title/tt12345/', 'Anime')
+        ]).toEqual([true, true]);
     });
 
-    describe('fetch', () => {
-        it('should parse data from JSON-LD correctly', async () => {
-            const mockHtml = `
-                <html>
-                <head>
-                    <script type="application/ld+json">
-                    {
-                        "@type": "Movie",
-                        "description": "JSON-LD Desc",
-                        "image": "https://img.imdb.com/123.jpg",
-                        "director": { "name": "Nolan" },
-                        "genre": ["Action", "Sci-Fi"],
-                        "duration": "PT2H28M",
-                        "datePublished": "2010-07-16",
-                        "aggregateRating": { "ratingValue": 8.8 }
-                    }
-                    </script>
-                </head>
-                <body></body>
-                </html>
-            `;
-
-            vi.mocked(invoke).mockResolvedValue(mockHtml);
-
-            const result = await importer.fetch('https://imdb.com/title/tt123/');
-
-            expect(result.description).toBe('JSON-LD Desc');
-            expect(result.coverImageUrl).toBe('https://img.imdb.com/123.jpg');
-            expect(result.extraData['Source (IMDB)']).toBe('https://imdb.com/title/tt123/');
-            expect(result.extraData['Director']).toBe('Nolan');
-            expect(result.extraData['Genres']).toBe('Action, Sci-Fi');
-            expect(result.extraData['Total Runtime']).toBe('2h 28m');
-            expect(result.extraData['Release Year']).toBe('2010');
-            expect(result.extraData['IMDb Rating']).toBe('8.8');
-        });
-
-        it('should fallback to CSS selectors if JSON-LD is missing', async () => {
-            const mockHtml = `
-                <html>
-                <body>
-                    <span data-testid="plot-xl">CSS Desc</span>
-                    <section data-testid="hero-parent">
-                        <div class="ipc-poster"><img class="ipc-image" src="https://img.imdb.com/css.jpg"></div>
-                    </section>
-                    <div data-testid="genres"><a class="ipc-chip">Action</a></div>
-                    <ul data-testid="hero-title-block__metadata">
-                        <li class="ipc-inline-list__item">2h 10m</li>
-                        <a href="/releaseinfo">2022</a>
-                    </ul>
-                    <div data-testid="hero-rating-bar__aggregate-rating__score"><span>7.5</span></div>
-                </body>
-                </html>
-            `;
-
-            vi.mocked(invoke).mockResolvedValue(mockHtml);
-
-            const result = await importer.fetch('https://imdb.com/title/tt123/');
-
-            expect(result.description).toBe('CSS Desc');
-            expect(result.coverImageUrl).toBe('https://img.imdb.com/css.jpg');
-            expect(result.extraData['Genres']).toBe('Action');
-            expect(result.extraData['Total Runtime']).toBe('2h 10m');
-            expect(result.extraData['Release Year']).toBe('2022');
-            expect(result.extraData['IMDb Rating']).toBe('7.5');
-        });
-
-        it('should fallback to IMDb GraphQL if the title page has no embedded metadata', async () => {
-            const mockHtml = '<html><head><title>IMDb</title></head><body></body></html>';
-            const mockGraphQl = JSON.stringify({
-                data: {
-                    title: {
-                        plot: {
-                            plotText: {
-                                plainText: 'Gabby&amp;apos;s road trip takes an unexpected turn.'
-                            }
-                        },
-                        primaryImage: {
-                            url: 'https://m.media-amazon.com/images/M/test.jpg'
-                        },
-                        releaseYear: {
-                            year: 2025
-                        },
-                        runtime: {
-                            seconds: 5880
-                        },
-                        genres: {
-                            genres: [
-                                { text: 'Animation' },
-                                { text: 'Adventure' }
-                            ]
-                        },
-                        ratingsSummary: {
-                            aggregateRating: 5.5
-                        },
-                        principalCredits: [
-                            {
-                                category: { text: 'Director' },
-                                credits: [
-                                    { name: { nameText: { text: 'Ryan Crego' } } }
-                                ]
-                            }
-                        ]
-                    }
+    it('reads structured metadata from JSON-LD', async () => {
+        await expectImdbImport(
+            [imdbJsonLdPage({
+                "@type": "Movie",
+                description: "JSON-LD Desc",
+                image: "https://img.imdb.com/123.jpg",
+                director: { name: "Nolan" },
+                genre: ["Action", "Sci-Fi"],
+                duration: "PT2H28M",
+                datePublished: "2010-07-16",
+                aggregateRating: { ratingValue: 8.8 }
+            })],
+            {
+                description: 'JSON-LD Desc',
+                coverImageUrl: 'https://img.imdb.com/123.jpg',
+                extraData: {
+                    'Source (IMDB)': imdbUrl,
+                    Director: 'Nolan',
+                    Genres: 'Action, Sci-Fi',
+                    'Total Runtime': '2h 28m',
+                    'Release Year': '2010',
+                    'IMDb Rating': '8.8'
                 }
-            });
+            }
+        );
+    });
 
-            vi.mocked(invoke)
-                .mockResolvedValueOnce(mockHtml)
-                .mockResolvedValueOnce(mockGraphQl);
+    it('uses page selectors when JSON-LD is absent', async () => {
+        await expectImdbImport(
+            [imdbPage(`
+                <span data-testid="plot-xl">CSS Desc</span>
+                <section data-testid="hero-parent">
+                    <div class="ipc-poster"><img class="ipc-image" src="https://img.imdb.com/css.jpg"></div>
+                </section>
+                <div data-testid="genres"><a class="ipc-chip">Action</a></div>
+                <ul data-testid="hero-title-block__metadata">
+                    <li class="ipc-inline-list__item">2h 10m</li>
+                    <a href="/releaseinfo">2022</a>
+                </ul>
+                <div data-testid="hero-rating-bar__aggregate-rating__score"><span>7.5</span></div>
+            `)],
+            {
+                description: 'CSS Desc',
+                coverImageUrl: 'https://img.imdb.com/css.jpg',
+                extraData: {
+                    Genres: 'Action',
+                    'Total Runtime': '2h 10m',
+                    'Release Year': '2022',
+                    'IMDb Rating': '7.5'
+                }
+            }
+        );
+    });
 
-            const result = await importer.fetch('https://www.imdb.com/title/tt32214143/');
+    it('uses IMDb GraphQL when the title page has no embedded metadata', async () => {
+        await expectImdbImport(
+            [imdbPage('', '<title>IMDb</title>'), imdbGraphQlPayload()],
+            {
+                description: "Gabby's road trip takes an unexpected turn.",
+                coverImageUrl: 'https://m.media-amazon.com/images/M/test.jpg',
+                extraData: {
+                    Director: 'Ryan Crego',
+                    Genres: 'Animation, Adventure',
+                    'Total Runtime': '1h 38m',
+                    'Release Year': '2025',
+                    'IMDb Rating': '5.5'
+                }
+            },
+            'https://www.imdb.com/title/tt32214143/'
+        );
 
-            expect(result.description).toBe("Gabby's road trip takes an unexpected turn.");
-            expect(result.coverImageUrl).toBe('https://m.media-amazon.com/images/M/test.jpg');
-            expect(result.extraData['Director']).toBe('Ryan Crego');
-            expect(result.extraData['Genres']).toBe('Animation, Adventure');
-            expect(result.extraData['Total Runtime']).toBe('1h 38m');
-            expect(result.extraData['Release Year']).toBe('2025');
-            expect(result.extraData['IMDb Rating']).toBe('5.5');
-            expect(invoke).toHaveBeenLastCalledWith('fetch_external_json', expect.objectContaining({
-                url: 'https://caching.graphql.imdb.com/',
-                method: 'POST',
-                headers: expect.objectContaining({
-                    Accept: 'application/json'
-                })
-            }));
-        });
+        expect(mockedInvoke).toHaveBeenLastCalledWith('fetch_external_json', expect.objectContaining({
+            url: 'https://caching.graphql.imdb.com/',
+            method: 'POST',
+            headers: expect.objectContaining({ Accept: 'application/json' })
+        }));
+    });
 
-        it('should throw error on CAPTCHA check', async () => {
-            const captchaHtml = '<html><head><title>Bot Check - IMDb</title></head><body></body></html>';
-            vi.mocked(invoke).mockResolvedValue(captchaHtml);
+    it('reports IMDb robot checks clearly', async () => {
+        await expect(importFromImdb([imdbPage('', '<title>Bot Check - IMDb</title>')]))
+            .rejects.toThrow('IMDb blocked the request');
+    });
 
-            await expect(importer.fetch('https://imdb.com/title/tt123/')).rejects.toThrow('IMDb blocked the request');
-        });
+    it('keeps second-only durations and reports empty pages as extraction failures', async () => {
+        const secondsOnlyResult = await importFromImdb([
+            imdbJsonLdPage({ "@type": "Movie", duration: "PT45S" }),
+            '{"data":{"title":null}}'
+        ], 'https://imdb.com/title/tt456/');
 
-        it('should parse second-only durations and throw a generic extraction error for empty pages', async () => {
-            vi.mocked(invoke)
-                .mockResolvedValueOnce(`
-                    <html>
-                    <head>
-                        <script type="application/ld+json">
-                        {
-                            "@type": "Movie",
-                            "duration": "PT45S"
-                        }
-                        </script>
-                    </head>
-                    <body></body>
-                    </html>
-                `)
-                .mockResolvedValueOnce('{"data":{"title":null}}')
-                .mockResolvedValueOnce('<html><head><title>IMDb</title></head><body></body></html>')
-                .mockResolvedValueOnce('{"data":{"title":null}}');
+        expect(secondsOnlyResult.extraData['Total Runtime']).toBe('45s');
 
-            const result = await importer.fetch('https://imdb.com/title/tt456/');
-            expect(result.extraData['Total Runtime']).toBe('45s');
-
-            await expect(importer.fetch('https://imdb.com/title/tt789/')).rejects.toThrow('Could not extract any data from the IMDb page.');
-        });
+        await expect(importFromImdb([
+            imdbPage('', '<title>IMDb</title>'),
+            '{"data":{"title":null}}'
+        ], 'https://imdb.com/title/tt789/')).rejects.toThrow('Could not extract any data from the IMDb page.');
     });
 });
