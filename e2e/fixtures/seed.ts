@@ -31,6 +31,15 @@ type SeedMediaEntryInput = {
 };
 
 type SeedMediaEntry = Required<SeedMediaEntryInput>;
+type SeedMediaEntryOverrides = Pick<SeedMediaEntryInput, 'language' | 'tracking_status' | 'extra_data'>;
+type SeedMediaEntryRow = [
+  title: string,
+  media_type: string,
+  status: string,
+  description: string,
+  content_type: string,
+  overrides?: SeedMediaEntryOverrides,
+];
 
 function defaultTrackingStatus(status: string): string {
   if (status === 'Complete' || status === 'Paused') {
@@ -48,81 +57,25 @@ function mediaEntry({ language = 'Japanese', tracking_status, extra_data = '{}',
   };
 }
 
+function mediaEntryFromRow([title, media_type, status, description, content_type, overrides = {}]: SeedMediaEntryRow): SeedMediaEntry {
+  return mediaEntry({ title, media_type, status, description, content_type, ...overrides });
+}
+
 // ---------- Media entries (all Japanese) ----------
-const MEDIA_ENTRIES = [
-  mediaEntry({
-    title: 'ある魔女が死ぬまで',
-    media_type: 'Reading',
-    status: 'Complete',
-    description: '魔女と少女の物語。感動的なファンタジー小説。',
-    content_type: 'Novel',
-    extra_data: JSON.stringify({ source_url: 'https://example.com/novel1' }),
-  }),
-  mediaEntry({
-    title: '薬屋のひとりごと',
-    media_type: 'Reading',
-    status: 'Active',
-    description: '後宮で働く薬師の少女が様々な事件を解決していく物語。',
-    content_type: 'Novel',
-  }),
-  mediaEntry({
-    title: '呪術廻戦',
-    media_type: 'Reading',
-    status: 'Active',
-    description: '呪いをめぐる少年たちの戦いを描いたダークファンタジー。',
-    content_type: 'Manga',
-  }),
-  mediaEntry({
-    title: 'ハイキュー!!',
-    media_type: 'Watching',
-    status: 'Complete',
-    description: 'バレーボールに青春をかける高校生たちの物語。',
-    content_type: 'Anime',
-  }),
-  mediaEntry({
-    title: 'STEINS;GATE',
-    media_type: 'Playing',
-    status: 'Complete',
-    description: 'タイムリープをテーマにしたサイエンスフィクション。',
-    content_type: 'Visual Novel',
-  }),
-  mediaEntry({
-    title: 'ペルソナ5',
-    media_type: 'Playing',
-    status: 'Active',
-    description: '心の怪盗団として活躍するRPG。',
-    content_type: 'Video Game',
-  }),
-  mediaEntry({
-    title: '本好きの下剋上',
-    media_type: 'Reading',
-    status: 'Active',
-    description: '本を愛する少女が異世界で本を作るために奮闘する物語。',
-    content_type: 'Novel',
-  }),
-  mediaEntry({
-    title: '葬送のフリーレン',
-    media_type: 'Watching',
-    status: 'Active',
-    description: '魔王を倒した後のエルフの魔法使いの旅を描いた作品。',
-    content_type: 'Anime',
-  }),
-  mediaEntry({
-    title: 'WHITE ALBUM 2',
-    media_type: 'Playing',
-    status: 'Paused',
-    description: '音楽と恋愛をテーマにしたビジュアルノベル。',
-    content_type: 'Visual Novel',
-  }),
-  mediaEntry({
-    title: 'ダンジョン飯',
-    media_type: 'Reading',
-    status: 'Archived',
-    description: 'ダンジョンの中でモンスターを料理して食べる冒険者たちの物語。',
-    content_type: 'Manga',
-    tracking_status: 'Complete',
-  }),
+const MEDIA_ENTRY_ROWS: SeedMediaEntryRow[] = [
+  ['ある魔女が死ぬまで', 'Reading', 'Complete', '魔女と少女の物語。感動的なファンタジー小説。', 'Novel', { extra_data: JSON.stringify({ source_url: 'https://example.com/novel1' }) }],
+  ['薬屋のひとりごと', 'Reading', 'Active', '後宮で働く薬師の少女が様々な事件を解決していく物語。', 'Novel'],
+  ['呪術廻戦', 'Reading', 'Active', '呪いをめぐる少年たちの戦いを描いたダークファンタジー。', 'Manga'],
+  ['ハイキュー!!', 'Watching', 'Complete', 'バレーボールに青春をかける高校生たちの物語。', 'Anime'],
+  ['STEINS;GATE', 'Playing', 'Complete', 'タイムリープをテーマにしたサイエンスフィクション。', 'Visual Novel'],
+  ['ペルソナ5', 'Playing', 'Active', '心の怪盗団として活躍するRPG。', 'Video Game'],
+  ['本好きの下剋上', 'Reading', 'Active', '本を愛する少女が異世界で本を作るために奮闘する物語。', 'Novel'],
+  ['葬送のフリーレン', 'Watching', 'Active', '魔王を倒した後のエルフの魔法使いの旅を描いた作品。', 'Anime'],
+  ['WHITE ALBUM 2', 'Playing', 'Paused', '音楽と恋愛をテーマにしたビジュアルノベル。', 'Visual Novel'],
+  ['ダンジョン飯', 'Reading', 'Archived', 'ダンジョンの中でモンスターを料理して食べる冒険者たちの物語。', 'Manga', { tracking_status: 'Complete' }],
 ];
+
+const MEDIA_ENTRIES = MEDIA_ENTRY_ROWS.map(mediaEntryFromRow);
 
 function generateActivityLogs(mediaIds: Map<string, number>) {
   const logs: { media_id: number; duration_minutes: number; date: string; characters: number; activity_type: string }[] = [];
