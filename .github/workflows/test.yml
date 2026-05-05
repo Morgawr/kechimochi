@@ -52,10 +52,12 @@ jobs:
         run: npm ci
 
       - name: install rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+        with:
+          toolchain: stable
 
       - name: cache rust dependencies
-        uses: swatinem/rust-cache@v2
+        uses: swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
         with:
           workspaces: './src-tauri -> target'
 
@@ -109,7 +111,7 @@ jobs:
 
       - name: update coverage badge
         if: github.ref == 'refs/heads/main'
-        uses: Schneegans/dynamic-badges-action@v1.7.0
+        uses: Schneegans/dynamic-badges-action@e9a478b16159b4d31420099ba146cdc50f134483 # v1.7.0
         with:
           auth: ${{ secrets.GIST_TOKEN }}
           gistID: ${{ secrets.GIST_ID }}
