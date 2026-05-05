@@ -1,12 +1,3 @@
-import { Component } from './component';
-import { escapeHTML, html, rawHtml, RawHtml } from './html';
-import { Logger } from './logger';
-
-export {
-    Component,
-    escapeHTML,
-    html,
-    rawHtml,
-    RawHtml,
-    Logger,
-};
+export { Component } from './component';
+export { escapeHTML, html, rawHtml, RawHtml } from './html';
+export { Logger } from './logger';
