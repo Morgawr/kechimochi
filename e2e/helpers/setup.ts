@@ -210,11 +210,14 @@ export async function waitForAppReady(
   await browser.waitUntil(
     async () => {
       retries++;
+      const appRoot = await $('#app');
       const dashboardNav = await $('[data-view="dashboard"]');
       const profileNav = await $('[data-view="profile"]');
       const viewContainer = await $('#view-container');
       const initialPrompt = await $('#initial-prompt-input');
 
+      const bootState = await appRoot.getAttribute('data-boot-state').catch(() => '');
+      const bootReady = bootState === 'ready';
       const dashboardVisible = await dashboardNav.isDisplayed().catch(() => false);
       const profileVisible = await profileNav.isDisplayed().catch(() => false);
       const containerVisible = await viewContainer.isDisplayed().catch(() => false);
@@ -224,7 +227,7 @@ export async function waitForAppReady(
         Logger.info(`[e2e] Final app ready check #${retries}...`);
       }
 
-      return (containerVisible && (dashboardVisible || profileVisible)) || promptVisible;
+      return promptVisible || (bootReady && containerVisible && (dashboardVisible || profileVisible));
     },
     {
       timeout: finalTimeout,
