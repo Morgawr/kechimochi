@@ -95,4 +95,11 @@ describe('BaseImporter', () => {
         expect(importer.testSanitizeDescription('<i>description text</i><br><br><p>More&nbsp;text</p>'))
             .toBe('description text\n\nMore text');
     });
+
+    it('sanitizeDescription should decode HTML entities before display', () => {
+        const importer = new MockImporter();
+
+        expect(importer.testSanitizeDescription('Gabby&amp;apos;s <b>Dollhouse</b> &amp;amp; Friends&nbsp;&#39;ok&#39;'))
+            .toBe("Gabby's Dollhouse & Friends 'ok'");
+    });
 });

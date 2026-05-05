@@ -8,6 +8,8 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ### Fixed
  - Activity logs from the main activity modal now set the right activity type
+ - Updated IMDB importer to new layout changes
+ - IMDB importer now strips special characters from movie descriptions
 
 ## [0.2.7] - 2026-05-04
 

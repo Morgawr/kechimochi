@@ -33,7 +33,7 @@ export abstract class BaseImporter implements MetadataImporter {
             .replaceAll(/<\/(p|div|li|h[1-6]|blockquote|section|article|tr)>/gi, '\n');
 
         const doc = this.parseHtml(`<div>${normalizedHtml}</div>`);
-        const text = doc.body.textContent || "";
+        const text = this.decodeHtmlEntities(doc.body.textContent || "");
 
         const lines = text
             .replaceAll('\u00a0', ' ')
@@ -55,5 +55,20 @@ export abstract class BaseImporter implements MetadataImporter {
         }
 
         return collapsedLines.join('\n').trim();
+    }
+
+    private decodeHtmlEntities(text: string): string {
+        let decoded = text;
+        const doc = this.parseHtml('');
+        const textarea = doc.createElement('textarea');
+
+        for (let i = 0; i < 3; i += 1) {
+            textarea.innerHTML = decoded;
+            const next = textarea.value;
+            if (next === decoded) break;
+            decoded = next;
+        }
+
+        return decoded;
     }
 }

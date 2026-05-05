@@ -84,6 +84,68 @@ describe('ImdbImporter', () => {
             expect(result.extraData['IMDb Rating']).toBe('7.5');
         });
 
+        it('should fallback to IMDb GraphQL if the title page has no embedded metadata', async () => {
+            const mockHtml = '<html><head><title>IMDb</title></head><body></body></html>';
+            const mockGraphQl = JSON.stringify({
+                data: {
+                    title: {
+                        plot: {
+                            plotText: {
+                                plainText: 'Gabby&amp;apos;s road trip takes an unexpected turn.'
+                            }
+                        },
+                        primaryImage: {
+                            url: 'https://m.media-amazon.com/images/M/test.jpg'
+                        },
+                        releaseYear: {
+                            year: 2025
+                        },
+                        runtime: {
+                            seconds: 5880
+                        },
+                        genres: {
+                            genres: [
+                                { text: 'Animation' },
+                                { text: 'Adventure' }
+                            ]
+                        },
+                        ratingsSummary: {
+                            aggregateRating: 5.5
+                        },
+                        principalCredits: [
+                            {
+                                category: { text: 'Director' },
+                                credits: [
+                                    { name: { nameText: { text: 'Ryan Crego' } } }
+                                ]
+                            }
+                        ]
+                    }
+                }
+            });
+
+            vi.mocked(invoke)
+                .mockResolvedValueOnce(mockHtml)
+                .mockResolvedValueOnce(mockGraphQl);
+
+            const result = await importer.fetch('https://www.imdb.com/title/tt32214143/');
+
+            expect(result.description).toBe("Gabby's road trip takes an unexpected turn.");
+            expect(result.coverImageUrl).toBe('https://m.media-amazon.com/images/M/test.jpg');
+            expect(result.extraData['Director']).toBe('Ryan Crego');
+            expect(result.extraData['Genres']).toBe('Animation, Adventure');
+            expect(result.extraData['Total Runtime']).toBe('1h 38m');
+            expect(result.extraData['Release Year']).toBe('2025');
+            expect(result.extraData['IMDb Rating']).toBe('5.5');
+            expect(invoke).toHaveBeenLastCalledWith('fetch_external_json', expect.objectContaining({
+                url: 'https://caching.graphql.imdb.com/',
+                method: 'POST',
+                headers: expect.objectContaining({
+                    Accept: 'application/json'
+                })
+            }));
+        });
+
         it('should throw error on CAPTCHA check', async () => {
             const captchaHtml = '<html><head><title>Bot Check - IMDb</title></head><body></body></html>';
             vi.mocked(invoke).mockResolvedValue(captchaHtml);
@@ -106,7 +168,9 @@ describe('ImdbImporter', () => {
                     <body></body>
                     </html>
                 `)
-                .mockResolvedValueOnce('<html><head><title>IMDb</title></head><body></body></html>');
+                .mockResolvedValueOnce('{"data":{"title":null}}')
+                .mockResolvedValueOnce('<html><head><title>IMDb</title></head><body></body></html>')
+                .mockResolvedValueOnce('{"data":{"title":null}}');
 
             const result = await importer.fetch('https://imdb.com/title/tt456/');
             expect(result.extraData['Total Runtime']).toBe('45s');
