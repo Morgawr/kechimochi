@@ -210,13 +210,14 @@ export async function waitForAppReady(
   await browser.waitUntil(
     async () => {
       retries++;
-      const appRoot = await $('#app');
       const dashboardNav = await $('[data-view="dashboard"]');
       const profileNav = await $('[data-view="profile"]');
       const viewContainer = await $('#view-container');
       const initialPrompt = await $('#initial-prompt-input');
 
-      const bootState = await appRoot.getAttribute('data-boot-state').catch(() => '');
+      const bootState = await browser.execute(() => {
+        return document.getElementById('app')?.dataset.bootState || '';
+      }).catch(() => '');
       const bootReady = bootState === 'ready';
       const dashboardVisible = await dashboardNav.isDisplayed().catch(() => false);
       const profileVisible = await profileNav.isDisplayed().catch(() => false);
