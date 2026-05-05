@@ -86,10 +86,10 @@ export async function waitForNoActiveOverlays(timeout = 5000): Promise<void> {
     });
 }
 
-export async function getTopmostVisibleOverlay(selector?: string) {
+export async function getTopmostVisibleOverlay(selector?: string, timeout = 8000) {
     await browser.waitUntil(async () => {
         return (await findTopmostVisibleOverlay(selector)) !== null;
-    }, { timeout: 8000, timeoutMsg: `No visible modal overlay found for selector "${selector || '<any>'}"` });
+    }, { timeout, timeoutMsg: `No visible modal overlay found for selector "${selector || '<any>'}"` });
 
     const overlay = await findTopmostVisibleOverlay(selector);
     if (overlay) {
@@ -314,25 +314,29 @@ export async function takeAndCompareScreenshot(tag: string): Promise<void> {
  * If expectedText is provided, it verifies the alert content.
  */
 export async function dismissAlert(expectedText?: string, timeout = 5000): Promise<void> {
-    const okBtn = $('#alert-ok');
     try {
-        if (timeout > 0) {
-            await okBtn.waitForDisplayed({ timeout });
-        }
-        
-        if (await okBtn.isDisplayed()) {
-            if (expectedText) {
-                const alertBody = $('#alert-body');
-                expect(await alertBody.getText()).toContain(expectedText);
-            }
+        const overlay = timeout > 0
+            ? await getTopmostVisibleOverlay('#alert-ok', timeout)
+            : await findTopmostVisibleOverlay('#alert-ok');
 
-            // Target the currently visible alert overlay in case another modal is fading out.
-            const overlay = await getTopmostVisibleOverlay('#alert-ok');
-            const scopedOkBtn = overlay.$('#alert-ok');
-            await safeClick(scopedOkBtn);
-
-            await waitForOverlayToDisappear(overlay, 5000);
+        if (!overlay) {
+            return;
         }
+
+        const alertBody = overlay.$('#alert-body');
+        const scopedOkBtn = overlay.$('#alert-ok');
+
+        if (expectedText) {
+            await browser.waitUntil(async () => {
+                return (await alertBody.getText().catch(() => '')).includes(expectedText);
+            }, {
+                timeout,
+                timeoutMsg: `Alert body did not contain "${expectedText}"`,
+            });
+        }
+
+        await safeClick(scopedOkBtn);
+        await waitForOverlayToDisappear(overlay, 5000);
     } catch (e) {
         if (timeout > 0) throw e;
     }
