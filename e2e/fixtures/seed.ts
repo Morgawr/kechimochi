@@ -19,108 +19,109 @@ const SHARED_DB_PATH = path.join(FIXTURES_DIR, 'kechimochi_shared_media.db');
 const USER_DB_PATH = path.join(FIXTURES_DIR, 'kechimochi_TESTUSER.db');
 const COVERS_DIR = path.join(FIXTURES_DIR, 'covers');
 
+type SeedMediaEntryInput = {
+  title: string;
+  media_type: string;
+  status: string;
+  description: string;
+  content_type: string;
+  language?: string;
+  tracking_status?: string;
+  extra_data?: string;
+};
+
+type SeedMediaEntry = Required<SeedMediaEntryInput>;
+
+function defaultTrackingStatus(status: string): string {
+  if (status === 'Complete' || status === 'Paused') {
+    return status;
+  }
+  return 'Ongoing';
+}
+
+function mediaEntry({ language = 'Japanese', tracking_status, extra_data = '{}', ...entry }: SeedMediaEntryInput): SeedMediaEntry {
+  return {
+    ...entry,
+    language,
+    tracking_status: tracking_status ?? defaultTrackingStatus(entry.status),
+    extra_data,
+  };
+}
+
 // ---------- Media entries (all Japanese) ----------
 const MEDIA_ENTRIES = [
-  {
+  mediaEntry({
     title: 'ある魔女が死ぬまで',
     media_type: 'Reading',
     status: 'Complete',
-    language: 'Japanese',
     description: '魔女と少女の物語。感動的なファンタジー小説。',
     content_type: 'Novel',
-    tracking_status: 'Complete',
     extra_data: JSON.stringify({ source_url: 'https://example.com/novel1' }),
-  },
-  {
+  }),
+  mediaEntry({
     title: '薬屋のひとりごと',
     media_type: 'Reading',
     status: 'Active',
-    language: 'Japanese',
     description: '後宮で働く薬師の少女が様々な事件を解決していく物語。',
     content_type: 'Novel',
-    tracking_status: 'Ongoing',
-    extra_data: '{}',
-  },
-  {
+  }),
+  mediaEntry({
     title: '呪術廻戦',
     media_type: 'Reading',
     status: 'Active',
-    language: 'Japanese',
     description: '呪いをめぐる少年たちの戦いを描いたダークファンタジー。',
     content_type: 'Manga',
-    tracking_status: 'Ongoing',
-    extra_data: '{}',
-  },
-  {
+  }),
+  mediaEntry({
     title: 'ハイキュー!!',
     media_type: 'Watching',
     status: 'Complete',
-    language: 'Japanese',
     description: 'バレーボールに青春をかける高校生たちの物語。',
     content_type: 'Anime',
-    tracking_status: 'Complete',
-    extra_data: '{}',
-  },
-  {
+  }),
+  mediaEntry({
     title: 'STEINS;GATE',
     media_type: 'Playing',
     status: 'Complete',
-    language: 'Japanese',
     description: 'タイムリープをテーマにしたサイエンスフィクション。',
     content_type: 'Visual Novel',
-    tracking_status: 'Complete',
-    extra_data: '{}',
-  },
-  {
+  }),
+  mediaEntry({
     title: 'ペルソナ5',
     media_type: 'Playing',
     status: 'Active',
-    language: 'Japanese',
     description: '心の怪盗団として活躍するRPG。',
     content_type: 'Video Game',
-    tracking_status: 'Ongoing',
-    extra_data: '{}',
-  },
-  {
+  }),
+  mediaEntry({
     title: '本好きの下剋上',
     media_type: 'Reading',
     status: 'Active',
-    language: 'Japanese',
     description: '本を愛する少女が異世界で本を作るために奮闘する物語。',
     content_type: 'Novel',
-    tracking_status: 'Ongoing',
-    extra_data: '{}',
-  },
-  {
+  }),
+  mediaEntry({
     title: '葬送のフリーレン',
     media_type: 'Watching',
     status: 'Active',
-    language: 'Japanese',
     description: '魔王を倒した後のエルフの魔法使いの旅を描いた作品。',
     content_type: 'Anime',
-    tracking_status: 'Ongoing',
-    extra_data: '{}',
-  },
-  {
+  }),
+  mediaEntry({
     title: 'WHITE ALBUM 2',
     media_type: 'Playing',
     status: 'Paused',
-    language: 'Japanese',
     description: '音楽と恋愛をテーマにしたビジュアルノベル。',
     content_type: 'Visual Novel',
-    tracking_status: 'Paused',
-    extra_data: '{}',
-  },
-  {
+  }),
+  mediaEntry({
     title: 'ダンジョン飯',
     media_type: 'Reading',
     status: 'Archived',
-    language: 'Japanese',
     description: 'ダンジョンの中でモンスターを料理して食べる冒険者たちの物語。',
     content_type: 'Manga',
     tracking_status: 'Complete',
-    extra_data: '{}',
-  },
+  }),
 ];
 
 function generateActivityLogs(mediaIds: Map<string, number>) {
