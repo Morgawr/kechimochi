@@ -7,7 +7,7 @@ export default defineConfig({
     exclude: ['**/node_modules/**', '**/dist/**', '**/e2e/**', '**/src-tauri/**'],
     coverage: {
       include: ['src/**'],
-      exclude: ['src-tauri/**', '**/node_modules/**', '**/dist/**', '**/e2e/**'],
+      exclude: ['src-tauri/**', '**/node_modules/**', '**/dist/**', '**/e2e/**', 'src/**/*.d.ts', 'src/**/types.ts'],
       reporter: ['text', 'json', 'html', 'json-summary'],
     },
   },

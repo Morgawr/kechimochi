@@ -1,5 +1,5 @@
 import { BaseImporter } from './base';
-import { ScrapedMetadata } from './index';
+import type { ScrapedMetadata } from './types';
 
 export class CmoaImporter extends BaseImporter {
     name = "Cmoa";

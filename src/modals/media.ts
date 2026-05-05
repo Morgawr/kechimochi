@@ -4,7 +4,7 @@ import { customAlert, createOverlay } from './base';
 import { escapeHTML } from '../core/html';
 import { ACTIVITY_TYPES } from '../constants';
 import { getExtraDataValue } from '../utils/extra_data';
-import type { ScrapedFieldSource, ScrapedMetadata } from '../importers/index';
+import type { ScrapedFieldSource, ScrapedMetadata } from '../importers/types';
 
 export async function showAddMediaModal(): Promise<{title: string, type: string, contentType: string} | null> {
     return new Promise((resolve) => {

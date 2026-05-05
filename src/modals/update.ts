@@ -1,7 +1,7 @@
 import { escapeHTML } from '../core/html';
 import { getReleasesUrl } from '../app_version';
 import { createOverlay } from './base';
-import { renderReleaseNotesHtml } from '../updates/release_notes';
+import { renderReleaseNotesHtml } from '../release_notes';
 
 interface UpdateModalOptions {
     title: string;

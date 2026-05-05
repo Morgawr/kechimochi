@@ -1,5 +1,5 @@
 import { BaseImporter } from './base';
-import { ScrapedMetadata } from './index';
+import type { ScrapedMetadata } from './types';
 
 export class BookmeterImporter extends BaseImporter {
     name = "Bookmeter";
