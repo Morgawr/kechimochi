@@ -1,30 +1,21 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { expect, it } from 'vitest';
 import { BookmeterImporter } from '../../src/importers/bookmeter';
-import { invoke } from '@tauri-apps/api/core';
+import { describeImporter, expectMockedImport, htmlDocument, itMatchesUrls } from './importer_test_utils';
 
-describe('BookmeterImporter', () => {
-    let importer: BookmeterImporter;
+describeImporter('BookmeterImporter', () => new BookmeterImporter(), getImporter => {
+    itMatchesUrls('matches valid Bookmeter URLs', getImporter, [
+        { url: 'https://bookmeter.com/books/123' },
+    ]);
 
-    beforeEach(() => {
-        importer = new BookmeterImporter();
-        vi.clearAllMocks();
-    });
-
-    describe('matchUrl', () => {
-        it('should match valid Bookmeter URLs', () => {
-            expect(importer.matchUrl('https://bookmeter.com/books/123')).toBe(true);
-        });
-    });
-
-    describe('fetch', () => {
-        it('should parse metadata correctly', async () => {
-            const mockHtml = `
-                <html>
-                <head>
+    it('parses metadata correctly', async () => {
+        const result = await expectMockedImport(getImporter(), {
+            url: 'https://bookmeter.com/books/123',
+            response: htmlDocument({
+                head: `
                     <meta property="og:image" content="https://img.bm.com/123.jpg">
                     <meta property="og:description" content="Prefix textがあるので安心。Main plot.">
-                </head>
-                <body>
+                `,
+                body: `
                     <div class="header__authors">
                         <a href="/search?author=Nisio+isin">Nisio Isin</a>
                     </div>
@@ -33,31 +24,35 @@ describe('BookmeterImporter', () => {
                         <dd>448ページ</dd>
                     </dl>
                     <div class="current-book-detail__publisher">出版社：Kodansha</div>
-                </body>
-                </html>
-            `;
-
-            vi.mocked(invoke).mockResolvedValue(mockHtml);
-
-            const result = await importer.fetch('https://bookmeter.com/books/123');
-
-            expect(result.description).toBe('Main plot.');
-            expect(result.coverImageUrl).toBe('https://img.bm.com/123.jpg');
-            expect(result.extraData['Page Count']).toBe('448');
-            expect(result.extraData['Publisher']).toBe('Kodansha');
-            expect(result.extraData['Author']).toBe('Nisio Isin');
+                `,
+            }),
+            expected: {
+                description: 'Main plot.',
+                coverImageUrl: 'https://img.bm.com/123.jpg',
+                extraData: {
+                    'Page Count': '448',
+                    Publisher: 'Kodansha',
+                    Author: 'Nisio Isin',
+                },
+            },
         });
-        it('should handle publisher without prefix', async () => {
-            const mockHtml = `
-                <html>
-                <body>
-                    <div class="current-book-detail__publisher">Just Publisher Name</div>
-                </body>
-                </html>
-            `;
-            vi.mocked(invoke).mockResolvedValue(mockHtml);
-            const result = await importer.fetch('url');
-            expect(result.extraData['Publisher']).toBe('Just Publisher Name');
+
+        expect(result).toBeDefined();
+    });
+
+    it('handles publisher without prefix', async () => {
+        const result = await expectMockedImport(getImporter(), {
+            url: 'url',
+            response: htmlDocument({
+                body: '<div class="current-book-detail__publisher">Just Publisher Name</div>',
+            }),
+            expected: {
+                extraData: {
+                    Publisher: 'Just Publisher Name',
+                },
+            },
         });
+
+        expect(result).toBeDefined();
     });
 });
