@@ -401,7 +401,8 @@ export async function performActivityEdit(btnSelector: string, newDuration: stri
     await editBtn.waitForClickable({ timeout: 3000 });
     await editBtn.click();
 
-    const modal = $('.modal-content');
+    const overlay = await getTopmostVisibleOverlay('#add-activity-form', 5000);
+    const modal = overlay.$('.modal-content');
     await modal.waitForDisplayed({ timeout: 3000 });
 
     // Verify it's in edit mode
@@ -411,19 +412,17 @@ export async function performActivityEdit(btnSelector: string, newDuration: stri
         timeoutMsg: 'Modal did not enter Edit Activity mode'
     });
 
-    const durationInput = $('#activity-duration');
-    await durationInput.waitForDisplayed({ timeout: 3000 });
-    await durationInput.setValue(newDuration);
+    await setInputValue(() => overlay.$('#activity-duration'), newDuration, 3000);
 
-    const charInput = $('#activity-characters');
+    const charInput = overlay.$('#activity-characters');
     if (await charInput.isExisting()) {
-        await charInput.setValue(newCharacters);
+        await setInputValue(() => overlay.$('#activity-characters'), newCharacters, 3000);
     }
 
-    const submitBtn = $('#add-activity-form button[type="submit"]');
+    const submitBtn = overlay.$('#add-activity-form button[type="submit"]');
     await submitBtn.waitForClickable({ timeout: 2000 });
-    await submitBtn.click();
+    await safeClick(submitBtn);
 
-    await modal.waitForDisplayed({ reverse: true, timeout: 5000 });
+    await waitForOverlayToDisappear(overlay, 5000);
     await waitForNoActiveOverlays(5000);
 }
