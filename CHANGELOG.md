@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-05-06
+
 ### Fixed
  - Activity logs from the main activity modal now set the right activity type
  - Updated IMDB importer to new layout changes
