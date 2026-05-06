@@ -1,4 +1,4 @@
-import { Logger } from '../../src/core/logger';
+import { Logger } from '../../src/logger';
 import { waitForAppReady } from '../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../helpers/navigation.js';
 import { 

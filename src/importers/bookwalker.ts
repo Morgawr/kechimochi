@@ -1,6 +1,6 @@
 import { BaseImporter } from './base';
 import type { ScrapedMetadata } from './types';
-import { Logger } from '../core/logger';
+import { Logger } from '../logger';
 
 export class BookwalkerImporter extends BaseImporter {
     name = "Bookwalker";

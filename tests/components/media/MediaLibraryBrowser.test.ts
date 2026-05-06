@@ -1,15 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Media } from '../../../src/api';
 import * as api from '../../../src/api';
-import { MediaLibraryBrowser } from '../../../src/components/media/MediaLibraryBrowser';
-import type { LibraryLayoutMode } from '../../../src/components/media/library_types';
-import { showAddMediaModal } from '../../../src/modals';
-import { MediaGrid } from '../../../src/components/media/MediaGrid';
-import { MediaList } from '../../../src/components/media/MediaList';
+import { MediaLibraryBrowser } from '../../../src/media/MediaLibraryBrowser';
+import type { LibraryLayoutMode } from '../../../src/media/library_types';
+import { showAddMediaModal } from '../../../src/media/modal';
+import { MediaGrid } from '../../../src/media/MediaGrid';
+import { MediaList } from '../../../src/media/MediaList';
 
 const listInstances: Array<{ render: ReturnType<typeof vi.fn>; destroy: ReturnType<typeof vi.fn> }> = [];
 
-vi.mock('../../../src/components/media/MediaGrid', () => ({
+vi.mock('../../../src/media/MediaGrid', () => ({
     MediaGrid: vi.fn().mockImplementation(() => {
         return {
             render: vi.fn(),
@@ -18,7 +18,7 @@ vi.mock('../../../src/components/media/MediaGrid', () => ({
     }),
 }));
 
-vi.mock('../../../src/components/media/MediaList', () => ({
+vi.mock('../../../src/media/MediaList', () => ({
     MediaList: vi.fn().mockImplementation(() => {
         const instance = {
             render: vi.fn(),
@@ -29,7 +29,7 @@ vi.mock('../../../src/components/media/MediaList', () => ({
     }),
 }));
 
-vi.mock('../../../src/modals', () => ({
+vi.mock('../../../src/media/modal', () => ({
     showAddMediaModal: vi.fn(),
 }));
 

@@ -6,7 +6,7 @@ import {
 } from './media_cover_test_utils';
 import { Media } from '../../../src/api';
 import * as api from '../../../src/api';
-import { MediaListItem } from '../../../src/components/media/MediaListItem';
+import { MediaListItem } from '../../../src/media/MediaListItem';
 
 describe('MediaListItem', () => {
     let container: HTMLElement;

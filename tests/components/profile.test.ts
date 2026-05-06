@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { resolve } from 'node:path';
-import { ProfileView } from '../../src/components/profile';
+import { ProfileView } from '../../src/profile/ProfileView';
 import * as api from '../../src/api';
 import { Media } from '../../src/api';
 import { STORAGE_KEYS, SETTING_KEYS } from '../../src/constants';
-import { Logger } from '../../src/core/logger';
+import { Logger } from '../../src/logger';
 import {
     buildConnectedSyncStatus,
     buildGoogleDriveAuthSession,
@@ -59,24 +59,36 @@ vi.mock('../../src/services', () => ({
     getServices: vi.fn(() => mockServices),
 }));
 
-vi.mock('../../src/utils/dialogs', () => ({
+vi.mock('../../src/file_dialogs', () => ({
     open: vi.fn(),
     save: vi.fn(),
 }));
 
-vi.mock('../../src/modals', () => ({
+vi.mock('../../src/modal_base', () => ({
     customAlert: vi.fn(),
     customConfirm: vi.fn(),
     customPrompt: vi.fn(),
-    showExportCsvModal: vi.fn(),
     showBlockingStatus: vi.fn(() => ({ close: vi.fn() })),
-    showSyncEnablementWizard: vi.fn(),
-    showSyncAttachPreview: vi.fn(),
-    showInstalledUpdateModal: vi.fn(() => Promise.resolve()),
-    showAvailableUpdateModal: vi.fn(() => Promise.resolve()),
 }));
 
-import * as modals from '../../src/modals';
+vi.mock('../../src/activity_modal', () => ({
+    showExportCsvModal: vi.fn(),
+}));
+
+vi.mock('../../src/media/modal', () => ({
+    showMediaCsvConflictModal: vi.fn(),
+}));
+
+vi.mock('../../src/sync_modal', () => ({
+    showSyncEnablementWizard: vi.fn(),
+    showSyncAttachPreview: vi.fn(),
+}));
+
+import * as modalBase from '../../src/modal_base';
+import * as activityModal from '../../src/activity_modal';
+import * as mediaModal from '../../src/media/modal';
+import * as syncModal from '../../src/sync_modal';
+const modals = { ...modalBase, ...activityModal, ...mediaModal, ...syncModal };
 
 function mockStandardProfileLoad(options?: {
     appVersion?: string;

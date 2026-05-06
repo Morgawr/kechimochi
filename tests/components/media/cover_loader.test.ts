@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as api from '../../../src/api';
-import { MediaCoverLoader } from '../../../src/components/media/cover_loader';
+import { MediaCoverLoader } from '../../../src/media/cover_loader';
 
 vi.mock('../../../src/api', () => ({
     readFileBytes: vi.fn(),

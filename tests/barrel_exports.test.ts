@@ -15,8 +15,8 @@ describe('public module entrypoints', () => {
     });
 
     it('re-exports component classes', async () => {
-        const dashboard = await import('../src/components/dashboard/index');
-        const media = await import('../src/components/media/index');
+        const dashboard = await import('../src/dashboard/index');
+        const media = await import('../src/media/index');
         const components = await import('../src/components');
 
         expect(dashboard.ActivityCharts).toBeTypeOf('function');

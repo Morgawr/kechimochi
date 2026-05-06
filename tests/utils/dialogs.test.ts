@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { save, open } from '../../src/utils/dialogs';
+import { save, open } from '../../src/file_dialogs';
 import { save as tauriSave, open as tauriOpen } from '@tauri-apps/plugin-dialog';
 
 vi.mock('@tauri-apps/plugin-dialog', () => ({

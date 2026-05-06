@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { Logger } from '../../src/core/logger';
+import { Logger } from '../../src/logger';
 import { waitForAppReady } from '../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../helpers/navigation.js';
 import { dismissAlert } from '../helpers/common.js';

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ActivityCharts } from '../../../src/components/dashboard/ActivityCharts';
+import { ActivityCharts } from '../../../src/dashboard/ActivityCharts';
 import { ActivitySummary } from '../../../src/api';
 import Chart from 'chart.js/auto';
 

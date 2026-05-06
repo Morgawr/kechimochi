@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { Dashboard } from '../../src/components/dashboard';
+import { Dashboard } from '../../src/dashboard/Dashboard';
 import * as api from '../../src/api';
 import { ActivitySummary } from '../../src/api';
-import { customConfirm } from '../../src/modals';
-import { HeatmapView } from '../../src/components/dashboard/HeatmapView';
-import { ActivityCharts } from '../../src/components/dashboard/ActivityCharts';
+import { customConfirm } from '../../src/modal_base';
+import { HeatmapView } from '../../src/dashboard/HeatmapView';
+import { ActivityCharts } from '../../src/dashboard/ActivityCharts';
 
 vi.mock('../../src/api', () => ({
     getLogs: vi.fn(),
@@ -15,15 +15,17 @@ vi.mock('../../src/api', () => ({
     setSetting: vi.fn(),
 }));
 
-vi.mock('../../src/modals', () => ({
+vi.mock('../../src/modal_base', () => ({
     customConfirm: vi.fn(),
-    showLogActivityModal: vi.fn(),
-    showAddMediaModal: vi.fn(),
 }));
 
-vi.mock('../../src/components/dashboard/StatsCard');
-vi.mock('../../src/components/dashboard/HeatmapView');
-vi.mock('../../src/components/dashboard/ActivityCharts');
+vi.mock('../../src/activity_modal', () => ({
+    showLogActivityModal: vi.fn(),
+}));
+
+vi.mock('../../src/dashboard/StatsCard');
+vi.mock('../../src/dashboard/HeatmapView');
+vi.mock('../../src/dashboard/ActivityCharts');
 
 function getLocalISODate(date: Date): string {
     const pad = (value: number) => value.toString().padStart(2, '0');

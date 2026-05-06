@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const loggerError = vi.fn();
 
-vi.mock('../src/core/logger', () => ({
+vi.mock('../src/logger', () => ({
     Logger: {
         error: loggerError,
     },

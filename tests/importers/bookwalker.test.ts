@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import { BookwalkerImporter } from '../../src/importers/bookwalker';
-import { Logger } from '../../src/core/logger';
+import { Logger } from '../../src/logger';
 import {
     describeImporter,
     expectMockedImport,

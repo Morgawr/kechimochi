@@ -12,7 +12,7 @@ vi.mock('../../src/services/web', () => ({
     WebServices: vi.fn(() => webFactory()),
 }));
 
-vi.mock('../../src/core/logger', () => ({
+vi.mock('../../src/logger', () => ({
     Logger: {
         warn: loggerWarn,
     },

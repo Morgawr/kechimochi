@@ -1,18 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { MediaLog } from '../../../src/components/media/MediaLog';
+import { MediaLog } from '../../../src/media/MediaLog';
 import * as api from '../../../src/api';
-import { showLogActivityModal } from '../../../src/modals/activity';
-import { customConfirm } from '../../../src/modals/base';
+import { showLogActivityModal } from '../../../src/activity_modal';
+import { customConfirm } from '../../../src/modal_base';
 
 vi.mock('../../../src/api', () => ({
     deleteLog: vi.fn(),
 }));
 
-vi.mock('../../../src/modals/activity', () => ({
+vi.mock('../../../src/activity_modal', () => ({
     showLogActivityModal: vi.fn(),
 }));
 
-vi.mock('../../../src/modals/base', () => ({
+vi.mock('../../../src/modal_base', () => ({
     customConfirm: vi.fn(),
 }));
 

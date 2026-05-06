@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import * as base from '../../src/modals/base';
+import * as base from '../../src/modal_base';
 
 describe('modals/base.ts', () => {
     beforeEach(() => {

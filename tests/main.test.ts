@@ -1,16 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import * as api from '../src/api';
-import * as modals from '../src/modals';
 import { SETTING_KEYS } from '../src/constants';
-import { Logger } from '../src/core/logger';
+import { Logger } from '../src/logger';
 import {
+    getMainModalMock,
     renderMainAppShell,
     resetMainApiMocks,
     resetMainModalMocks,
     setBuildGlobals,
     stubMainStorage,
 } from './helpers/main_harness';
+
+const modals = getMainModalMock();
 
 function createDeferred<T>() {
     let resolve!: (value: T | PromiseLike<T>) => void;
@@ -44,9 +46,68 @@ vi.mock('../src/api', async () => {
     return createMainApiMock();
 });
 
-vi.mock('../src/modals', async () => {
-    const { createMainModalMock } = await import('./helpers/main_harness');
-    return createMainModalMock();
+vi.mock('../src/modal_base', async () => {
+    const { getMainModalMock } = await import('./helpers/main_harness');
+    const mocks = getMainModalMock();
+    return {
+        customAlert: mocks.customAlert,
+        customConfirm: mocks.customConfirm,
+        customPrompt: mocks.customPrompt,
+        showBlockingStatus: mocks.showBlockingStatus,
+    };
+});
+
+vi.mock('../src/profile/modal', async () => {
+    const { getMainModalMock } = await import('./helpers/main_harness');
+    const mocks = getMainModalMock();
+    return {
+        showInitialSetupPrompt: mocks.showInitialSetupPrompt,
+    };
+});
+
+vi.mock('../src/activity_modal', async () => {
+    const { getMainModalMock } = await import('./helpers/main_harness');
+    const mocks = getMainModalMock();
+    return {
+        showLogActivityModal: mocks.showLogActivityModal,
+    };
+});
+
+vi.mock('../src/media/modal', async () => {
+    const { getMainModalMock } = await import('./helpers/main_harness');
+    const mocks = getMainModalMock();
+    return {
+        showAddMediaModal: mocks.showAddMediaModal,
+        showImportMergeModal: mocks.showImportMergeModal,
+        showJitenSearchModal: mocks.showJitenSearchModal,
+        showMediaCsvConflictModal: mocks.showMediaCsvConflictModal,
+    };
+});
+
+vi.mock('../src/milestone_modal', async () => {
+    const { getMainModalMock } = await import('./helpers/main_harness');
+    const mocks = getMainModalMock();
+    return {
+        showAddMilestoneModal: mocks.showAddMilestoneModal,
+    };
+});
+
+vi.mock('../src/sync_modal', async () => {
+    const { getMainModalMock } = await import('./helpers/main_harness');
+    const mocks = getMainModalMock();
+    return {
+        showSyncEnablementWizard: mocks.showSyncEnablementWizard,
+        showSyncAttachPreview: mocks.showSyncAttachPreview,
+    };
+});
+
+vi.mock('../src/update/modal', async () => {
+    const { getMainModalMock } = await import('./helpers/main_harness');
+    const mocks = getMainModalMock();
+    return {
+        showInstalledUpdateModal: mocks.showInstalledUpdateModal,
+        showAvailableUpdateModal: mocks.showAvailableUpdateModal,
+    };
 });
 
 const createSyncStatusMock = (overrides: Partial<Awaited<ReturnType<typeof api.getSyncStatus>>> = {}) => ({

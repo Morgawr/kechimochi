@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { initialProfilePrompt, showInitialSetupPrompt } from '../../src/modals/profile';
+import { initialProfilePrompt, showInitialSetupPrompt } from '../../src/profile/modal';
 
 describe('modals/profile.ts', () => {
     beforeEach(() => {

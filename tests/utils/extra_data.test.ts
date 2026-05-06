@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getCharacterCountFromExtraData, getExtraDataValue, mergeExtraData, normalizeExtraData, renameExtraDataKey, upsertExtraDataValue } from '../../src/utils/extra_data';
+import { getCharacterCountFromExtraData, getExtraDataValue, mergeExtraData, normalizeExtraData, renameExtraDataKey, upsertExtraDataValue } from '../../src/extra_data';
 
 describe('extra_data utils', () => {
     it('should find extra data values case-insensitively', () => {

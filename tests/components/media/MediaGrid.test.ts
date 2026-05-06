@@ -1,10 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import { MediaGrid } from '../../../src/components/media/MediaGrid';
-import { MediaItem } from '../../../src/components/media/MediaItem';
+import { MediaGrid } from '../../../src/media/MediaGrid';
+import { MediaItem } from '../../../src/media/MediaItem';
 import { Media } from '../../../src/api';
 import { createCollectionMediaList, useCollectionRenderTestEnv } from './collection_test_utils';
 
-vi.mock('../../../src/components/media/MediaItem', () => ({
+vi.mock('../../../src/media/MediaItem', () => ({
     MediaItem: vi.fn().mockImplementation(() => ({
         render: vi.fn(),
     })),

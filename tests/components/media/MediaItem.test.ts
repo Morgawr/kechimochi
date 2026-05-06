@@ -5,7 +5,7 @@ import {
     resetCoverLoaderTestState,
     triggerLatestIntersection,
 } from './media_cover_test_utils';
-import { MediaItem } from '../../../src/components/media/MediaItem';
+import { MediaItem } from '../../../src/media/MediaItem';
 import * as api from '../../../src/api';
 import { Media } from '../../../src/api';
 

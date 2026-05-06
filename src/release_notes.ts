@@ -1,4 +1,4 @@
-import { escapeHTML } from './core/html';
+import { escapeHTML } from './html';
 
 interface HeadingBlock {
     type: 'heading';

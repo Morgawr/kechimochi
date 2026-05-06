@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { showAddMediaModal, showImportMergeModal, showMediaCsvConflictModal, showJitenSearchModal } from '../../src/modals/media';
+import { showAddMediaModal, showImportMergeModal, showMediaCsvConflictModal, showJitenSearchModal } from '../../src/media/modal';
 
 vi.mock('../../src/jiten_api', () => ({
     searchJiten: vi.fn(),

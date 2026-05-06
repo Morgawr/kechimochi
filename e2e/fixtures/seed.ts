@@ -12,7 +12,7 @@ import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Logger } from '../../src/core/logger';
+import { Logger } from '../../src/logger';
 
 const FIXTURES_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SHARED_DB_PATH = path.join(FIXTURES_DIR, 'kechimochi_shared_media.db');

@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { type AddressInfo } from 'node:net';
 import { gunzipSync, gzipSync } from 'node:zlib';
-import { Logger } from '../../src/core/logger';
+import { Logger } from '../../src/logger';
 
 const MANIFEST_FILE_PREFIX = 'kechimochi-manifest-';
 const SNAPSHOT_FILE_PREFIX = 'kechimochi-snapshot-';

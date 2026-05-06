@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { StatsCard } from '../../../src/components/dashboard/StatsCard';
+import { StatsCard } from '../../../src/dashboard/StatsCard';
 import { ActivitySummary, Media } from '../../../src/api';
 
 describe('StatsCard', () => {

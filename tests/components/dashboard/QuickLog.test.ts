@@ -1,18 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { QuickLog } from '../../../src/components/dashboard/QuickLog';
+import { QuickLog } from '../../../src/dashboard/QuickLog';
 import type { ActivitySummary, Media } from '../../../src/api';
 
-vi.mock('../../../src/modals', () => ({
+vi.mock('../../../src/activity_modal', () => ({
     showLogActivityModal: vi.fn(),
 }));
 
-vi.mock('../../../src/components/media/cover_loader', () => ({
+vi.mock('../../../src/media/cover_loader', () => ({
     MediaCoverLoader: {
         load: vi.fn().mockResolvedValue(null),
     }
 }));
 
-import { showLogActivityModal } from '../../../src/modals';
+import { showLogActivityModal } from '../../../src/activity_modal';
 
 describe('QuickLog', () => {
     let container: HTMLElement;

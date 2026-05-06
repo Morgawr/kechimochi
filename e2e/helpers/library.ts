@@ -2,7 +2,7 @@
  * Library (Media Grid) helpers.
  */
 /// <reference types="@wdio/globals/types" />
-import { Logger } from '../../src/core/logger';
+import { Logger } from '../../src/logger';
 import { waitForNoActiveOverlays } from './common.js';
 import { navigateTo, verifyActiveView } from './navigation.js';
 

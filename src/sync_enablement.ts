@@ -5,8 +5,9 @@ import {
     previewAttachRemoteSyncProfile,
     subscribeSyncProgress,
 } from './api';
-import { customAlert, showBlockingStatus, showSyncAttachPreview, showSyncEnablementWizard } from './modals';
-import type { SyncEnablementWizardOptions } from './modals/sync';
+import { customAlert, showBlockingStatus } from './modal_base';
+import { showSyncAttachPreview, showSyncEnablementWizard } from './sync_modal';
+import type { SyncEnablementWizardOptions } from './sync_modal';
 import type { GoogleDriveAuthSession, SyncAttachPreview, SyncProgressUpdate } from './types';
 
 export const ENABLE_SYNC_AUTH_TIMEOUT_MS = 60_000;
