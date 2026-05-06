@@ -2,6 +2,7 @@ pub mod app_file_io;
 pub mod backup;
 pub mod csv_import;
 pub mod db;
+pub mod http_api;
 pub mod models;
 pub mod profile_picture;
 pub mod sync_auth;
@@ -13,9 +14,10 @@ pub mod sync_snapshot;
 pub mod sync_state;
 
 use rusqlite::Connection;
-#[cfg(target_os = "android")]
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::future::Future;
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{Emitter, Manager, State};
@@ -48,6 +50,77 @@ type SyncTokenStore = Box<dyn sync_auth::SecureTokenStore>;
 type SyncDbConn = Arc<Mutex<Connection>>;
 
 pub struct GoogleAuthMobileState(pub Option<tauri::plugin::PluginHandle<tauri::Wry>>);
+
+const LOCAL_HTTP_API_CONFIG_FILE: &str = "local_http_api.json";
+const DEFAULT_LOCAL_HTTP_API_PORT: u16 = 3031;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalHttpApiConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_local_http_api_bind_host")]
+    pub bind_host: String,
+    #[serde(default = "default_local_http_api_port")]
+    pub port: u16,
+    #[serde(default = "default_local_http_api_scope")]
+    pub scope: http_api::HttpApiScope,
+    #[serde(default)]
+    pub allowed_origins: Vec<String>,
+}
+
+impl Default for LocalHttpApiConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            bind_host: default_local_http_api_bind_host(),
+            port: DEFAULT_LOCAL_HTTP_API_PORT,
+            scope: http_api::HttpApiScope::Automation,
+            allowed_origins: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalHttpApiStatus {
+    pub supported: bool,
+    pub enabled: bool,
+    pub running: bool,
+    pub bind_host: String,
+    pub port: u16,
+    pub scope: http_api::HttpApiScope,
+    pub allowed_origins: Vec<String>,
+    pub url: Option<String>,
+    pub last_error: Option<String>,
+}
+
+struct LocalHttpApiServer {
+    shutdown: Option<tokio::sync::oneshot::Sender<()>>,
+    bound_addr: SocketAddr,
+}
+
+struct LocalHttpApiRuntime {
+    config: LocalHttpApiConfig,
+    server: Option<LocalHttpApiServer>,
+    last_error: Option<String>,
+}
+
+pub struct LocalHttpApiState {
+    inner: Arc<Mutex<LocalHttpApiRuntime>>,
+}
+
+impl LocalHttpApiState {
+    fn new(config: LocalHttpApiConfig) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(LocalHttpApiRuntime {
+                config,
+                server: None,
+                last_error: None,
+            })),
+        }
+    }
+}
 
 #[cfg(target_os = "android")]
 #[derive(Debug, Serialize, Default)]
@@ -108,6 +181,230 @@ fn google_oauth_config(
 
 fn sync_token_store() -> Box<dyn sync_auth::SecureTokenStore> {
     sync_auth::default_secure_token_store()
+}
+
+fn default_local_http_api_bind_host() -> String {
+    "127.0.0.1".to_string()
+}
+
+fn default_local_http_api_port() -> u16 {
+    DEFAULT_LOCAL_HTTP_API_PORT
+}
+
+fn default_local_http_api_scope() -> http_api::HttpApiScope {
+    http_api::HttpApiScope::Automation
+}
+
+#[cfg(target_os = "android")]
+fn local_http_api_supported() -> bool {
+    false
+}
+
+#[cfg(not(target_os = "android"))]
+fn local_http_api_supported() -> bool {
+    true
+}
+
+fn local_http_api_config_path(app_handle: &tauri::AppHandle) -> std::path::PathBuf {
+    db::get_data_dir(app_handle).join(LOCAL_HTTP_API_CONFIG_FILE)
+}
+
+fn load_local_http_api_config(app_handle: &tauri::AppHandle) -> LocalHttpApiConfig {
+    let path = local_http_api_config_path(app_handle);
+    let Ok(bytes) = fs::read(&path) else {
+        return LocalHttpApiConfig::default();
+    };
+    serde_json::from_slice(&bytes).unwrap_or_default()
+}
+
+fn write_local_http_api_config(
+    app_handle: &tauri::AppHandle,
+    config: &LocalHttpApiConfig,
+) -> Result<(), String> {
+    let path = local_http_api_config_path(app_handle);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let bytes = serde_json::to_vec_pretty(config).map_err(|e| e.to_string())?;
+    fs::write(path, bytes).map_err(|e| e.to_string())
+}
+
+fn normalize_local_http_api_config(
+    mut config: LocalHttpApiConfig,
+) -> Result<LocalHttpApiConfig, String> {
+    config.bind_host = config.bind_host.trim().to_string();
+    if config.bind_host != "127.0.0.1" && config.bind_host != "0.0.0.0" {
+        return Err("Local HTTP API bind host must be 127.0.0.1 or 0.0.0.0.".to_string());
+    }
+    if config.port == 0 {
+        return Err("Local HTTP API port must be between 1 and 65535.".to_string());
+    }
+
+    let mut origins = Vec::new();
+    for origin in config.allowed_origins {
+        let origin = origin.trim();
+        if origin.is_empty() {
+            continue;
+        }
+        origins.push(normalize_cors_origin(origin)?);
+    }
+    origins.sort();
+    origins.dedup();
+    config.allowed_origins = origins;
+    Ok(config)
+}
+
+fn normalize_cors_origin(origin: &str) -> Result<String, String> {
+    let parsed = url::Url::parse(origin)
+        .map_err(|_| format!("Invalid CORS origin: {origin}. Use an exact http(s) origin."))?;
+    if parsed.scheme() != "http" && parsed.scheme() != "https" {
+        return Err(format!(
+            "Invalid CORS origin: {origin}. Only http and https origins are supported."
+        ));
+    }
+    if parsed.query().is_some() || parsed.fragment().is_some() || parsed.path() != "/" {
+        return Err(format!(
+            "Invalid CORS origin: {origin}. Use only scheme, host, and optional port."
+        ));
+    }
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| format!("Invalid CORS origin: {origin}. Missing host."))?;
+    let port = parsed
+        .port()
+        .map(|port| format!(":{port}"))
+        .unwrap_or_default();
+    Ok(format!("{}://{}{}", parsed.scheme(), host, port))
+}
+
+fn local_http_api_status_from_runtime(runtime: &LocalHttpApiRuntime) -> LocalHttpApiStatus {
+    let running = runtime.server.is_some();
+    let url = runtime
+        .server
+        .as_ref()
+        .map(|server| local_http_api_url(&runtime.config, server.bound_addr));
+    LocalHttpApiStatus {
+        supported: local_http_api_supported(),
+        enabled: runtime.config.enabled,
+        running,
+        bind_host: runtime.config.bind_host.clone(),
+        port: runtime.config.port,
+        scope: runtime.config.scope,
+        allowed_origins: runtime.config.allowed_origins.clone(),
+        url,
+        last_error: runtime.last_error.clone(),
+    }
+}
+
+fn local_http_api_url(config: &LocalHttpApiConfig, bound_addr: SocketAddr) -> String {
+    let host = if config.bind_host == "0.0.0.0" {
+        "127.0.0.1".to_string()
+    } else {
+        config.bind_host.clone()
+    };
+    format!("http://{}:{}", host, bound_addr.port())
+}
+
+fn stop_local_http_api_server(mut server: LocalHttpApiServer) {
+    if let Some(shutdown) = server.shutdown.take() {
+        let _ = shutdown.send(());
+    }
+}
+
+async fn start_local_http_api_server(
+    app_handle: tauri::AppHandle,
+    conn: Arc<Mutex<Connection>>,
+    config: &LocalHttpApiConfig,
+) -> Result<LocalHttpApiServer, String> {
+    if !local_http_api_supported() {
+        return Err("Local HTTP API is not supported on this platform.".to_string());
+    }
+
+    let addr = format!("{}:{}", config.bind_host, config.port);
+    let listener = tokio::net::TcpListener::bind(&addr)
+        .await
+        .map_err(|e| format!("Failed to bind local HTTP API on {addr}: {e}"))?;
+    let bound_addr = listener.local_addr().map_err(|e| e.to_string())?;
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+
+    let dirty_app_handle = app_handle.clone();
+    let mark_dirty: http_api::DirtyCallback = Arc::new(move || mark_sync_dirty(&dirty_app_handle));
+    let api_state = Arc::new(http_api::HttpApiState::new(
+        conn,
+        db::get_data_dir(&app_handle),
+        Some(mark_dirty),
+    ));
+    let host_policy = if config.bind_host == "0.0.0.0" {
+        http_api::HostValidationPolicy::LocalNetwork
+    } else {
+        http_api::HostValidationPolicy::LocalOnly
+    };
+    let router = http_api::build_api_router(
+        api_state,
+        http_api::HttpApiRouterConfig {
+            scope: config.scope,
+            cors: http_api::HttpApiCors::AllowedOrigins(config.allowed_origins.clone()),
+            host_policy,
+        },
+    );
+
+    tauri::async_runtime::spawn(async move {
+        let result = axum::serve(listener, router)
+            .with_graceful_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .await;
+        if let Err(error) = result {
+            eprintln!("[kechimochi] local HTTP API stopped with error: {error}");
+        }
+    });
+
+    Ok(LocalHttpApiServer {
+        shutdown: Some(shutdown_tx),
+        bound_addr,
+    })
+}
+
+async fn apply_local_http_api_config(
+    app_handle: tauri::AppHandle,
+    conn: Arc<Mutex<Connection>>,
+    api_state: &LocalHttpApiState,
+    config: LocalHttpApiConfig,
+    persist: bool,
+) -> Result<LocalHttpApiStatus, String> {
+    let requested_config = normalize_local_http_api_config(config)?;
+    let old_server = {
+        let mut runtime = api_state.inner.lock().unwrap();
+        runtime.server.take()
+    };
+    if let Some(server) = old_server {
+        stop_local_http_api_server(server);
+    }
+
+    let mut actual_config = requested_config.clone();
+    let mut last_error = None;
+    let server = if requested_config.enabled {
+        match start_local_http_api_server(app_handle.clone(), conn, &requested_config).await {
+            Ok(server) => Some(server),
+            Err(error) => {
+                actual_config.enabled = false;
+                last_error = Some(error);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    if persist {
+        write_local_http_api_config(&app_handle, &actual_config)?;
+    }
+
+    let mut runtime = api_state.inner.lock().unwrap();
+    runtime.config = actual_config;
+    runtime.server = server;
+    runtime.last_error = last_error;
+    Ok(local_http_api_status_from_runtime(&runtime))
 }
 
 fn sync_command_setup(
@@ -1052,6 +1349,22 @@ fn get_startup_error(state: State<'_, StartupState>) -> Option<String> {
     state.error.clone()
 }
 
+#[tauri::command]
+fn get_local_http_api_status(state: State<'_, LocalHttpApiState>) -> LocalHttpApiStatus {
+    let runtime = state.inner.lock().unwrap();
+    local_http_api_status_from_runtime(&runtime)
+}
+
+#[tauri::command]
+async fn save_local_http_api_config(
+    app_handle: tauri::AppHandle,
+    db_state: State<'_, DbState>,
+    api_state: State<'_, LocalHttpApiState>,
+    config: LocalHttpApiConfig,
+) -> Result<LocalHttpApiStatus, String> {
+    apply_local_http_api_config(app_handle, db_state.conn.clone(), &api_state, config, true).await
+}
+
 pub fn get_username_logic() -> String {
     std::env::var("USER")
         .or_else(|_| std::env::var("USERNAME"))
@@ -1088,12 +1401,39 @@ pub fn run() {
                 // The frontend will force the user to create an initial profile and call initialize_user_db.
                 (rusqlite::Connection::open_in_memory().unwrap(), None)
             };
+            let db_conn = Arc::new(Mutex::new(conn));
             app.manage(DbState {
-                conn: Arc::new(Mutex::new(conn)),
+                conn: db_conn.clone(),
             });
             app.manage(StartupState {
                 error: startup_error,
             });
+            let local_http_api_config = load_local_http_api_config(app.handle());
+            let local_http_api_state = LocalHttpApiState::new(local_http_api_config.clone());
+            let local_http_api_inner = local_http_api_state.inner.clone();
+            app.manage(local_http_api_state);
+            if local_http_api_config.enabled && local_http_api_supported() {
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    match start_local_http_api_server(
+                        app_handle,
+                        db_conn,
+                        &local_http_api_config,
+                    )
+                    .await
+                    {
+                        Ok(server) => {
+                            let mut runtime = local_http_api_inner.lock().unwrap();
+                            runtime.server = Some(server);
+                            runtime.last_error = None;
+                        }
+                        Err(error) => {
+                            let mut runtime = local_http_api_inner.lock().unwrap();
+                            runtime.last_error = Some(error);
+                        }
+                    }
+                });
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1147,6 +1487,8 @@ pub fn run() {
             disconnect_google_drive,
             clear_sync_backups,
             get_startup_error,
+            get_local_http_api_status,
+            save_local_http_api_config,
             set_setting,
             get_setting,
             backup::export_full_backup,

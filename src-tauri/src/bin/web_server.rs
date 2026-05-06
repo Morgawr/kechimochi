@@ -16,7 +16,7 @@ use axum::{
     extract::{Multipart, Path, Query, State},
     http::{header, StatusCode},
     response::{IntoResponse, Response},
-    routing::{any, delete, get, post, put},
+    routing::{any, get, post, put},
     Json, Router,
 };
 use serde::Deserialize;
@@ -106,7 +106,10 @@ async fn main() {
         .route("/api/logs/heatmap", get(get_heatmap))
         .route("/api/logs/media/:id", get(get_logs_for_media))
         .route("/api/logs", get(get_logs).post(add_log))
-        .route("/api/logs/:id", delete(delete_log_handler))
+        .route(
+            "/api/logs/:id",
+            put(update_log_handler).delete(delete_log_handler),
+        )
         .route("/api/timeline", get(get_timeline_events_handler))
         // Milestones
         .route("/api/milestones", post(add_milestone_handler))
@@ -114,7 +117,10 @@ async fn main() {
             "/api/milestones/media/:title",
             get(get_milestones_for_media_handler).delete(clear_milestones_for_media_handler),
         )
-        .route("/api/milestones/:id", delete(delete_milestone_handler))
+        .route(
+            "/api/milestones/:id",
+            put(update_milestone_handler).delete(delete_milestone_handler),
+        )
         // Profiles
         .route("/api/profiles/initialize", post(initialize_user_db_handler))
         .route(
@@ -295,6 +301,16 @@ async fn add_log(
     db::add_log(&conn, &log).ae().map(Json)
 }
 
+async fn update_log_handler(
+    State(s): State<Shared>,
+    Path(id): Path<i64>,
+    Json(mut log): Json<models::ActivityLog>,
+) -> HandlerResult<Json<()>> {
+    log.id = Some(id);
+    let conn = s.conn.lock().await;
+    db::update_log(&conn, &log).ae().map(|_| Json(()))
+}
+
 async fn delete_log_handler(
     State(s): State<Shared>,
     Path(id): Path<i64>,
@@ -339,6 +355,18 @@ async fn add_milestone_handler(
 ) -> HandlerResult<Json<i64>> {
     let conn = s.conn.lock().await;
     db::add_milestone(&conn, &milestone).ae().map(Json)
+}
+
+async fn update_milestone_handler(
+    State(s): State<Shared>,
+    Path(id): Path<i64>,
+    Json(mut milestone): Json<models::Milestone>,
+) -> HandlerResult<Json<()>> {
+    milestone.id = Some(id);
+    let conn = s.conn.lock().await;
+    db::update_milestone(&conn, &milestone)
+        .ae()
+        .map(|_| Json(()))
 }
 
 async fn delete_milestone_handler(

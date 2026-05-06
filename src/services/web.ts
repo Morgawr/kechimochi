@@ -17,6 +17,8 @@ import type {
     MediaConflict,
     Milestone,
     ProfilePicture,
+    LocalHttpApiConfig,
+    LocalHttpApiStatus,
     GoogleDriveAuthSession,
     RemoteSyncProfileSummary,
     SyncActionResult,
@@ -150,6 +152,24 @@ export class WebServices implements AppServices {
     }
 
     clearSyncBackups():                      Promise<void>              { return Promise.reject(syncUnavailableError()); }
+
+    getLocalHttpApiStatus(): Promise<LocalHttpApiStatus> {
+        return Promise.resolve({
+            supported: false,
+            enabled: false,
+            running: false,
+            bindHost: '127.0.0.1',
+            port: 3031,
+            scope: 'automation',
+            allowedOrigins: [],
+            url: null,
+            lastError: null,
+        });
+    }
+
+    saveLocalHttpApiConfig(_config: LocalHttpApiConfig): Promise<LocalHttpApiStatus> {
+        return this.getLocalHttpApiStatus();
+    }
 
     // ── File-based operations ─────────────────────────────────────────────────
     async pickAndImportActivities(): Promise<number | null> {

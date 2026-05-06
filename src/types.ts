@@ -120,6 +120,23 @@ export interface UpdateState {
     isSupported: boolean;
 }
 
+export type LocalHttpApiScope = 'automation' | 'full';
+
+export interface LocalHttpApiConfig {
+    enabled: boolean;
+    bindHost: string;
+    port: number;
+    scope: LocalHttpApiScope;
+    allowedOrigins: string[];
+}
+
+export interface LocalHttpApiStatus extends LocalHttpApiConfig {
+    supported: boolean;
+    running: boolean;
+    url: string | null;
+    lastError: string | null;
+}
+
 export type SyncConnectionState =
     | 'disconnected'
     | 'connected_clean'

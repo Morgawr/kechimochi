@@ -48,6 +48,8 @@ vi.mock('../../src/api', () => ({
     importFullBackup: vi.fn(),
     clearSyncBackups: vi.fn(),
     isDesktop: vi.fn(() => true),
+    getLocalHttpApiStatus: vi.fn(),
+    saveLocalHttpApiConfig: vi.fn(),
 }));
 
 const mockServices = {
@@ -160,6 +162,17 @@ describe('ProfileView', () => {
         vi.mocked(api.clearSyncBackups).mockResolvedValue();
         vi.mocked(api.disconnectGoogleDrive).mockResolvedValue();
         vi.mocked(api.wipeEverything).mockResolvedValue();
+        vi.mocked(api.getLocalHttpApiStatus).mockResolvedValue({
+            supported: true,
+            enabled: false,
+            running: false,
+            bindHost: '127.0.0.1',
+            port: 3031,
+            scope: 'automation',
+            allowedOrigins: [],
+            url: null,
+            lastError: null,
+        });
 
         // Mock localStorage
         const store: Record<string, string> = { [STORAGE_KEYS.CURRENT_PROFILE]: 'test-user' };

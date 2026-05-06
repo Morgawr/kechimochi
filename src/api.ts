@@ -18,6 +18,8 @@ export type {
   MediaConflict,
   Milestone,
   ProfilePicture,
+  LocalHttpApiConfig,
+  LocalHttpApiStatus,
   RemoteSyncProfileSummary,
   SyncActionResult,
   SyncAttachPreview,
@@ -38,6 +40,8 @@ import type {
   MediaConflict,
   Milestone,
   ProfilePicture,
+  LocalHttpApiConfig,
+  LocalHttpApiStatus,
   RemoteSyncProfileSummary,
   SyncActionResult,
   SyncAttachPreview,
@@ -114,6 +118,14 @@ export function subscribeSyncProgress(listener: (update: SyncProgressUpdate) => 
 export function clearSyncBackups(): Promise<void> { return getServices().clearSyncBackups(); }
 
 export function isDesktop(): boolean { return getServices().isDesktop(); }
+
+export function getLocalHttpApiStatus(): Promise<LocalHttpApiStatus> {
+  return getServices().getLocalHttpApiStatus();
+}
+
+export function saveLocalHttpApiConfig(config: LocalHttpApiConfig): Promise<LocalHttpApiStatus> {
+  return getServices().saveLocalHttpApiConfig(config);
+}
 
 export function applyMediaImport(records: MediaCsvRow[]): Promise<number> { return getServices().applyMediaImport(records); }
 
