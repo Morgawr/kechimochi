@@ -1,5 +1,5 @@
 import { BaseImporter } from './base';
-import { ScrapedMetadata } from './index';
+import type { ScrapedMetadata } from './types';
 import { fetchExternalJson } from '../platform';
 
 const IMDB_GRAPHQL_ENDPOINT = "https://caching.graphql.imdb.com/";

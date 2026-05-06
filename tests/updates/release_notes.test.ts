@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseReleaseNotes, renderReleaseNotesHtml } from '../../src/updates/release_notes';
+import { parseReleaseNotes, renderReleaseNotesHtml } from '../../src/release_notes';
 
 describe('release notes helpers', () => {
     it('parses headings, paragraphs, and bullet lists from changelog markdown', () => {

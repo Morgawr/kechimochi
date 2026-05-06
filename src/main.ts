@@ -1,7 +1,7 @@
-import { Dashboard } from './components/dashboard';
-import { MediaView } from './components/media_view';
-import { ProfileView } from './components/profile';
-import { TimelineView } from './components/timeline';
+import { Dashboard } from './dashboard/Dashboard';
+import { MediaView } from './media/MediaView';
+import { ProfileView } from './profile/ProfileView';
+import { TimelineView } from './timeline/TimelineView';
 import {
     initializeUserDb,
     getUsername,
@@ -12,20 +12,18 @@ import {
     getSyncStatus,
     shouldSkipLegacyLocalProfileMigration,
 } from './api';
-import {
-    showInitialSetupPrompt,
-    showLogActivityModal,
-    customAlert,
-} from './modals';
+import { showInitialSetupPrompt } from './profile/modal';
+import { showLogActivityModal } from './activity_modal';
+import { customAlert } from './modal_base';
 import { syncAppShell } from './app_shell';
 import { initServices, getServices } from './services';
-import { Logger } from './core/logger';
+import { Logger } from './logger';
 import { formatBuildBadge } from './app_version';
-import { escapeHTML } from './core/html';
-import { getProfileInitials, profilePictureToDataUrl } from './utils/profile_picture';
+import { escapeHTML } from './html';
+import { getProfileInitials, profilePictureToDataUrl } from './profile/profile_picture';
 import { STORAGE_KEYS, SETTING_KEYS, VIEW_NAMES, EVENTS, DEFAULTS } from './constants';
 import type { ProfilePicture } from './types';
-import { UpdateManager } from './updates';
+import { UpdateManager } from './update/manager';
 import {
     attachSelectedRemoteProfile,
     resolveSyncEnablementSelection,

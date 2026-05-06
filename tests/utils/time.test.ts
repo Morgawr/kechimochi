@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import * as time from '../../src/utils/time';
+import * as time from '../../src/time';
 
 describe('time.ts', () => {
     describe('toTimeParts', () => {

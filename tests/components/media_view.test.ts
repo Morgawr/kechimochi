@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { MediaView } from '../../src/components/media_view';
+import { MediaView } from '../../src/media/MediaView';
 import * as api from '../../src/api';
 import { Media } from '../../src/api';
-import { MediaLibraryBrowser } from '../../src/components/media/MediaLibraryBrowser';
-import { MediaDetail } from '../../src/components/media/MediaDetail';
+import { MediaLibraryBrowser } from '../../src/media/MediaLibraryBrowser';
+import { MediaDetail } from '../../src/media/MediaDetail';
 import { SETTING_KEYS } from '../../src/constants';
 
 vi.mock('../../src/api', () => ({
@@ -14,14 +14,14 @@ vi.mock('../../src/api', () => ({
     setSetting: vi.fn(),
 }));
 
-vi.mock('../../src/components/media/MediaLibraryBrowser', () => ({
+vi.mock('../../src/media/MediaLibraryBrowser', () => ({
     MediaLibraryBrowser: vi.fn().mockImplementation(() => ({
         render: vi.fn(),
         destroy: vi.fn(),
     })),
 }));
 
-vi.mock('../../src/components/media/MediaDetail', () => ({
+vi.mock('../../src/media/MediaDetail', () => ({
     MediaDetail: vi.fn().mockImplementation(() => ({
         render: vi.fn(),
         destroy: vi.fn(),

@@ -1,5 +1,5 @@
 import { fetchExternalJson } from './platform';
-import { Logger } from './core/logger';
+import { Logger } from './logger';
 
 export interface JitenResult {
     deckId: number;

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { MediaDetail } from '../../../src/components/media/MediaDetail';
+import { MediaDetail } from '../../../src/media/MediaDetail';
 import * as api from '../../../src/api';
 
 vi.mock('../../../src/api', () => ({
@@ -26,17 +26,30 @@ vi.mock('../../../src/importers', () => ({
     getAvailableSourcesForContentType: vi.fn(() => []),
 }));
 
-vi.mock('../../../src/modals', () => ({
+vi.mock('../../../src/modal_base', () => ({
     customConfirm: vi.fn(),
     customAlert: vi.fn(),
     customPrompt: vi.fn(),
+}));
+
+vi.mock('../../../src/milestone_modal', () => ({
     showAddMilestoneModal: vi.fn(),
+}));
+
+vi.mock('../../../src/activity_modal', () => ({
     showLogActivityModal: vi.fn(),
+}));
+
+vi.mock('../../../src/media/modal', () => ({
     showImportMergeModal: vi.fn(),
     showJitenSearchModal: vi.fn(),
 }));
 
-import * as modals from '../../../src/modals';
+import * as modalBase from '../../../src/modal_base';
+import * as milestoneModal from '../../../src/milestone_modal';
+import * as activityModal from '../../../src/activity_modal';
+import * as mediaModals from '../../../src/media/modal';
+const modals = { ...modalBase, ...milestoneModal, ...activityModal, ...mediaModals };
 const mockServices = {
     isDesktop: vi.fn(() => true),
     supportsWindowControls: vi.fn(() => true),

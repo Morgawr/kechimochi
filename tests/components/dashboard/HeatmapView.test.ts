@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { HeatmapView } from '../../../src/components/dashboard/HeatmapView';
+import { HeatmapView } from '../../../src/dashboard/HeatmapView';
 
 describe('HeatmapView', () => {
     let container: HTMLElement;

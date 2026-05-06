@@ -1,6 +1,6 @@
 import { BaseImporter } from './base';
-import { ScrapedMetadata } from './index';
-import { Logger } from '../core/logger';
+import type { ScrapedMetadata } from './types';
+import { Logger } from '../logger';
 import { fetchExternalJson } from '../platform';
 
 export class ShonenjumpplusImporter extends BaseImporter {

@@ -1,20 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { compareSemver, parseSemver, selectLatestEligibleRelease, UpdateManager } from '../../src/updates/manager';
+import { compareSemver, parseSemver, selectLatestEligibleRelease, UpdateManager } from '../../src/update/manager';
 import type { AppServices } from '../../src/services';
 import * as api from '../../src/api';
-import * as modals from '../../src/modals';
-import { Logger } from '../../src/core/logger';
+import * as modalBase from '../../src/modal_base';
+import * as updateModal from '../../src/update/modal';
+import { Logger } from '../../src/logger';
 
 vi.mock('../../src/api', () => ({
     getSetting: vi.fn(),
     setSetting: vi.fn(() => Promise.resolve()),
 }));
 
-vi.mock('../../src/modals', () => ({
+vi.mock('../../src/modal_base', () => ({
     customAlert: vi.fn(() => Promise.resolve()),
+}));
+
+vi.mock('../../src/update/modal', () => ({
     showInstalledUpdateModal: vi.fn(() => Promise.resolve()),
     showAvailableUpdateModal: vi.fn(() => Promise.resolve()),
 }));
+
+const modals = { ...modalBase, ...updateModal };
 
 type TestServices = AppServices & { fetchExternalJson: ReturnType<typeof vi.fn> };
 

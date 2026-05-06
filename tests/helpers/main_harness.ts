@@ -3,7 +3,6 @@ import { STORAGE_KEYS, SETTING_KEYS } from '../../src/constants';
 
 type ActivitySummary = import('../../src/api').ActivitySummary;
 type ApiModule = typeof import('../../src/api');
-type ModalsModule = typeof import('../../src/modals');
 
 const defaultActivitySummary: ActivitySummary = {
     id: 0,
@@ -105,6 +104,11 @@ export function createMainModalMock() {
         customConfirm: vi.fn(() => Promise.resolve(false)),
         customPrompt: vi.fn(() => Promise.resolve(null)),
         showLogActivityModal: vi.fn(() => Promise.resolve(false)),
+        showAddMediaModal: vi.fn(() => Promise.resolve(null)),
+        showImportMergeModal: vi.fn(() => Promise.resolve(null)),
+        showJitenSearchModal: vi.fn(() => Promise.resolve(null)),
+        showMediaCsvConflictModal: vi.fn(() => Promise.resolve(null)),
+        showAddMilestoneModal: vi.fn(() => Promise.resolve(null)),
         showSyncEnablementWizard: vi.fn(() => Promise.resolve(null)),
         showSyncAttachPreview: vi.fn(() => Promise.resolve(true)),
         showBlockingStatus: vi.fn(() => ({
@@ -115,6 +119,14 @@ export function createMainModalMock() {
         showInstalledUpdateModal: vi.fn(() => Promise.resolve()),
         showAvailableUpdateModal: vi.fn(() => Promise.resolve()),
     };
+}
+
+export type MainModalMock = ReturnType<typeof createMainModalMock>;
+
+const mainModalMock = createMainModalMock();
+
+export function getMainModalMock(): MainModalMock {
+    return mainModalMock;
 }
 
 export function createChartJsAutoMock() {
@@ -207,12 +219,17 @@ export function resetMainApiMocks(mockedApi: ApiModule) {
     vi.mocked(mockedApi.deleteMilestone).mockImplementation(() => {});
 }
 
-export function resetMainModalMocks(mockedModals: ModalsModule) {
+export function resetMainModalMocks(mockedModals: MainModalMock) {
     vi.mocked(mockedModals.showInitialSetupPrompt).mockResolvedValue({ action: 'create_local', profileName: 'new-user' });
     vi.mocked(mockedModals.customAlert).mockResolvedValue();
     vi.mocked(mockedModals.customConfirm).mockResolvedValue(false);
     vi.mocked(mockedModals.customPrompt).mockResolvedValue(null);
     vi.mocked(mockedModals.showLogActivityModal).mockResolvedValue(false);
+    vi.mocked(mockedModals.showAddMediaModal).mockResolvedValue(null);
+    vi.mocked(mockedModals.showImportMergeModal).mockResolvedValue(null);
+    vi.mocked(mockedModals.showJitenSearchModal).mockResolvedValue(null);
+    vi.mocked(mockedModals.showMediaCsvConflictModal).mockResolvedValue(null);
+    vi.mocked(mockedModals.showAddMilestoneModal).mockResolvedValue(null);
     vi.mocked(mockedModals.showSyncEnablementWizard).mockResolvedValue(null);
     vi.mocked(mockedModals.showSyncAttachPreview).mockResolvedValue(true);
     vi.mocked(mockedModals.showBlockingStatus).mockReturnValue({

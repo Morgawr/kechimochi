@@ -1,4 +1,4 @@
-import {Logger} from './core/logger';
+import {Logger} from './logger';
 import {STORAGE_KEYS} from './constants';
 
 (function() {

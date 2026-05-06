@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { getProfileInitials, profilePictureToDataUrl } from '../../src/utils/profile_picture';
+import { getProfileInitials, profilePictureToDataUrl } from '../../src/profile/profile_picture';
 
 describe('profile_picture utils', () => {
     it('builds a data url for stored profile pictures', () => {

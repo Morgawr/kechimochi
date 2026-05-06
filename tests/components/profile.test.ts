@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { resolve } from 'node:path';
-import { ProfileView } from '../../src/components/profile';
+import { ProfileView } from '../../src/profile/ProfileView';
 import * as api from '../../src/api';
 import { Media } from '../../src/api';
 import { STORAGE_KEYS, SETTING_KEYS } from '../../src/constants';
-import { Logger } from '../../src/core/logger';
+import { Logger } from '../../src/logger';
 import {
     buildConnectedSyncStatus,
     buildGoogleDriveAuthSession,
@@ -37,9 +37,13 @@ vi.mock('../../src/api', () => ({
     setSetting: vi.fn(),
     switchProfile: vi.fn(),
     getLogsForMedia: vi.fn(),
+    applyMediaImport: vi.fn(),
+    importMilestonesCsv: vi.fn(),
+    exportMilestonesCsv: vi.fn(),
     importCsv: vi.fn(),
     exportCsv: vi.fn(),
     clearActivities: vi.fn(),
+    wipeEverything: vi.fn(),
     exportFullBackup: vi.fn(),
     importFullBackup: vi.fn(),
     clearSyncBackups: vi.fn(),
@@ -59,24 +63,36 @@ vi.mock('../../src/services', () => ({
     getServices: vi.fn(() => mockServices),
 }));
 
-vi.mock('../../src/utils/dialogs', () => ({
+vi.mock('../../src/file_dialogs', () => ({
     open: vi.fn(),
     save: vi.fn(),
 }));
 
-vi.mock('../../src/modals', () => ({
+vi.mock('../../src/modal_base', () => ({
     customAlert: vi.fn(),
     customConfirm: vi.fn(),
     customPrompt: vi.fn(),
-    showExportCsvModal: vi.fn(),
     showBlockingStatus: vi.fn(() => ({ close: vi.fn() })),
-    showSyncEnablementWizard: vi.fn(),
-    showSyncAttachPreview: vi.fn(),
-    showInstalledUpdateModal: vi.fn(() => Promise.resolve()),
-    showAvailableUpdateModal: vi.fn(() => Promise.resolve()),
 }));
 
-import * as modals from '../../src/modals';
+vi.mock('../../src/activity_modal', () => ({
+    showExportCsvModal: vi.fn(),
+}));
+
+vi.mock('../../src/media/modal', () => ({
+    showMediaCsvConflictModal: vi.fn(),
+}));
+
+vi.mock('../../src/sync_modal', () => ({
+    showSyncEnablementWizard: vi.fn(),
+    showSyncAttachPreview: vi.fn(),
+}));
+
+import * as modalBase from '../../src/modal_base';
+import * as activityModal from '../../src/activity_modal';
+import * as mediaModal from '../../src/media/modal';
+import * as syncModal from '../../src/sync_modal';
+const modals = { ...modalBase, ...activityModal, ...mediaModal, ...syncModal };
 
 function mockStandardProfileLoad(options?: {
     appVersion?: string;
@@ -125,6 +141,10 @@ describe('ProfileView', () => {
         container = document.createElement('div');
         vi.clearAllMocks();
         mockServices.isDesktop.mockReturnValue(true);
+        mockServices.pickAndImportActivities.mockResolvedValue(null);
+        mockServices.exportActivities.mockResolvedValue(null);
+        mockServices.analyzeMediaCsvFromPick.mockResolvedValue(null);
+        mockServices.exportMediaLibrary.mockResolvedValue(null);
         vi.spyOn(Logger, 'warn').mockImplementation(() => {});
         const globals = globalThis as Record<string, unknown>;
         globals.__APP_BUILD_CHANNEL__ = 'release';
@@ -132,6 +152,14 @@ describe('ProfileView', () => {
         mockStandardProfileLoad();
         vi.mocked(api.getSyncStatus).mockResolvedValue(buildSyncStatus());
         vi.mocked(api.getSyncConflicts).mockResolvedValue([]);
+        vi.mocked(api.applyMediaImport).mockResolvedValue(0);
+        vi.mocked(api.importMilestonesCsv).mockResolvedValue(0);
+        vi.mocked(api.exportMilestonesCsv).mockResolvedValue(0);
+        vi.mocked(api.exportFullBackup).mockResolvedValue(false);
+        vi.mocked(api.importFullBackup).mockResolvedValue(null);
+        vi.mocked(api.clearSyncBackups).mockResolvedValue();
+        vi.mocked(api.disconnectGoogleDrive).mockResolvedValue();
+        vi.mocked(api.wipeEverything).mockResolvedValue();
 
         // Mock localStorage
         const store: Record<string, string> = { [STORAGE_KEYS.CURRENT_PROFILE]: 'test-user' };
@@ -749,5 +777,766 @@ describe('ProfileView', () => {
         ));
         await vi.waitFor(() => expect(api.clearSyncBackups).toHaveBeenCalled());
         await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith("Success", "Sync backups cleared."));
+    });
+
+    it('renders the desktop-only sync card when sync is not available on web', async () => {
+        mockServices.isDesktop.mockReturnValue(false);
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-sync-card')).not.toBeNull());
+        expect(container.textContent).toContain('App Only');
+        expect(container.textContent).toContain('Cloud Sync is only available in the app');
+        expect(api.getSyncStatus).not.toHaveBeenCalled();
+    });
+
+    it('renders an unavailable sync card when sync status loading fails', async () => {
+        vi.mocked(api.getSyncStatus).mockRejectedValue(new Error('backend unavailable'));
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-refresh-sync-status')).not.toBeNull());
+        expect(container.textContent).toContain('Unavailable');
+        expect(container.textContent).toContain('backend unavailable');
+    });
+
+    it('shows a conflict loading error inside the sync card', async () => {
+        vi.mocked(api.getSyncStatus).mockResolvedValue(buildConnectedSyncStatus({
+            state: 'conflict_pending',
+            conflict_count: 2,
+        }));
+        vi.mocked(api.getSyncConflicts).mockRejectedValue(new Error('conflict endpoint failed'));
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.textContent).toContain('Failed to load pending conflicts'));
+        expect(container.textContent).toContain('conflict endpoint failed');
+    });
+
+    it('renders every sync conflict shape and resolves a remaining conflict', async () => {
+        vi.mocked(api.getSyncStatus)
+            .mockResolvedValueOnce(buildConnectedSyncStatus({
+                state: 'conflict_pending',
+                conflict_count: 3,
+            }))
+            .mockResolvedValueOnce(buildConnectedSyncStatus({
+                state: 'conflict_pending',
+                conflict_count: 1,
+            }));
+        vi.mocked(api.getSyncConflicts).mockResolvedValue([
+            {
+                kind: 'extra_data_entry_conflict',
+                media_uid: 'uid_extra',
+                entry_key: 'Author',
+                local_value: 'Local Author',
+                remote_value: null,
+            },
+            {
+                kind: 'delete_vs_update',
+                media_uid: 'uid_delete',
+                deleted_side: 'local',
+                local_media: null,
+                remote_media: { title: 'Remote Restored Title' },
+                tombstone: { deleted_at: '2026-04-02T00:00:00Z' },
+            },
+            {
+                kind: 'profile_picture_conflict',
+                local_picture: null,
+                remote_picture: {
+                    mime_type: 'image/png',
+                    base64_data: 'YWJj',
+                    byte_size: 3,
+                    width: 12,
+                    height: 24,
+                    updated_at: '2026-04-02T00:00:00Z',
+                },
+            },
+        ] as never);
+        vi.mocked(api.resolveSyncConflict).mockResolvedValue(buildSyncActionResult({
+            sync_status: { state: 'conflict_pending', conflict_count: 1 },
+        }));
+
+        const view = new ProfileView(container);
+        await view.loadData();
+        view.setState({ showSyncConflicts: true });
+
+        await vi.waitFor(() => expect(container.textContent).toContain('Extra data entry conflict'));
+        expect(container.textContent).toContain('Discard entry');
+        expect(container.textContent).toContain('Delete vs update conflict');
+        expect(container.textContent).toContain('Remote Restored Title');
+        expect(container.textContent).toContain('Profile picture conflict');
+        expect(container.textContent).toContain('12x24 image/png');
+
+        (container.querySelector('[data-sync-resolution-kind="extra_data_entry"][data-sync-resolution-side="remote"]') as HTMLButtonElement).click();
+
+        await vi.waitFor(() => expect(api.resolveSyncConflict).toHaveBeenCalledWith(0, {
+            kind: 'extra_data_entry',
+            side: 'remote',
+        }));
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
+            'Conflict Resolved',
+            expect.stringContaining('1 conflict still need review'),
+        ));
+    });
+
+    it('ignores invalid sync conflict resolution buttons', async () => {
+        vi.mocked(api.getSyncStatus).mockResolvedValue(buildConnectedSyncStatus({
+            state: 'conflict_pending',
+            conflict_count: 1,
+        }));
+        vi.mocked(api.getSyncConflicts).mockResolvedValue([{
+            kind: 'media_field_conflict',
+            media_uid: 'uid_1',
+            field_name: 'title',
+            base_value: null,
+            local_value: 'Local',
+            remote_value: 'Remote',
+        }]);
+
+        const view = new ProfileView(container);
+        await view.loadData();
+        view.setState({ showSyncConflicts: true });
+
+        const invalidIndex = document.createElement('button');
+        invalidIndex.dataset.syncConflictIndex = 'not-a-number';
+        container.querySelector('#profile-root')?.appendChild(invalidIndex);
+        invalidIndex.click();
+
+        const invalidKind = document.createElement('button');
+        invalidKind.dataset.syncConflictIndex = '0';
+        invalidKind.dataset.syncResolutionKind = 'unknown';
+        invalidKind.dataset.syncResolutionSide = 'local';
+        container.querySelector('#profile-root')?.appendChild(invalidKind);
+        invalidKind.click();
+
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(api.resolveSyncConflict).not.toHaveBeenCalled();
+    });
+
+    it('surfaces sync conflict, lost race, and reconnect-needed outcomes while running sync', async () => {
+        vi.mocked(api.getSyncStatus).mockResolvedValue(buildConnectedSyncStatus());
+        vi.mocked(api.runSync)
+            .mockResolvedValueOnce(buildSyncActionResult({
+                sync_status: { state: 'conflict_pending', conflict_count: 2 },
+            }))
+            .mockResolvedValueOnce(buildSyncActionResult({
+                sync_status: { state: 'dirty' },
+                lost_race: true,
+            }))
+            .mockRejectedValueOnce(new Error('Google Drive is not authenticated'));
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-run-sync')).not.toBeNull());
+        const runButton = () => container.querySelector('#profile-btn-run-sync') as HTMLButtonElement;
+
+        runButton().click();
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
+            'Conflicts Need Review',
+            expect.stringContaining('2 conflicts'),
+        ));
+
+        runButton().click();
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
+            'Sync Needs Another Pass',
+            expect.stringContaining('newer snapshot first'),
+        ));
+
+        runButton().click();
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
+            'Google Drive Reconnect Needed',
+            expect.stringContaining('no longer authenticated'),
+        ));
+    });
+
+    it('handles recovery confirmation and failure branches', async () => {
+        vi.mocked(api.getSyncStatus).mockResolvedValue(buildConnectedSyncStatus({ state: 'dirty' }));
+        vi.mocked(modals.customConfirm)
+            .mockResolvedValueOnce(false)
+            .mockResolvedValueOnce(true)
+            .mockResolvedValueOnce(true);
+        vi.mocked(api.replaceLocalFromRemote).mockRejectedValue(new Error('replace failed'));
+        vi.mocked(api.forcePublishLocalAsRemote).mockResolvedValue(buildSyncActionResult({
+            sync_status: { state: 'dirty' },
+            lost_race: true,
+        }));
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-toggle-sync-recovery')).not.toBeNull());
+        (container.querySelector('#profile-btn-toggle-sync-recovery') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-replace-local-from-remote')).not.toBeNull());
+
+        (container.querySelector('#profile-btn-replace-local-from-remote') as HTMLButtonElement).click();
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(api.replaceLocalFromRemote).not.toHaveBeenCalled();
+
+        (container.querySelector('#profile-btn-replace-local-from-remote') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
+            'Cloud Sync Recovery Failed',
+            expect.stringContaining('replace failed'),
+        ));
+
+        (container.querySelector('#profile-btn-force-publish-local') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
+            'Recovery Needs Another Attempt',
+            expect.stringContaining('newer snapshot'),
+        ));
+    });
+
+    it('disconnects cloud sync and handles cancellation and errors', async () => {
+        vi.mocked(api.getSyncStatus).mockResolvedValue(buildConnectedSyncStatus());
+        vi.mocked(modals.customConfirm)
+            .mockResolvedValueOnce(false)
+            .mockResolvedValueOnce(true)
+            .mockResolvedValueOnce(true);
+        vi.mocked(api.disconnectGoogleDrive)
+            .mockResolvedValueOnce()
+            .mockRejectedValueOnce(new Error('disconnect failed'));
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-disconnect-sync')).not.toBeNull());
+        const disconnectButton = () => container.querySelector('#profile-btn-disconnect-sync') as HTMLButtonElement;
+
+        disconnectButton().click();
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(api.disconnectGoogleDrive).not.toHaveBeenCalled();
+
+        disconnectButton().click();
+        await vi.waitFor(() => expect(api.disconnectGoogleDrive).toHaveBeenCalledTimes(1));
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
+            'Cloud Sync Disconnected',
+            expect.stringContaining('disconnected from this device'),
+        ));
+
+        disconnectButton().click();
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
+            'Cloud Sync Error',
+            expect.stringContaining('disconnect failed'),
+        ));
+    });
+
+    it('renames a profile via keyboard and cancels rename on escape', async () => {
+        vi.mocked(api.getSyncStatus).mockResolvedValue(buildSyncStatus());
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-name')).not.toBeNull());
+        container.querySelector('#profile-name')?.dispatchEvent(new MouseEvent('dblclick'));
+        const input = container.querySelector('input[type="text"]') as HTMLInputElement;
+        input.value = 'renamed-user';
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+        input.dispatchEvent(new Event('blur'));
+
+        await vi.waitFor(() => expect(api.setSetting).toHaveBeenCalledWith(SETTING_KEYS.PROFILE_NAME, 'renamed-user'));
+        expect(localStorage.setItem).toHaveBeenCalledWith(STORAGE_KEYS.CURRENT_PROFILE, 'renamed-user');
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-name')).not.toBeNull());
+        container.querySelector('#profile-name')?.dispatchEvent(new MouseEvent('dblclick'));
+        const cancelInput = container.querySelector('input[type="text"]') as HTMLInputElement;
+        cancelInput.value = 'ignored-user';
+        cancelInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-name')?.textContent).toBe('renamed-user'));
+    });
+
+    it('covers activity, media, milestone, backup, and avatar error paths', async () => {
+        vi.mocked(api.getSyncStatus).mockResolvedValue(buildSyncStatus());
+        vi.mocked(mockServices.pickAndImportActivities).mockRejectedValueOnce(new Error('activity import failed'));
+        vi.mocked(modals.showExportCsvModal)
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce({ mode: 'range', start: '2026-01-01', end: '2026-01-31' });
+        vi.mocked(mockServices.exportActivities).mockRejectedValueOnce(new Error('activity export failed'));
+        vi.mocked(mockServices.analyzeMediaCsvFromPick)
+            .mockResolvedValueOnce([])
+            .mockRejectedValueOnce(new Error('media import failed'));
+        vi.mocked(mockServices.exportMediaLibrary).mockRejectedValueOnce(new Error('media export failed'));
+        vi.mocked(api.uploadProfilePicture).mockRejectedValueOnce(new Error('avatar failed'));
+        vi.mocked(api.importMilestonesCsv).mockRejectedValueOnce(new Error('milestone import failed'));
+        vi.mocked(api.exportMilestonesCsv).mockRejectedValueOnce(new Error('milestone export failed'));
+        vi.mocked(api.exportFullBackup).mockRejectedValueOnce(new Error('backup export failed'));
+        vi.mocked(modals.customConfirm).mockResolvedValueOnce(true);
+        vi.mocked(api.importFullBackup).mockRejectedValueOnce(new Error('backup import failed'));
+
+        const view = new ProfileView(container);
+        view.render();
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-import-csv')).not.toBeNull());
+
+        (container.querySelector('#profile-btn-import-csv') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith('Error', expect.stringContaining('activity import failed')));
+
+        (container.querySelector('#profile-btn-export-csv') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(modals.showExportCsvModal).toHaveBeenCalledTimes(1));
+        (container.querySelector('#profile-btn-export-csv') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(mockServices.exportActivities).toHaveBeenCalledWith('2026-01-01', '2026-01-31'));
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith('Error', expect.stringContaining('activity export failed')));
+
+        (container.querySelector('#profile-btn-import-media') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith('Info', expect.stringContaining('No valid media rows')));
+        (container.querySelector('#profile-btn-import-media') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith('Error', expect.stringContaining('media import failed')));
+
+        (container.querySelector('#profile-btn-export-media') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith('Error', expect.stringContaining('media export failed')));
+
+        container.querySelector('#profile-hero-avatar')?.dispatchEvent(new MouseEvent('dblclick'));
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith('Error', expect.stringContaining('avatar failed')));
+
+        (container.querySelector('#profile-btn-import-milestones') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith('Error', expect.stringContaining('milestone import failed')));
+
+        (container.querySelector('#profile-btn-export-milestones') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith('Error', expect.stringContaining('milestone export failed')));
+
+        (container.querySelector('#profile-btn-export-full-backup') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith('Error', expect.stringContaining('backup export failed')));
+
+        (container.querySelector('#profile-btn-import-full-backup') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith('Error', expect.stringContaining('backup import failed')));
+    });
+
+    it('supports local theme overrides from the profile controls', async () => {
+        localStorage.setItem(STORAGE_KEYS.THEME_OVERRIDE_ENABLED, '1');
+        localStorage.setItem(STORAGE_KEYS.THEME_OVERRIDE, 'dark');
+        mockStandardProfileLoad({ theme: 'pastel-pink' });
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-select-theme-local')).not.toBeNull());
+
+        const localSelect = container.querySelector('#profile-select-theme-local') as HTMLSelectElement;
+        localSelect.value = 'molokai';
+        localSelect.dispatchEvent(new Event('change'));
+
+        expect(localStorage.setItem).toHaveBeenCalledWith(STORAGE_KEYS.THEME_OVERRIDE, 'molokai');
+        expect(document.body.dataset.theme).toBe('molokai');
+
+        const checkbox = container.querySelector('#profile-checkbox-theme-override') as HTMLInputElement;
+        checkbox.checked = false;
+        checkbox.dispatchEvent(new Event('change'));
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-select-theme-local')).toBeNull());
+        expect(localStorage.setItem).toHaveBeenCalledWith(STORAGE_KEYS.THEME_OVERRIDE_ENABLED, '0');
+        expect(document.body.dataset.theme).toBe('pastel-pink');
+    });
+
+    it('renders edge-case sync status labels and timestamps', async () => {
+        vi.mocked(api.getSyncStatus).mockResolvedValue(buildConnectedSyncStatus({
+            state: 'error',
+            last_sync_at: 'not-a-date',
+        }));
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.textContent).toContain('Error'));
+        expect(container.textContent).toContain('Retry Sync');
+        expect(container.textContent).toContain('not-a-date');
+    });
+
+    it('disconnects a Google account that is not attached to a sync profile', async () => {
+        vi.mocked(api.getSyncStatus).mockResolvedValue(buildSyncStatus({
+            google_authenticated: true,
+            google_account_email: 'sync@example.com',
+        }));
+        vi.mocked(modals.customConfirm).mockResolvedValue(true);
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-disconnect-sync')).not.toBeNull());
+        (container.querySelector('#profile-btn-disconnect-sync') as HTMLButtonElement).click();
+
+        await vi.waitFor(() => expect(modals.customConfirm).toHaveBeenCalledWith(
+            'Disconnect Cloud Sync',
+            'Disconnecting will remove the saved Google account from this device.',
+            'btn-danger',
+            'Disconnect',
+        ));
+        await vi.waitFor(() => expect(api.disconnectGoogleDrive).toHaveBeenCalled());
+    });
+
+    it('handles successful import and export actions', async () => {
+        vi.mocked(api.getSyncStatus).mockResolvedValue(buildSyncStatus());
+        vi.mocked(mockServices.pickAndImportActivities).mockResolvedValueOnce(3);
+        vi.mocked(modals.showExportCsvModal).mockResolvedValueOnce({ mode: 'all' });
+        vi.mocked(mockServices.exportActivities).mockResolvedValueOnce(4);
+        vi.mocked(mockServices.analyzeMediaCsvFromPick).mockResolvedValueOnce([
+            { row: { title: 'CSV Title' }, existing: null, conflicts: [] },
+        ] as never);
+        vi.mocked(modals.showMediaCsvConflictModal).mockResolvedValueOnce([
+            { title: 'CSV Title' },
+        ] as never);
+        vi.mocked(api.applyMediaImport).mockResolvedValueOnce(1);
+        vi.mocked(mockServices.exportMediaLibrary).mockResolvedValueOnce(2);
+        vi.mocked(api.importMilestonesCsv).mockResolvedValueOnce(5);
+        vi.mocked(api.exportMilestonesCsv).mockResolvedValueOnce(6);
+
+        const view = new ProfileView(container);
+        view.render();
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-import-csv')).not.toBeNull());
+
+        (container.querySelector('#profile-btn-import-csv') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith('Success', expect.stringContaining('3 activity logs')));
+
+        (container.querySelector('#profile-btn-export-csv') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(mockServices.exportActivities).toHaveBeenCalledWith());
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith('Success', expect.stringContaining('4 activity logs')));
+
+        (container.querySelector('#profile-btn-import-media') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(api.applyMediaImport).toHaveBeenCalled());
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith('Success', expect.stringContaining('1 media library entries')));
+
+        (container.querySelector('#profile-btn-export-media') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith('Success', expect.stringContaining('2 media library entries')));
+
+        (container.querySelector('#profile-btn-import-milestones') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith('Success', expect.stringContaining('5 milestones')));
+
+        (container.querySelector('#profile-btn-export-milestones') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith('Success', expect.stringContaining('6 milestones')));
+    });
+
+    it('handles destructive maintenance edge cases', async () => {
+        const reload = vi.fn();
+        const originalLocation = globalThis.location;
+        Object.defineProperty(globalThis, 'location', {
+            value: { reload },
+            configurable: true,
+        });
+        const loggerSpy = vi.spyOn(Logger, 'error').mockImplementation(() => {});
+        vi.mocked(api.getSyncStatus).mockResolvedValue(buildConnectedSyncStatus({
+            backup_size_bytes: 1024,
+        }));
+        vi.mocked(modals.customConfirm)
+            .mockResolvedValueOnce(true)
+            .mockResolvedValueOnce(true);
+        vi.mocked(api.clearSyncBackups).mockRejectedValueOnce(new Error('clear failed'));
+        vi.mocked(api.importFullBackup).mockResolvedValueOnce('{not valid json');
+        vi.mocked(modals.customPrompt).mockResolvedValueOnce('WIPE_EVERYTHING');
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-toggle-sync-recovery')).not.toBeNull());
+        const clearBackups = container.querySelector('#profile-btn-clear-sync-backups') as HTMLButtonElement;
+        clearBackups.click();
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith('Error', expect.stringContaining('clear failed')));
+
+        (container.querySelector('#profile-btn-import-full-backup') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(loggerSpy).toHaveBeenCalledWith(
+            'Failed to parse or apply local storage from backup',
+            expect.any(Error),
+        ));
+        await vi.waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+
+        (container.querySelector('#profile-btn-wipe-everything') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(api.wipeEverything).toHaveBeenCalled());
+        expect(localStorage.removeItem).toHaveBeenCalledWith(STORAGE_KEYS.CURRENT_PROFILE);
+        expect(localStorage.removeItem).toHaveBeenCalledWith(STORAGE_KEYS.THEME_OVERRIDE_ENABLED);
+        expect(localStorage.removeItem).toHaveBeenCalledWith(STORAGE_KEYS.THEME_OVERRIDE);
+        expect(reload).toHaveBeenCalledTimes(2);
+
+        Object.defineProperty(globalThis, 'location', {
+            value: originalLocation,
+            configurable: true,
+        });
+        loggerSpy.mockRestore();
+    });
+
+    it('covers sync enablement cancellations, attach notes, and generic errors', async () => {
+        vi.mocked(api.connectGoogleDrive).mockResolvedValue(buildGoogleDriveAuthSession());
+        vi.mocked(api.listRemoteSyncProfiles).mockResolvedValue([buildRemoteSyncProfileSummary()]);
+        vi.mocked(modals.showSyncEnablementWizard)
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce({ action: 'attach', profileId: 'prof_1' })
+            .mockResolvedValueOnce({ action: 'attach', profileId: 'prof_1' });
+        vi.mocked(api.previewAttachRemoteSyncProfile)
+            .mockResolvedValueOnce(buildSyncAttachPreview({
+                potential_duplicate_titles: ['Duplicate Title'],
+            }))
+            .mockResolvedValueOnce(buildSyncAttachPreview({
+                conflict_count: 2,
+            }));
+        vi.mocked(modals.showSyncAttachPreview).mockResolvedValue(true);
+        vi.mocked(api.attachRemoteSyncProfile)
+            .mockResolvedValueOnce(buildSyncActionResult())
+            .mockResolvedValueOnce(buildSyncActionResult({
+                sync_status: { state: 'conflict_pending', conflict_count: 2 },
+            }));
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-enable-sync')).not.toBeNull());
+        const enableButton = () => container.querySelector('#profile-btn-enable-sync') as HTMLButtonElement;
+
+        enableButton().click();
+        await vi.waitFor(() => expect(modals.showSyncEnablementWizard).toHaveBeenCalledTimes(1));
+        expect(api.attachRemoteSyncProfile).not.toHaveBeenCalled();
+
+        enableButton().click();
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
+            'Cloud Sync Attached',
+            expect.stringContaining('Potential duplicate titles'),
+        ));
+
+        enableButton().click();
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
+            'Cloud Sync Attached',
+            expect.stringContaining('2 conflicts need review'),
+        ));
+
+        vi.mocked(api.connectGoogleDrive).mockRejectedValueOnce('plain failure');
+        enableButton().click();
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
+            'Cloud Sync Error',
+            expect.stringContaining('plain failure'),
+        ));
+    });
+
+    it('cancels synced profile rename when confirmation is declined', async () => {
+        vi.mocked(api.getSyncStatus).mockResolvedValue(buildConnectedSyncStatus());
+        vi.mocked(modals.customConfirm).mockResolvedValue(false);
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-name')).not.toBeNull());
+        container.querySelector('#profile-name')?.dispatchEvent(new MouseEvent('dblclick'));
+
+        await vi.waitFor(() => expect(modals.customConfirm).toHaveBeenCalledWith(
+            'Rename Synced Profile',
+            expect.stringContaining('synced display name'),
+            'btn-primary',
+            'Continue',
+        ));
+        expect(container.querySelector('input[type="text"]')).toBeNull();
+    });
+
+    it('handles reconnect and sync error branches from configured sync actions', async () => {
+        vi.mocked(api.getSyncStatus).mockResolvedValue(buildConnectedSyncStatus({
+            google_authenticated: false,
+        }));
+        vi.mocked(api.connectGoogleDrive).mockRejectedValueOnce(new Error('reconnect failed'));
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-reconnect-sync')).not.toBeNull());
+        (container.querySelector('#profile-btn-reconnect-sync') as HTMLButtonElement).click();
+
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
+            'Cloud Sync Error',
+            expect.stringContaining('reconnect failed'),
+        ));
+        await new Promise(resolve => setTimeout(resolve, 0));
+
+        vi.mocked(api.getSyncStatus).mockResolvedValue(buildConnectedSyncStatus());
+        view.setState({ syncStatus: buildConnectedSyncStatus() });
+        vi.mocked(api.runSync).mockRejectedValueOnce(new Error('plain sync failed'));
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-run-sync')).not.toBeNull());
+        (container.querySelector('#profile-btn-run-sync') as HTMLButtonElement).click();
+
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
+            'Sync Error',
+            expect.stringContaining('plain sync failed'),
+        ));
+    });
+
+    it('reconnects before shell sync and reports dirty sync completion notes', async () => {
+        vi.mocked(api.getSyncStatus).mockResolvedValue(buildConnectedSyncStatus({
+            google_authenticated: false,
+        }));
+        vi.mocked(api.connectGoogleDrive).mockResolvedValue(buildGoogleDriveAuthSession());
+        vi.mocked(api.runSync).mockResolvedValue(buildSyncActionResult({
+            sync_status: { state: 'dirty' },
+        }));
+
+        const view = new ProfileView(container);
+
+        await view.runSyncNowFromShell();
+
+        expect(api.connectGoogleDrive).toHaveBeenCalled();
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
+            'Sync Complete',
+            expect.stringContaining('Local changes remain on this device'),
+        ));
+    });
+
+    it('handles force-publish cancellation and failure branches', async () => {
+        vi.mocked(api.getSyncStatus).mockResolvedValue(buildConnectedSyncStatus({ state: 'dirty' }));
+        vi.mocked(modals.customConfirm)
+            .mockResolvedValueOnce(false)
+            .mockResolvedValueOnce(true);
+        vi.mocked(api.forcePublishLocalAsRemote).mockRejectedValueOnce(new Error('force failed'));
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-toggle-sync-recovery')).not.toBeNull());
+        (container.querySelector('#profile-btn-toggle-sync-recovery') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-force-publish-local')).not.toBeNull());
+
+        (container.querySelector('#profile-btn-force-publish-local') as HTMLButtonElement).click();
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(api.forcePublishLocalAsRemote).not.toHaveBeenCalled();
+
+        (container.querySelector('#profile-btn-force-publish-local') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
+            'Cloud Sync Recovery Failed',
+            expect.stringContaining('force failed'),
+        ));
+    });
+
+    it('resolves delete-vs-update conflicts with a valid restore choice', async () => {
+        vi.mocked(api.getSyncStatus)
+            .mockResolvedValueOnce(buildConnectedSyncStatus({
+                state: 'conflict_pending',
+                conflict_count: 1,
+            }))
+            .mockResolvedValueOnce(buildConnectedSyncStatus());
+        vi.mocked(api.getSyncConflicts).mockResolvedValue([{
+            kind: 'delete_vs_update',
+            media_uid: 'uid_restore',
+            deleted_side: 'remote',
+            local_media: { title: 'Local Restored Title' },
+            remote_media: null,
+            tombstone: { deleted_at: '2026-04-02T00:00:00Z' },
+        }] as never);
+        vi.mocked(api.resolveSyncConflict).mockResolvedValue(buildSyncActionResult({
+            sync_status: { state: 'dirty', conflict_count: 0 },
+        }));
+
+        const view = new ProfileView(container);
+        await view.loadData();
+        view.setState({ showSyncConflicts: true });
+
+        await vi.waitFor(() => expect(container.textContent).toContain('Local Restored Title'));
+        (container.querySelector('[data-sync-resolution-kind="delete_vs_update"][data-sync-resolution-choice="restore"]') as HTMLButtonElement).click();
+
+        await vi.waitFor(() => expect(api.resolveSyncConflict).toHaveBeenCalledWith(0, {
+            kind: 'delete_vs_update',
+            choice: 'restore',
+        }));
+    });
+
+    it('covers remaining conflict resolution and refresh failure guards', async () => {
+        vi.mocked(api.getSyncStatus).mockResolvedValue(buildConnectedSyncStatus({
+            state: 'conflict_pending',
+            conflict_count: 2,
+        }));
+        vi.mocked(api.getSyncConflicts).mockResolvedValue([
+            {
+                kind: 'media_field_conflict',
+                media_uid: 'uid_progress',
+                field_name: 'progress',
+                base_value: 1,
+                local_value: { chapter: 4 },
+                remote_value: { chapter: 5 },
+            },
+            {
+                kind: 'delete_vs_update',
+                media_uid: 'uid_remote_delete',
+                deleted_side: 'remote',
+                local_media: null,
+                remote_media: null,
+                tombstone: { deleted_at: '2026-04-02T00:00:00Z' },
+            },
+            {
+                kind: 'profile_picture_conflict',
+                local_picture: {
+                    mime_type: 'image/png',
+                    base64_data: 'YWJj',
+                    byte_size: 3,
+                    width: 8,
+                    height: 8,
+                    updated_at: '2026-04-02T00:00:00Z',
+                },
+                remote_picture: null,
+            },
+        ] as never);
+        vi.mocked(api.resolveSyncConflict).mockRejectedValueOnce(new Error('resolve failed'));
+        const loggerSpy = vi.spyOn(Logger, 'error').mockImplementation(() => {});
+
+        const view = new ProfileView(container);
+        await view.loadData();
+        view.setState({ showSyncConflicts: true });
+
+        await vi.waitFor(() => expect(container.textContent).toContain('Progress conflict'));
+        expect(container.textContent).toContain('"chapter": 4');
+        expect(container.textContent).toContain('uid_remote_delete');
+        expect(container.textContent).toContain('No picture');
+
+        const missingKind = document.createElement('button');
+        missingKind.dataset.syncConflictIndex = '0';
+        container.querySelector('#profile-root')?.appendChild(missingKind);
+        missingKind.click();
+
+        const badChoice = document.createElement('button');
+        badChoice.dataset.syncConflictIndex = '1';
+        badChoice.dataset.syncResolutionKind = 'delete_vs_update';
+        badChoice.dataset.syncResolutionChoice = 'bad_choice';
+        container.querySelector('#profile-root')?.appendChild(badChoice);
+        badChoice.click();
+
+        const badSide = document.createElement('button');
+        badSide.dataset.syncConflictIndex = '2';
+        badSide.dataset.syncResolutionKind = 'profile_picture';
+        badSide.dataset.syncResolutionSide = 'middle';
+        container.querySelector('#profile-root')?.appendChild(badSide);
+        badSide.click();
+
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(api.resolveSyncConflict).not.toHaveBeenCalled();
+
+        (container.querySelector('[data-sync-resolution-kind="media_field"][data-sync-resolution-side="local"]') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
+            'Conflict Resolution Failed',
+            expect.stringContaining('resolve failed'),
+        ));
+        await new Promise(resolve => setTimeout(resolve, 0));
+
+        vi.mocked(api.getSetting).mockRejectedValueOnce(new Error('refresh failed'));
+        view.setState({ syncStatus: null, syncError: 'offline' });
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-refresh-sync-status')).not.toBeNull());
+        (container.querySelector('#profile-btn-refresh-sync-status') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(loggerSpy).toHaveBeenCalledWith(
+            'Failed to refresh sync data',
+            expect.any(Error),
+        ));
+        loggerSpy.mockRestore();
+    });
+
+    it('removes the update listener when the profile view is destroyed', async () => {
+        const unsubscribe = vi.fn();
+        const updateManager = {
+            getState: vi.fn(() => ({
+                checking: false,
+                autoCheckEnabled: true,
+                availableRelease: null,
+                installedVersion: '1.0.0',
+                isSupported: true,
+            })),
+            subscribe: vi.fn(() => unsubscribe),
+            setAutoCheckEnabled: vi.fn(),
+            checkForUpdates: vi.fn(),
+        };
+
+        const view = new ProfileView(container, updateManager as never);
+        view.triggerMount();
+        view.destroy();
+
+        expect(unsubscribe).toHaveBeenCalled();
     });
 });

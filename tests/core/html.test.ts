@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { html, escapeHTML } from '../../src/core/html';
+import { html, escapeHTML } from '../../src/html';
 
 describe('core/html.ts', () => {
     describe('html tagged template', () => {

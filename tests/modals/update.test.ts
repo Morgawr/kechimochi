@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     showAvailableUpdateModal,
     showInstalledUpdateModal,
-} from '../../src/modals/update';
+} from '../../src/update/modal';
 
 describe('modals/update.ts', () => {
     beforeEach(() => {

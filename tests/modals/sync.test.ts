@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     showSyncAttachPreview,
     showSyncEnablementWizard,
-} from '../../src/modals/sync';
+} from '../../src/sync_modal';
 
 describe('modals/sync.ts', () => {
     beforeEach(() => {

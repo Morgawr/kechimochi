@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { Component } from '../../src/core/component';
+import { Component } from '../../src/component';
 
 class TestComponent extends Component<{ count: number }> {
     render = vi.fn();

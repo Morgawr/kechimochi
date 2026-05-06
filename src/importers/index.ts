@@ -1,27 +1,4 @@
-export type ScrapedFieldSource = 'direct' | 'entireSeries';
-
-export interface ScrapedMetadataFieldSources {
-    description?: ScrapedFieldSource;
-    coverImageUrl?: ScrapedFieldSource;
-    extraData?: Record<string, ScrapedFieldSource>;
-}
-
-export interface ScrapedMetadata {
-    title: string;
-    description: string;
-    coverImageUrl: string;
-    extraData: Record<string, string>;
-    contentType?: string;
-    fieldSources?: ScrapedMetadataFieldSources;
-}
-
-export interface MetadataImporter {
-    name: string;
-    supportedContentTypes: string[];
-    matchUrl(url: string, contentType?: string): boolean;
-    fetch(url: string, targetVolume?: number): Promise<ScrapedMetadata>;
-}
-
+import type { MetadataImporter, ScrapedMetadata } from './types';
 import { VndbImporter } from './vndb';
 import { BackloggdImporter } from './backloggd';
 import { ImdbImporter } from './imdb';
@@ -31,6 +8,8 @@ import { BookwalkerImporter } from './bookwalker';
 import { BookmeterImporter } from './bookmeter';
 import { ShonenjumpplusImporter } from './shonenjumpplus';
 import { JitenImporter } from './jiten';
+
+export type { MetadataImporter, ScrapedFieldSource, ScrapedMetadata, ScrapedMetadataFieldSources } from './types';
 
 export const importers: MetadataImporter[] = [
     new VndbImporter(),

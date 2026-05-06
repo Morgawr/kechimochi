@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
 import { prepareTestDir, cleanupTestDir, E2E_PACKAGE_VERSION } from './helpers/setup.js';
 import { startSyncMockServer, stopSyncMockServer } from './helpers/sync-mock.js';
-import { Logger } from '../src/core/logger';
+import { Logger } from '../src/logger';
 
 interface TauriSessionCaps {
     port?: number;

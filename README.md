@@ -2,6 +2,17 @@
 
 [![Test status](https://github.com/Morgawr/kechimochi/actions/workflows/test.yml/badge.svg)](https://github.com/Morgawr/kechimochi/actions/workflows/test.yml)
 ![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/morgawr/ec5ee3f88d6da60d5de0504267e07de7/raw/kechimochi-coverage.json)
+[![Quality Gate
+Status](https://sonarcloud.io/api/project_badges/measure?project=Morgawr_kechimochi&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=Morgawr_kechimochi)
+
+[![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=Morgawr_kechimochi&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=Morgawr_kechimochi)
+[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=Morgawr_kechimochi&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=Morgawr_kechimochi)
+[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=Morgawr_kechimochi&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=Morgawr_kechimochi)
+[![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=Morgawr_kechimochi&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=Morgawr_kechimochi)
+
+[![SonarQube Cloud](https://sonarcloud.io/images/project_badges/sonarcloud-highlight.svg)](https://sonarcloud.io/summary/new_code?id=Morgawr_kechimochi)
+
+---
 
 <p align="center">
   <img src="public/logo.png" width="120" alt="Kechimochi Logo" />
@@ -147,9 +158,9 @@ docker compose up -d
 
 ### LLM Assisted Coding and Quality Assurance
 
-This application has been developed with assistance from Large Language Model, use at your own risk. 
+This application has been developed with assistance from Large Language Model, use at your own risk.
 
-A lot of the code has not been manually verified by humans, however we do strive for a high level of quality by employing strict tests, development guard rails, and automated checks before merging the code. 
+A lot of the code has not been manually verified by humans, however we do strive for a high level of quality by employing strict tests, development guard rails, and automated checks before merging the code.
 
 Kechimochi is built on a foundation of test suites and automated checks. We maintain unit tests for frontend and backend logic, along with an end to end (e2e) testing infrastructure. These automated systems run on every change to help prevent regressions and ensure that features remain stable as the project evolves.
 

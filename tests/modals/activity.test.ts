@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { showLogActivityModal, showExportCsvModal } from '../../src/modals/activity';
+import { showLogActivityModal, showExportCsvModal } from '../../src/activity_modal';
 import * as api from '../../src/api';
 import { Media } from '../../src/api';
 
@@ -11,11 +11,11 @@ vi.mock('../../src/api', () => ({
     updateMedia: vi.fn(),
 }));
 
-vi.mock('../../src/modals/calendar', () => ({
+vi.mock('../../src/calendar', () => ({
     buildCalendar: vi.fn(),
 }));
 
-vi.mock('../../src/modals/base', () => ({
+vi.mock('../../src/modal_base', () => ({
     customPrompt: vi.fn(),
     customAlert: vi.fn(),
     createOverlay: vi.fn(() => {
@@ -110,7 +110,7 @@ describe('modals/activity.ts', () => {
 
         it('should create new media if it does not exist', async () => {
             vi.mocked(api.getAllMedia).mockResolvedValue([]);
-            const { customPrompt } = await import('../../src/modals/base');
+            const { customPrompt } = await import('../../src/modal_base');
             vi.mocked(customPrompt).mockResolvedValue('Manga');
             vi.mocked(api.addMedia).mockResolvedValue(99);
 
@@ -183,7 +183,7 @@ describe('modals/activity.ts', () => {
 
         it('should show alert if both duration and characters are 0', async () => {
             vi.mocked(api.getAllMedia).mockResolvedValue([{ id: 1, title: 'Item 1', status: 'Active', tracking_status: 'Ongoing' }] as unknown as Media[]);
-            const { customAlert } = await import('../../src/modals/base');
+            const { customAlert } = await import('../../src/modal_base');
             
             showLogActivityModal();
             await vi.waitFor(() => document.querySelector('#add-activity-form'));

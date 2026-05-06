@@ -8,7 +8,7 @@
  * the Tauri webview and use the desktop adapter; otherwise we use the web
  * (HTTP) adapter.
  */
-import { Logger } from '../core/logger';
+import { Logger } from '../logger';
 import type { AppServices } from './types';
 import { DesktopServices } from './desktop';
 import { WebServices } from './web';

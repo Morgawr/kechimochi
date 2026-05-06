@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { showAddMilestoneModal } from '../../src/modals/milestone';
-import { buildCalendar } from '../../src/modals/calendar';
+import { showAddMilestoneModal } from '../../src/milestone_modal';
+import { buildCalendar } from '../../src/calendar';
 
-vi.mock('../../src/modals/calendar', () => ({
+vi.mock('../../src/calendar', () => ({
     buildCalendar: vi.fn(),
 }));
 

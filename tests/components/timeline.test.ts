@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { TimelineView } from '../../src/components/timeline';
+import { TimelineView } from '../../src/timeline/TimelineView';
 import * as api from '../../src/api';
 import type { TimelineEvent } from '../../src/api';
 import * as services from '../../src/services';
 import type { AppServices } from '../../src/services';
-import { Logger } from '../../src/core/logger';
+import { Logger } from '../../src/logger';
 
 vi.mock('../../src/api', () => ({
     getTimelineEvents: vi.fn(),

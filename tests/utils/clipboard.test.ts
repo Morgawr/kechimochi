@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { setupCopyButton } from '../../src/utils/clipboard';
+import { setupCopyButton } from '../../src/clipboard';
 
 describe('clipboard.ts', () => {
     beforeEach(() => {

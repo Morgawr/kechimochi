@@ -1,4 +1,4 @@
-import { MetadataImporter, ScrapedMetadata } from './index';
+import type { MetadataImporter, ScrapedMetadata } from './types';
 import { fetchExternalJson } from '../platform';
 
 export abstract class BaseImporter implements MetadataImporter {

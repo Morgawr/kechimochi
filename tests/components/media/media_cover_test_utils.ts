@@ -27,7 +27,7 @@ export async function resetCoverLoaderTestState(resolvedUrl: string) {
     mockServices.isDesktop.mockReturnValue(true);
     mockServices.loadCoverImage.mockResolvedValue(resolvedUrl);
 
-    const { MediaCoverLoader } = await import('../../../src/components/media/cover_loader');
+    const { MediaCoverLoader } = await import('../../../src/media/cover_loader');
     MediaCoverLoader.clear();
 }
 

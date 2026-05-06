@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { buildCalendar } from '../../src/modals/calendar';
+import { buildCalendar } from '../../src/calendar';
 
 describe('modals/calendar.ts', () => {
     let container: HTMLElement;

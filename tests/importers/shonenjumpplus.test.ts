@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ShonenjumpplusImporter } from '../../src/importers/shonenjumpplus';
 import { invoke } from '@tauri-apps/api/core';
-import { Logger } from '../../src/core/logger';
+import { Logger } from '../../src/logger';
 
 describe('ShonenjumpplusImporter', () => {
     let importer: ShonenjumpplusImporter;

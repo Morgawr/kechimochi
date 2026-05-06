@@ -1,16 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import * as api from '../src/api';
-import * as modals from '../src/modals';
-import { SETTING_KEYS } from '../src/constants';
-import { Logger } from '../src/core/logger';
+import { EVENTS, SETTING_KEYS } from '../src/constants';
+import { Logger } from '../src/logger';
 import {
+    getMainModalMock,
     renderMainAppShell,
     resetMainApiMocks,
     resetMainModalMocks,
     setBuildGlobals,
     stubMainStorage,
 } from './helpers/main_harness';
+
+const modals = getMainModalMock();
 
 function createDeferred<T>() {
     let resolve!: (value: T | PromiseLike<T>) => void;
@@ -44,9 +46,68 @@ vi.mock('../src/api', async () => {
     return createMainApiMock();
 });
 
-vi.mock('../src/modals', async () => {
-    const { createMainModalMock } = await import('./helpers/main_harness');
-    return createMainModalMock();
+vi.mock('../src/modal_base', async () => {
+    const { getMainModalMock } = await import('./helpers/main_harness');
+    const mocks = getMainModalMock();
+    return {
+        customAlert: mocks.customAlert,
+        customConfirm: mocks.customConfirm,
+        customPrompt: mocks.customPrompt,
+        showBlockingStatus: mocks.showBlockingStatus,
+    };
+});
+
+vi.mock('../src/profile/modal', async () => {
+    const { getMainModalMock } = await import('./helpers/main_harness');
+    const mocks = getMainModalMock();
+    return {
+        showInitialSetupPrompt: mocks.showInitialSetupPrompt,
+    };
+});
+
+vi.mock('../src/activity_modal', async () => {
+    const { getMainModalMock } = await import('./helpers/main_harness');
+    const mocks = getMainModalMock();
+    return {
+        showLogActivityModal: mocks.showLogActivityModal,
+    };
+});
+
+vi.mock('../src/media/modal', async () => {
+    const { getMainModalMock } = await import('./helpers/main_harness');
+    const mocks = getMainModalMock();
+    return {
+        showAddMediaModal: mocks.showAddMediaModal,
+        showImportMergeModal: mocks.showImportMergeModal,
+        showJitenSearchModal: mocks.showJitenSearchModal,
+        showMediaCsvConflictModal: mocks.showMediaCsvConflictModal,
+    };
+});
+
+vi.mock('../src/milestone_modal', async () => {
+    const { getMainModalMock } = await import('./helpers/main_harness');
+    const mocks = getMainModalMock();
+    return {
+        showAddMilestoneModal: mocks.showAddMilestoneModal,
+    };
+});
+
+vi.mock('../src/sync_modal', async () => {
+    const { getMainModalMock } = await import('./helpers/main_harness');
+    const mocks = getMainModalMock();
+    return {
+        showSyncEnablementWizard: mocks.showSyncEnablementWizard,
+        showSyncAttachPreview: mocks.showSyncAttachPreview,
+    };
+});
+
+vi.mock('../src/update/modal', async () => {
+    const { getMainModalMock } = await import('./helpers/main_harness');
+    const mocks = getMainModalMock();
+    return {
+        showInstalledUpdateModal: mocks.showInstalledUpdateModal,
+        showAvailableUpdateModal: mocks.showAvailableUpdateModal,
+    };
 });
 
 const createSyncStatusMock = (overrides: Partial<Awaited<ReturnType<typeof api.getSyncStatus>>> = {}) => ({
@@ -79,6 +140,7 @@ describe('main.ts initialization', () => {
     beforeEach(async () => {
         vi.clearAllMocks();
         vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+        vi.spyOn(Logger, 'info').mockImplementation(() => {});
         resetMainApiMocks(api);
         resetMainModalMocks(modals);
         setBuildGlobals('0.1.0-dev.test', 'dev', 'beta');
@@ -89,6 +151,42 @@ describe('main.ts initialization', () => {
     it('should initialize the App', async () => {
         await bootApp();
         expect(localStorage.getItem).toHaveBeenCalled();
+    });
+
+    it('continues startup when reading startup error state fails', async () => {
+        vi.mocked(api.getStartupError).mockRejectedValueOnce(new Error('startup marker unavailable'));
+
+        await bootApp();
+
+        expect(Logger.warn).toHaveBeenCalledWith(
+            '[kechimochi] Failed to read startup error state, continuing normal startup.',
+            expect.any(Error),
+        );
+        expect(api.initializeUserDb).toHaveBeenCalled();
+    });
+
+    it('logs and continues when update manager initialization fails', async () => {
+        const { App } = await import('../src/main');
+        const manager = {
+            getState: vi.fn(() => ({
+                checking: false,
+                autoCheckEnabled: true,
+                availableRelease: null,
+                installedVersion: '0.1.0',
+                isSupported: true,
+            })),
+            subscribe: vi.fn(() => vi.fn()),
+            initialize: vi.fn(() => Promise.reject(new Error('update init failed'))),
+            openAvailableUpdateModal: vi.fn(),
+        };
+
+        await App.start(manager as never);
+
+        await vi.waitFor(() => expect(manager.initialize).toHaveBeenCalled());
+        expect(Logger.warn).toHaveBeenCalledWith(
+            '[kechimochi] Failed to initialize update manager:',
+            expect.any(Error),
+        );
     });
 
     it('should keep the startup loader visible until the initial dashboard is ready', async () => {
@@ -105,6 +203,14 @@ describe('main.ts initialization', () => {
 
         await startPromise;
         await vi.waitFor(() => expect(document.getElementById('app')?.dataset.bootState).toBe('ready'));
+    });
+
+    it('creates a startup loader when the shell does not already include one', async () => {
+        document.getElementById('app-startup-loader')?.remove();
+
+        await bootApp();
+
+        expect(document.getElementById('app-startup-loader')).not.toBeNull();
     });
 
     it('should not fetch inactive view data during startup', async () => {
@@ -153,6 +259,140 @@ describe('main.ts initialization', () => {
         await vi.waitFor(() => expect(api.runSync).toHaveBeenCalled());
     });
 
+    it('marks sync chrome as conflict when pending conflicts are reported', async () => {
+        vi.mocked(api.getSyncStatus).mockResolvedValue(createSyncStatusMock({
+            state: 'conflict_pending',
+            conflict_count: 2,
+        }));
+
+        await bootApp();
+
+        const navSyncButton = document.getElementById('nav-sync-status-btn') as HTMLButtonElement;
+        await vi.waitFor(() => expect(navSyncButton.dataset.syncState).toBe('conflict'));
+        expect(navSyncButton.title).toBe('Resolve 2 sync conflicts');
+    });
+
+    it('marks sync chrome as unavailable when sync status fails to load', async () => {
+        vi.mocked(api.getSyncStatus).mockRejectedValue(new Error('sync unavailable'));
+
+        await bootApp();
+        globalThis.dispatchEvent(new Event(EVENTS.LOCAL_DATA_CHANGED));
+
+        const navSyncButton = document.getElementById('nav-sync-status-btn') as HTMLButtonElement;
+        await vi.waitFor(() => expect(navSyncButton.dataset.syncState).toBe('error'));
+        expect(navSyncButton.title).toBe('Open cloud sync settings');
+    });
+
+    it('skips sync chrome updates when the shell has no sync controls', async () => {
+        document.getElementById('nav-sync-status-btn')?.remove();
+        document.getElementById('mobile-sync-status-btn')?.remove();
+
+        const { App } = await import('../src/main');
+        const manager = {
+            getState: vi.fn(() => ({
+                checking: false,
+                autoCheckEnabled: true,
+                availableRelease: null,
+                installedVersion: '0.1.0',
+                isSupported: true,
+            })),
+            subscribe: vi.fn(() => vi.fn()),
+            initialize: vi.fn(() => Promise.resolve()),
+            openAvailableUpdateModal: vi.fn(),
+        };
+
+        await App.start(manager as never);
+        await vi.waitFor(() => expect(api.initializeUserDb).toHaveBeenCalled());
+        expect(api.getSyncStatus).not.toHaveBeenCalled();
+    });
+
+    it('uses singular conflict copy for one pending sync conflict', async () => {
+        vi.mocked(api.getSyncStatus).mockResolvedValue(createSyncStatusMock({
+            state: 'conflict_pending',
+            conflict_count: 1,
+        }));
+
+        await bootApp();
+
+        const navSyncButton = document.getElementById('nav-sync-status-btn') as HTMLButtonElement;
+        await vi.waitFor(() => expect(navSyncButton.title).toBe('Resolve 1 sync conflict'));
+    });
+
+    it('marks sync chrome as disabled while syncing and as error when auth is missing', async () => {
+        vi.mocked(api.getSyncStatus).mockResolvedValue(createSyncStatusMock({
+            state: 'syncing',
+        }));
+
+        await bootApp();
+
+        const navSyncButton = document.getElementById('nav-sync-status-btn') as HTMLButtonElement;
+        await vi.waitFor(() => expect(navSyncButton.dataset.syncState).toBe('syncing'));
+        expect(navSyncButton.disabled).toBe(true);
+        expect(navSyncButton.title).toBe('Cloud sync status');
+
+        vi.mocked(api.getSyncStatus).mockResolvedValue(createSyncStatusMock({
+            state: 'connected_clean',
+            google_authenticated: false,
+        }));
+        globalThis.dispatchEvent(new Event(EVENTS.LOCAL_DATA_CHANGED));
+
+        await vi.waitFor(() => expect(navSyncButton.dataset.syncState).toBe('error'));
+    });
+
+    it('opens the profile view from sync chrome when sync cannot run immediately', async () => {
+        vi.mocked(api.getSyncStatus).mockResolvedValue(createSyncStatusMock({
+            sync_profile_id: null,
+            google_authenticated: false,
+            state: 'disconnected',
+        }));
+
+        await bootApp();
+
+        (document.getElementById('nav-sync-status-btn') as HTMLButtonElement).click();
+
+        const profileLink = document.querySelector('[data-view="profile"]');
+        await vi.waitFor(() => expect(profileLink?.classList.contains('active')).toBe(true));
+    });
+
+    it('refreshes the active view after running sync from shell chrome', async () => {
+        vi.mocked(api.getSyncStatus).mockResolvedValue(createSyncStatusMock());
+
+        await bootApp();
+
+        await clickView('media');
+        const mediaCalls = vi.mocked(api.getAllMedia).mock.calls.length;
+        (document.getElementById('nav-sync-status-btn') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(api.runSync).toHaveBeenCalledTimes(1));
+        await vi.waitFor(() => expect(vi.mocked(api.getAllMedia).mock.calls.length).toBeGreaterThan(mediaCalls));
+
+        await clickView('timeline');
+        const timelineCalls = vi.mocked(api.getTimelineEvents).mock.calls.length;
+        (document.getElementById('nav-sync-status-btn') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(api.runSync).toHaveBeenCalledTimes(2));
+        await vi.waitFor(() => expect(vi.mocked(api.getTimelineEvents).mock.calls.length).toBeGreaterThan(timelineCalls));
+
+        await clickView('profile');
+        const settingsCalls = vi.mocked(api.getSetting).mock.calls.length;
+        (document.getElementById('nav-sync-status-btn') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(api.runSync).toHaveBeenCalledTimes(3));
+        await vi.waitFor(() => expect(vi.mocked(api.getSetting).mock.calls.length).toBeGreaterThan(settingsCalls));
+    });
+
+    it('refreshes sync chrome when the shell sync action cannot read status', async () => {
+        vi.mocked(api.getSyncStatus)
+            .mockResolvedValueOnce(createSyncStatusMock())
+            .mockResolvedValueOnce(createSyncStatusMock())
+            .mockRejectedValueOnce(new Error('sync status failed'))
+            .mockRejectedValueOnce(new Error('sync status failed'));
+
+        await bootApp();
+
+        (document.getElementById('nav-sync-status-btn') as HTMLButtonElement).click();
+
+        const navSyncButton = document.getElementById('nav-sync-status-btn') as HTMLButtonElement;
+        await vi.waitFor(() => expect(navSyncButton.dataset.syncState).toBe('error'));
+    });
+
 
     it('should switch views', async () => {
         await bootApp();
@@ -191,6 +431,91 @@ describe('main.ts initialization', () => {
         await vi.waitFor(() => expect(modals.showInitialSetupPrompt).toHaveBeenCalled());
         expect(api.initializeUserDb).toHaveBeenCalledWith('new-user');
         expect(api.setSetting).toHaveBeenCalledWith(SETTING_KEYS.PROFILE_NAME, 'new-user');
+    });
+
+    it('migrates a legacy localStorage profile when no stored profile setting exists', async () => {
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === SETTING_KEYS.THEME) return 'dark';
+            return null;
+        });
+        vi.mocked(api.shouldSkipLegacyLocalProfileMigration).mockResolvedValue(false);
+        stubMainStorage('LEGACYUSER');
+
+        await bootApp();
+
+        expect(api.initializeUserDb).toHaveBeenCalledWith('LEGACYUSER');
+        expect(api.setSetting).toHaveBeenCalledWith(SETTING_KEYS.PROFILE_NAME, 'LEGACYUSER');
+        expect(localStorage.setItem).toHaveBeenCalledWith('kechimochi_profile', 'LEGACYUSER');
+    });
+
+    it('falls back to first-run setup when reading the profile setting fails', async () => {
+        let shouldThrowProfileLookup = true;
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === SETTING_KEYS.PROFILE_NAME && shouldThrowProfileLookup) {
+                shouldThrowProfileLookup = false;
+                throw new Error('settings table missing');
+            }
+            if (key === SETTING_KEYS.THEME) return 'dark';
+            return null;
+        });
+        stubMainStorage(null);
+        vi.mocked(modals.showInitialSetupPrompt).mockResolvedValue({ action: 'create_local', profileName: 'fresh-user' });
+
+        await bootApp();
+
+        expect(Logger.info).toHaveBeenCalledWith(
+            '[kechimochi] DB uninitialized (no settings table found), proceeding with fallback.',
+            expect.any(Error),
+        );
+        expect(api.initializeUserDb).toHaveBeenCalledWith('fresh-user');
+    });
+
+    it('skips legacy profile migration when the backend says to ignore localStorage', async () => {
+        vi.mocked(api.getSetting).mockImplementation(async (key) => {
+            if (key === SETTING_KEYS.THEME) return 'dark';
+            return null;
+        });
+        vi.mocked(api.shouldSkipLegacyLocalProfileMigration).mockResolvedValue(true);
+        stubMainStorage('LEGACYUSER');
+        vi.mocked(modals.showInitialSetupPrompt).mockResolvedValue({ action: 'create_local', profileName: 'fresh-user' });
+
+        await bootApp();
+
+        expect(api.initializeUserDb).toHaveBeenCalledWith('fresh-user');
+        expect(api.initializeUserDb).not.toHaveBeenCalledWith('LEGACYUSER');
+    });
+
+    it('loops back to local profile setup if cloud import setup is cancelled', async () => {
+        vi.mocked(api.getSetting).mockResolvedValue(null);
+        stubMainStorage(null);
+        vi.mocked(modals.showInitialSetupPrompt)
+            .mockResolvedValueOnce({ action: 'sync_remote' })
+            .mockResolvedValueOnce({ action: 'create_local', profileName: 'fallback-user' });
+        vi.mocked(api.listRemoteSyncProfiles).mockResolvedValue([]);
+        vi.mocked(modals.showSyncEnablementWizard).mockResolvedValue(null);
+
+        await bootApp();
+
+        expect(modals.showInitialSetupPrompt).toHaveBeenCalledTimes(2);
+        expect(api.initializeUserDb).toHaveBeenCalledWith('fallback-user');
+        expect(api.setSetting).toHaveBeenCalledWith(SETTING_KEYS.PROFILE_NAME, 'fallback-user');
+    });
+
+    it('shows a cloud sync error and retries setup when cloud import fails', async () => {
+        vi.mocked(api.getSetting).mockResolvedValue(null);
+        stubMainStorage(null);
+        vi.mocked(modals.showInitialSetupPrompt)
+            .mockResolvedValueOnce({ action: 'sync_remote' })
+            .mockResolvedValueOnce({ action: 'create_local', profileName: 'fallback-user' });
+        vi.mocked(api.connectGoogleDrive).mockRejectedValueOnce(new Error('oauth failed'));
+
+        await bootApp();
+
+        expect(modals.customAlert).toHaveBeenCalledWith(
+            'Cloud Sync Error',
+            expect.stringContaining('oauth failed'),
+        );
+        expect(api.initializeUserDb).toHaveBeenCalledWith('fallback-user');
     });
 
     it('should attach an existing cloud profile during first-run setup', async () => {

@@ -1,5 +1,5 @@
 import { BaseImporter } from './base';
-import { ScrapedMetadata, ScrapedMetadataFieldSources } from './index';
+import type { ScrapedMetadata, ScrapedMetadataFieldSources } from './types';
 import { JITEN_BASE_URL, getJitenCoverUrl, getJitenMediaContentType } from '../jiten_api';
 import { fetchExternalJson } from '../platform';
 
