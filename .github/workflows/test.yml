@@ -151,3 +151,51 @@ jobs:
       KECHIMOCHI_GOOGLE_CLIENT_ID: ${{ secrets.KECHIMOCHI_GOOGLE_CLIENT_ID }}
       KECHIMOCHI_GOOGLE_CLIENT_SECRET: ${{ secrets.KECHIMOCHI_GOOGLE_CLIENT_SECRET }}
       KECHIMOCHI_GOOGLE_ANDROID_CLIENT_ID: ${{ secrets.KECHIMOCHI_GOOGLE_ANDROID_CLIENT_ID }}
+
+  android-release-build:
+    if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'release/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: setup node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: install node dependencies
+        run: npm ci
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: stable
+          targets: aarch64-linux-android
+
+      - name: cache rust dependencies
+        uses: swatinem/rust-cache@aa7c1c80a07a27a84c0aa76d0cef0aad3830e330 # v2.7.8
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: setup java
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: setup android sdk
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+        with:
+          packages: 'platforms;android-36 build-tools;35.0.0 build-tools;36.0.0'
+
+      - name: build android release apk
+        env:
+          KECHIMOCHI_GOOGLE_ANDROID_CLIENT_ID: release-smoke-test
+          VITE_APP_VERSION: 0.0.0
+          VITE_APP_CHANNEL: release
+          VITE_RELEASE_STAGE: beta
+        run: npm run tauri -- android build --apk --ci --target aarch64

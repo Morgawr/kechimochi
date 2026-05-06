@@ -28,7 +28,7 @@ Release builds are created only from Git tags that match `vX.Y.Z`.
 - Private desktop OAuth values such as `KECHIMOCHI_GOOGLE_CLIENT_ID` and `KECHIMOCHI_GOOGLE_CLIENT_SECRET` must come from the release environment, not tracked config files.
 - GitHub Actions desktop builds currently source those values from repository secrets with the same names.
 - The release workflow publishes assets to the GitHub Releases tab.
-- Tagged releases currently publish desktop bundles for Linux, Windows, and macOS, plus self-hosted web packages for Linux, Windows, and macOS.
+- Tagged releases currently publish desktop bundles for Linux, Windows, and macOS, self-hosted web packages for Linux, Windows, and macOS, and an Android APK.
 - While the app is in beta, release builds display `BETA VERSION X.Y.Z` in the UI.
 - GitHub Releases are marked as prereleases until beta is over.
 
@@ -71,14 +71,44 @@ You can preview what the workflow will publish with:
 npm run changelog:extract -- 0.1.0
 ```
 
+## Android Gradle Dependency Verification
+
+The Android project uses Gradle dependency verification through `src-tauri/gen/android/gradle/verification-metadata.xml`.
+
+That file is a lock file for Maven artifacts used by the Android Gradle Plugin, the generated Tauri Android project, and Android app dependencies. When any of those versions change, Gradle may need extra artifact checksums before it will build in CI.
+
+This can show up only during tagged release builds because the release APK exercises release-only Gradle tasks such as `:tauri-android:extractReleaseAnnotations`. A debug Android artifact from `main` can pass while the release APK later fails with `Dependency verification failed`.
+
+Release branches named `release/...` automatically run an unsigned Android release APK build in CI. Before merging a release PR, confirm that check passed. If you need to reproduce it locally, run:
+
+```bash
+KECHIMOCHI_GOOGLE_ANDROID_CLIENT_ID=release-smoke-test \
+VITE_APP_VERSION=0.1.0 \
+VITE_APP_CHANNEL=release \
+VITE_RELEASE_STAGE=beta \
+npm run tauri -- android build --apk --ci --target aarch64
+```
+
+If the build fails with missing Gradle verification entries, refresh the metadata for the failing Gradle task, review the added artifacts, commit the metadata diff, and rerun the Android release build:
+
+```bash
+cd src-tauri/gen/android
+./gradlew --write-verification-metadata sha256 :tauri-android:extractReleaseAnnotations
+git diff -- gradle/verification-metadata.xml
+```
+
+Update and commit `src-tauri/gen/android/gradle/verification-metadata.xml` whenever the release build adds trusted Gradle artifacts. This is especially likely after Tauri, Android Gradle Plugin, Kotlin Gradle Plugin, AndroidX, Google Play Services, or Gradle wrapper updates.
+
 ## Releasing `0.1.0`
 
 The release flow should happen through a release PR.
 
-1. Create a release branch from `main`.
+1. Create a release branch from `main` named `release/v0.1.0`.
 2. Update the version files and finalize the `CHANGELOG.md` section for `0.1.0`.
-3. Open a PR, review it, and merge it into `main`.
-4. After the PR is merged, tag the merge commit that now lives on `main`:
+3. Open a PR.
+4. Confirm the Android release build check passed, committing any required `gradle/verification-metadata.xml` updates.
+5. Review the PR and merge it into `main`.
+6. After the PR is merged, tag the merge commit that now lives on `main`:
 
 ```bash
 git checkout main
@@ -87,7 +117,7 @@ git tag -a v0.1.0 -m "Kechimochi v0.1.0"
 git push origin v0.1.0
 ```
 
-5. The `release.yml` workflow publishes the tagged artifacts to GitHub Releases.
+7. The `release.yml` workflow publishes the tagged artifacts to GitHub Releases.
 
 ## Continuing Development After a Release
 
