@@ -458,6 +458,7 @@ export class ProfileView extends Component<ProfileState> {
 
         this.clear();
         const { currentProfile, theme, profilePicture, appVersion, themeOverrideEnabled, themeOverrideValue } = this.state;
+        applyTheme(themeOverrideEnabled ? themeOverrideValue : theme);
         const profilePictureSrc = profilePictureToDataUrl(profilePicture);
         const initials = getProfileInitials(currentProfile);
 

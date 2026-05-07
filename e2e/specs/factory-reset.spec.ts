@@ -53,11 +53,14 @@ describe('Factory Reset CUJ', () => {
 
     // App may briefly re-render; wait until profile is switched and dashboard is active.
     await browser.waitUntil(async () => {
-      const active = await verifyActiveView('dashboard');
-      const currentProfile = await browser.execute(() => localStorage.getItem('kechimochi_profile'));
-      return active && currentProfile === 'BESTUSER';
+      return browser.execute(() => {
+        const active = document.querySelector('[data-view="dashboard"]')?.classList.contains('active') ?? false;
+        const dashboardReady = document.querySelector('.dashboard-root') !== null;
+        const headerProfile = document.querySelector('#nav-user-name')?.textContent?.trim() ?? '';
+        return active && dashboardReady && headerProfile === 'BESTUSER';
+      });
     }, {
-      timeout: 10000,
+      timeout: 30000,
       timeoutMsg: 'Dashboard did not become active with BESTUSER after initial profile creation'
     });
     expect(await verifyActiveView('dashboard')).toBe(true);

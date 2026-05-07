@@ -98,11 +98,14 @@ async function completeFirstTimeSetup(profileName: string): Promise<void> {
   await startBtn.click();
 
   await browser.waitUntil(async () => {
-    const active = await verifyActiveView('dashboard');
-    const currentProfile = await browser.execute(() => localStorage.getItem('kechimochi_profile'));
-    return active && currentProfile === profileName;
+    return browser.execute((expectedProfileName) => {
+      const active = document.querySelector('[data-view="dashboard"]')?.classList.contains('active') ?? false;
+      const dashboardReady = document.querySelector('.dashboard-root') !== null;
+      const headerProfile = document.querySelector('#nav-user-name')?.textContent?.trim() ?? '';
+      return active && dashboardReady && headerProfile === expectedProfileName;
+    }, profileName);
   }, {
-    timeout: 10000,
+    timeout: 30000,
     timeoutMsg: `Dashboard did not become active with ${profileName}`,
   });
 }

@@ -26,6 +26,7 @@ commands.allow = [
     "fetch_remote_bytes",
     "fetch_external_json",
     "download_and_save_image",
+    "get_startup_error",
     "get_username",
     "should_skip_legacy_local_profile_migration",
     "get_profile_picture",

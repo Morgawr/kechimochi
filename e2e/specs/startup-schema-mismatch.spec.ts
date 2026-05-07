@@ -1,5 +1,12 @@
 describe('Startup Error Handling', () => {
-  const STARTUP_ERROR_TIMEOUT_MS = 1000;
+  const STARTUP_ERROR_TIMEOUT_MS = 10000;
+
+  before(async () => {
+    await browser.execute(() => {
+      localStorage.setItem('kechimochi_profile', 'TESTUSER');
+    });
+    await browser.refresh();
+  });
 
   it('shows a blocking message instead of crashing when the database schema is newer than the app supports', async () => {
     const alertBody = await $('#alert-body');

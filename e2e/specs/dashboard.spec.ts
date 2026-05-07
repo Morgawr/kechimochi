@@ -5,6 +5,7 @@ import {
   logActivity,
   editMostRecentLog,
   clickHeatmapCell,
+  waitForHeatmapReady,
   selectActivityChartTimeRange,
   getActivityChartRangeMetadata,
 } from '../helpers/dashboard.js';
@@ -12,6 +13,7 @@ import {
 describe('Dashboard CUJ', () => {
   before(async () => {
     await waitForAppReady();
+    await waitForHeatmapReady();
   });
 
   it('should display the dashboard view on launch', async () => {
@@ -21,8 +23,12 @@ describe('Dashboard CUJ', () => {
   });
 
   it('should render the heatmap', async () => {
-    const heatmap = $('.heatmap');
-    expect(await heatmap.isDisplayed()).toBe(true);
+    await waitForHeatmapReady();
+
+    const heatmapCellCount = await browser.execute(() => {
+      return document.querySelectorAll('.heatmap-cell[title]').length;
+    });
+    expect(heatmapCellCount).toBeGreaterThanOrEqual(365);
   });
 
   it('should display stats cards with fixture data', async () => {

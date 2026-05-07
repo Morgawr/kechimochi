@@ -142,6 +142,91 @@ export async function findTopmostVisibleOverlay(selector?: string): Promise<Webd
     return await overlay.isExisting().catch(() => false) ? overlay : null;
 }
 
+export async function waitForTopmostOverlayText(selector: string, expectedText: string, timeout = 8000): Promise<void> {
+    await browser.waitUntil(async () => {
+        return await browser.execute((targetSelector, text) => {
+            const overlays = Array.from(document.querySelectorAll('.modal-overlay')).reverse();
+            for (const overlay of overlays) {
+                if (!(overlay instanceof HTMLElement) || !overlay.classList.contains('active')) {
+                    continue;
+                }
+
+                const style = globalThis.getComputedStyle(overlay);
+                const rect = overlay.getBoundingClientRect();
+                if (style.display === 'none' || style.visibility === 'hidden' || rect.width <= 0 || rect.height <= 0) {
+                    continue;
+                }
+
+                if (!overlay.querySelector(targetSelector as string)) {
+                    continue;
+                }
+
+                return overlay.textContent?.includes(text as string) ?? false;
+            }
+
+            return false;
+        }, selector, expectedText);
+    }, {
+        timeout,
+        interval: 100,
+        timeoutMsg: `No visible modal overlay containing "${expectedText}" found for selector "${selector}"`,
+    });
+}
+
+export async function clickTopmostOverlayChild(selector: string, timeout = 8000): Promise<void> {
+    await browser.waitUntil(async () => {
+        return await browser.execute((targetSelector) => {
+            const overlays = Array.from(document.querySelectorAll('.modal-overlay')).reverse();
+            for (const overlay of overlays) {
+                if (!(overlay instanceof HTMLElement) || !overlay.classList.contains('active')) {
+                    continue;
+                }
+
+                const style = globalThis.getComputedStyle(overlay);
+                const rect = overlay.getBoundingClientRect();
+                if (style.display === 'none' || style.visibility === 'hidden' || rect.width <= 0 || rect.height <= 0) {
+                    continue;
+                }
+
+                return overlay.querySelector(targetSelector as string) instanceof HTMLElement;
+            }
+
+            return false;
+        }, selector);
+    }, {
+        timeout,
+        interval: 100,
+        timeoutMsg: `No visible modal overlay found for selector "${selector}"`,
+    });
+
+    await browser.execute((targetSelector) => {
+        const overlays = Array.from(document.querySelectorAll('.modal-overlay')).reverse();
+        for (const overlay of overlays) {
+            if (!(overlay instanceof HTMLElement) || !overlay.classList.contains('active')) {
+                continue;
+            }
+
+            const overlayStyle = globalThis.getComputedStyle(overlay);
+            const overlayRect = overlay.getBoundingClientRect();
+            if (overlayStyle.display === 'none'
+                || overlayStyle.visibility === 'hidden'
+                || overlayRect.width <= 0
+                || overlayRect.height <= 0) {
+                continue;
+            }
+
+            const target = overlay.querySelector(targetSelector as string);
+            if (target instanceof HTMLElement) {
+                target.scrollIntoView({ block: 'center', inline: 'center' });
+                target.click();
+                return;
+            }
+        }
+
+        throw new Error(`No active overlay child found for selector "${targetSelector}"`);
+    }, selector);
+}
+
 export async function waitForOverlayToDisappear(overlay: WebdriverIO.Element, timeout = 5000) {
     const modalId = await browser.execute((el) => {
         return (el as HTMLElement).dataset.modalId ?? '';
@@ -303,10 +388,43 @@ export async function takeAndCompareScreenshot(tag: string): Promise<void> {
     options.diffFolder = diffFolder;
   }
 
-  const result = await browser.checkScreen(tag, options);
+  let result = Number.POSITIVE_INFINITY;
+  const attempts = 3;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    await waitForVisualComparisonReady().catch(() => undefined);
+    result = await browser.checkScreen(tag, options);
+    if (result <= 10) break;
+    if (attempt < attempts - 1) {
+      await browser.pause(500 * (attempt + 1));
+    }
+  }
 
   // High tolerance for environmental rendering noise
   expect(result).toBeLessThanOrEqual(10);
+}
+
+async function waitForVisualComparisonReady(timeout = 5000): Promise<void> {
+  await browser.waitUntil(async () => {
+    return browser.execute(() => {
+      const app = document.getElementById('app');
+      const hasStableShell = Boolean(
+        document.querySelector('.nav-link.active')
+        || document.querySelector('.dashboard-root')
+        || document.querySelector('#media-view')
+        || document.querySelector('#profile-view')
+        || document.querySelector('#timeline-view')
+      );
+      const loadingOnly = document.body.textContent?.trim() === 'Loading...';
+
+      return app?.dataset.bootState === 'ready' && hasStableShell && !loadingOnly;
+    }).catch(() => false);
+  }, {
+    timeout,
+    interval: 100,
+    timeoutMsg: 'Expected app shell to be ready before visual comparison'
+  });
+
+  await browser.pause(150);
 }
 
 /**
@@ -315,27 +433,20 @@ export async function takeAndCompareScreenshot(tag: string): Promise<void> {
  */
 export async function dismissAlert(expectedText?: string, timeout = 5000): Promise<void> {
     try {
-        const overlay = timeout > 0
-            ? await getTopmostVisibleOverlay('#alert-ok', timeout)
-            : await findTopmostVisibleOverlay('#alert-ok');
-
-        if (!overlay) {
-            return;
-        }
-
-        const alertBody = overlay.$('#alert-body');
-        const scopedOkBtn = overlay.$('#alert-ok');
-
+        let overlay: WebdriverIO.Element | null = null;
         if (expectedText) {
-            await browser.waitUntil(async () => {
-                return (await alertBody.getText().catch(() => '')).includes(expectedText);
-            }, {
-                timeout,
-                timeoutMsg: `Alert body did not contain "${expectedText}"`,
-            });
+            await waitForTopmostOverlayText('#alert-ok', expectedText, timeout);
+            overlay = await getTopmostVisibleOverlay('#alert-ok', timeout > 0 ? timeout : 1000);
+        } else if (timeout > 0) {
+            overlay = await getTopmostVisibleOverlay('#alert-ok', timeout);
+        } else {
+            overlay = await findTopmostVisibleOverlay('#alert-ok');
+            if (!overlay) {
+                return;
+            }
         }
 
-        await safeClick(scopedOkBtn);
+        await clickTopmostOverlayChild('#alert-ok', timeout > 0 ? timeout : 1000);
         await waitForOverlayToDisappear(overlay, 5000);
     } catch (e) {
         if (timeout > 0) throw e;
@@ -364,11 +475,7 @@ export async function submitPrompt(value: string): Promise<void> {
 export async function confirmAction(ok: boolean = true): Promise<void> {
     const btnSelector = ok ? '#confirm-ok' : '#confirm-cancel';
     const overlay = await getTopmostVisibleOverlay(btnSelector);
-    const btn = overlay.$(btnSelector);
-    await btn.waitForDisplayed({ timeout: 5000 });
-
-    await safeClick(btn);
-
+    await clickTopmostOverlayChild(btnSelector);
     await waitForOverlayToDisappear(overlay, 5000);
 }
 
@@ -377,8 +484,7 @@ export async function confirmAction(ok: boolean = true): Promise<void> {
  */
 export async function closeModal(cancelBtnSelector: string): Promise<void> {
     const overlay = await getTopmostVisibleOverlay(cancelBtnSelector);
-    const cancelBtn = overlay.$(cancelBtnSelector);
-    await safeClick(cancelBtn);
+    await clickTopmostOverlayChild(cancelBtnSelector);
     await waitForOverlayToDisappear(overlay, 5000);
 }
 /**

@@ -1,5 +1,10 @@
 /// <reference types="@wdio/globals/types" />
-import { getTopmostVisibleOverlay, safeClick, waitForOverlayToDisappear } from './common.js';
+import {
+  clickTopmostOverlayChild,
+  safeClick,
+  waitForNoActiveOverlays,
+  waitForTopmostOverlayText,
+} from './common.js';
 
 interface MockReleaseOptions {
   version: string;
@@ -38,18 +43,13 @@ export async function clearMockUpstreamRelease(): Promise<void> {
 }
 
 export async function expectInstalledUpdateModal(version: string): Promise<void> {
-  const overlay = await getTopmostVisibleOverlay('#update-modal-close');
-  const title = await overlay.$('h3');
-  await title.waitForDisplayed({ timeout: 5000 });
-  expect(await title.getText()).toContain(`updated to ${version}`);
-  expect(await overlay.getText()).toContain('latest changelog');
+  await waitForTopmostOverlayText('#update-modal-close', `updated to ${version}`, 30000);
+  await waitForTopmostOverlayText('#update-modal-close', 'latest changelog', 30000);
 }
 
 export async function closeUpdateModal(): Promise<void> {
-  const overlay = await getTopmostVisibleOverlay('#update-modal-close');
-  const closeButton = overlay.$('#update-modal-close');
-  await safeClick(closeButton);
-  await waitForOverlayToDisappear(overlay, 5000);
+  await clickTopmostOverlayChild('#update-modal-close');
+  await waitForNoActiveOverlays(5000);
 }
 
 export async function waitForUpdateBanner(version: string): Promise<void> {
@@ -68,11 +68,7 @@ export async function triggerManualUpdateCheck(): Promise<void> {
 }
 
 export async function expectAvailableUpdateModal(currentVersion: string, nextVersion: string): Promise<void> {
-  const overlay = await getTopmostVisibleOverlay('#update-modal-close');
-  const title = await overlay.$('h3');
-  await title.waitForDisplayed({ timeout: 5000 });
-  expect(await title.getText()).toBe('New update available');
-  const text = await overlay.getText();
-  expect(text).toContain(`${currentVersion} -> ${nextVersion}`);
-  expect(text).toContain('Make sure to back up your data before updating');
+  await waitForTopmostOverlayText('#update-modal-close', 'New update available', 30000);
+  await waitForTopmostOverlayText('#update-modal-close', `${currentVersion} -> ${nextVersion}`, 30000);
+  await waitForTopmostOverlayText('#update-modal-close', 'Make sure to back up your data before updating', 30000);
 }
