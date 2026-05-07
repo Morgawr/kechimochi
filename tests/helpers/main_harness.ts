@@ -14,6 +14,18 @@ const defaultActivitySummary: ActivitySummary = {
     language: 'Japanese',
 };
 
+const defaultLocalHttpApiStatus = {
+    supported: true,
+    enabled: false,
+    running: false,
+    bindHost: '127.0.0.1',
+    port: 3031,
+    scope: 'automation' as const,
+    allowedOrigins: [],
+    url: null,
+    lastError: null,
+};
+
 export function createMainApiMock() {
     return {
         initializeUserDb: vi.fn(() => Promise.resolve()),
@@ -31,6 +43,8 @@ export function createMainApiMock() {
         getMilestones: vi.fn(() => Promise.resolve([])),
         getAppVersion: vi.fn(() => Promise.resolve('1.0.0')),
         isDesktop: vi.fn(() => true),
+        getLocalHttpApiStatus: vi.fn(() => Promise.resolve(defaultLocalHttpApiStatus)),
+        saveLocalHttpApiConfig: vi.fn(() => Promise.resolve(defaultLocalHttpApiStatus)),
         getSyncStatus: vi.fn(() => Promise.resolve({
             state: 'connected_clean',
             google_authenticated: true,
@@ -154,6 +168,8 @@ export function resetMainApiMocks(mockedApi: ApiModule) {
     vi.mocked(mockedApi.getMilestones).mockResolvedValue([]);
     vi.mocked(mockedApi.getAppVersion).mockResolvedValue('1.0.0');
     vi.mocked(mockedApi.isDesktop).mockReturnValue(true);
+    vi.mocked(mockedApi.getLocalHttpApiStatus).mockResolvedValue(defaultLocalHttpApiStatus);
+    vi.mocked(mockedApi.saveLocalHttpApiConfig).mockResolvedValue(defaultLocalHttpApiStatus);
     vi.mocked(mockedApi.getSyncStatus).mockResolvedValue({
         state: 'connected_clean',
         google_authenticated: true,
