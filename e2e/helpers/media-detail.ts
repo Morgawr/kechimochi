@@ -558,5 +558,18 @@ export async function logActivityFromDetail(expectedTitle: string, duration: str
  * Edits the most recent log in the Media Detail view.
  */
 export async function editMostRecentLogFromDetail(newDuration: string, newCharacters: string = "0"): Promise<void> {
+    const logItem = $('.media-detail-log-item');
+    await logItem.waitForDisplayed({ timeout: 5000 });
+    const logId = await logItem.getAttribute('data-id');
+
     await performActivityEdit('.media-detail-log-item .edit-log-btn', newDuration, newCharacters);
+
+    await browser.waitUntil(async () => {
+        const updatedItem = $(`.media-detail-log-item[data-id="${logId}"][data-duration-minutes="${newDuration}"][data-characters="${newCharacters}"]`);
+        return await updatedItem.isDisplayed().catch(() => false);
+    }, {
+        timeout: 5000,
+        interval: 100,
+        timeoutMsg: `Edited activity log ${logId} did not render with ${newDuration} Minutes`
+    });
 }

@@ -135,9 +135,8 @@ describe('Media Management CUJs', () => {
       await editMostRecentLogFromDetail(newDuration);
 
       // Verify it updates in the list
-      const updatedEntry = $('.media-detail-log-item*=150 Minutes');
-      await updatedEntry.waitForExist({ timeout: 5000 });
-      
+      const updatedEntry = $(`.media-detail-log-item[data-duration-minutes="${newDuration}"]`);
+      await updatedEntry.waitForDisplayed({ timeout: 5000 });
       expect(await updatedEntry.isDisplayed()).toBe(true);
     });
   });

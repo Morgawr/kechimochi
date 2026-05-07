@@ -50,6 +50,9 @@ describe('MediaLog', () => {
         expect(container.textContent).toContain('30 Minutes');
         expect(container.textContent).toContain('1,200 chars');
         expect(container.textContent).toContain('|');
+        const item = container.querySelector('.media-detail-log-item') as HTMLElement;
+        expect(item.dataset.durationMinutes).toBe('30');
+        expect(item.dataset.characters).toBe('1200');
 
         (container.querySelector('.edit-log-btn') as HTMLButtonElement).click();
 
