@@ -1,5 +1,6 @@
 import { waitForAppReady } from '../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../helpers/navigation.js';
+import { submitPrompt } from '../helpers/common.js';
 describe('Factory Reset CUJ', () => {
   before(async () => {
     // We set the profile in localStorage and THEN refresh to ensure the app picks it up
@@ -28,18 +29,10 @@ describe('Factory Reset CUJ', () => {
     await wipeBtn.scrollIntoView();
     await wipeBtn.click();
 
-    const promptInput = $('#prompt-input');
-    await promptInput.waitForDisplayed({ timeout: 5000 });
-    await promptInput.waitForClickable({ timeout: 2000 });
-    await promptInput.click();
-    await promptInput.setValue('WIPE_EVERYTHING');
-
-    const confirmBtn = $('#prompt-confirm');
-    await confirmBtn.waitForClickable({ timeout: 2000 });
-    await confirmBtn.click();
+    await submitPrompt('WIPE_EVERYTHING');
 
     const initialInput = $('#initial-prompt-input');
-    await initialInput.waitForDisplayed({ timeout: 10000 });
+    await initialInput.waitForDisplayed({ timeout: 30000 });
   });
 
   it('should prompt for a new user name and create BESTUSER', async () => {
