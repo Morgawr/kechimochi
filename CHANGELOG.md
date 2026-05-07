@@ -6,6 +6,20 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+### Added
+ - Desktop version now allows enabling an HTTP server backend for automation
+
+### Special notes:
+
+With the inclusion of an HTTP server option in the desktop build, users are now
+able to automate certain activities (like logging entries, adding media, etc)
+according to the backend API. This API is described in the http-api.md doc in
+the github repository, refer to that if you want to know more.
+
+Be aware that the HTTP server is unprotected and you are responsible for your
+own local security as the app itself will not care about rejecting unauthorized
+accesses.
+
 ## [0.2.8] - 2026-05-06
 
 ### Fixed
