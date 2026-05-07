@@ -58,6 +58,7 @@ const mockServices = {
     analyzeMediaCsvFromPick: vi.fn(),
     exportMediaLibrary: vi.fn(),
     isDesktop: vi.fn(() => true),
+    supportsLocalHttpApi: vi.fn(() => true),
     supportsWindowControls: vi.fn(() => true),
 };
 
@@ -143,6 +144,7 @@ describe('ProfileView', () => {
         container = document.createElement('div');
         vi.clearAllMocks();
         mockServices.isDesktop.mockReturnValue(true);
+        mockServices.supportsLocalHttpApi.mockReturnValue(true);
         mockServices.pickAndImportActivities.mockResolvedValue(null);
         mockServices.exportActivities.mockResolvedValue(null);
         mockServices.analyzeMediaCsvFromPick.mockResolvedValue(null);
@@ -794,6 +796,7 @@ describe('ProfileView', () => {
 
     it('renders the desktop-only sync card when sync is not available on web', async () => {
         mockServices.isDesktop.mockReturnValue(false);
+        mockServices.supportsLocalHttpApi.mockReturnValue(false);
 
         const view = new ProfileView(container);
         view.render();
@@ -802,6 +805,208 @@ describe('ProfileView', () => {
         expect(container.textContent).toContain('App Only');
         expect(container.textContent).toContain('Cloud Sync is only available in the app');
         expect(api.getSyncStatus).not.toHaveBeenCalled();
+        expect(api.getLocalHttpApiStatus).not.toHaveBeenCalled();
+        expect(container.querySelector('#profile-local-http-api-card')).toBeNull();
+    });
+
+    it('does not expose the HTTP API card on Android-style app runtimes', async () => {
+        mockServices.isDesktop.mockReturnValue(true);
+        mockServices.supportsLocalHttpApi.mockReturnValue(false);
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-sync-card')).not.toBeNull());
+        expect(api.getSyncStatus).toHaveBeenCalled();
+        expect(api.getLocalHttpApiStatus).not.toHaveBeenCalled();
+        expect(container.querySelector('#profile-local-http-api-card')).toBeNull();
+    });
+
+    it('renders HTTP API controls behind advanced settings', async () => {
+        vi.mocked(api.getLocalHttpApiStatus).mockResolvedValue({
+            supported: true,
+            enabled: true,
+            running: true,
+            bindHost: '0.0.0.0',
+            port: 3031,
+            scope: 'full',
+            allowedOrigins: ['https://example.com'],
+            url: 'http://127.0.0.1:3031',
+            lastError: null,
+        });
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-local-http-api-card')).not.toBeNull());
+        expect(container.querySelector('#profile-local-http-api-card h3')?.textContent).toBe('HTTP API');
+        expect(container.textContent).not.toContain('Local HTTP API');
+        const advanced = container.querySelector('#profile-local-api-advanced') as HTMLDetailsElement;
+        expect(advanced).not.toBeNull();
+        expect(advanced.open).toBe(false);
+        const toggleSwitch = container.querySelector('#profile-toggle-local-http-api') as HTMLInputElement;
+        expect(toggleSwitch).not.toBeNull();
+        expect(toggleSwitch.checked).toBe(true);
+        expect(toggleSwitch.getAttribute('role')).toBe('switch');
+        expect(advanced.contains(toggleSwitch)).toBe(false);
+        expect(container.querySelector('#profile-local-api-enabled')).toBeNull();
+    });
+
+    it('starts the HTTP API from the top-level switch', async () => {
+        vi.mocked(modals.customConfirm).mockResolvedValue(true);
+        vi.mocked(api.saveLocalHttpApiConfig).mockResolvedValue({
+            supported: true,
+            enabled: true,
+            running: true,
+            bindHost: '0.0.0.0',
+            port: 3032,
+            scope: 'full',
+            allowedOrigins: ['https://example.com'],
+            url: 'http://127.0.0.1:3032',
+            lastError: null,
+        });
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-toggle-local-http-api')).not.toBeNull());
+        (container.querySelector('#profile-local-api-lan') as HTMLInputElement).checked = true;
+        (container.querySelector('#profile-local-api-port') as HTMLInputElement).value = '3032';
+        (container.querySelector('#profile-local-api-scope') as HTMLSelectElement).value = 'full';
+        (container.querySelector('#profile-local-api-origins') as HTMLTextAreaElement).value = 'https://example.com';
+        const toggleSwitch = container.querySelector('#profile-toggle-local-http-api') as HTMLInputElement;
+        toggleSwitch.checked = true;
+        toggleSwitch.dispatchEvent(new Event('change'));
+
+        await vi.waitFor(() => expect(api.saveLocalHttpApiConfig).toHaveBeenCalledWith({
+            enabled: true,
+            bindHost: '0.0.0.0',
+            port: 3032,
+            scope: 'full',
+            allowedOrigins: ['https://example.com'],
+        }));
+        expect(modals.customConfirm).toHaveBeenCalledWith(
+            'Enable HTTP API',
+            expect.stringContaining('LAN access and Full API mode are enabled'),
+            'btn-danger',
+            'Enable API'
+        );
+    });
+
+    it('saves advanced HTTP API settings without starting a stopped server', async () => {
+        vi.mocked(api.saveLocalHttpApiConfig).mockResolvedValue({
+            supported: true,
+            enabled: false,
+            running: false,
+            bindHost: '0.0.0.0',
+            port: 3032,
+            scope: 'full',
+            allowedOrigins: ['https://example.com'],
+            url: null,
+            lastError: null,
+        });
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-save-local-http-api')).not.toBeNull());
+        (container.querySelector('#profile-local-api-lan') as HTMLInputElement).checked = true;
+        (container.querySelector('#profile-local-api-port') as HTMLInputElement).value = '3032';
+        (container.querySelector('#profile-local-api-scope') as HTMLSelectElement).value = 'full';
+        (container.querySelector('#profile-local-api-origins') as HTMLTextAreaElement).value = 'https://example.com';
+        (container.querySelector('#profile-btn-save-local-http-api') as HTMLButtonElement).click();
+
+        await vi.waitFor(() => expect(api.saveLocalHttpApiConfig).toHaveBeenCalledWith({
+            enabled: false,
+            bindHost: '0.0.0.0',
+            port: 3032,
+            scope: 'full',
+            allowedOrigins: ['https://example.com'],
+        }));
+        expect(modals.customConfirm).not.toHaveBeenCalled();
+    });
+
+    it('stops the HTTP API from the top-level switch', async () => {
+        vi.mocked(api.getLocalHttpApiStatus).mockResolvedValue({
+            supported: true,
+            enabled: true,
+            running: true,
+            bindHost: '127.0.0.1',
+            port: 3031,
+            scope: 'automation',
+            allowedOrigins: [],
+            url: 'http://127.0.0.1:3031',
+            lastError: null,
+        });
+        vi.mocked(api.saveLocalHttpApiConfig).mockResolvedValue({
+            supported: true,
+            enabled: false,
+            running: false,
+            bindHost: '127.0.0.1',
+            port: 3031,
+            scope: 'automation',
+            allowedOrigins: [],
+            url: null,
+            lastError: null,
+        });
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect((container.querySelector('#profile-toggle-local-http-api') as HTMLInputElement | null)?.checked).toBe(true));
+        (container.querySelector('#profile-local-api-port') as HTMLInputElement).value = 'not-a-port';
+        const toggleSwitch = container.querySelector('#profile-toggle-local-http-api') as HTMLInputElement;
+        toggleSwitch.checked = false;
+        toggleSwitch.dispatchEvent(new Event('change'));
+
+        await vi.waitFor(() => expect(api.saveLocalHttpApiConfig).toHaveBeenCalledWith({
+            enabled: false,
+            bindHost: '127.0.0.1',
+            port: 3031,
+            scope: 'automation',
+            allowedOrigins: [],
+        }));
+        expect(modals.customConfirm).not.toHaveBeenCalled();
+    });
+
+    it('restarts the running HTTP API when advanced settings are saved', async () => {
+        vi.mocked(api.getLocalHttpApiStatus).mockResolvedValue({
+            supported: true,
+            enabled: true,
+            running: true,
+            bindHost: '127.0.0.1',
+            port: 3031,
+            scope: 'automation',
+            allowedOrigins: [],
+            url: 'http://127.0.0.1:3031',
+            lastError: null,
+        });
+        vi.mocked(api.saveLocalHttpApiConfig).mockResolvedValue({
+            supported: true,
+            enabled: true,
+            running: true,
+            bindHost: '127.0.0.1',
+            port: 3033,
+            scope: 'automation',
+            allowedOrigins: [],
+            url: 'http://127.0.0.1:3033',
+            lastError: null,
+        });
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-btn-save-local-http-api')).not.toBeNull());
+        (container.querySelector('#profile-local-api-port') as HTMLInputElement).value = '3033';
+        (container.querySelector('#profile-btn-save-local-http-api') as HTMLButtonElement).click();
+
+        await vi.waitFor(() => expect(api.saveLocalHttpApiConfig).toHaveBeenCalledWith({
+            enabled: true,
+            bindHost: '127.0.0.1',
+            port: 3033,
+            scope: 'automation',
+            allowedOrigins: [],
+        }));
     });
 
     it('renders an unavailable sync card when sync status loading fails', async () => {

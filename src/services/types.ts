@@ -157,6 +157,8 @@ export interface AppServices {
 
     /** True when running inside the Tauri desktop shell. */
     isDesktop(): boolean;
+    /** True when this runtime can expose the optional desktop-only HTTP API. */
+    supportsLocalHttpApi(): boolean;
     /** True when the runtime exposes desktop-style window chrome controls. */
     supportsWindowControls(): boolean;
 }

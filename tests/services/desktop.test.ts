@@ -247,6 +247,7 @@ describe('DesktopServices', () => {
         vi.mocked(invoke).mockResolvedValueOnce('json-data').mockResolvedValueOnce([9, 8, 7]);
 
         expect(services.isDesktop()).toBe(true);
+        expect(services.supportsLocalHttpApi()).toBe(true);
         expect(services.supportsWindowControls()).toBe(true);
         await expect(services.fetchExternalJson('https://example.com', 'GET')).resolves.toBe('json-data');
         await expect(services.fetchRemoteBytes('https://example.com/img')).resolves.toEqual([9, 8, 7]);
@@ -255,6 +256,7 @@ describe('DesktopServices', () => {
     it('disables window controls for Android runtimes', () => {
         vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (Linux; Android 15; Pixel 8) Tauri/2.0' });
 
+        expect(new DesktopServices().supportsLocalHttpApi()).toBe(false);
         expect(new DesktopServices().supportsWindowControls()).toBe(false);
     });
 

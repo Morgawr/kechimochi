@@ -98,6 +98,7 @@ pub struct LocalHttpApiStatus {
 struct LocalHttpApiServer {
     shutdown: Option<tokio::sync::oneshot::Sender<()>>,
     bound_addr: SocketAddr,
+    task: tokio::task::JoinHandle<()>,
 }
 
 struct LocalHttpApiRuntime {
@@ -305,9 +306,20 @@ fn local_http_api_url(config: &LocalHttpApiConfig, bound_addr: SocketAddr) -> St
     format!("http://{}:{}", host, bound_addr.port())
 }
 
-fn stop_local_http_api_server(mut server: LocalHttpApiServer) {
+async fn stop_local_http_api_server(mut server: LocalHttpApiServer) {
     if let Some(shutdown) = server.shutdown.take() {
         let _ = shutdown.send(());
+    }
+
+    let timeout = tokio::time::sleep(Duration::from_secs(2));
+    tokio::pin!(timeout);
+
+    tokio::select! {
+        _ = &mut server.task => {}
+        _ = &mut timeout => {
+            server.task.abort();
+            let _ = server.task.await;
+        }
     }
 }
 
@@ -348,7 +360,7 @@ async fn start_local_http_api_server(
         },
     );
 
-    tauri::async_runtime::spawn(async move {
+    let task = tokio::spawn(async move {
         let result = axum::serve(listener, router)
             .with_graceful_shutdown(async {
                 let _ = shutdown_rx.await;
@@ -362,6 +374,7 @@ async fn start_local_http_api_server(
     Ok(LocalHttpApiServer {
         shutdown: Some(shutdown_tx),
         bound_addr,
+        task,
     })
 }
 
@@ -378,7 +391,7 @@ async fn apply_local_http_api_config(
         runtime.server.take()
     };
     if let Some(server) = old_server {
-        stop_local_http_api_server(server);
+        stop_local_http_api_server(server).await;
     }
 
     let mut actual_config = requested_config.clone();

@@ -27,6 +27,7 @@ type TestServices = AppServices & { fetchExternalJson: ReturnType<typeof vi.fn> 
 function createServices(): TestServices {
     return {
         isDesktop: () => true,
+        supportsLocalHttpApi: () => true,
         supportsWindowControls: () => true,
         fetchExternalJson: vi.fn(),
         getAllMedia: vi.fn(),

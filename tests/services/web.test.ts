@@ -461,6 +461,7 @@ describe('WebServices', () => {
         expect(services.maximizeWindow()).toBeUndefined();
         expect(services.closeWindow()).toBeUndefined();
         expect(services.isDesktop()).toBe(false);
+        expect(services.supportsLocalHttpApi()).toBe(false);
         expect(services.supportsWindowControls()).toBe(false);
     });
 });

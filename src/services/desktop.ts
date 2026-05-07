@@ -275,5 +275,6 @@ export class DesktopServices implements AppServices {
     closeWindow():    void { this.getWin().close(); }
 
     isDesktop(): boolean { return true; }
+    supportsLocalHttpApi(): boolean { return !this.isAndroidRuntime(); }
     supportsWindowControls(): boolean { return this.supportsDesktopWindowControls(); }
 }
