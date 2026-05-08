@@ -54,6 +54,17 @@ describe('modals/media.ts', () => {
             const result = await promise;
             expect(result).toBeNull();
         });
+
+        it('should resolve null when clicking outside the modal', async () => {
+            const promise = showAddMediaModal();
+            await vi.waitFor(() => document.querySelector('.modal-overlay'));
+
+            const overlay = document.querySelector('.modal-overlay') as HTMLDivElement;
+            overlay.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+            overlay.click();
+
+            await expect(promise).resolves.toBeNull();
+        });
     });
 
     describe('showImportMergeModal', () => {

@@ -1,4 +1,4 @@
-import { STORAGE_KEYS, DEFAULTS } from './constants';
+import { STORAGE_KEYS, DEFAULTS, THEME_MODES } from './constants';
 
 export function isThemeOverrideEnabled(): boolean {
     return localStorage.getItem(STORAGE_KEYS.THEME_OVERRIDE_ENABLED) === '1';
@@ -25,4 +25,12 @@ export function resolveEffectiveTheme(syncedTheme: string): string {
 export function applyTheme(theme: string): void {
     document.body.dataset.theme = theme;
     localStorage.setItem(STORAGE_KEYS.THEME_CACHE, theme);
+
+    const isLight = THEME_MODES[theme] === 'light' ||
+        (THEME_MODES[theme] === undefined && theme.toLowerCase().includes('light'));
+
+    // Control Android status bar appearance via JavascriptInterface
+    if ((globalThis as any).AndroidStatusBar?.postMessage) {
+        (globalThis as any).AndroidStatusBar.postMessage(isLight);
+    }
 }

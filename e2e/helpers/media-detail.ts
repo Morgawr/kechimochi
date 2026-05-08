@@ -46,13 +46,13 @@ export async function isArchivedStatusActive(): Promise<boolean> {
     // We wait until the text is either ACTIVE or ARCHIVED to avoid checking during transitions
     await browser.waitUntil(async () => {
         const text = await label.getText();
-        return text === 'ACTIVE' || text === 'ARCHIVED';
+        return text === 'Archive' || text === 'Archived';
     }, {
         timeout: 5000,
-        timeoutMsg: 'Status label did not settle on ACTIVE or ARCHIVED'
+        timeoutMsg: 'Status label did not settle on Archive or Archived'
     });
 
-    return (await label.getText()) === 'ACTIVE';
+    return (await label.getText()) === 'Archive';
 }
 
 /**
@@ -60,9 +60,9 @@ export async function isArchivedStatusActive(): Promise<boolean> {
  */
 export async function toggleArchivedStatusDetail(): Promise<void> {
     const initialStatus = await isArchivedStatusActive();
-    const slider = $('#status-toggle + .slider');
-    await slider.waitForClickable({ timeout: 2000 });
-    await slider.click();
+    const btn = $('#btn-toggle-archive');
+    await btn.waitForClickable({ timeout: 2000 });
+    await btn.click();
 
     // Wait for the status label to flip
     await browser.waitUntil(async () => {

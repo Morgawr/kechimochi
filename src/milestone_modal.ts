@@ -1,6 +1,6 @@
 import { Milestone } from './api';
 import { buildCalendar } from './calendar';
-import { createOverlay, customAlert } from './modal_base';
+import { createCancelableOverlay, customAlert } from './modal_base';
 
 type MilestoneDefaults = {
     duration?: number;
@@ -14,7 +14,7 @@ function isExistingMilestone(input?: Milestone | MilestoneDefaults): input is Mi
 
 export async function showAddMilestoneModal(mediaTitle: string, initialValues?: Milestone | MilestoneDefaults): Promise<Milestone | null> {
     return new Promise((resolve) => {
-        const { overlay, cleanup: baseCleanup } = createOverlay();
+        const { overlay, cleanup, dismiss } = createCancelableOverlay(() => resolve(null), { closeOnEscape: true });
         const existingMilestone = isExistingMilestone(initialValues) ? initialValues : undefined;
         const defaults: MilestoneDefaults = existingMilestone ? {} : (initialValues || {});
         const isEditMode = !!existingMilestone;
@@ -86,20 +86,6 @@ export async function showAddMilestoneModal(mediaTitle: string, initialValues?: 
             </div>
         `;
 
-        const handleGlobalEsc = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') {
-                cleanup();
-                resolve(null);
-            }
-        };
-
-        const cleanup = () => {
-            globalThis.removeEventListener('keydown', handleGlobalEsc);
-            baseCleanup();
-        };
-
-        globalThis.addEventListener('keydown', handleGlobalEsc);
-
         const nameInput = overlay.querySelector<HTMLInputElement>('#milestone-name')!;
         const hoursInput = overlay.querySelector<HTMLInputElement>('#milestone-hours')!;
         const minutesInput = overlay.querySelector<HTMLInputElement>('#milestone-minutes')!;
@@ -163,7 +149,7 @@ export async function showAddMilestoneModal(mediaTitle: string, initialValues?: 
             }
         });
 
-        overlay.querySelector('#milestone-cancel')!.addEventListener('click', () => { cleanup(); resolve(null); });
+        overlay.querySelector('#milestone-cancel')!.addEventListener('click', dismiss);
         overlay.querySelector('#milestone-confirm')!.addEventListener('click', handleConfirm);
         nameInput.focus();
     });

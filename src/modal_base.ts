@@ -1,4 +1,9 @@
 import { escapeHTML } from './html';
+import { pushBackHandler } from './back_stack';
+
+const MODAL_VIEWPORT_PADDING = 16;
+const KEYBOARD_OPEN_HEIGHT_DELTA = 80;
+const DEFERRED_DATALIST_TIMEOUT_MS = 700;
 
 function sanitizeButtonClass(input: string): string {
     if (/^[a-zA-Z0-9\-_\s]+$/.test(input)) {
@@ -18,14 +23,213 @@ export function createOverlay(): { overlay: HTMLDivElement, cleanup: () => void 
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     overlay.offsetWidth; // Force reflow
     overlay.classList.add('active');
+    const cleanupViewportPlacement = bindOverlayToVisualViewport(overlay);
 
     const cleanup = () => {
+        cleanupViewportPlacement();
         overlay.classList.remove('active');
         delete overlay.dataset.modalId;
         setTimeout(() => overlay.remove(), 300);
     };
 
     return { overlay, cleanup };
+}
+
+function bindOverlayToVisualViewport(overlay: HTMLDivElement): () => void {
+    const viewport = globalThis.visualViewport;
+    if (!viewport) {
+        return () => undefined;
+    }
+
+    let frameId = 0;
+
+    const updatePlacement = () => {
+        frameId = 0;
+        overlay.style.top = `${viewport.offsetTop}px`;
+        overlay.style.height = `${viewport.height}px`;
+        overlay.style.bottom = 'auto';
+
+        const content = overlay.querySelector<HTMLElement>('.modal-content');
+        if (content) {
+            const availableHeight = Math.max(0, viewport.height - (MODAL_VIEWPORT_PADDING * 2));
+            const contentHeight = content.getBoundingClientRect().height || content.offsetHeight;
+            overlay.classList.toggle('modal-overlay--top-aligned', contentHeight > availableHeight);
+        }
+    };
+
+    const schedulePlacement = () => {
+        if (frameId) return;
+        frameId = globalThis.requestAnimationFrame(updatePlacement);
+    };
+
+    viewport.addEventListener('resize', schedulePlacement);
+    viewport.addEventListener('scroll', schedulePlacement);
+    schedulePlacement();
+
+    return () => {
+        viewport.removeEventListener('resize', schedulePlacement);
+        viewport.removeEventListener('scroll', schedulePlacement);
+        if (frameId) {
+            globalThis.cancelAnimationFrame(frameId);
+        }
+    };
+}
+
+function isKeyboardLikelyOpen(): boolean {
+    const viewport = globalThis.visualViewport;
+    if (!viewport) {
+        return false;
+    }
+    return viewport.height < globalThis.innerHeight - KEYBOARD_OPEN_HEIGHT_DELTA;
+}
+
+export function focusInput(input: HTMLInputElement, options: { deferDatalistUntilKeyboard?: boolean } = {}): () => void {
+    if (!options.deferDatalistUntilKeyboard || !input.list || !globalThis.visualViewport || isKeyboardLikelyOpen()) {
+        input.focus();
+        return () => undefined;
+    }
+
+    const viewport = globalThis.visualViewport;
+    const listId = input.getAttribute('list');
+    if (!listId) {
+        input.focus();
+        return () => undefined;
+    }
+
+    let timeoutId: ReturnType<typeof globalThis.setTimeout> | 0 = 0;
+    let rafId = 0;
+    let isDone = false;
+
+    const finish = () => {
+        if (isDone) return;
+        isDone = true;
+        viewport.removeEventListener('resize', handleViewportChange);
+        viewport.removeEventListener('scroll', handleViewportChange);
+        if (timeoutId) {
+            globalThis.clearTimeout(timeoutId);
+        }
+        if (rafId) {
+            globalThis.cancelAnimationFrame(rafId);
+        }
+        if (!input.hasAttribute('list')) {
+            input.setAttribute('list', listId);
+        }
+    };
+
+    const reopenSuggestions = () => {
+        finish();
+        if (!document.body.contains(input) || document.activeElement !== input) return;
+
+        const selectionStart = input.selectionStart;
+        const selectionEnd = input.selectionEnd;
+        input.blur();
+        rafId = globalThis.requestAnimationFrame(() => {
+            rafId = 0;
+            if (!document.body.contains(input)) return;
+            input.focus({ preventScroll: true });
+            if (selectionStart !== null && selectionEnd !== null) {
+                try {
+                    input.setSelectionRange(selectionStart, selectionEnd);
+                } catch {
+                    // Some input types do not support text selection.
+                }
+            }
+        });
+    };
+
+    const handleViewportChange = () => {
+        if (isKeyboardLikelyOpen()) {
+            reopenSuggestions();
+        }
+    };
+
+    input.removeAttribute('list');
+    viewport.addEventListener('resize', handleViewportChange);
+    viewport.addEventListener('scroll', handleViewportChange);
+    timeoutId = globalThis.setTimeout(() => {
+        finish();
+    }, DEFERRED_DATALIST_TIMEOUT_MS);
+    input.focus();
+
+    return finish;
+}
+
+export function makeOverlayCancelable(overlay: HTMLDivElement, onDismiss: () => void): () => void {
+    let isDismissed = false;
+    let pointerStartedOnBackdrop = false;
+
+    const dismiss = () => {
+        if (isDismissed) return;
+        isDismissed = true;
+        onDismiss();
+    };
+
+    const handlePointerDown = (event: PointerEvent) => {
+        pointerStartedOnBackdrop = event.target === overlay;
+    };
+
+    const handleBackdropClick = (event: MouseEvent) => {
+        if (pointerStartedOnBackdrop && event.target === overlay) {
+            dismiss();
+        }
+        pointerStartedOnBackdrop = false;
+    };
+
+    overlay.dataset.cancelable = 'true';
+    overlay.addEventListener('pointerdown', handlePointerDown);
+    overlay.addEventListener('click', handleBackdropClick);
+
+    return () => {
+        overlay.removeEventListener('pointerdown', handlePointerDown);
+        overlay.removeEventListener('click', handleBackdropClick);
+        delete overlay.dataset.cancelable;
+    };
+}
+
+export interface CancelableOverlayHandle {
+    overlay: HTMLDivElement;
+    cleanup: () => void;
+    dismiss: () => void;
+}
+
+export function createCancelableOverlay(onDismiss: () => void, options: { closeOnEscape?: boolean } = {}): CancelableOverlayHandle {
+    const { overlay, cleanup: cleanupOverlay } = createOverlay();
+    let isClosed = false;
+
+    const cleanupFns: Array<() => void> = [];
+    const teardownCancelable = makeOverlayCancelable(overlay, () => dismiss());
+    cleanupFns.push(teardownCancelable);
+    cleanupFns.push(pushBackHandler(() => {
+        dismiss();
+        return true;
+    }));
+
+    if (options.closeOnEscape) {
+        const handleEscape = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                dismiss();
+            }
+        };
+        globalThis.addEventListener('keydown', handleEscape, true);
+        cleanupFns.push(() => globalThis.removeEventListener('keydown', handleEscape, true));
+    }
+
+    const cleanup = () => {
+        if (isClosed) return;
+        isClosed = true;
+        cleanupFns.forEach(fn => fn());
+        cleanupOverlay();
+    };
+
+    const dismiss = () => {
+        if (isClosed) return;
+        cleanup();
+        onDismiss();
+    };
+
+    return { overlay, cleanup, dismiss };
 }
 
 export interface BlockingStatusHandle {
@@ -89,7 +293,7 @@ export function showBlockingStatus(title: string, text: string): BlockingStatusH
 
 export async function customPrompt(title: string, defaultValue = "", text = ""): Promise<string | null> {
     return new Promise((resolve) => {
-        const { overlay, cleanup } = createOverlay();
+        const { overlay, cleanup, dismiss } = createCancelableOverlay(() => resolve(null));
         const escapedTitle = escapeHTML(title);
         const escapedDefaultValue = escapeHTML(defaultValue);
         const escapedText = text ? escapeHTML(text) : '';
@@ -109,12 +313,16 @@ export async function customPrompt(title: string, defaultValue = "", text = ""):
         `;
         
         const input = overlay.querySelector<HTMLInputElement>('#prompt-input')!;
+        const confirm = () => {
+            cleanup();
+            resolve(input.value);
+        };
         
-        overlay.querySelector('#prompt-cancel')!.addEventListener('click', () => { cleanup(); resolve(null); });
-        overlay.querySelector('#prompt-confirm')!.addEventListener('click', () => { cleanup(); resolve(input.value); });
+        overlay.querySelector('#prompt-cancel')!.addEventListener('click', dismiss);
+        overlay.querySelector('#prompt-confirm')!.addEventListener('click', confirm);
         input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') { cleanup(); resolve(input.value); }
-            if (e.key === 'Escape') { cleanup(); resolve(null); }
+            if (e.key === 'Enter') { confirm(); }
+            if (e.key === 'Escape') { dismiss(); }
         });
         
         input.focus();
@@ -123,7 +331,7 @@ export async function customPrompt(title: string, defaultValue = "", text = ""):
 
 export async function customConfirm(title: string, text: string, confirmButtonClass = "btn-danger", confirmButtonText = "Yes"): Promise<boolean> {
     return new Promise((resolve) => {
-        const { overlay, cleanup } = createOverlay();
+        const { overlay, cleanup, dismiss } = createCancelableOverlay(() => resolve(false));
         const escapedTitle = escapeHTML(title);
         const escapedText = escapeHTML(text);
         const safeConfirmButtonClass = sanitizeButtonClass(confirmButtonClass);
@@ -140,14 +348,17 @@ export async function customConfirm(title: string, text: string, confirmButtonCl
             </div>
         `;
         
-        overlay.querySelector('#confirm-cancel')!.addEventListener('click', () => { cleanup(); resolve(false); });
-        overlay.querySelector('#confirm-ok')!.addEventListener('click', () => { cleanup(); resolve(true); });
+        overlay.querySelector('#confirm-cancel')!.addEventListener('click', dismiss);
+        overlay.querySelector('#confirm-ok')!.addEventListener('click', () => {
+            cleanup();
+            resolve(true);
+        });
     });
 }
 
 export async function customAlert(title: string, text: string): Promise<void> {
     return new Promise((resolve) => {
-        const { overlay, cleanup } = createOverlay();
+        const { overlay, cleanup } = createCancelableOverlay(resolve);
         const escapedTitle = escapeHTML(title);
         const escapedText = escapeHTML(text);
         
@@ -160,7 +371,10 @@ export async function customAlert(title: string, text: string): Promise<void> {
                 </div>
             </div>
         `;
-        
-        overlay.querySelector('#alert-ok')!.addEventListener('click', () => { cleanup(); resolve(); });
+
+        overlay.querySelector('#alert-ok')!.addEventListener('click', () => {
+            cleanup();
+            resolve();
+        });
     });
 }

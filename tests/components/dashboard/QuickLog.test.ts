@@ -21,6 +21,7 @@ describe('QuickLog', () => {
         container = document.createElement('div');
         document.body.innerHTML = '';
         document.body.appendChild(container);
+        document.body.dataset.runtime = 'desktop';
         vi.clearAllMocks();
     });
 
@@ -107,5 +108,21 @@ describe('QuickLog', () => {
             expect(showLogActivityModal).toHaveBeenCalledWith('Blue Box');
             expect(onLogged).toHaveBeenCalled();
         });
+    });
+
+    it('opens media details from the desktop quick action button', () => {
+        const mediaList: Media[] = [
+            { id: 8, title: 'Dandadan', media_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Ongoing' },
+        ];
+        const dispatchSpy = vi.spyOn(globalThis, 'dispatchEvent');
+
+        const component = new QuickLog(container, { logs: [], mediaList }, { onLogged: vi.fn().mockResolvedValue(undefined) });
+        component.render();
+
+        (container.querySelector('[data-quick-log-open-media-id="8"]') as HTMLButtonElement).click();
+
+        expect(dispatchSpy).toHaveBeenCalledWith(expect.objectContaining({
+            type: 'app-navigate',
+        }));
     });
 });

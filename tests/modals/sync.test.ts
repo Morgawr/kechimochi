@@ -78,6 +78,24 @@ describe('modals/sync.ts', () => {
         await expect(promise).resolves.toBeNull();
     });
 
+    it('dismisses the attach preview when clicking the backdrop', async () => {
+        const promise = showSyncAttachPreview({
+            profile_id: 'prof_1',
+            profile_name: 'Desktop',
+            local_only_media_count: 0,
+            remote_only_media_count: 1,
+            matched_media_count: 2,
+            potential_duplicate_titles: [],
+            conflict_count: 0,
+        });
+
+        const overlay = document.querySelector('.modal-overlay') as HTMLDivElement;
+        overlay.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+        overlay.click();
+
+        await expect(promise).resolves.toBe(false);
+    });
+
     it('shows attach preview warnings and resolves false on cancel', async () => {
         const promise = showSyncAttachPreview({
             profile_id: 'prof_1',

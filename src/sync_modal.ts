@@ -1,6 +1,6 @@
 import { escapeHTML } from './html';
 import type { RemoteSyncProfileSummary, SyncAttachPreview } from './types';
-import { createOverlay } from './modal_base';
+import { createCancelableOverlay } from './modal_base';
 
 export type SyncEnablementChoice =
     | { action: 'create_new' }
@@ -74,7 +74,7 @@ export async function showSyncEnablementWizard(
     options?: SyncEnablementWizardOptions,
 ): Promise<SyncEnablementChoice | null> {
     return new Promise((resolve) => {
-        const { overlay, cleanup } = createOverlay();
+        const { overlay, cleanup, dismiss } = createCancelableOverlay(() => resolve(null));
         const selectedProfileId = profiles[0]?.profile_id ?? null;
         const allowCreateNew = options?.allowCreateNew ?? true;
         const title = options?.title ?? (allowCreateNew ? 'Enable Cloud Sync' : 'Import From Google Drive');
@@ -141,10 +141,7 @@ export async function showSyncEnablementWizard(
             }
         };
 
-        overlay.querySelector('#sync-enable-cancel')?.addEventListener('click', () => {
-            cleanup();
-            resolve(null);
-        });
+        overlay.querySelector('#sync-enable-cancel')?.addEventListener('click', dismiss);
 
         overlay.querySelector('#sync-enable-create')?.addEventListener('click', () => {
             cleanup();
@@ -172,7 +169,7 @@ export async function showSyncEnablementWizard(
 
 export async function showSyncAttachPreview(preview: SyncAttachPreview): Promise<boolean> {
     return new Promise((resolve) => {
-        const { overlay, cleanup } = createOverlay();
+        const { overlay, cleanup, dismiss } = createCancelableOverlay(() => resolve(false));
         const hasWarnings =
             preview.conflict_count > 0 || preview.potential_duplicate_titles.length > 0;
         const summary = buildAttachPreviewSummary(preview);
@@ -216,10 +213,7 @@ export async function showSyncAttachPreview(preview: SyncAttachPreview): Promise
             </div>
         `;
 
-        overlay.querySelector('#sync-attach-cancel')?.addEventListener('click', () => {
-            cleanup();
-            resolve(false);
-        });
+        overlay.querySelector('#sync-attach-cancel')?.addEventListener('click', dismiss);
 
         overlay.querySelector('#sync-attach-confirm')?.addEventListener('click', () => {
             cleanup();

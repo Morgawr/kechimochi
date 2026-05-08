@@ -47,6 +47,21 @@ export const DEFAULTS = {
     PROFILE: 'default',
 } as const;
 
+export const THEME_MODES: Record<string, 'light' | 'dark'> = {
+    'pastel-pink': 'dark',
+    'light': 'light',
+    'dark': 'dark',
+    'light-greyscale': 'light',
+    'dark-greyscale': 'dark',
+    'molokai': 'dark',
+    'green-olive': 'light',
+    'deep-blue': 'dark',
+    'purple': 'dark',
+    'fire-red': 'dark',
+    'yellow-lime': 'dark',
+    'noctua-brown': 'dark',
+};
+
 export const TRACKING_STATUSES = [
     'Ongoing', 'Complete', 'Paused', 'Dropped', 'Not Started', 'Untracked'
 ] as const;

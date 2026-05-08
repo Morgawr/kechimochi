@@ -3,6 +3,7 @@
  * This is the ONLY file that may import from @tauri-apps/*.
  */
 import { invoke } from '@tauri-apps/api/core';
+import { onBackButtonPress } from '@tauri-apps/api/app';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open as tauriOpen, save as tauriSave } from '@tauri-apps/plugin-dialog';
@@ -272,7 +273,25 @@ export class DesktopServices implements AppServices {
     // ── Window management ─────────────────────────────────────────────────────
     minimizeWindow(): void { this.getWin().minimize(); }
     maximizeWindow(): void { this.getWin().toggleMaximize(); }
-    closeWindow():    void { this.getWin().close(); }
+    closeWindow():    void {
+        if (this.isAndroidRuntime()) {
+            Promise.resolve(this.getWin().minimize()).catch(() => undefined);
+            return;
+        }
+        Promise.resolve(this.getWin().close()).catch(() => undefined);
+    }
+    subscribeSystemBack(handler: () => void | Promise<void>): Promise<() => void> {
+        if (!this.isAndroidRuntime()) {
+            return Promise.resolve(() => undefined);
+        }
+
+        return onBackButtonPress(async () => {
+            await handler();
+            return true;
+        }).then((listener) => () => {
+            Promise.resolve(listener.unregister()).catch(() => undefined);
+        });
+    }
 
     isDesktop(): boolean { return true; }
     supportsLocalHttpApi(): boolean { return !this.isAndroidRuntime(); }

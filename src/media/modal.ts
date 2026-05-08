@@ -1,6 +1,6 @@
 import { MediaConflict, MediaCsvRow, Media } from '../api';
 import { searchJiten, getJitenCoverUrl, getJitenDeckUrl, getJitenDeckChildren, JitenResult, getJitenMediaLabel } from '../jiten_api';
-import { customAlert, createOverlay } from '../modal_base';
+import { customAlert, createCancelableOverlay } from '../modal_base';
 import { escapeHTML } from '../html';
 import { ACTIVITY_TYPES } from '../constants';
 import { getExtraDataValue } from '../extra_data';
@@ -8,7 +8,7 @@ import type { ScrapedFieldSource, ScrapedMetadata } from '../importers/types';
 
 export async function showAddMediaModal(): Promise<{title: string, type: string, contentType: string} | null> {
     return new Promise((resolve) => {
-        const { overlay, cleanup } = createOverlay();
+        const { overlay, cleanup, dismiss } = createCancelableOverlay(() => resolve(null));
         
         overlay.innerHTML = `
             <div class="modal-content">
@@ -55,7 +55,7 @@ export async function showAddMediaModal(): Promise<{title: string, type: string,
         typeInput.addEventListener('change', updateContentTypes);
         updateContentTypes();
         
-        overlay.querySelector('#add-media-cancel')!.addEventListener('click', () => { cleanup(); resolve(null); });
+        overlay.querySelector('#add-media-cancel')!.addEventListener('click', dismiss);
         overlay.querySelector('#add-media-confirm')!.addEventListener('click', () => { 
             const title = titleInput.value.trim();
             if (!title) return;
@@ -83,7 +83,7 @@ export async function showImportMergeModal(scraped: ScrapedMetadata, currentData
     }
 
     return new Promise((resolve) => {
-        const { overlay, cleanup } = createOverlay();
+        const { overlay, cleanup, dismiss } = createCancelableOverlay(() => resolve(null));
         overlay.innerHTML = `
             <div class="modal-content" style="max-width: 600px; width: 90vw; max-height: 90vh; display: flex; flex-direction: column;">
                 <h3>Import Metadata</h3>
@@ -97,7 +97,7 @@ export async function showImportMergeModal(scraped: ScrapedMetadata, currentData
                 </div>
             </div>`;
         
-        overlay.querySelector('#import-cancel')!.addEventListener('click', () => { cleanup(); resolve(null); });
+        overlay.querySelector('#import-cancel')!.addEventListener('click', dismiss);
         overlay.querySelector('#import-confirm')!.addEventListener('click', () => {
             const result = processImportMerge(overlay, scraped);
             cleanup();
@@ -214,7 +214,7 @@ export async function showMediaCsvConflictModal(conflicts: MediaConflict[]): Pro
     if (overlapping.length === 0) return conflicts.map(c => c.incoming);
 
     return new Promise((resolve) => {
-        const { overlay, cleanup } = createOverlay();
+        const { overlay, cleanup, dismiss } = createCancelableOverlay(() => resolve(null));
 
         const rowsHtml = overlapping.map((conflict, idx) => `
             <div style="padding: 0.5rem; background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: var(--radius-sm); margin-bottom: 0.5rem; display: flex; align-items: center; justify-content: space-between;">
@@ -245,7 +245,7 @@ export async function showMediaCsvConflictModal(conflicts: MediaConflict[]): Pro
                 </div>
             </div>`;
         
-        overlay.querySelector('#conflict-cancel')!.addEventListener('click', () => { cleanup(); resolve(null); });
+        overlay.querySelector('#conflict-cancel')!.addEventListener('click', dismiss);
         overlay.querySelector('#conflict-confirm')!.addEventListener('click', () => {
             const finalRecords: MediaCsvRow[] = [];
             conflicts.filter(c => !c.existing).forEach(c => finalRecords.push(c.incoming));
@@ -259,17 +259,8 @@ export async function showMediaCsvConflictModal(conflicts: MediaConflict[]): Pro
 }
 
 export async function showJitenSearchModal(media: Media): Promise<string | null> {
-    const { overlay, cleanup } = createOverlay();
-    const handleEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') cleanup(); };
-    globalThis.addEventListener('keydown', handleEsc, true);
-
-    const originalCleanup = cleanup;
-    const newCleanup = () => {
-        globalThis.removeEventListener('keydown', handleEsc, true);
-        originalCleanup();
-    };
-
     return new Promise((resolve) => {
+        const { overlay, cleanup, dismiss } = createCancelableOverlay(() => resolve(null), { closeOnEscape: true });
         overlay.innerHTML = `
             <div class="modal-content" style="max-width: 800px; width: 95vw; max-height: 90vh; display: flex; flex-direction: column; padding: 1.5rem;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
@@ -312,7 +303,10 @@ export async function showJitenSearchModal(media: Media): Promise<string | null>
                 if (selected.childrenDeckCount) {
                     void showVolumes(selected);
                 }
-                else { newCleanup(); resolve(getJitenDeckUrl(selected.deckId)); }
+                else {
+                    cleanup();
+                    resolve(getJitenDeckUrl(selected.deckId));
+                }
             });
         };
 
@@ -326,15 +320,19 @@ export async function showJitenSearchModal(media: Media): Promise<string | null>
             backContainer.innerHTML = ''; backContainer.appendChild(backBtn);
             const children = await getJitenDeckChildren(parent.deckId);
             renderJitenVolumes(resultsGrid, parent, children, (deckId) => {
-                newCleanup(); resolve(getJitenDeckUrl(deckId));
+                cleanup();
+                resolve(getJitenDeckUrl(deckId));
             });
         };
 
         overlay.querySelector('#jiten-search-clear')!.addEventListener('click', () => { searchInput.value = ''; searchInput.focus(); });
         searchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { void performSearch(searchInput.value.trim()); } });
-        overlay.querySelector('#jiten-cancel')!.addEventListener('click', () => { newCleanup(); resolve(null); });
+        overlay.querySelector('#jiten-cancel')!.addEventListener('click', dismiss);
         overlay.querySelector('#jiten-confirm')!.addEventListener('click', () => { 
-            if (directLinkInput.value) { newCleanup(); resolve(directLinkInput.value.trim()); } 
+            if (directLinkInput.value) {
+                cleanup();
+                resolve(directLinkInput.value.trim());
+            } 
         });
         void performSearch(media.title);
     });

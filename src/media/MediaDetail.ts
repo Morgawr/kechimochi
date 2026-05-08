@@ -8,6 +8,7 @@ import { showAddMilestoneModal } from '../milestone_modal';
 import { showJitenSearchModal, showImportMergeModal } from './modal';
 import { isValidImporterUrl, fetchMetadataForUrl } from '../importers';
 import { getServices } from '../services';
+import { pushBackHandler } from '../back_stack';
 import { MediaLog } from './MediaLog';
 import { setupCopyButton } from '../clipboard';
 import { getCharacterCountFromExtraData, mergeExtraData, normalizeExtraData, removeExtraDataKey, renameExtraDataKey, upsertExtraDataValue } from '../extra_data';
@@ -40,6 +41,7 @@ export class MediaDetail extends Component<MediaDetailState> {
     private overflowMenuRoot: HTMLElement | null = null;
     private overflowMenu: HTMLElement | null = null;
     private overflowMenuButton: HTMLButtonElement | null = null;
+    private readonly cleanupBackHandler: () => void;
 
     private notifyLocalDataChanged() {
         globalThis.dispatchEvent(new CustomEvent(EVENTS.LOCAL_DATA_CHANGED));
@@ -63,6 +65,10 @@ export class MediaDetail extends Component<MediaDetailState> {
         this.onViewportResize = () => this.syncViewportLayout();
         this.onGlobalPointerDown = (event: PointerEvent) => this.handleGlobalPointerDown(event);
         this.onGlobalKeyDown = (event: KeyboardEvent) => this.handleGlobalKeyDown(event);
+        this.cleanupBackHandler = pushBackHandler(() => {
+            this.onBack();
+            return true;
+        });
         globalThis.addEventListener('resize', this.onViewportResize);
         globalThis.addEventListener('pointerdown', this.onGlobalPointerDown, true);
         globalThis.addEventListener('keydown', this.onGlobalKeyDown);
@@ -78,6 +84,7 @@ export class MediaDetail extends Component<MediaDetailState> {
         globalThis.removeEventListener('resize', this.onViewportResize);
         globalThis.removeEventListener('pointerdown', this.onGlobalPointerDown, true);
         globalThis.removeEventListener('keydown', this.onGlobalKeyDown);
+        this.cleanupBackHandler();
         this.revokeCurrentObjectUrl();
         super.destroy();
     }
@@ -132,6 +139,72 @@ export class MediaDetail extends Component<MediaDetailState> {
             case 'Untracked': return 'status-untracked';
             default: return '';
         }
+    }
+
+    private isCompleteTracking(status: string): boolean {
+        return status === 'Complete';
+    }
+
+    private renderHeaderActions(media: Media): string {
+        const isArchived = !this.isActive(media.status);
+        const isComplete = this.isCompleteTracking(media.tracking_status);
+
+        return `
+            <div class="media-detail-action-row">
+                
+                <div class="media-detail-action-pair">
+                
+                    <select class="badge badge-select media-detail-control ${this.getTrackingStatusClass(media.tracking_status)}" id="media-tracking-status" title="Tracking status">
+                        ${TRACKING_STATUSES.map(opt => `<option value="${opt}" ${opt === media.tracking_status ? 'selected' : ''}>${opt}</option>`).join('')}
+                    </select>
+                    <button
+                        type="button"
+                        class="media-detail-icon-button media-detail-icon-button--complete badge-select ${isComplete ? 'is-active' : ''}"
+                        id="btn-mark-complete"
+                        title="${isComplete ? 'Already complete' : 'Mark as complete'}"
+                        aria-pressed="${isComplete}"
+                        ${isComplete ? 'disabled' : ''}
+                    >
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="m5 12 5 5L20 7"/>
+                        </svg>
+                    </button>
+                </div>
+                <select class="badge badge-select media-detail-control" id="media-type" title="Default activity type">
+                    ${ACTIVITY_TYPES.map(opt => `<option value="${opt}" ${opt === media.media_type ? 'selected' : ''}>${opt}</option>`).join('')}
+                </select>
+                <select class="badge badge-select badge-content media-detail-control" id="media-content-type" title="Content type">
+                    ${this.getContentTypeOptions(media)}
+                </select>
+                <span class="media-detail-chip media-detail-chip--muted">${escapeHTML(media.language)}</span>
+                <div class="spacer"></div>
+                <button class="media-detail-action-button media-detail-action-button--accent badge-select" id="btn-search-jiten" title="Search on Jiten.moe">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="11" cy="11" r="7"/>
+                        <path d="m21 21-4.35-4.35"/>
+                    </svg>
+                    <span>Jiten</span>
+                </button>
+                <button
+                    type="button"
+                    class="media-detail-archive-toggle badge-select ${isArchived ? 'is-archived' : ''}"
+                    id="btn-toggle-archive"
+                    aria-pressed="${isArchived}"
+                    title="${isArchived ? 'Restore media' : 'Archive media'}"
+                >
+                    <span class="media-detail-archive-icon" aria-hidden="true">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 8v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8"/>
+                            <path d="M23 3H1v5h22z"/>
+                            <path d="M10 12h4"/>
+                        </svg>
+                    </span>
+                    <span class="media-detail-archive-copy">
+                        <span id="status-label" class="media-detail-archive-label">${isArchived ? 'Archived' : 'Archive'}</span>
+                    </span>
+                </button>
+            </div>
+        `;
     }
 
     private shouldCollapseDescription(description: string | undefined): boolean {
@@ -269,40 +342,20 @@ export class MediaDetail extends Component<MediaDetailState> {
                     <!-- Right Column: Details -->
                     <div id="media-detail-column" style="flex: 1; display: flex; flex-direction: column; gap: 1rem; min-height: 0;">
                         <div>
-                            <div style="display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap;">
-                                <h1 id="media-title" title="Double click to edit title" style="margin: 0; font-size: 2rem; cursor: pointer;">${media.title}</h1>
-                                <button class="copy-btn" id="btn-copy-title" title="Copy Title" style="margin-bottom: 3px;">
+                            <div id="media-title-block" style="display: block; align-items: baseline; gap: 0.5rem; flex-wrap: wrap;">
+                                <h1 id="media-title" title="Double click to edit title" style="margin: 0; font-size: 2rem; cursor: pointer; display:inline">${media.title}</h1>
+                                <button class="copy-btn" id="btn-copy-title" title="Copy Title" style="margin-bottom: 3px;  display:inline; ">
                                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                                 </button>
                             </div>
-                            <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem; align-items: center; flex-wrap: wrap;">
-                                <select class="badge badge-select ${this.getTrackingStatusClass(media.tracking_status)}" id="media-tracking-status" title="Click to edit tracking status">
-                                    ${rawHtml(TRACKING_STATUSES.map(opt => `<option value="${opt}" ${opt === media.tracking_status ? 'selected' : ''}>${opt}</option>`).join(''))}
-                                </select>
-                                <select class="badge badge-select" id="media-type" title="Click to edit default activity type">
-                                    ${rawHtml(ACTIVITY_TYPES.map(opt => `<option value="${opt}" ${opt === media.media_type ? 'selected' : ''}>${opt}</option>`).join(''))}
-                                </select>
-                                <select class="badge badge-select badge-content" id="media-content-type" title="Click to edit content type">
-                                    ${rawHtml(this.getContentTypeOptions(media))}
-                                </select>
-                                <span class="badge" style="background: var(--bg-card-hover); color: var(--text-secondary);">${media.language}</span>
-                                <span class="badge" style="background: var(--bg-card-hover); color: var(--text-secondary); border: 1px solid var(--border-color); display: flex; align-items: center; gap: 0.5rem; padding: 0.2rem 0.6rem;">
-                                    <label class="switch">
-                                        <input type="checkbox" id="status-toggle" ${this.isActive(media.status) ? 'checked' : ''}>
-                                        <span class="slider"></span>
-                                    </label>
-                                    <span id="status-label" style="font-weight: 600; font-size: 0.75rem; text-transform: uppercase;">${this.isActive(media.status) ? MEDIA_STATUS.ACTIVE : MEDIA_STATUS.ARCHIVED}</span>
-                                </span>
-                                <button class="btn btn-ghost" id="btn-search-jiten" style="padding: 0.2rem 0.8rem; font-size: 0.75rem; border-color: var(--accent-purple); color: var(--accent-purple); border-radius: 12px; height: 1.6rem; margin-left: 0.5rem;">Search on Jiten.moe</button>
-                                ${media.tracking_status === 'Complete' ? '' : html`<button class="btn btn-ghost" id="btn-mark-complete" style="padding: 0.2rem 0.8rem; font-size: 0.75rem; border-color: var(--accent-green); color: var(--accent-green); border-radius: 12px; height: 1.6rem; margin-left: 0.5rem;">Mark as complete</button>`}
-                            </div>
+                            ${rawHtml(this.renderHeaderActions(media))}
                         </div>
 
                         ${this.renderDescriptionCard(media, isDescriptionExpanded)}
 
                         <!-- Stats & Extra Fields -->
                         <div id="media-stats-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;">
-                            <div class="card" id="media-first-last-stats" style="grid-column: span 3; display: none; justify-content: flex-start; gap: 2rem; padding: 0.5rem 1rem; font-size: 0.85rem;"></div>
+                            <div class="card" id="media-first-last-stats"></div>
                             ${rawHtml(this.getExtraDataHtml(media))}
                         </div>
 
@@ -502,7 +555,7 @@ export class MediaDetail extends Component<MediaDetailState> {
 
             if (media.tracking_status === 'Complete') {
                 const speed = Math.round(charCount / (readingMin / 60));
-                return `<span style="margin-left: 2rem; color: var(--accent-yellow); font-weight: 800; border: 1px solid var(--accent-yellow); padding: 0.2rem 0.6rem; border-radius: 4px; background: rgba(0,0,0,0.2);">Est. Reading Speed: <strong style="color: var(--text-primary);">${speed.toLocaleString()} char/hr</strong></span>`;
+                return `<span class="estimation-block" >Est. Reading Speed: <strong style="color: var(--text-primary);">${speed.toLocaleString()} char/hr (min :${readingMin} , chars : ${charCount})</strong></span>`;
             }
 
             let speedKey = "";
@@ -523,8 +576,8 @@ export class MediaDetail extends Component<MediaDetailState> {
             const totalEstStr = formatHhMm(totalEstTotalMin);
 
             return `
-                <span id="est-remaining-time" style="margin-left: 2rem; color: var(--accent-yellow); font-weight: 800; border: 1px solid var(--accent-yellow); padding: 0.2rem 0.6rem; border-radius: 4px; background: rgba(0,0,0,0.2);">Est. remaining time: <strong style="color: var(--text-primary);">${remStr}</strong> (<strong style="color: var(--text-primary);">${totalEstStr}</strong> total)</span>
-                <span id="est-completion-rate" style="margin-left: 1rem; color: var(--accent-yellow); font-weight: 800; border: 1px solid var(--accent-yellow); padding: 0.2rem 0.6rem; border-radius: 4px; background: rgba(0,0,0,0.2);">Est. completion rate: <strong style="color: var(--text-primary);">${completionRate}%</strong></span>
+                <span id="est-remaining-time" class="estimation-block" style="display:flex; flex-wrap:wrap;"><span>Est. remaining time: </span><span><strong style="color: var(--text-primary);">${remStr}</strong> (<strong style="color: var(--text-primary);">${totalEstStr}</strong> total)</span></span>
+                <span id="est-completion-rate" class="estimation-block" >Est. completion rate: <strong style="color: var(--text-primary);">${completionRate}%</strong></span>
             `;
         } catch (e) {
             Logger.warn("Could not compute reading speed stats", e);
@@ -716,13 +769,15 @@ export class MediaDetail extends Component<MediaDetailState> {
             await this.persistMediaChanges();
         });
 
-        root.querySelector('#status-toggle')?.addEventListener('change', async (e) => {
-            const active = (e.target as HTMLInputElement).checked;
-            this.state.media.status = active ? MEDIA_STATUS.ACTIVE : MEDIA_STATUS.ARCHIVED;
+        root.querySelector('#btn-toggle-archive')?.addEventListener('click', async () => {
+            this.state.media.status = this.isActive(this.state.media.status) ? MEDIA_STATUS.ARCHIVED : MEDIA_STATUS.ACTIVE;
             await this.persistMediaChanges();
         });
 
         root.querySelector('#btn-mark-complete')?.addEventListener('click', async () => {
+            if (this.isCompleteTracking(this.state.media.tracking_status)) {
+                return;
+            }
             this.state.media.tracking_status = 'Complete';
             await this.persistMediaChanges();
         });

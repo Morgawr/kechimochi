@@ -66,6 +66,9 @@ function ensureUsableLocalStorage(): void {
 }
 
 ensureUsableLocalStorage();
+vi.mock('@tauri-apps/api/app', () => ({
+    onBackButtonPress: vi.fn(() => Promise.resolve({ unregister: vi.fn(() => Promise.resolve()) })),
+}));
 
 beforeEach(() => {
     ensureUsableLocalStorage();

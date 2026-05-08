@@ -335,6 +335,9 @@ export class WebServices implements AppServices {
     minimizeWindow(): void { return; }
     maximizeWindow(): void { return; }
     closeWindow():    void { return; }
+    subscribeSystemBack(_handler: () => void | Promise<void>): Promise<() => void> {
+        return Promise.resolve(() => undefined);
+    }
 
     isDesktop(): boolean { return false; }
     supportsLocalHttpApi(): boolean { return false; }

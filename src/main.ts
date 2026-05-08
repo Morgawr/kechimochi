@@ -15,6 +15,7 @@ import {
 import { showInitialSetupPrompt } from './profile/modal';
 import { showLogActivityModal } from './activity_modal';
 import { customAlert } from './modal_base';
+import { configureBackStack } from './back_stack';
 import { syncAppShell } from './app_shell';
 import { initServices, getServices } from './services';
 import { Logger } from './logger';
@@ -310,6 +311,7 @@ export class App {
     }
 
     private setupEventListeners() {
+        this.setupSystemBackHandling();
         globalThis.addEventListener(EVENTS.APP_NAVIGATE, (e: Event) => {
             const detail = (e as CustomEvent).detail;
             if (detail?.view) {
@@ -328,6 +330,13 @@ export class App {
 
         globalThis.addEventListener(EVENTS.LOCAL_DATA_CHANGED, async () => {
             await this.refreshSyncChrome();
+        });
+    }
+
+    private setupSystemBackHandling() {
+        configureBackStack({
+            subscribe: (handler) => getServices().subscribeSystemBack(handler),
+            onEmpty: () => getServices().closeWindow(),
         });
     }
 

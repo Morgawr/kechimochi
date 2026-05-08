@@ -1,8 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { onBackButtonPress } from '@tauri-apps/api/app';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import * as api from '../src/api';
 import { EVENTS, SETTING_KEYS } from '../src/constants';
 import { Logger } from '../src/logger';
+import * as modals from '../src/modals';
+import * as baseModals from '../src/modals/base';
+import { resetBackStack } from '../src/back_stack';
 import {
     getMainModalMock,
     renderMainAppShell,
@@ -139,6 +143,7 @@ describe('main.ts initialization', () => {
 
     beforeEach(async () => {
         vi.clearAllMocks();
+        resetBackStack();
         vi.spyOn(Logger, 'warn').mockImplementation(() => {});
         vi.spyOn(Logger, 'info').mockImplementation(() => {});
         resetMainApiMocks(api);
@@ -670,5 +675,31 @@ describe('main.ts initialization', () => {
         expect(mockWindow.minimize).toHaveBeenCalled();
         expect(mockWindow.toggleMaximize).toHaveBeenCalled();
         expect(mockWindow.close).toHaveBeenCalled();
+    });
+
+    it('should intercept system back for cancelable overlays before closing the window', async () => {
+        let backHandler: ((payload: { canGoBack: boolean }) => unknown) | null = null;
+        vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (Linux; Android 15; Pixel 8) Tauri/2.0' });
+        vi.mocked(onBackButtonPress).mockImplementation(async (handler) => {
+            backHandler = handler;
+            return { unregister: vi.fn(async () => undefined) };
+        });
+
+        await bootApp();
+
+        const promptPromise = baseModals.customPrompt('Title');
+        await vi.waitFor(() => expect(vi.mocked(onBackButtonPress)).toHaveBeenCalledTimes(1));
+        await backHandler?.({ canGoBack: false });
+
+        await expect(promptPromise).resolves.toBeNull();
+    });
+
+    it('should not subscribe Android back when the back stack is empty', async () => {
+        vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (Linux; Android 15; Pixel 8) Tauri/2.0' });
+
+        await bootApp();
+
+        expect(vi.mocked(onBackButtonPress)).not.toHaveBeenCalled();
+        expect(mockWindow.minimize).not.toHaveBeenCalled();
     });
 });

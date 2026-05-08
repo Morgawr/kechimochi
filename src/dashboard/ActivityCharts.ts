@@ -256,6 +256,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         const { logs, groupByMode } = this.state;
         const { validStart, validEnd } = timeRange;
         const pieTypeMap = new Map<string, number>();
+        const style = getComputedStyle(document.body);
 
         for (const log of logs) {
             if (log.date >= validStart && log.date <= validEnd) {
@@ -281,7 +282,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    legend: { display: pieTypeMap.size <= 6, position: 'bottom', labels: { color: '#f0f0f5' } },
+                    legend: { display: pieTypeMap.size <= 6, position: 'bottom', labels: { color: style.getPropertyValue('--text-secondary').trim() ||'#f0f0f5' } },
                     tooltip: {
                         callbacks: {
                             label: (context) => {
@@ -301,7 +302,9 @@ export class ActivityCharts extends Component<ActivityChartsState> {
     private createBarChart(canvas: HTMLCanvasElement, colors: string[], timeRange: { labels: string[], getBucketIndex: (dateStr: string) => number, validStart: string, validEnd: string }) {
         const { chartType, timeRangeDays } = this.state;
         const { labels } = timeRange;
-
+        const style = getComputedStyle(document.body);
+        const secondaryColor = style.getPropertyValue('--text-secondary').trim() || '#a0a0b0'
+        const gridColor = `color-mix(in srgb, ${style.getPropertyValue('--text-secondary').trim() || '#3f3f4e'} 30%, transparent)`;
         const datasets = this.prepareBarChartDatasets(timeRange, colors);
 
         this.barChartInstance = new Chart(canvas, {
@@ -314,12 +317,12 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                 responsive: true,
                 maintainAspectRatio: false,
                 scales: {
-                    x: { stacked: chartType === 'bar', grid: { color: '#3f3f4e' }, ticks: { color: '#a0a0b0' } },
+                    x: { stacked: chartType === 'bar', grid: { color: gridColor }, ticks: { color: secondaryColor } },
                     y: {
                         stacked: chartType === 'bar',
-                        grid: { color: '#3f3f4e' },
+                        grid: { color: gridColor },
                         ticks: {
-                            color: '#a0a0b0',
+                            color: secondaryColor,
                             callback: (value) => {
                                 if (this.state.metric === 'minutes') {
                                     return formatStatsDuration(value as number, true);
@@ -330,7 +333,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                     }
                 },
                 plugins: {
-                    legend: { display: datasets.length <= 6, position: 'top', labels: { color: '#a0a0b0' } },
+                    legend: { display: datasets.length <= 6, position: 'top', labels: { color: secondaryColor } },
                     tooltip: {
                         callbacks: {
                             label: (context) => {

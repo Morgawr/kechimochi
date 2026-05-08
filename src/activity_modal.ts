@@ -1,7 +1,7 @@
 import { getAllMedia, addLog, updateLog, addMedia, updateMedia, ActivitySummary } from './api';
 import { ACTIVITY_TYPES } from './constants';
 import { buildCalendar } from './calendar';
-import { customPrompt, customAlert, createOverlay } from './modal_base';
+import { customPrompt, customAlert, createCancelableOverlay } from './modal_base';
 import { Logger } from './logger';
 import { escapeHTML } from './html';
 
@@ -15,7 +15,7 @@ const getTodayStr = () => {
 
 export async function showExportCsvModal(): Promise<{mode: 'all' | 'range', start?: string, end?: string} | null> {
     return new Promise((resolve) => {
-        const { overlay, cleanup } = createOverlay();
+        const { overlay, cleanup, dismiss } = createCancelableOverlay(() => resolve(null));
         
         const todayStr = getTodayStr();
         
@@ -45,7 +45,7 @@ export async function showExportCsvModal(): Promise<{mode: 'all' | 'range', star
         const rangeInputs = overlay.querySelector<HTMLElement>('#export-range-inputs')!;
         overlay.querySelectorAll('input[name="export-mode"]').forEach(el => el.addEventListener('change', () => rangeInputs.style.display = modeRange.checked ? 'flex' : 'none'));
         
-        overlay.querySelector('#export-cancel')!.addEventListener('click', () => { cleanup(); resolve(null); });
+        overlay.querySelector('#export-cancel')!.addEventListener('click', dismiss);
         overlay.querySelector('#export-confirm')!.addEventListener('click', () => { 
             if (modeRange.checked) {
                 const [start, end] = [selectedStart, selectedEnd].sort((a, b) => a.localeCompare(b));
@@ -60,7 +60,25 @@ export async function showExportCsvModal(): Promise<{mode: 'all' | 'range', star
 export async function showLogActivityModal(prefillMediaTitle?: string, editLog?: ActivitySummary): Promise<boolean> {
     const mediaList = await getAllMedia();
     return new Promise((resolve) => {
-        const { overlay, cleanup } = createOverlay();
+        const baseHandle = createCancelableOverlay(() => resolve(false), { closeOnEscape: true });
+        const { overlay } = baseHandle;
+        let suggestionHideTimer: ReturnType<typeof globalThis.setTimeout> | 0 = 0;
+        const cleanup = () => {
+            if (suggestionHideTimer) {
+                globalThis.clearTimeout(suggestionHideTimer);
+                suggestionHideTimer = 0;
+            }
+            baseHandle.cleanup();
+        };
+        const dismiss = () => {
+            if (suggestionHideTimer) {
+                globalThis.clearTimeout(suggestionHideTimer);
+                suggestionHideTimer = 0;
+            }
+            baseHandle.dismiss();
+        };
+        const useCustomMediaSuggestions = document.body.dataset.runtime === 'mobile-app'
+            && /\bAndroid\b/i.test(navigator.userAgent || '');
 
         const activeMedia = mediaList.filter(m => m.status !== 'Archived' && m.tracking_status === 'Ongoing');
 
@@ -88,10 +106,12 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
             <div class="modal-content" style="width: 450px;">
                 <h3>${editLog ? 'Edit Activity' : 'Log Activity'}</h3>
                 <form id="add-activity-form" style="margin-top: 1rem; display: flex; flex-direction: column; gap: 1rem;">
-                    <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem; position: relative; z-index: 2">
                         <label style="font-size: 0.85rem; color: var(--text-secondary);">Media Title</label>
-                        <input type="text" id="activity-media" list="media-datalist" autocomplete="off" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm);" value="${escapedTitle}" ${editLog ? 'disabled' : ''} required oninvalid="this.setCustomValidity('Media Title is required')" oninput="this.setCustomValidity('')" />
-                        <datalist id="media-datalist">${activeMediaOptions}</datalist>
+                        <input type="text" id="activity-media" ${useCustomMediaSuggestions ? '' : 'list="media-datalist"'} autocomplete="off" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm);" value="${escapedTitle}" ${editLog ? 'disabled' : ''} required oninvalid="this.setCustomValidity('Media Title is required')" oninput="this.setCustomValidity('')" />
+                        ${useCustomMediaSuggestions
+                ? '<div id="activity-media-suggestions" style="display: none; margin-top: 0.35rem; max-height: 11rem; overflow-y: auto; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: color-mix(in srgb, var(--bg-card) 94%, black 6%); box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22); position: absolute; top: 100%"></div>'
+                : `<datalist id="media-datalist">${activeMediaOptions}</datalist>`}
                     </div>
                     <div style="display: flex; gap: 0.5rem; align-items: center;">
                         <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.5rem;">
@@ -133,10 +153,78 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
         const mobileDateInput = overlay.querySelector<HTMLInputElement>('#mobile-date-input')!;
         mobileDateInput.value = selectedDate;
 
+        const titleInput = overlay.querySelector<HTMLInputElement>('#activity-media')!;
+        const suggestionList = overlay.querySelector<HTMLElement>('#activity-media-suggestions');
+        if (useCustomMediaSuggestions && suggestionList && !editLog) {
+            const handleSuggestionPointerDown = (event: PointerEvent) => {
+                const target = event.target;
+                if (!(target instanceof HTMLElement) || !target.closest('.activity-media-suggestion')) {
+                    return;
+                }
+                event.preventDefault();
+            };
+
+            const handleSuggestionClick = (event: MouseEvent) => {
+                const target = event.target;
+                if (!(target instanceof HTMLElement)) {
+                    return;
+                }
+                const button = target.closest<HTMLButtonElement>('.activity-media-suggestion');
+                if (!button) {
+                    return;
+                }
+                titleInput.value = button.dataset.title || '';
+                suggestionList.style.display = 'none';
+                suggestionList.innerHTML = '';
+                titleInput.focus({ preventScroll: true });
+            };
+
+            const renderSuggestions = () => {
+                const query = titleInput.value.trim().toLowerCase();
+                const matches = activeMedia
+                    .filter(media => query.length === 0 || media.title.toLowerCase().includes(query))
+                    .slice(0, 8);
+
+                if (matches.length === 0 || document.activeElement !== titleInput) {
+                    suggestionList.style.display = 'none';
+                    suggestionList.innerHTML = '';
+                    return;
+                }
+
+                suggestionList.innerHTML = matches.map(media => `
+                    <button
+                        type="button"
+                        class="activity-media-suggestion"
+                        data-title="${escapeHTML(media.title)}"
+                        style="display: flex; width: 100%; padding: 0.65rem 0.8rem; border: none; background: transparent; color: var(--text-primary); text-align: left; cursor: pointer; font: inherit;"
+                    >
+                        ${escapeHTML(media.title)}
+                    </button>
+                `).join('');
+                suggestionList.style.display = 'block';
+            };
+
+            suggestionList.addEventListener('pointerdown', handleSuggestionPointerDown);
+            suggestionList.addEventListener('click', handleSuggestionClick);
+
+            titleInput.addEventListener('focus', renderSuggestions);
+            titleInput.addEventListener('input', renderSuggestions);
+            titleInput.addEventListener('blur', () => {
+                suggestionHideTimer = globalThis.setTimeout(() => {
+                    suggestionList.style.display = 'none';
+                }, 120);
+            });
+            titleInput.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape') {
+                    suggestionList.style.display = 'none';
+                }
+            });
+        }
+
         if (editLog || prefillMediaTitle) {
             overlay.querySelector<HTMLInputElement>('#activity-duration')!.focus();
         } else {
-            overlay.querySelector<HTMLInputElement>('#activity-media')!.focus();
+            titleInput.focus();
         }
 
         const mediaInput = overlay.querySelector<HTMLInputElement>('#activity-media')!;
@@ -164,11 +252,6 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
 
         globalThis.addEventListener('keydown', handleEscape, true);
 
-        const originalCleanup = cleanup;
-        const newCleanup = () => {
-             globalThis.removeEventListener('keydown', handleEscape, true);
-             originalCleanup();
-        };
 
         const resolveMediaId = async (title: string): Promise<number | null> => {
             const existingMedia = findMediaByTitle(title);
@@ -196,7 +279,7 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
             });
         };
 
-        overlay.querySelector('#activity-cancel')!.addEventListener('click', () => { newCleanup(); resolve(false); });
+        overlay.querySelector('#activity-cancel')!.addEventListener('click', dismiss);
         overlay.querySelector('#add-activity-form')!.addEventListener('submit', async (e) => {
             e.preventDefault();
             const mediaTitleRaw = overlay.querySelector<HTMLInputElement>('#activity-media')!.value.trim();
@@ -236,7 +319,10 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
                     if (mediaId === null) return;
                     await addLog({ media_id: mediaId, duration_minutes: duration, characters, date: dateToSave, activity_type: activityType });
                 }
-                newCleanup();
+                cleanup();
+                if (suggestionHideTimer) {
+                    globalThis.clearTimeout(suggestionHideTimer);
+                }
                 resolve(true);
             } catch (err) {
                 Logger.error("Failed to save activity", err);

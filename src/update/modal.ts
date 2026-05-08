@@ -1,6 +1,6 @@
 import { escapeHTML } from '../html';
 import { getReleasesUrl } from '../app_version';
-import { createOverlay } from '../modal_base';
+import { createCancelableOverlay } from '../modal_base';
 import { renderReleaseNotesHtml } from '../release_notes';
 
 interface UpdateModalOptions {
@@ -13,7 +13,7 @@ interface UpdateModalOptions {
 
 async function showUpdateModal(options: UpdateModalOptions): Promise<void> {
     return new Promise((resolve) => {
-        const { overlay, cleanup } = createOverlay();
+        const { overlay, cleanup } = createCancelableOverlay(resolve);
         const releaseNotesHtml = renderReleaseNotesHtml(options.releaseNotes);
         const releaseUrl = options.releaseUrl ?? getReleasesUrl();
 

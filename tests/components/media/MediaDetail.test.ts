@@ -50,6 +50,7 @@ import * as milestoneModal from '../../../src/milestone_modal';
 import * as activityModal from '../../../src/activity_modal';
 import * as mediaModals from '../../../src/media/modal';
 const modals = { ...modalBase, ...milestoneModal, ...activityModal, ...mediaModals };
+import { pushBackHandler } from '../../../src/back_stack';
 const mockServices = {
     isDesktop: vi.fn(() => true),
     supportsWindowControls: vi.fn(() => true),
@@ -58,6 +59,9 @@ const mockServices = {
 };
 vi.mock('../../../src/services', () => ({
     getServices: vi.fn(() => mockServices),
+}));
+vi.mock('../../../src/back_stack', () => ({
+    pushBackHandler: vi.fn(() => vi.fn()),
 }));
 
 // Mock URL.createObjectURL
@@ -227,6 +231,19 @@ describe('MediaDetail', () => {
             expect(modals.customConfirm).toHaveBeenCalled();
             expect(api.deleteMedia).toHaveBeenCalledWith(1);
         });
+    });
+
+    it('should register a back-stack handler and clean it up on destroy', () => {
+        const cleanupBackHandler = vi.fn();
+        vi.mocked(pushBackHandler).mockReturnValueOnce(cleanupBackHandler);
+
+        const component = new MediaDetail(container, { ...mockMedia } as unknown as Media, [], [mockMedia as unknown as Media], 0, mockCallbacks);
+
+        expect(pushBackHandler).toHaveBeenCalledTimes(1);
+
+        component.destroy();
+
+        expect(cleanupBackHandler).toHaveBeenCalledTimes(1);
     });
 
     it('should revoke object URLs on destroy', async () => {
@@ -566,6 +583,17 @@ describe('MediaDetail', () => {
         completeBtn.click();
 
         await vi.waitFor(() => expect(api.updateMedia).toHaveBeenCalledWith(expect.objectContaining({ tracking_status: 'Complete' })));
+    });
+
+    it('should handle archive toggle button clicks', async () => {
+        const component = new MediaDetail(container, { ...mockMedia } as unknown as Media, [], [mockMedia as unknown as Media], 0, mockCallbacks);
+        component.triggerMount();
+        component.render();
+
+        const archiveBtn = container.querySelector('#btn-toggle-archive') as HTMLButtonElement;
+        archiveBtn.click();
+
+        await vi.waitFor(() => expect(api.updateMedia).toHaveBeenCalledWith(expect.objectContaining({ status: 'Archived' })));
     });
 
     it('should handle clearing metadata', async () => {

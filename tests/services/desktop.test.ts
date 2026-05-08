@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { join, resolve } from 'node:path';
 import { DesktopServices } from '../../src/services/desktop';
+import { onBackButtonPress } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -18,6 +19,10 @@ vi.mock('@tauri-apps/api/core', () => ({
     invoke: vi.fn(),
 }));
 
+vi.mock('@tauri-apps/api/app', () => ({
+    onBackButtonPress: vi.fn(),
+}));
+
 vi.mock('@tauri-apps/api/event', () => ({
     listen: vi.fn(() => Promise.resolve(() => undefined)),
 }));
@@ -25,7 +30,6 @@ vi.mock('@tauri-apps/api/event', () => ({
 const minimize = vi.fn();
 const toggleMaximize = vi.fn();
 const close = vi.fn();
-
 vi.mock('@tauri-apps/api/window', () => ({
     getCurrentWindow: vi.fn(() => ({
         minimize,
@@ -241,6 +245,41 @@ describe('DesktopServices', () => {
         expect(minimize).toHaveBeenCalled();
         expect(toggleMaximize).toHaveBeenCalled();
         expect(close).toHaveBeenCalled();
+    });
+
+    it('minimizes the app when closing on Android', () => {
+        vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (Linux; Android 15; Pixel 8) Tauri/2.0' });
+
+        new DesktopServices().closeWindow();
+
+        expect(minimize).toHaveBeenCalledTimes(1);
+        expect(close).not.toHaveBeenCalled();
+    });
+
+    it('subscribes system back through the Tauri close-requested hook', async () => {
+        const handler = vi.fn().mockResolvedValue(true);
+        const unregister = vi.fn().mockResolvedValue(undefined);
+        vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (Linux; Android 15; Pixel 8) Tauri/2.0' });
+        vi.mocked(onBackButtonPress).mockImplementationOnce(async (listener) => {
+            await listener({ canGoBack: false });
+            return { unregister };
+        });
+
+        const result = await services.subscribeSystemBack(handler);
+
+        expect(onBackButtonPress).toHaveBeenCalledTimes(1);
+        expect(handler).toHaveBeenCalledTimes(1);
+        result();
+        expect(unregister).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not subscribe system back on non-Android runtimes', async () => {
+        const handler = vi.fn();
+
+        const result = await services.subscribeSystemBack(handler);
+
+        expect(onBackButtonPress).not.toHaveBeenCalled();
+        result();
     });
 
     it('reports desktop runtime and proxies remote fetch helpers', async () => {

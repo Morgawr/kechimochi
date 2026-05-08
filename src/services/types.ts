@@ -154,6 +154,7 @@ export interface AppServices {
     minimizeWindow(): void;
     maximizeWindow(): void;
     closeWindow(): void;
+    subscribeSystemBack(handler: () => void | Promise<void>): Promise<() => void>;
 
     /** True when running inside the Tauri desktop shell. */
     isDesktop(): boolean;

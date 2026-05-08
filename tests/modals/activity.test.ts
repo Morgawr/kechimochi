@@ -18,13 +18,36 @@ vi.mock('../../src/calendar', () => ({
 vi.mock('../../src/modal_base', () => ({
     customPrompt: vi.fn(),
     customAlert: vi.fn(),
-    createOverlay: vi.fn(() => {
+    focusInput: vi.fn((input: HTMLInputElement) => {
+        input.focus();
+        return vi.fn();
+    }),
+    createCancelableOverlay: vi.fn((onDismiss: () => void, options?: { closeOnEscape?: boolean }) => {
         const overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
         document.body.appendChild(overlay);
+        let isClosed = false;
+        const cleanup = vi.fn(() => {
+            if (isClosed) return;
+            isClosed = true;
+            overlay.remove();
+        });
+        const dismiss = vi.fn(() => {
+            if (isClosed) return;
+            cleanup();
+            onDismiss();
+        });
+        if (options?.closeOnEscape) {
+            globalThis.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape') {
+                    dismiss();
+                }
+            });
+        }
         return {
             overlay,
-            cleanup: vi.fn(() => overlay.remove())
+            cleanup,
+            dismiss,
         }
     })
 }));
