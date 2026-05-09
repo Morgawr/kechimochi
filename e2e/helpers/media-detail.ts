@@ -43,7 +43,7 @@ export async function isArchivedStatusActive(): Promise<boolean> {
     const label = $('#status-label');
     await label.waitForExist({ timeout: 5000 });
 
-    // We wait until the text is either ACTIVE or ARCHIVED to avoid checking during transitions
+    // We wait until the text is either Archive or Archived to avoid checking during transitions
     await browser.waitUntil(async () => {
         const text = await label.getText();
         return text === 'Archive' || text === 'Archived';

@@ -181,8 +181,7 @@ export class MediaView extends Component<MediaViewState> {
 private async handleBack() {
         if (this.navigationSource === 'dashboard') {
             this.navigationSource = undefined;
-            // Ne pas modifier viewMode — on laisse MediaView en l'état, il sera réinitialisé à la prochaine ouverture
-            // La prochaine ouverture de Media appellera resetView() pour réinitialiser
+
             globalThis.dispatchEvent(new CustomEvent(EVENTS.APP_NAVIGATE, {
                 detail: { view: VIEW_NAMES.DASHBOARD }
             }));
