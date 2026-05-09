@@ -6,6 +6,9 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+### Fixed
+ - Patch notes should now show long bullet lists with the right indentation
+
 ## [0.2.9] - 2026-05-09
 
 ### Added
