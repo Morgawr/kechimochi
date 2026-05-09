@@ -36,6 +36,10 @@ function flushList(blocks: ReleaseNotesBlock[], items: string[]): void {
     items.length = 0;
 }
 
+function appendListContinuation(items: string[], line: string): void {
+    items[items.length - 1] = `${items[items.length - 1]} ${line.trim()}`;
+}
+
 export function parseReleaseNotes(markdown: string): ReleaseNotesBlock[] {
     const blocks: ReleaseNotesBlock[] = [];
     const paragraphLines: string[] = [];
@@ -75,6 +79,11 @@ export function parseReleaseNotes(markdown: string): ReleaseNotesBlock[] {
         if (line.startsWith('- ')) {
             flushParagraph(blocks, paragraphLines);
             listItems.push(line.slice(2).trim());
+            continue;
+        }
+
+        if (listItems.length > 0 && /^\s+/.test(rawLine)) {
+            appendListContinuation(listItems, line);
             continue;
         }
 
