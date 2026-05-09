@@ -52,7 +52,7 @@ export async function setTimelineKindFilter(label: string): Promise<void> {
         timeoutMsg: `Timeline kind filter did not switch to "${label}"`,
     });
 
-    await browser.pause(250);
+    await waitForTimelineReady();
 }
 
 export async function searchTimeline(query: string): Promise<void> {
@@ -80,7 +80,7 @@ export async function searchTimeline(query: string): Promise<void> {
         timeoutMsg: `Timeline search input did not settle to "${query}"`,
     });
 
-    await browser.pause(250);
+    await waitForTimelineReady();
 }
 
 export async function getTimelineEntrySnapshots(limit?: number): Promise<TimelineEntrySnapshot[]> {

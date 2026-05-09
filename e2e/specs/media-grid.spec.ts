@@ -118,7 +118,6 @@ describe('Media Grid CUJ', () => {
 
   it('should match the baseline screenshot', async () => {
     await navigateTo('media');
-    await browser.pause(500); // Wait for transition
     await takeAndCompareScreenshot('media-grid');
   });
 });

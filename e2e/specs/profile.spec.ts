@@ -36,7 +36,6 @@ describe('Profile CUJ', () => {
 
   it('should navigate back to dashboard after visiting profile', async () => {
     await navigateTo('dashboard');
-    await browser.pause(500);
     expect(await verifyActiveView('dashboard')).toBe(true);
     await verifyViewNotBroken();
   });

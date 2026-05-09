@@ -2,7 +2,7 @@
  * Dashboard-specific helpers.
  */
 /// <reference types="@wdio/globals/types" />
-import { clickTopmostOverlayChild, confirmAction, performActivityEdit, safeClick } from './common.js';
+import { clickTopmostOverlayChild, confirmAction, performActivityEdit, safeClick, getTopmostVisibleOverlay, waitForOverlayToDisappear } from './common.js';
 
 /**
  * High-level helper to log an activity from the dashboard
@@ -12,23 +12,20 @@ export async function logActivity(title: string, duration: string, characters: s
     await addActivityBtn.waitForClickable({ timeout: 5000 });
     await addActivityBtn.click();
 
-    const mediaInput = $('#activity-media');
-    await mediaInput.waitForDisplayed({ timeout: 10000 });
-    await mediaInput.setValue(title);
+    // Dynamically fetch and wait for elements to avoid StaleElementReferenceException from UI updates
+    await browser.waitUntil(async () => await $('#activity-media').isDisplayed().catch(() => false), { timeout: 10000 });
+    await $('#activity-media').setValue(title);
 
-    const durationInput = $('#activity-duration');
-    await durationInput.waitForDisplayed({ timeout: 5000 });
-    await durationInput.setValue(duration);
+    await browser.waitUntil(async () => await $('#activity-duration').isDisplayed().catch(() => false), { timeout: 5000 });
+    await $('#activity-duration').setValue(duration);
 
-    const charInput = $('#activity-characters');
-    if (await charInput.isExisting()) {
-        await charInput.setValue(characters);
+    if (await $('#activity-characters').isExisting()) {
+        await $('#activity-characters').setValue(characters);
     }
 
     if (activityType) {
-        const typeSelect = $('#activity-type');
-        if (await typeSelect.isExisting()) {
-            await typeSelect.selectByVisibleText(activityType);
+        if (await $('#activity-type').isExisting()) {
+            await $('#activity-type').selectByVisibleText(activityType);
         }
     }
 
@@ -42,6 +39,11 @@ export async function logActivity(title: string, duration: string, characters: s
     const submitBtn = $('#add-activity-form button[type="submit"]');
     await submitBtn.waitForClickable({ timeout: 5000 });
     await submitBtn.click();
+    
+    // Wait for the modal to close so it doesn't bleed into the next test
+    await browser.waitUntil(async () => {
+        return !(await $('#add-activity-form').isExisting());
+    }, { timeout: 5000 }).catch(() => {});
 }
 
 /**
@@ -96,7 +98,7 @@ export async function deleteMostRecentLog(): Promise<void> {
     await confirmAction(true);
     
     // Stabilize dashboard after deletion
-    await browser.pause(300);
+    await waitForHeatmapReady();
 }
 
 /**
@@ -200,8 +202,10 @@ export async function logActivityGlobal(mediaTitle: string, minutes: number, cha
         await setTopmostActivityFieldValue('#activity-type', activityType, false);
     }
     
-    await clickTopmostOverlayChild('#add-activity-form button[type="submit"]');
-    await browser.pause(500); // Original pause to wait for re-render
+    const submitBtnSelector = '#add-activity-form button[type="submit"]';
+    const overlay = await getTopmostVisibleOverlay(submitBtnSelector);
+    await clickTopmostOverlayChild(submitBtnSelector);
+    await waitForOverlayToDisappear(overlay, 5000);
 }
 
 async function setTopmostActivityFieldValue(selector: string, value: string, required = true): Promise<void> {

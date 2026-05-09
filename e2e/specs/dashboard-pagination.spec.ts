@@ -83,7 +83,9 @@ describe('Dashboard Pagination E2E', () => {
         await pagination.scrollIntoView();
 
         // Wait for logs to settle
-        await browser.pause(500);
+        await browser.waitUntil(async () => {
+            return (await $$('.dashboard-activity-item').length) > 0;
+        }, { timeout: 5000 });
 
         const nextBtn = await $('#next-page');
         await nextBtn.click();
@@ -118,7 +120,7 @@ describe('Dashboard Pagination E2E', () => {
         await pagination.scrollIntoView();
 
         // Click and wait for re-render to make sure it's stable
-        await browser.pause(500);
+        await pagination.waitForClickable({ timeout: 5000 });
 
         await browser.execute((sel) => {
             const el = document.querySelector(sel);

@@ -17,7 +17,7 @@ export async function resolveConflicts(action: 'keep' | 'replace'): Promise<void
         const radio = radios[i];
         await radio.waitForClickable({ timeout: 5000 });
         await radio.click();
-        await browser.pause(100); // Tiny pause between conflict resolutions
+        await browser.waitUntil(async () => await radio.isSelected(), { timeout: 1000 });
     }
     const confirmBtn = $('#conflict-confirm');
     await confirmBtn.waitForClickable({ timeout: 5000 });

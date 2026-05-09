@@ -13,7 +13,10 @@ describe('Responsive Styling CUJ', () => {
 
   it('should hide nav controls on mobile width and iconify Log Activity on narrow mobile width', async () => {
     await browser.setWindowSize(740, 1200);
-    await browser.pause(300);
+    await browser.waitUntil(async () => {
+      const spacer = await $('#nav-spacer');
+      return await spacer.isExisting() && (await spacer.getCSSProperty('display')).value === 'none';
+    }, { timeout: 3000 });
 
     const responsive = await browser.execute(() => {
       const text = document.querySelector<HTMLElement>('.activity-btn-text');
@@ -35,7 +38,10 @@ describe('Responsive Styling CUJ', () => {
     expect(responsive.controlsDisplay).toBe('none');
 
     await browser.setWindowSize(340, 1200);
-    await browser.pause(300);
+    await browser.waitUntil(async () => {
+      const text = await $('.activity-btn-text');
+      return await text.isExisting() && (await text.getCSSProperty('display')).value === 'none';
+    }, { timeout: 3000 });
 
     const responsiveAfterResize = await browser.execute(() => {
       const text = document.querySelector('.activity-btn-text');
@@ -52,7 +58,13 @@ describe('Responsive Styling CUJ', () => {
     expect(await verifyActiveView('dashboard')).toBe(true);
 
     await browser.setWindowSize(1000, 1200);
-    await browser.pause(350);
+    await browser.waitUntil(async () => {
+      return await browser.execute(() => {
+        const stats = document.getElementById('stats-box-container');
+        const heatmap = document.getElementById('heatmap-container');
+        return stats && heatmap && heatmap.getBoundingClientRect().top > (stats.getBoundingClientRect().top + 40);
+      });
+    }, { timeout: 3000 });
 
     const stacked = await browser.execute(() => {
       const stats = document.getElementById('stats-box-container');
@@ -88,7 +100,12 @@ describe('Responsive Styling CUJ', () => {
     expect(await verifyActiveView('dashboard')).toBe(true);
 
     await browser.setWindowSize(1280, 1200);
-    await browser.pause(350);
+    await browser.waitUntil(async () => {
+      return await browser.execute(() => {
+        const chartToolbar = document.querySelector('.chart-toolbar') as HTMLElement;
+        return chartToolbar && getComputedStyle(chartToolbar).gridTemplateColumns.split(' ').length === 4;
+      });
+    }, { timeout: 3000 });
 
     const alignment = await browser.execute(() => {
       const heatmapCard = document.querySelector('#heatmap-container .card') as HTMLElement | null;
@@ -144,7 +161,13 @@ describe('Responsive Styling CUJ', () => {
     expect(await verifyActiveView('dashboard')).toBe(true);
 
     await browser.setWindowSize(650, 1200);
-    await browser.pause(350);
+    await browser.waitUntil(async () => {
+      return await browser.execute(() => {
+        const chartCard = document.querySelector('#activity-charts-grid .card:last-child') as HTMLElement | null;
+        const chartToolbar = document.querySelector('.chart-toolbar') as HTMLElement | null;
+        return chartCard && chartToolbar && (chartToolbar.getBoundingClientRect().width / chartCard.getBoundingClientRect().width > 0.9);
+      });
+    }, { timeout: 3000 });
 
     const compactLayout = await browser.execute(() => {
       const chartCard = document.querySelector('#activity-charts-grid .card:last-child') as HTMLElement | null;
@@ -188,7 +211,12 @@ describe('Responsive Styling CUJ', () => {
     expect(await verifyActiveView('dashboard')).toBe(true);
 
     await browser.setWindowSize(390, 960);
-    await browser.pause(350);
+    await browser.waitUntil(async () => {
+      return await browser.execute(() => {
+        const chartToolbar = document.querySelector('.chart-toolbar') as HTMLElement;
+        return chartToolbar && getComputedStyle(chartToolbar).gridTemplateColumns.split(' ').length === 2;
+      });
+    }, { timeout: 3000 });
 
     const overflow = await browser.execute(() => {
       const heatmapCard = document.querySelector('#heatmap-container .card') as HTMLElement | null;
@@ -270,7 +298,12 @@ describe('Responsive Styling CUJ', () => {
     await title.waitForDisplayed({ timeout: 10000 });
 
     await browser.setWindowSize(760, 1200);
-    await browser.pause(350);
+    await browser.waitUntil(async () => {
+      return await browser.execute(() => {
+        const header = document.getElementById('media-detail-header');
+        return header && getComputedStyle(header).flexWrap === 'wrap';
+      });
+    }, { timeout: 3000 });
 
     const mediaLayout = await browser.execute(() => {
       const coverColumn = document.getElementById('media-cover-column');
