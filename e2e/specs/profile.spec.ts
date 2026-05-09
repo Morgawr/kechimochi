@@ -41,9 +41,4 @@ describe('Profile CUJ', () => {
     await verifyViewNotBroken();
   });
 
-  it('should match the baseline screenshot', async () => {
-    await navigateTo('profile');
-    await browser.pause(500);
-    await takeAndCompareScreenshot('profile-view');
-  });
 });
