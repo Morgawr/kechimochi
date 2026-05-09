@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+## [0.2.9] - 2026-05-09
+
 ### Added
  - Desktop version now allows enabling an HTTP server backend for automation
 
