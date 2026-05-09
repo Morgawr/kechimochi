@@ -27,6 +27,7 @@ export class MediaDetail extends Component<MediaDetailState> {
     private static readonly DESCRIPTION_COLLAPSE_CHAR_LIMIT = 420;
     private static readonly DESCRIPTION_COLLAPSE_NEWLINE_LIMIT = 4;
     private readonly onBack: () => void;
+    private readonly onBackToLibrary: () => void;
     private readonly onNext: () => void;
     private readonly onPrev: () => void;
     private readonly onNavigate: (index: number) => void;
@@ -53,11 +54,12 @@ export class MediaDetail extends Component<MediaDetailState> {
         this.render();
     }
 
-    constructor(container: HTMLElement, media: Media, logs: ActivitySummary[], mediaList: Media[], currentIndex: number, callbacks: { onBack: () => void, onNext: () => void, onPrev: () => void, onNavigate: (index: number) => void, onDelete: () => void }) {
+    constructor(container: HTMLElement, media: Media, logs: ActivitySummary[], mediaList: Media[], currentIndex: number, callbacks: { onBack: () => void, onBackToLibrary: () => void, onNext: () => void, onPrev: () => void, onNavigate: (index: number) => void, onDelete: () => void }) {
         super(container, { media, logs, milestones: [], imgSrc: null, isDescriptionExpanded: false });
         this.mediaList = mediaList;
         this.currentIndex = currentIndex;
         this.onBack = callbacks.onBack;
+        this.onBackToLibrary = callbacks.onBackToLibrary;
         this.onNext = callbacks.onNext;
         this.onPrev = callbacks.onPrev;
         this.onNavigate = callbacks.onNavigate;
@@ -634,7 +636,7 @@ export class MediaDetail extends Component<MediaDetailState> {
         `;
     }
     private setupListeners(root: HTMLElement) {
-        root.querySelector('#btn-back-grid')?.addEventListener('click', this.onBack);
+        root.querySelector('#btn-back-grid')?.addEventListener('click', this.onBackToLibrary);
         root.querySelector('#media-next')?.addEventListener('click', this.onNext);
         root.querySelector('#media-prev')?.addEventListener('click', this.onPrev);
         root.querySelector('#media-select')?.addEventListener('change', (e) => this.onNavigate(Number.parseInt((e.target as HTMLSelectElement).value, 10)));

@@ -86,6 +86,7 @@ describe('MediaDetail', () => {
     };
     const mockCallbacks = {
         onBack: vi.fn(),
+        onBackToLibrary: vi.fn(),
         onNext: vi.fn(),
         onPrev: vi.fn(),
         onNavigate: vi.fn(),

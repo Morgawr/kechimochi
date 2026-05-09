@@ -178,7 +178,7 @@ export class MediaView extends Component<MediaViewState> {
         this.setState({ viewMode: 'grid' });
     }
 
-    private async handleBack() {
+private async handleBack() {
         if (this.navigationSource === 'dashboard') {
             this.navigationSource = undefined;
             // Ne pas modifier viewMode — on laisse MediaView en l'état, il sera réinitialisé à la prochaine ouverture
@@ -190,8 +190,12 @@ export class MediaView extends Component<MediaViewState> {
             await this.exitDetail(false);
         }
     }
-    
 
+    private async handleBackToLibrary() {
+        this.navigationSource = undefined;
+        await this.exitDetail(false);
+    }
+    
     public async resetView() {
         this.setState({ viewMode: 'grid' });
         await this.loadData();
@@ -433,6 +437,7 @@ export class MediaView extends Component<MediaViewState> {
             this.state.currentIndex,
             {
                 onBack: () => { this.runAsync(this.handleBack(), 'Failed to handle back navigation'); },
+                onBackToLibrary: () => { this.runAsync(this.handleBackToLibrary(), 'Failed to navigate back to library'); },
                 onNext: () => { this.runAsync(this.navigateDetail(1), 'Failed to navigate to next media'); },
                 onPrev: () => { this.runAsync(this.navigateDetail(-1), 'Failed to navigate to previous media'); },
                 onNavigate: (index) => this.setState({ currentIndex: index }),
