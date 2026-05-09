@@ -58,7 +58,7 @@ describe('CUJ: Activity Type Decoupling', () => {
         // uses only Reading-tagged logs in the denominator
         await logActivityFromDetail('ある魔女が死ぬまで', '500', '0', 'Watching');
 
-        // Wait for React to re-render if it was going to
+        // Wait for UI to update if it was going to
         await browser.executeAsync((done) => requestAnimationFrame(() => requestAnimationFrame(() => done(true))));
 
         // Reading speed figure should be unchanged since Watching time is excluded

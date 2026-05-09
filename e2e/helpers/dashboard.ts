@@ -12,7 +12,7 @@ export async function logActivity(title: string, duration: string, characters: s
     await addActivityBtn.waitForClickable({ timeout: 5000 });
     await addActivityBtn.click();
 
-    // Dynamically fetch and wait for elements to avoid StaleElementReferenceException from React re-renders
+    // Dynamically fetch and wait for elements to avoid StaleElementReferenceException from UI updates
     await browser.waitUntil(async () => await $('#activity-media').isDisplayed().catch(() => false), { timeout: 10000 });
     await $('#activity-media').setValue(title);
 
