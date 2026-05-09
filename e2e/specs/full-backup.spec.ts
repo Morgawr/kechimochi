@@ -168,8 +168,6 @@ describe('CUJ: Full Backup Import Export', () => {
     await confirmAction(true);
 
     await dismissAlert('Backup imported successfully!', 15000);
-
-    await browser.pause(500);
     await waitForAppReady();
 
     await navigateTo('profile');
@@ -179,7 +177,7 @@ describe('CUJ: Full Backup Import Export', () => {
 
     await navigateTo('media');
     expect(await verifyActiveView('media')).toBe(true);
-    await browser.waitUntil(async () => (await $$('.media-grid-item')).length > 0, {
+    await browser.waitUntil(async () => (await $$('.media-grid-item').length) > 0, {
       timeout: 10000,
       timeoutMsg: 'Media library did not repopulate after importing the full backup',
     });

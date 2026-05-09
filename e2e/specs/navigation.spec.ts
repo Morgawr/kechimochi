@@ -36,8 +36,6 @@ describe('Navigation CUJ', () => {
 
     it(`Step ${stepNumber}: should navigate from ${from} to ${to}`, async () => {
       await navigateTo(to);
-      await browser.pause(500);
-
       expect(await verifyActiveView(to)).toBe(true);
     });
 
