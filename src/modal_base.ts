@@ -96,7 +96,7 @@ export function focusInput(input: HTMLInputElement, options: { deferDatalistUnti
         return () => undefined;
     }
 
-    let timeoutId: ReturnType<typeof globalThis.setTimeout> | 0 = 0;
+    let timeoutId: ReturnType<typeof globalThis.setTimeout> = 0;
     let rafId = 0;
     let isDone = false;
 
@@ -198,8 +198,7 @@ export function createCancelableOverlay(onDismiss: () => void, options: { closeO
 
     const cleanupFns: Array<() => void> = [];
     const teardownCancelable = makeOverlayCancelable(overlay, () => dismiss());
-    cleanupFns.push(teardownCancelable);
-    cleanupFns.push(pushBackHandler(() => {
+    cleanupFns.push(teardownCancelable, pushBackHandler(() => {
         dismiss();
         return true;
     }));
@@ -318,7 +317,7 @@ export async function customPrompt(title: string, defaultValue = "", text = ""):
             resolve(input.value);
         };
         
-        overlay.querySelector('#prompt-cancel')!.addEventListener('click', dismiss);
+        overlay.querySelector('#prompt-cancel').addEventListener('click', dismiss);
         overlay.querySelector('#prompt-confirm')!.addEventListener('click', confirm);
         input.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') { confirm(); }

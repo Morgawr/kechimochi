@@ -30,7 +30,13 @@ export function applyTheme(theme: string): void {
         (THEME_MODES[theme] === undefined && theme.toLowerCase().includes('light'));
 
     // Control Android status bar appearance via JavascriptInterface
-    if ((globalThis as any).AndroidStatusBar?.postMessage) {
-        (globalThis as any).AndroidStatusBar.postMessage(isLight);
-    }
+    const androidStatusBar = (
+        globalThis as typeof globalThis & {
+            AndroidStatusBar?: {
+                postMessage: (isLight: boolean) => void;
+            };
+        }
+    ).AndroidStatusBar;
+
+    androidStatusBar?.postMessage(isLight);
 }

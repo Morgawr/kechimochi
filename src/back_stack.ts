@@ -40,9 +40,7 @@ function scheduleSubscriptionSync(): void {
             return;
         }
 
-        if (unlistenSystemBack === null) {
-            unlistenSystemBack = await subscribeSystemBack(onSystemBack);
-        }
+        unlistenSystemBack ??= await subscribeSystemBack(onSystemBack);
     });
 }
 
