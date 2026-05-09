@@ -19,6 +19,22 @@ describe('release notes helpers', () => {
         ]);
     });
 
+    it('keeps indented wrapped changelog bullet lines in the same list item', () => {
+        expect(parseReleaseNotes([
+            '### Fixed',
+            ' - Activities logged in weeks between month boundaries will now show the correct',
+            '   amount in the pie chart slice',
+        ].join('\n'))).toEqual([
+            { type: 'heading', level: 3, text: 'Fixed' },
+            {
+                type: 'list',
+                items: [
+                    'Activities logged in weeks between month boundaries will now show the correct amount in the pie chart slice',
+                ],
+            },
+        ]);
+    });
+
     it('renders release notes as escaped HTML blocks', () => {
         const html = renderReleaseNotesHtml('### Added\n- <script>alert(1)</script>');
         expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
