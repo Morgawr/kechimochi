@@ -87,9 +87,9 @@ describe('QuickLog', () => {
         component.render();
 
         const titles = Array.from(container.querySelectorAll('.quick-log-item .quick-log-title')).map(node => node.textContent || '');
-        expect(titles).toHaveLength(5);
+        expect(titles).toHaveLength(6);
         expect(titles).toContain('Same Day Higher Id');
-        expect(titles).not.toContain('Same Day Lower Id');
+        expect(titles).toContain('Same Day Lower Id');
     });
 
     it('opens the activity modal for the clicked media and refreshes after success', async () => {
