@@ -16,6 +16,7 @@ describe('ActivityCharts', () => {
     beforeEach(() => {
         container = document.createElement('div');
         onParamChange = vi.fn();
+        vi.useRealTimers();
         vi.clearAllMocks();
     });
 
@@ -95,6 +96,35 @@ describe('ActivityCharts', () => {
         );
         component.render();
         expect(Chart).toHaveBeenCalled();
+    });
+
+    it('should keep offset weekly pie chart totals within the selected week when crossing months', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-05-09T12:00:00'));
+
+        const component = new ActivityCharts(
+            container,
+            {
+                logs: [
+                    { date: '2026-04-28', duration_minutes: 1200, title: 'Week 1', media_id: 1, media_type: 'Reading', language: 'Japanese' } as unknown as ActivitySummary,
+                    { date: '2026-05-05', duration_minutes: 1800, title: 'Week 2', media_id: 2, media_type: 'Reading', language: 'Japanese' } as unknown as ActivitySummary
+                ],
+                timeRangeDays: 7,
+                timeRangeOffset: 1,
+                groupByMode: 'media_type',
+                chartType: 'bar',
+                metric: 'minutes'
+            },
+            onParamChange
+        );
+        component.render();
+
+        const chartGrid = container.querySelector('#activity-charts-grid') as HTMLElement;
+        const pieChartConfig = vi.mocked(Chart).mock.calls[0][1];
+
+        expect(chartGrid.dataset.rangeStart).toBe('2026-04-27');
+        expect(chartGrid.dataset.rangeEnd).toBe('2026-05-03');
+        expect(pieChartConfig.data.datasets[0].data).toEqual([1200]);
     });
 
     it('should handle alternative grouping modes', () => {

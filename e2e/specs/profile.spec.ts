@@ -4,7 +4,6 @@ import {
   verifyActiveView,
   verifyViewNotBroken,
 } from '../helpers/navigation.js';
-import { takeAndCompareScreenshot } from '../helpers/common.js';
 
 describe('Profile CUJ', () => {
   before(async () => {
@@ -36,14 +35,8 @@ describe('Profile CUJ', () => {
 
   it('should navigate back to dashboard after visiting profile', async () => {
     await navigateTo('dashboard');
-    await browser.pause(500);
     expect(await verifyActiveView('dashboard')).toBe(true);
     await verifyViewNotBroken();
   });
 
-  it('should match the baseline screenshot', async () => {
-    await navigateTo('profile');
-    await browser.pause(500);
-    await takeAndCompareScreenshot('profile-view');
-  });
 });

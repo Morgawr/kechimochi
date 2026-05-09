@@ -2,7 +2,7 @@ import { waitForAppReady } from '../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../helpers/navigation.js';
 import { logActivity } from '../helpers/dashboard.js';
 import { submitPrompt, dismissAlert, closeModal } from '../helpers/common.js';
-import { clickMediaItem } from '../helpers/library.js';
+import { clickMediaItem, isMediaVisible } from '../helpers/library.js';
 import { backToGrid, getDetailTrackingStatus } from '../helpers/media-detail.js';
 
 describe('CUJ: Log Daily Activity', () => {
@@ -24,14 +24,12 @@ describe('CUJ: Log Daily Activity', () => {
     await submitPrompt('Playing');
 
     await $('#add-activity-form').waitForExist({ reverse: true, timeout: 5000 });
-    await browser.pause(500);
   });
 
   it('should log an activity with only characters for "Final Fantasy 7"', async () => {
     await logActivity('Final Fantasy 7', '0', '500', '2024-03-30');
     
     await $('#add-activity-form').waitForExist({ reverse: true, timeout: 5000 });
-    await browser.pause(500);
   });
 
   it('should show an alert when trying to log 0 duration and 0 characters', async () => {
@@ -65,18 +63,7 @@ describe('CUJ: Log Daily Activity', () => {
     await navigateTo('media');
     expect(await verifyActiveView('media')).toBe(true);
 
-    const gridContainer = $('#media-grid-container');
-    await gridContainer.waitForExist({ timeout: 5000 });
-    
-    await browser.pause(500);
-
-    const items = $$('.media-grid-item');
-    const titleTexts = await items.map(async t => {
-        const dataset = await t.getProperty('dataset') as Record<string, string>;
-        return dataset.title;
-    });
-    
-    expect(titleTexts).toContain('Final Fantasy 7');
+    expect(await isMediaVisible('Final Fantasy 7')).toBe(true);
 
     await clickMediaItem('Final Fantasy 7');
     expect(await getDetailTrackingStatus()).toBe('Ongoing');

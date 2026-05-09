@@ -44,12 +44,11 @@ describe('Media Management CUJs', () => {
       await statusSelect.waitForExist();
       await statusSelect.selectByVisibleText('Ongoing');
 
-      await browser.pause(500);
-
       const backBtn = $('#btn-back-grid');
       await backBtn.click();
 
       const statusLabel = $(`.media-grid-item[data-title="Cyberpunk 2077"] .status-ongoing`);
+      await statusLabel.waitForExist({ timeout: 5000 });
       expect(await statusLabel.isExisting()).toBe(true);
     });
 

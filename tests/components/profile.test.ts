@@ -1462,6 +1462,9 @@ describe('ProfileView', () => {
         expect(localStorage.removeItem).toHaveBeenCalledWith(STORAGE_KEYS.CURRENT_PROFILE);
         expect(localStorage.removeItem).toHaveBeenCalledWith(STORAGE_KEYS.THEME_OVERRIDE_ENABLED);
         expect(localStorage.removeItem).toHaveBeenCalledWith(STORAGE_KEYS.THEME_OVERRIDE);
+        expect(vi.mocked(localStorage.removeItem).mock.invocationCallOrder[0]).toBeLessThan(
+            vi.mocked(api.wipeEverything).mock.invocationCallOrder[0]
+        );
         expect(reload).toHaveBeenCalledTimes(2);
 
         Object.defineProperty(globalThis, 'location', {

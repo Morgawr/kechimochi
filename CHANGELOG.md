@@ -9,6 +9,10 @@ The format is based on Keep a Changelog, with one section per released version.
 ### Added
  - Desktop version now allows enabling an HTTP server backend for automation
 
+### Fixed
+ - Activities logged in weeks between month boundaries will now show the correct
+   amount in the pie chart slice
+
 ### Special notes:
 
 With the inclusion of an HTTP server option in the desktop build, users are now

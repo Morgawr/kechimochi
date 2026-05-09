@@ -423,8 +423,6 @@ async function waitForVisualComparisonReady(timeout = 5000): Promise<void> {
     interval: 100,
     timeoutMsg: 'Expected app shell to be ready before visual comparison'
   });
-
-  await browser.pause(150);
 }
 
 /**
@@ -456,7 +454,7 @@ export async function dismissAlert(expectedText?: string, timeout = 5000): Promi
 /**
  * Handle a custom prompt modal by entering a value and confirming
  */
-export async function submitPrompt(value: string): Promise<void> {
+export async function submitPrompt(value: string, timeout = 15000): Promise<void> {
     const overlay = await getTopmostVisibleOverlay('#prompt-input');
     const input = overlay.$('#prompt-input');
     await input.waitForDisplayed({ timeout: 5000 });
@@ -466,7 +464,17 @@ export async function submitPrompt(value: string): Promise<void> {
     const confirmBtn = overlay.$('#prompt-confirm');
     await safeClick(confirmBtn);
 
-    await waitForOverlayToDisappear(overlay, 5000);
+    // Wait for the prompt-input to disappear. We do this via a direct browser script
+    // to avoid WebdriverIO v9 auto-refetching the 'overlay' element if the app reloads
+    // (e.g. during a factory reset) and finding a new modal.
+    await browser.waitUntil(async () => {
+        return browser.execute(() => {
+            const el = document.querySelector('#prompt-input');
+            if (!el) return true;
+            const ov = el.closest('.modal-overlay');
+            return ov ? !ov.classList.contains('active') : true;
+        }).catch(() => true);
+    }, { timeout, timeoutMsg: 'Prompt overlay did not disappear in time' });
 }
 
 /**

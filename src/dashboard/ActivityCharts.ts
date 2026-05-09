@@ -185,13 +185,14 @@ export class ActivityCharts extends Component<ActivityChartsState> {
     private getWeeklyRange() {
         const { timeRangeOffset } = this.state;
         const labels: string[] = [];
-        const endDay = new Date();
-        endDay.setDate(endDay.getDate() - (7 * timeRangeOffset));
-        const dayOfWeek = endDay.getDay();
+        const targetDay = new Date();
+        targetDay.setDate(targetDay.getDate() - (7 * timeRangeOffset));
+        const dayOfWeek = targetDay.getDay();
         const diffToMonday = (dayOfWeek === 0 ? 6 : dayOfWeek - 1);
 
-        const startDay = new Date(endDay);
-        startDay.setDate(endDay.getDate() - diffToMonday);
+        const startDay = new Date(targetDay);
+        startDay.setDate(targetDay.getDate() - diffToMonday);
+        const endDay = new Date(startDay);
         endDay.setDate(startDay.getDate() + 6);
 
         const validStart = this.getLocalISODate(startDay);

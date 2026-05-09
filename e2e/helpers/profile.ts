@@ -24,7 +24,6 @@ export async function calculateReport(): Promise<void> {
 
     Logger.info(`[E2E-TRACE] calculateReport: ${successMessage}`);
     await dismissAlert(successMessage, reportAlertTimeout);
-    await browser.pause(300);
 }
 /**
  * Exports milestones to a CSV file.
@@ -168,7 +167,6 @@ export async function uploadProfilePicture(imagePath: string): Promise<void> {
     const avatar = $('#profile-hero-avatar');
     await avatar.waitForDisplayed({ timeout: 5000 });
     await avatar.scrollIntoView();
-    await browser.pause(500);
 
     await browser.execute(() => {
         const el = document.getElementById('profile-hero-avatar');

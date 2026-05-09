@@ -1470,10 +1470,10 @@ export class ProfileView extends Component<ProfileState> {
 
         root.querySelector('#profile-btn-wipe-everything')?.addEventListener('click', async () => {
             if (await customPrompt("DANGER! Type 'WIPE_EVERYTHING' to confirm a total factory reset:") === 'WIPE_EVERYTHING') {
-                await wipeEverything();
                 localStorage.removeItem(STORAGE_KEYS.CURRENT_PROFILE);
                 localStorage.removeItem(STORAGE_KEYS.THEME_OVERRIDE_ENABLED);
                 localStorage.removeItem(STORAGE_KEYS.THEME_OVERRIDE);
+                await wipeEverything();
                 globalThis.location.reload();
             }
         });
