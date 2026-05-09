@@ -62,18 +62,18 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
     return new Promise((resolve) => {
         const baseHandle = createCancelableOverlay(() => resolve(false), { closeOnEscape: true });
         const { overlay } = baseHandle;
-        let suggestionHideTimer: ReturnType<typeof globalThis.setTimeout> | 0 = 0;
+        let suggestionHideTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
         const cleanup = () => {
             if (suggestionHideTimer) {
                 globalThis.clearTimeout(suggestionHideTimer);
-                suggestionHideTimer = 0;
+                suggestionHideTimer = null;
             }
             baseHandle.cleanup();
         };
         const dismiss = () => {
             if (suggestionHideTimer) {
                 globalThis.clearTimeout(suggestionHideTimer);
-                suggestionHideTimer = 0;
+                suggestionHideTimer = null;
             }
             baseHandle.dismiss();
         };
