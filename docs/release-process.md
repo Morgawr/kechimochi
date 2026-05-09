@@ -79,7 +79,7 @@ That file is a lock file for Maven artifacts used by the Android Gradle Plugin, 
 
 This can show up only during tagged release builds because the release APK exercises release-only Gradle tasks such as `:tauri-android:extractReleaseAnnotations`. A debug Android artifact from `main` can pass while the release APK later fails with `Dependency verification failed`.
 
-Release branches named `release/...` automatically run an unsigned Android release APK build in CI. Before merging a release PR, confirm that check passed. If you need to reproduce it locally, run:
+Release branches named `release/vX.Y.Z` automatically run an unsigned Android release APK build in CI through the `android-release-build.yml` workflow. Before merging a release PR, confirm that check passed. If you need to reproduce it locally, run:
 
 ```bash
 KECHIMOCHI_GOOGLE_ANDROID_CLIENT_ID=release-smoke-test \
@@ -146,3 +146,4 @@ When Kechimochi exits beta, update the release workflow to use `stable` instead 
 - `.github/workflows/publish.yml`: development artifacts from `main`
 - `.github/workflows/release.yml`: tagged GitHub Releases from `vX.Y.Z`
 - `.github/workflows/docker.yml`: container publishing for both dev (`main`) and release (`vX.Y.Z`) builds
+- `.github/workflows/android-release-build.yml`: unsigned Android release APK check for release PRs from `release/vX.Y.Z` branches
