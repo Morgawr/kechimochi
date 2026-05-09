@@ -174,6 +174,7 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
                     return;
                 }
                 titleInput.value = button.dataset.title || '';
+                titleInput.dispatchEvent(new Event('input'));
                 suggestionList.style.display = 'none';
                 suggestionList.innerHTML = '';
                 titleInput.focus({ preventScroll: true });
