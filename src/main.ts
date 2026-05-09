@@ -317,7 +317,9 @@ export class App {
             if (detail?.view) {
                 if (detail.view === VIEW_NAMES.MEDIA && detail.focusMediaId !== undefined) {
                     this.switchView(VIEW_NAMES.MEDIA);
-                    this.mediaView.jumpToMedia(detail.focusMediaId);
+                    this.mediaView.jumpToMedia(detail.focusMediaId, detail.source);
+                } else if (detail.view === VIEW_NAMES.DASHBOARD) {
+                    this.switchView(VIEW_NAMES.DASHBOARD);
                 }
             }
         });

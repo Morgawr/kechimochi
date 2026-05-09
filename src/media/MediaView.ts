@@ -4,7 +4,7 @@ import { Media, ActivitySummary, getAllMedia, getLogs, getLogsForMedia, getSetti
 import { MediaLibraryBrowser } from './MediaLibraryBrowser';
 import { MediaDetail } from './MediaDetail';
 import { Logger } from '../logger';
-import { SETTING_KEYS } from '../constants';
+import { SETTING_KEYS, EVENTS, VIEW_NAMES } from '../constants';
 import { GRID_LAYOUT_MEDIA_QUERY, type LibraryActivityMetrics, type LibraryLayoutMode } from './library_types';
 
 interface MediaViewState {
@@ -37,6 +37,7 @@ export class MediaView extends Component<MediaViewState> {
     private targetMediaId: number | null = null;
     private gridSupportQuery: MediaQueryList | null = null;
     private isDestroyed = false;
+    private navigationSource?:  'dashboard' | 'timeline';
 
     constructor(container: HTMLElement) {
         super(container, {
@@ -173,16 +174,32 @@ export class MediaView extends Component<MediaViewState> {
         if (shouldRefresh) {
             await this.loadData();
         }
+        this.navigationSource = undefined;
         this.setState({ viewMode: 'grid' });
     }
+
+    private async handleBack() {
+        if (this.navigationSource === 'dashboard') {
+            this.navigationSource = undefined;
+            // Ne pas modifier viewMode — on laisse MediaView en l'état, il sera réinitialisé à la prochaine ouverture
+            // La prochaine ouverture de Media appellera resetView() pour réinitialiser
+            globalThis.dispatchEvent(new CustomEvent(EVENTS.APP_NAVIGATE, {
+                detail: { view: VIEW_NAMES.DASHBOARD }
+            }));
+        } else {
+            await this.exitDetail(false);
+        }
+    }
+    
 
     public async resetView() {
         this.setState({ viewMode: 'grid' });
         await this.loadData();
     }
 
-    public async jumpToMedia(mediaId: number) {
+    public async jumpToMedia(mediaId: number, source?: 'dashboard' | 'timeline') {
         this.targetMediaId = mediaId;
+        this.navigationSource = source;
         await this.loadData(mediaId);
     }
 
@@ -415,7 +432,7 @@ export class MediaView extends Component<MediaViewState> {
             this.state.currentMediaList,
             this.state.currentIndex,
             {
-                onBack: () => { this.runAsync(this.exitDetail(), 'Failed to exit media detail'); },
+                onBack: () => { this.runAsync(this.handleBack(), 'Failed to handle back navigation'); },
                 onNext: () => { this.runAsync(this.navigateDetail(1), 'Failed to navigate to next media'); },
                 onPrev: () => { this.runAsync(this.navigateDetail(-1), 'Failed to navigate to previous media'); },
                 onNavigate: (index) => this.setState({ currentIndex: index }),

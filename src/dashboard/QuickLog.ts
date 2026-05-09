@@ -211,7 +211,7 @@ export class QuickLog extends Component<QuickLogState> {
 
     private navigateToMediaDetail(mediaId: number): void {
         globalThis.dispatchEvent(new CustomEvent(EVENTS.APP_NAVIGATE, {
-            detail: { view: 'media', focusMediaId: mediaId }
+            detail: { view: 'media', focusMediaId: mediaId, source: 'dashboard' }
         }));
     }
 
