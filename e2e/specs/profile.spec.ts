@@ -4,7 +4,6 @@ import {
   verifyActiveView,
   verifyViewNotBroken,
 } from '../helpers/navigation.js';
-import { takeAndCompareScreenshot } from '../helpers/common.js';
 
 describe('Profile CUJ', () => {
   before(async () => {
