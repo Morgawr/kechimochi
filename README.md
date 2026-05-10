@@ -50,7 +50,7 @@ The metadata of each entry is provided by various websites which the user can ad
 *   **Visual Novels**: VNDB
 *   **Anime and Movies**: AniList and IMDb
 *   **Manga and Books**: Bookmeter, BookWalker, Cmoa, and Shonen Jump Plus
-*   **Video Games**: Backloggd
+*   **Video Games**: Backloggd and DMM Games
 *   **Dictionary Integration**: Jiten.moe metadata support
 
 Are we missing some sites? Let us know by opening an [issue](https://github.com/Morgawr/kechimochi/issues/new) on our issue tracker.

@@ -9,11 +9,12 @@ The format is based on Keep a Changelog, with one section per released version.
 ### Added
  - Ability to use go back gesture or button on android to quit a popup or a media.
  - Shortcut button to medias from quick log
+ - DMM games metadata importer (works on Fanza games too)
 
 ### Changed
  - Pop ups no longer appear behind the keyboard and center themselves in the visible space.
- - Reworked elements on the media page for compactness and aesthetics including : Estimation values, buttons above description and copy title button. 
- - Adjusted a few colors in themes : Purple, Yellow lime, Deep blue, to have more readable buttons. 
+ - Reworked elements on the media page for compactness and aesthetics including : Estimation values, buttons above description and copy title button.
+ - Adjusted a few colors in themes : Purple, Yellow lime, Deep blue, to have more readable buttons.
  - Made quick log display 6 elements on desktop and large mobiles.
 
 ### Fixed

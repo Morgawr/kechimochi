@@ -8,6 +8,7 @@ import { BookwalkerImporter } from './bookwalker';
 import { BookmeterImporter } from './bookmeter';
 import { ShonenjumpplusImporter } from './shonenjumpplus';
 import { JitenImporter } from './jiten';
+import { DmmImporter } from './dmm';
 
 export type { MetadataImporter, ScrapedFieldSource, ScrapedMetadata, ScrapedMetadataFieldSources } from './types';
 
@@ -20,7 +21,8 @@ export const importers: MetadataImporter[] = [
     new BookwalkerImporter(),
     new BookmeterImporter(),
     new ShonenjumpplusImporter(),
-    new JitenImporter()
+    new JitenImporter(),
+    new DmmImporter()
 ];
 
 function getMockMetadata(): ScrapedMetadata | null {
