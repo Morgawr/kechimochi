@@ -3,6 +3,7 @@ import { html } from '../html';
 import { ActivitySummary } from '../api';
 import Chart from 'chart.js/auto';
 import { formatStatsDuration } from '../time';
+import { ACTIVITY_TIME_RANGES, getActivityRange } from './activity_ranges';
 
 interface ActivityChartsState {
     logs: ActivitySummary[];
@@ -11,6 +12,7 @@ interface ActivityChartsState {
     groupByMode: 'media_type' | 'log_name';
     chartType: 'bar' | 'line';
     metric: 'minutes' | 'characters';
+    weekStartDay?: number;
 }
 
 export class ActivityCharts extends Component<ActivityChartsState> {
@@ -65,9 +67,10 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                             <!-- Time Range Select -->
                             <div class="chart-toolbar-select-shell">
                                 <select id="select-time-range" class="chart-toolbar-select">
-                                    <option value="7" ${this.state.timeRangeDays === 7 ? 'selected' : ''}>Weekly</option>
-                                    <option value="30" ${this.state.timeRangeDays === 30 ? 'selected' : ''}>Monthly</option>
-                                    <option value="365" ${this.state.timeRangeDays === 365 ? 'selected' : ''}>Yearly</option>
+                                    <option value="7" ${this.state.timeRangeDays === ACTIVITY_TIME_RANGES.WEEKLY ? 'selected' : ''}>Weekly</option>
+                                    <option value="30" ${this.state.timeRangeDays === ACTIVITY_TIME_RANGES.MONTHLY ? 'selected' : ''}>Monthly</option>
+                                    <option value="365" ${this.state.timeRangeDays === ACTIVITY_TIME_RANGES.YEARLY ? 'selected' : ''}>Yearly</option>
+                                    <option value="0" ${this.state.timeRangeDays === ACTIVITY_TIME_RANGES.ALL_TIME ? 'selected' : ''}>All Time</option>
                                 </select>
                             </div>
 
@@ -105,15 +108,17 @@ export class ActivityCharts extends Component<ActivityChartsState> {
 
         this.container.appendChild(chartsLayout);
         this.setupListeners(chartsLayout);
+        this.updateNavigationState(chartsLayout);
         this.renderCharts(chartsLayout);
     }
 
     private setupListeners(layout: HTMLElement) {
         layout.querySelector('#btn-chart-prev')?.addEventListener('click', () => {
+            if (this.state.timeRangeDays === ACTIVITY_TIME_RANGES.ALL_TIME) return;
             this.onChartParamChange({ timeRangeOffset: this.state.timeRangeOffset + 1 });
         });
         layout.querySelector('#btn-chart-next')?.addEventListener('click', () => {
-            if (this.state.timeRangeOffset > 0) {
+            if (this.state.timeRangeDays !== ACTIVITY_TIME_RANGES.ALL_TIME && this.state.timeRangeOffset > 0) {
                 this.onChartParamChange({ timeRangeOffset: this.state.timeRangeOffset - 1 });
             }
         });
@@ -136,6 +141,15 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         });
     }
 
+    private updateNavigationState(layout: HTMLElement) {
+        const isAllTime = this.state.timeRangeDays === ACTIVITY_TIME_RANGES.ALL_TIME;
+        const prevButton = layout.querySelector<HTMLButtonElement>('#btn-chart-prev');
+        const nextButton = layout.querySelector<HTMLButtonElement>('#btn-chart-next');
+
+        if (prevButton) prevButton.disabled = isAllTime;
+        if (nextButton) nextButton.disabled = isAllTime || this.state.timeRangeOffset === 0;
+    }
+
     private renderCharts(layout: HTMLElement) {
         const pieCanvas = layout.querySelector<HTMLCanvasElement>('#pieChart')!;
         const barCanvas = layout.querySelector<HTMLCanvasElement>('#barChart')!;
@@ -145,7 +159,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         if (this.barChartInstance) this.barChartInstance.destroy();
 
         const colors = this.getChartColors();
-        const timeRange = this.calculateTimeRange();
+        const timeRange = getActivityRange(this.state.timeRangeDays, this.state.timeRangeOffset, this.state.logs, this.state.weekStartDay ?? 1);
         layout.dataset.rangeStart = timeRange.validStart;
         layout.dataset.rangeEnd = timeRange.validEnd;
         layout.dataset.timeRangeDays = String(this.state.timeRangeDays);
@@ -164,93 +178,6 @@ export class ActivityCharts extends Component<ActivityChartsState> {
             style.getPropertyValue('--chart-4').trim() || '#957DAD',
             style.getPropertyValue('--chart-5').trim() || '#D291BC'
         ];
-    }
-
-    private calculateTimeRange() {
-        const { timeRangeDays } = this.state;
-
-        switch (timeRangeDays) {
-            case 7: return this.getWeeklyRange();
-            case 30: return this.getMonthlyRange();
-            case 365: return this.getYearlyRange();
-            default: return this.getWeeklyRange();
-        }
-    }
-
-    private getLocalISODate(d: Date): string {
-        const pad = (n: number) => n.toString().padStart(2, '0');
-        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-    }
-
-    private getWeeklyRange() {
-        const { timeRangeOffset } = this.state;
-        const labels: string[] = [];
-        const targetDay = new Date();
-        targetDay.setDate(targetDay.getDate() - (7 * timeRangeOffset));
-        const dayOfWeek = targetDay.getDay();
-        const diffToMonday = (dayOfWeek === 0 ? 6 : dayOfWeek - 1);
-
-        const startDay = new Date(targetDay);
-        startDay.setDate(targetDay.getDate() - diffToMonday);
-        const endDay = new Date(startDay);
-        endDay.setDate(startDay.getDate() + 6);
-
-        const validStart = this.getLocalISODate(startDay);
-        const validEnd = this.getLocalISODate(endDay);
-
-        for (let i = 0; i < 7; i++) {
-            const d = new Date(startDay);
-            d.setDate(startDay.getDate() + i);
-            labels.push(this.getLocalISODate(d));
-        }
-
-        return { labels, getBucketIndex: (dateStr: string) => labels.indexOf(dateStr), validStart, validEnd };
-    }
-
-    private getMonthlyRange() {
-        const { timeRangeOffset } = this.state;
-        const labels: string[] = [];
-        const today = new Date();
-        const targetMonth = new Date(today.getFullYear(), today.getMonth() - timeRangeOffset, 1);
-        const y = targetMonth.getFullYear();
-        const m = targetMonth.getMonth();
-
-        const startDay = new Date(y, m, 1);
-        const endDay = new Date(y, m + 1, 0);
-        const validStart = this.getLocalISODate(startDay);
-        const validEnd = this.getLocalISODate(endDay);
-
-        const weeksCount = Math.ceil(endDay.getDate() / 7);
-        for (let i = 0; i < weeksCount; i++) labels.push(`Week ${i + 1}`);
-
-        const getBucketIndex = (dateStr: string) => {
-            if (dateStr >= validStart && dateStr <= validEnd) {
-                const date = new Date(dateStr + "T00:00:00");
-                const firstDayWeekday = startDay.getDay();
-                const offset = (firstDayWeekday === 0 ? 6 : firstDayWeekday - 1);
-                return Math.floor((date.getDate() + offset - 1) / 7);
-            }
-            return -1;
-        };
-
-        return { labels, getBucketIndex, validStart, validEnd };
-    }
-
-    private getYearlyRange() {
-        const { timeRangeOffset } = this.state;
-        const targetYear = new Date().getFullYear() - timeRangeOffset;
-        const validStart = `${targetYear}-01-01`;
-        const validEnd = `${targetYear}-12-31`;
-        const labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-        const getBucketIndex = (dateStr: string) => {
-            if (dateStr >= validStart && dateStr <= validEnd) {
-                return Number.parseInt(dateStr.split('-')[1]) - 1;
-            }
-            return -1;
-        };
-
-        return { labels, getBucketIndex, validStart, validEnd };
     }
 
     private createPieChart(canvas: HTMLCanvasElement, colors: string[], timeRange: { labels: string[], getBucketIndex: (dateStr: string) => number, validStart: string, validEnd: string }) {

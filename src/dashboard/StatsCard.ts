@@ -25,7 +25,7 @@ export class StatsCard extends Component<StatsCardState> {
         const loggedDaysCount = uniqueDates.length || 1;
 
         const { maxStreak, currentStreak } = this.calculateStreaks(uniqueDates);
-        const { mediaBreakdown, totalAvgFormat, totalChars, avgCharsFormat } = this.calculateBreakdown(logs, loggedDaysCount);
+        const { mediaBreakdown, totalAvgFormat, totalMins, totalChars, avgCharsFormat } = this.calculateBreakdown(logs, loggedDaysCount);
         const breakdownHtml = this.renderBreakdown(mediaBreakdown, loggedDaysCount);
 
         const content = html`
@@ -54,11 +54,15 @@ export class StatsCard extends Component<StatsCardState> {
                             <div style="font-size: 0.65rem; color: var(--text-secondary);">day streak</div>
                         </div>
                         ${totalChars > 0 ? html`
-                        <div class="study-stats-metric study-stats-metric-total-chars" style="background: var(--bg-dark); padding: 0.4rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color); grid-column: span 2;">
+                        <div class="study-stats-metric study-stats-metric-total-chars" style="background: var(--bg-dark); padding: 0.4rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
                             <div id="stat-total-chars" style="font-size: 1.1rem; font-weight: bold; color: var(--text-primary);">${totalChars.toLocaleString()}</div>
                             <div style="font-size: 0.65rem; color: var(--text-secondary);">total characters</div>
                         </div>
                         ` : ''}
+                        <div class="study-stats-metric study-stats-metric-total-hours" style="background: var(--bg-dark); padding: 0.4rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color); ${totalChars > 0 ? '' : 'grid-column: span 2;'}">
+                            <div id="stat-total-hours" style="font-size: 1.1rem; font-weight: bold; color: var(--text-primary);">${formatStatsDuration(totalMins, true)}</div>
+                            <div style="font-size: 0.65rem; color: var(--text-secondary);">total hours</div>
+                        </div>
                         </div>
                     <div id="study-stats-averages" style="display: flex; flex-direction: column; gap: 0.5rem; width: 100%;">
                         <div id="stat-total-avg" style="background: var(--accent-purple); padding: 0.5rem; border-radius: var(--radius-sm); text-align: center; color: var(--accent-text); font-weight: 600; font-size: 0.85rem;">
@@ -140,6 +144,7 @@ export class StatsCard extends Component<StatsCardState> {
         return { 
             mediaBreakdown, 
             totalAvgFormat: formatStatsDuration(totalAvgMins),
+            totalMins,
             totalChars,
             avgCharsFormat: `${Math.round(avgChars).toLocaleString()} chars`
         };

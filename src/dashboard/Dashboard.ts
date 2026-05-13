@@ -7,6 +7,7 @@ import { StatsCard } from './StatsCard';
 import { HeatmapView } from './HeatmapView';
 import { ActivityCharts } from './ActivityCharts';
 import { QuickLog } from './QuickLog';
+import { ActivityTotals } from './ActivityTotals';
 import { setupCopyButton } from '../clipboard';
 import { formatLoggedDuration } from '../time';
 import { Logger } from '../logger';
@@ -23,6 +24,7 @@ interface DashboardState {
         groupByMode: 'media_type' | 'log_name';
         chartType: 'bar' | 'line';
         metric: 'minutes' | 'characters';
+        weekStartDay: number;
     };
     isInitialized: boolean;
     currentPage: number;
@@ -33,6 +35,7 @@ export class Dashboard extends Component<DashboardState> {
     private heatmapComponent: HeatmapView | null = null;
     private statsComponent: StatsCard | null = null;
     private quickLogComponent: QuickLog | null = null;
+    private totalsComponent: ActivityTotals | null = null;
     private isRefreshing: boolean = false;
 
     private readonly containers: {
@@ -42,6 +45,7 @@ export class Dashboard extends Component<DashboardState> {
         quickLog?: HTMLElement;
         heatmap?: HTMLElement;
         charts?: HTMLElement;
+        totals?: HTMLElement;
         logs?: HTMLElement;
         pagination?: HTMLElement;
         logsList?: HTMLElement;
@@ -58,7 +62,8 @@ export class Dashboard extends Component<DashboardState> {
                 timeRangeOffset: 0,
                 groupByMode: 'media_type',
                 chartType: 'bar',
-                metric: 'minutes'
+                metric: 'minutes',
+                weekStartDay: 1
             },
             isInitialized: false,
             currentPage: 1
@@ -69,12 +74,13 @@ export class Dashboard extends Component<DashboardState> {
         if (this.isRefreshing) return;
         this.isRefreshing = true;
         try {
-            const [logs, heatmapData, mediaList, savedChartType, savedGroupBy] = await Promise.all([
+            const [logs, heatmapData, mediaList, savedChartType, savedGroupBy, savedWeekStartDay] = await Promise.all([
                 getLogs(),
                 getHeatmap(),
                 getAllMedia(),
                 getSetting(SETTING_KEYS.DASHBOARD_CHART_TYPE),
-                getSetting(SETTING_KEYS.DASHBOARD_GROUP_BY)
+                getSetting(SETTING_KEYS.DASHBOARD_GROUP_BY),
+                getSetting(SETTING_KEYS.WEEK_START_DAY)
             ]);
 
             const chartParams = { ...this.state.chartParams };
@@ -83,6 +89,10 @@ export class Dashboard extends Component<DashboardState> {
             }
             if (savedGroupBy === 'media_type' || savedGroupBy === 'log_name') {
                 chartParams.groupByMode = savedGroupBy;
+            }
+            const parsedWeekStartDay = Number.parseInt(savedWeekStartDay || '', 10);
+            if (Number.isInteger(parsedWeekStartDay) && parsedWeekStartDay >= 0 && parsedWeekStartDay <= 6) {
+                chartParams.weekStartDay = parsedWeekStartDay;
             }
 
             this.setState({ logs, heatmapData, mediaList, chartParams, isInitialized: true });
@@ -108,6 +118,7 @@ export class Dashboard extends Component<DashboardState> {
         if (newState.logs || newState.mediaList) {
             this.updateStats();
             this.updateQuickLog();
+            this.updateTotals();
             this.updateRecentLogs();
         }
 
@@ -117,6 +128,7 @@ export class Dashboard extends Component<DashboardState> {
 
         if (newState.chartParams || newState.logs) {
             this.updateCharts();
+            this.updateTotals();
         }
 
         if (newState.currentPage !== undefined) {
@@ -140,6 +152,7 @@ export class Dashboard extends Component<DashboardState> {
             this.updateQuickLog();
             this.updateHeatmap();
             this.updateCharts();
+            this.updateTotals();
             this.updateRecentLogs();
             return;
         }
@@ -148,6 +161,7 @@ export class Dashboard extends Component<DashboardState> {
         this.statsComponent = null;
         this.heatmapComponent = null;
         this.quickLogComponent = null;
+        this.totalsComponent = null;
 
         const root = html`<div class="dashboard-root animate-fade-in" style="display: flex; flex-direction: column; gap: 2rem;"></div>`;
         this.container.appendChild(root);
@@ -175,6 +189,9 @@ export class Dashboard extends Component<DashboardState> {
         this.containers.charts = html`<div id="charts-container"></div>`;
         this.containers.rightColumn.appendChild(this.containers.charts);
 
+        this.containers.totals = html`<div id="dashboard-totals-container"></div>`;
+        this.containers.rightColumn.appendChild(this.containers.totals);
+
         // 3. Recent Logs block
         const logsCard = html`
             <div class="card">
@@ -195,6 +212,7 @@ export class Dashboard extends Component<DashboardState> {
         this.updateQuickLog();
         this.updateHeatmap();
         this.updateCharts();
+        this.updateTotals();
         this.updateRecentLogs();
     }
 
@@ -262,8 +280,8 @@ export class Dashboard extends Component<DashboardState> {
 
     private getWeeklyOffsetForDate(dateStr: string): number {
         const millisecondsPerWeek = 7 * 24 * 60 * 60 * 1000;
-        const currentWeekStart = this.getUtcWeekStart(this.getLocalISODate(new Date()));
-        const selectedWeekStart = this.getUtcWeekStart(dateStr);
+        const currentWeekStart = this.getUtcWeekStart(this.getLocalISODate(new Date()), this.state.chartParams.weekStartDay);
+        const selectedWeekStart = this.getUtcWeekStart(dateStr, this.state.chartParams.weekStartDay);
 
         return Math.max(0, Math.round((currentWeekStart - selectedWeekStart) / millisecondsPerWeek));
     }
@@ -273,13 +291,14 @@ export class Dashboard extends Component<DashboardState> {
         return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
     }
 
-    private getUtcWeekStart(dateStr: string): number {
+    private getUtcWeekStart(dateStr: string, weekStartDay: number): number {
         const [year, month, day] = dateStr.split('-').map(Number);
         const date = new Date(Date.UTC(year, month - 1, day));
         const dayOfWeek = date.getUTCDay();
-        const diffToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+        const normalizedWeekStart = Number.isInteger(weekStartDay) && weekStartDay >= 0 && weekStartDay <= 6 ? weekStartDay : 1;
+        const diffToWeekStart = (dayOfWeek - normalizedWeekStart + 7) % 7;
 
-        date.setUTCDate(date.getUTCDate() - diffToMonday);
+        date.setUTCDate(date.getUTCDate() - diffToWeekStart);
         return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
     }
 
@@ -304,6 +323,25 @@ export class Dashboard extends Component<DashboardState> {
             }
         );
         this.activeChartsComponent.render();
+    }
+
+    private updateTotals() {
+        if (!this.containers.totals) return;
+
+        const totalsState = {
+            logs: this.state.logs,
+            mediaList: this.state.mediaList,
+            timeRangeDays: this.state.chartParams.timeRangeDays,
+            timeRangeOffset: this.state.chartParams.timeRangeOffset,
+            weekStartDay: this.state.chartParams.weekStartDay
+        };
+
+        if (this.totalsComponent) {
+            this.totalsComponent.setState(totalsState);
+        } else {
+            this.totalsComponent = new ActivityTotals(this.containers.totals, totalsState);
+        }
+        this.totalsComponent.render();
     }
 
     private updateRecentLogs() {

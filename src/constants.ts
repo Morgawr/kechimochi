@@ -37,6 +37,7 @@ export const SETTING_KEYS = {
     LIBRARY_LAYOUT_MODE: 'library_layout_mode',
     DASHBOARD_CHART_TYPE: 'dashboard_chart_type',
     DASHBOARD_GROUP_BY: 'dashboard_group_by',
+    WEEK_START_DAY: 'week_start_day',
     UPDATES_AUTO_CHECK_ENABLED: 'updates_auto_check_enabled',
     UPDATES_LAST_SEEN_RELEASE_VERSION: 'updates_last_seen_release_version',
     UPDATES_E2E_RELEASE_VERSION: 'updates_e2e_release_version',

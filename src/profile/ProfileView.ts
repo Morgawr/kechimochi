@@ -89,6 +89,16 @@ const THEME_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
     { value: 'noctua-brown', label: 'Noctua Brown' },
 ];
 
+const WEEK_START_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+    { value: '0', label: 'Sunday' },
+    { value: '1', label: 'Monday' },
+    { value: '2', label: 'Tuesday' },
+    { value: '3', label: 'Wednesday' },
+    { value: '4', label: 'Thursday' },
+    { value: '5', label: 'Friday' },
+    { value: '6', label: 'Saturday' },
+];
+
 interface ProfileState {
     currentProfile: string;
     theme: string;
@@ -114,6 +124,7 @@ interface ProfileState {
     localHttpApiStatus: LocalHttpApiStatus | null;
     themeOverrideEnabled: boolean;
     themeOverrideValue: string;
+    weekStartDay: string;
 }
 
 function stringifyError(error: unknown): string {
@@ -302,6 +313,7 @@ export class ProfileView extends Component<ProfileState> {
             localHttpApiStatus: null,
             themeOverrideEnabled: isThemeOverrideEnabled(),
             themeOverrideValue: getThemeOverrideValue(),
+            weekStartDay: '1',
         });
     }
 
@@ -334,6 +346,7 @@ export class ProfileView extends Component<ProfileState> {
             appVersion,
             profilePicture,
             currentProfile,
+            weekStartDay,
             syncState,
             localHttpApiStatus,
         ] = await Promise.all([
@@ -348,6 +361,7 @@ export class ProfileView extends Component<ProfileState> {
             getAppVersion(),
             this.loadProfilePicture(),
             getSetting(SETTING_KEYS.PROFILE_NAME),
+            getSetting(SETTING_KEYS.WEEK_START_DAY),
             syncStatePromise,
             localHttpApiStatusPromise,
         ]);
@@ -359,6 +373,7 @@ export class ProfileView extends Component<ProfileState> {
         this.setState({
             currentProfile: resolvedProfileName,
             theme: resolvedTheme,
+            weekStartDay: this.normalizeWeekStartDay(weekStartDay),
             profilePicture,
             report: {
                 novelSpeed: novelSpeed || '0',
@@ -457,7 +472,7 @@ export class ProfileView extends Component<ProfileState> {
         }
 
         this.clear();
-        const { currentProfile, theme, profilePicture, appVersion, themeOverrideEnabled, themeOverrideValue } = this.state;
+        const { currentProfile, theme, profilePicture, appVersion, themeOverrideEnabled, themeOverrideValue, weekStartDay } = this.state;
         applyTheme(themeOverrideEnabled ? themeOverrideValue : theme);
         const profilePictureSrc = profilePictureToDataUrl(profilePicture);
         const initials = getProfileInitials(currentProfile);
@@ -525,6 +540,18 @@ export class ProfileView extends Component<ProfileState> {
                 ${this.renderUpdatesCard()}
                 ${this.renderSyncCard()}
                 ${this.renderLocalHttpApiCard()}
+
+                <div class="card" style="display: flex; flex-direction: column; gap: 1rem;">
+                    <h3>Activity Preferences</h3>
+                    <p style="color: var(--text-secondary); font-size: 0.9rem;">Choose how weekly activity ranges are grouped across the dashboard.</p>
+
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                        <label for="profile-select-week-start" style="font-size: 0.85rem; font-weight: 500;">Week starts on</label>
+                        <select id="profile-select-week-start" style="width: 100%;">
+                            ${this.renderWeekStartOptions(weekStartDay)}
+                        </select>
+                    </div>
+                </div>
 
                 <div class="card" style="display: flex; flex-direction: column; gap: 1rem;">
                     <h3>Activity Logs</h3>
@@ -650,6 +677,18 @@ export class ProfileView extends Component<ProfileState> {
             return `<option value="${escapeHTML(value)}"${selected}>${escapeHTML(label)}</option>`;
         }).join('');
         return rawHtml(optionsHtml);
+    }
+
+    private renderWeekStartOptions(currentValue: string) {
+        const optionsHtml = WEEK_START_OPTIONS.map(({ value, label }) => {
+            const selected = value === currentValue ? ' selected' : '';
+            return `<option value="${escapeHTML(value)}"${selected}>${escapeHTML(label)}</option>`;
+        }).join('');
+        return rawHtml(optionsHtml);
+    }
+
+    private normalizeWeekStartDay(value: string | null): string {
+        return value && WEEK_START_OPTIONS.some(option => option.value === value) ? value : '1';
     }
 
     private renderReportTimestamp() {
@@ -1242,6 +1281,13 @@ export class ProfileView extends Component<ProfileState> {
                 applyTheme(localTheme);
             }
             this.setState({ themeOverrideValue: localTheme });
+        });
+
+        root.querySelector('#profile-select-week-start')?.addEventListener('change', async (e) => {
+            const weekStartDay = this.normalizeWeekStartDay((e.target as HTMLSelectElement).value);
+            await setSetting(SETTING_KEYS.WEEK_START_DAY, weekStartDay);
+            this.setState({ weekStartDay });
+            globalThis.dispatchEvent(new CustomEvent(EVENTS.LOCAL_DATA_CHANGED));
         });
 
         root.querySelector('#profile-updates-auto-check')?.addEventListener('change', async (e) => {
