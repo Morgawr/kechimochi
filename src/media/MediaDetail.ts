@@ -114,15 +114,34 @@ export class MediaDetail extends Component<MediaDetailState> {
 
         let src: string | null;
         if (getServices().isDesktop()) {
+            // Desktop: blob is already in memory, no need for preload
             const bytes = await readFileBytes(cover_image);
             const blob = new Blob([new Uint8Array(bytes)]);
             src = URL.createObjectURL(blob);
             this.revokeCurrentObjectUrl();
             this.currentObjectUrl = src;
+            if (!this.isDestroyed) {
+                this.setState({ imgSrc: src });
+            }
         } else {
+            // Web: preload to avoid visible loading
             src = await getServices().loadCoverImage(cover_image);
+            if (src && !this.isDestroyed) {
+                const img = new Image();
+                img.onload = () => {
+                    if (!this.isDestroyed && this.state.imgSrc !== src) {
+                        this.setState({ imgSrc: src });
+                    }
+                };
+                img.onerror = () => {
+                    Logger.error('Failed to preload image', src);
+                    if (!this.isDestroyed && this.state.imgSrc !== null) {
+                        this.setState({ imgSrc: null });
+                    }
+                };
+                img.src = src;
+            }
         }
-        if (src && !this.isDestroyed) this.setState({ imgSrc: src });
     }
 
     private revokeCurrentObjectUrl() {
@@ -262,7 +281,7 @@ export class MediaDetail extends Component<MediaDetailState> {
         const { media, imgSrc, logs, isDescriptionExpanded } = this.state;
 
         const detailView = html`
-            <div class="animate-fade-in" style="display: flex; flex-direction: column; height: 100%; gap: 1rem;" id="media-root">
+            <div style="display: flex; flex-direction: column; height: 100%; gap: 1rem;" id="media-root">
                 <!-- Header Controls -->
                 <div id="media-detail-header" style="display: flex; gap: 1rem; align-items: center; justify-content: space-between; background: var(--bg-dark); padding: 0.5rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-color);">
                     <div id="media-back-slot" style="display: flex; justify-content: flex-start;">
@@ -319,7 +338,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                     <!-- Left Column: Cover -->
                     <div id="media-cover-column" style="flex: 0 0 300px; display: flex; flex-direction: column; min-height: 0;">
                         ${imgSrc
-                ? html`<img src="${imgSrc}" style="width: 100%; aspect-ratio: 2/3; object-fit: cover; border-radius: var(--radius-md); cursor: pointer;" id="media-cover-img" alt="Cover" title="Double click to change image" />`
+                ? html`<img src="${imgSrc}" style="width: 100%; aspect-ratio: 2/3; object-fit: cover; border-radius: var(--radius-md); cursor: pointer; opacity: 1; transition: opacity 0.2s ease-out;" id="media-cover-img" alt="Cover" title="Double click to change image" />`
                 : html`<div style="width: 100%; aspect-ratio: 2/3; background: var(--bg-dark); border: 2px dashed var(--border-color); border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-secondary);" id="media-cover-img" title="Double click to add image">No Image</div>`
             }
                         <div id="media-milestones-slot-left">

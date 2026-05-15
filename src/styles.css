@@ -1419,7 +1419,7 @@ input:focus, select:focus {
   padding: 0.2rem;
   margin: -0.2rem;
 }
-
+<
 #media-title-block{
   margin: 0.2rem;
   padding: 0.1rem;
@@ -2521,7 +2521,7 @@ input:focus, select:focus {
 
 .dashboard-totals-grid {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 2rem;
 }
 
@@ -2529,7 +2529,33 @@ input:focus, select:focus {
     display: flex;
     flex-direction: column;
     min-width: 0;
+    height: 100%;
+    flex-grow: 1;
 }
+
+.dashboard-highlights-card {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+}
+
+@media (max-width: 1024px) {
+    .dashboard-totals-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width : 1500px )and (min-width: 768px){
+
+.dashboard-highlights-grid{
+  grid-template-columns: 1fr 1fr 1fr!important;
+}
+.dashboard-totals-grid{
+  display: flex;
+  flex-wrap: wrap;
+}
+}
+
 
 .dashboard-stats-header {
     display: grid;
@@ -2686,8 +2712,11 @@ input:focus, select:focus {
     display: flex;
     flex-direction: column;
     gap: 0.65rem;
-    margin-top: 1rem;
     min-width: 0;
+}
+
+.dashboard-highlights-card > .dashboard-highlights-section {
+    margin-top: 0;
 }
 
 .dashboard-highlights-header {
@@ -2748,7 +2777,7 @@ input:focus, select:focus {
 
 .dashboard-highlights-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+    grid-template-columns: 1fr;
     gap: 0.55rem;
     min-width: 0;
 }
@@ -3353,6 +3382,10 @@ input:checked + .slider:before {
 @media (max-width: 768px) {
   .spacer{
     display: none;
+  }
+
+  .categories-content {
+    grid-template-columns: 1fr;
   }
 
   .mobile-top-bar {

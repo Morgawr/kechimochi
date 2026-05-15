@@ -45,7 +45,6 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
     private highlightPage = 0;
     private highlightsPerPage = 2;
     private resizeObserver: ResizeObserver | null = null;
-
     constructor(container: HTMLElement, initialState: ActivityTotalsState) {
         super(container, initialState);
     }
@@ -103,7 +102,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
                         bucketTotals,
                         selectedIndex,
                         range.unit,
-                        selectedIndex === currentIndex,
+                        this.state.timeRangeOffset === 0 && selectedIndex === currentIndex,
                         selectedSubject
                     ))}
                 </section>
@@ -124,6 +123,8 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
                         })),
                         false
                     ))}
+                </section>
+                <section class="card dashboard-totals-card dashboard-highlights-card">
                     ${rawHtml(this.renderHighlights(highlights))}
                 </section>
             </div>
@@ -132,6 +133,9 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
         this.container.appendChild(content);
         this.setupListeners(content);
         this.setupHighlights(content, highlights);
+        this.ensureHighlightCovers(highlights).catch(error => {
+            Logger.error('Failed to load dashboard highlight covers', error);
+        });
     }
 
     private setupListeners(root: HTMLElement) {
@@ -146,8 +150,14 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
     }
 
     private setupHighlights(root: HTMLElement, highlights: HighlightCard[]) {
-        const viewport = root.querySelector<HTMLElement>('.dashboard-highlights-viewport');
-        if (!viewport || highlights.length === 0) return;
+        const card = root.querySelector<HTMLElement>('.dashboard-highlights-card');
+
+        if (!card) {
+            this.ensureHighlightCovers(highlights).catch(error => {
+                Logger.error('Failed to load dashboard highlight covers', error);
+            });
+            return;
+        }
 
         root.querySelector<HTMLButtonElement>('[data-highlights-dir="prev"]')?.addEventListener('click', () => {
             this.highlightPage = Math.max(0, this.highlightPage - 1);
@@ -157,17 +167,6 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
             this.highlightPage = Math.min(this.getHighlightMaxPage(highlights.length), this.highlightPage + 1);
             this.render();
         });
-
-        this.resizeObserver = new ResizeObserver(entries => {
-            const width = entries[0]?.contentRect.width ?? 0;
-            const nextPerPage = width >= 680 ? 3 : width >= 430 ? 2 : 1;
-            if (nextPerPage !== this.highlightsPerPage) {
-                this.highlightsPerPage = nextPerPage;
-                this.highlightPage = Math.min(this.highlightPage, this.getHighlightMaxPage(highlights.length));
-                this.render();
-            }
-        });
-        this.resizeObserver.observe(viewport);
 
         this.ensureHighlightCovers(highlights).catch(error => {
             Logger.error('Failed to load dashboard highlight covers', error);
@@ -439,7 +438,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
         if (unit === 'month') {
             const year = validStart.slice(0, 4);
             const monthDate = new Date(Number.parseInt(year, 10), index, 1);
-            const month = monthDate.toLocaleDateString(undefined, { month: 'long' });
+            const month = monthDate.toLocaleDateString("en-US", { month: 'long' });
             return {
                 label: month,
                 subject: `${month} ${year}`,
@@ -487,7 +486,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
     }
 
     private formatWeekdayDate(date: Date, includeYear: boolean): string {
-        const weekday = date.toLocaleDateString(undefined, { weekday: 'long' });
+        const weekday = date.toLocaleDateString("en-US", { weekday: 'long' });
         return `${weekday} ${this.formatShortDate(date)}${includeYear ? `/${date.getFullYear()}` : ''}`;
     }
 
@@ -526,37 +525,63 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
         return best;
     }
 
-    private renderHighlights(highlights: HighlightCard[]): string {
-        if (highlights.length === 0) return '';
+    private isMobileHighlightLayout(): boolean {
+        return typeof window !== 'undefined' && window.matchMedia?.('(max-width: 1024px)').matches;
+    }
 
+    private renderHighlights(highlights: HighlightCard[]): string {
+        const isMobile = this.isMobileHighlightLayout();
+        const pageSize = isMobile ? highlights.length : 3;
+        this.highlightsPerPage = pageSize;
         const maxPage = this.getHighlightMaxPage(highlights.length);
         this.highlightPage = Math.min(this.highlightPage, maxPage);
-        const start = this.highlightPage * this.highlightsPerPage;
-        const visibleHighlights = highlights.slice(start, start + this.highlightsPerPage);
+        const start = this.highlightPage * pageSize;
+        const visibleHighlights = highlights.slice(start, start + pageSize);
+        const needsPagination = !isMobile && highlights.length > pageSize;
+
+        if (highlights.length === 0) {
+            return `
+                <div class="dashboard-highlights-section">
+                    <div class="dashboard-stats-header">
+                        <h3 class="dashboard-module-title dashboard-totals-title">Highlights</h3>
+                        <span class="dashboard-stats-range-label"></span>
+                    </div>
+                    <p class="dashboard-totals-empty">No activity for this timeframe.</p>
+                </div>
+            `;
+        }
 
         return `
             <div class="dashboard-highlights-section">
-                <div class="dashboard-highlights-header">
-                    <h4>Highlights</h4>
-                    <span>${this.highlightPage + 1}/${maxPage + 1}</span>
+                <div class="dashboard-stats-header">
+                    <h3 class="dashboard-module-title dashboard-totals-title">Highlights</h3>
+                    <span class="dashboard-stats-range-label">${needsPagination ? `${this.highlightPage + 1}/${maxPage + 1}` : ''}</span>
                 </div>
-                <div class="dashboard-highlights-shell">
-                    <button type="button" class="dashboard-highlights-nav" data-highlights-dir="prev" ${this.highlightPage === 0 ? 'disabled' : ''} aria-label="Previous highlights">
-                        <svg width="12" height="28" viewBox="0 0 12 28" fill="none">
-                            <path d="M8 4L3 14L8 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                        </svg>
-                    </button>
+                ${needsPagination ? `
+                    <div class="dashboard-highlights-shell">
+                        <button type="button" class="dashboard-highlights-nav" data-highlights-dir="prev" ${this.highlightPage === 0 ? 'disabled' : ''} aria-label="Previous highlights">
+                            <svg width="12" height="28" viewBox="0 0 12 28" fill="none">
+                                <path d="M8 4L3 14L8 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </button>
+                        <div class="dashboard-highlights-viewport">
+                            <div class="dashboard-highlights-grid">
+                                ${visibleHighlights.map(highlight => this.renderHighlightCard(highlight)).join('')}
+                            </div>
+                        </div>
+                        <button type="button" class="dashboard-highlights-nav" data-highlights-dir="next" ${this.highlightPage >= maxPage ? 'disabled' : ''} aria-label="Next highlights">
+                            <svg width="12" height="28" viewBox="0 0 12 28" fill="none">
+                                <path d="M4 4L9 14L4 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </button>
+                    </div>
+                ` : `
                     <div class="dashboard-highlights-viewport">
                         <div class="dashboard-highlights-grid">
-                            ${visibleHighlights.map(highlight => this.renderHighlightCard(highlight)).join('')}
+                            ${highlights.map(highlight => this.renderHighlightCard(highlight)).join('')}
                         </div>
                     </div>
-                    <button type="button" class="dashboard-highlights-nav" data-highlights-dir="next" ${this.highlightPage >= maxPage ? 'disabled' : ''} aria-label="Next highlights">
-                        <svg width="12" height="28" viewBox="0 0 12 28" fill="none">
-                            <path d="M4 4L9 14L4 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                        </svg>
-                    </button>
-                </div>
+                `}
             </div>
         `;
     }
