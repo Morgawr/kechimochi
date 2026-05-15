@@ -107,7 +107,8 @@ function getYearlyRange(timeRangeOffset: number): ActivityRange {
 }
 
 function getAllTimeRange(logs: ActivitySummary[]): ActivityRange {
-    const years = Array.from(new Set(logs.map(log => log.date.slice(0, 4)))).sort();
+    const years = Array.from(new Set(logs.map(log => log.date.slice(0, 4))))
+        .sort((left, right) => left.localeCompare(right));
     const labels = years.length > 0 ? years : [String(new Date().getFullYear())];
     const validStart = `${labels[0]}-01-01`;
     const validEnd = `${labels[labels.length - 1]}-12-31`;

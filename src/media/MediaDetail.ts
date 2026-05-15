@@ -138,33 +138,41 @@ export class MediaDetail extends Component<MediaDetailState> {
         }
 
         if (getServices().isDesktop()) {
-            await this.preloadImageSource(src);
-            if (this.isDestroyed) {
-                MediaCoverLoader.revokeIfObjectUrl(src);
-                return;
-            }
-
-            const previousObjectUrl = this.currentObjectUrl;
-            this.currentObjectUrl = src;
-            if (this.state.imgSrc !== src) {
-                this.updateCoverImage(src);
-            }
-            MediaCoverLoader.revokeIfObjectUrl(previousObjectUrl);
-        } else {
-            // Web: preload to avoid flicker
-            if (!this.state.imgSrc) {
-                this.updateCoverImage(src);
-                return;
-            }
-
-            const img = new Image();
-            img.onload = () => {
-                if (!this.isDestroyed && this.state.imgSrc !== src) {
-                    this.updateCoverImage(src);
-                }
-            };
-            img.src = src;
+            await this.applyDesktopImageSource(src);
+            return;
         }
+
+        this.applyWebImageSource(src);
+    }
+
+    private async applyDesktopImageSource(src: string) {
+        await this.preloadImageSource(src);
+        if (this.isDestroyed) {
+            MediaCoverLoader.revokeIfObjectUrl(src);
+            return;
+        }
+
+        const previousObjectUrl = this.currentObjectUrl;
+        this.currentObjectUrl = src;
+        if (this.state.imgSrc !== src) {
+            this.updateCoverImage(src);
+        }
+        MediaCoverLoader.revokeIfObjectUrl(previousObjectUrl);
+    }
+
+    private applyWebImageSource(src: string) {
+        if (!this.state.imgSrc) {
+            this.updateCoverImage(src);
+            return;
+        }
+
+        const img = new Image();
+        img.onload = () => {
+            if (!this.isDestroyed && this.state.imgSrc !== src) {
+                this.updateCoverImage(src);
+            }
+        };
+        img.src = src;
     }
 
     private preloadImageSource(src: string): Promise<void> {

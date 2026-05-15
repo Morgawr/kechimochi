@@ -494,7 +494,8 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
 
     private formatWeekdayDate(date: Date, includeYear: boolean): string {
         const weekday = date.toLocaleDateString("en-US", { weekday: 'long' });
-        return `${weekday} ${this.formatShortDate(date)}${includeYear ? `/${date.getFullYear()}` : ''}`;
+        const yearSuffix = includeYear ? `/${date.getFullYear()}` : '';
+        return `${weekday} ${this.formatShortDate(date)}${yearSuffix}`;
     }
 
     private formatShortDate(date: Date): string {
@@ -522,12 +523,8 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
             const previousDate = new Date(uniqueDates[i - 1] + 'T00:00:00');
             const currentDate = new Date(uniqueDates[i] + 'T00:00:00');
             const diffDays = Math.round((currentDate.getTime() - previousDate.getTime()) / (24 * 60 * 60 * 1000));
-            if (diffDays === 1) {
-                current += 1;
-                best = Math.max(best, current);
-            } else {
-                current = 1;
-            }
+            current = diffDays === 1 ? current + 1 : 1;
+            best = Math.max(best, current);
         }
         return best;
     }
@@ -545,6 +542,9 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
         const start = this.highlightPage * pageSize;
         const visibleHighlights = highlights.slice(start, start + pageSize);
         const needsPagination = !isMobile && highlights.length > pageSize;
+        const pageLabel = needsPagination ? `${this.highlightPage + 1}/${maxPage + 1}` : '';
+        const prevDisabled = this.highlightPage === 0 ? 'disabled' : '';
+        const nextDisabled = this.highlightPage >= maxPage ? 'disabled' : '';
 
         if (highlights.length === 0) {
             return `
@@ -562,11 +562,11 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
             <div class="dashboard-highlights-section">
                 <div class="dashboard-stats-header">
                     <h3 class="dashboard-module-title dashboard-totals-title">Highlights</h3>
-                    <span class="dashboard-stats-range-label">${needsPagination ? `${this.highlightPage + 1}/${maxPage + 1}` : ''}</span>
+                    <span class="dashboard-stats-range-label">${pageLabel}</span>
                 </div>
                 ${needsPagination ? `
                     <div class="dashboard-highlights-shell">
-                        <button type="button" class="dashboard-highlights-nav" data-highlights-dir="prev" ${this.highlightPage === 0 ? 'disabled' : ''} aria-label="Previous highlights">
+                        <button type="button" class="dashboard-highlights-nav" data-highlights-dir="prev" ${prevDisabled} aria-label="Previous highlights">
                             <svg width="12" height="28" viewBox="0 0 12 28" fill="none">
                                 <path d="M8 4L3 14L8 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                             </svg>
@@ -576,7 +576,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
                                 ${visibleHighlights.map(highlight => this.renderHighlightCard(highlight)).join('')}
                             </div>
                         </div>
-                        <button type="button" class="dashboard-highlights-nav" data-highlights-dir="next" ${this.highlightPage >= maxPage ? 'disabled' : ''} aria-label="Next highlights">
+                        <button type="button" class="dashboard-highlights-nav" data-highlights-dir="next" ${nextDisabled} aria-label="Next highlights">
                             <svg width="12" height="28" viewBox="0 0 12 28" fill="none">
                                 <path d="M4 4L9 14L4 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                             </svg>
