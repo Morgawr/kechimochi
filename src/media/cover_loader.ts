@@ -32,4 +32,8 @@ export class MediaCoverLoader {
     public static clear() {
         MediaCoverLoader.imageCache.clear();
     }
+
+    public static getCached(coverImage: string): string | null {
+        return MediaCoverLoader.imageCache.get(coverImage) || null;
+    }
 }

@@ -45,8 +45,29 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
     private highlightPage = 0;
     private highlightsPerPage = 2;
     private resizeObserver: ResizeObserver | null = null;
+    private lastIsMobile: boolean = false;
+
     constructor(container: HTMLElement, initialState: ActivityTotalsState) {
         super(container, initialState);
+    }
+
+    protected override onMount() {
+        this.lastIsMobile = this.isMobileHighlightLayout();
+        this.resizeObserver = new ResizeObserver(() => {
+            const isMobile = this.isMobileHighlightLayout();
+            if (isMobile !== this.lastIsMobile) {
+                this.lastIsMobile = isMobile;
+                // Reset pagination when layout mode changes
+                this.highlightPage = 0;
+                this.render();
+            }
+        });
+        this.resizeObserver.observe(this.container);
+    }
+
+    public override destroy(): void {
+        this.resizeObserver?.disconnect();
+        super.destroy();
     }
 
     public setState(newState: Partial<ActivityTotalsState>) {
@@ -65,7 +86,6 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
 
     render() {
         this.clear();
-        this.resizeObserver?.disconnect();
 
         const range = getActivityRange(this.state.timeRangeDays, this.state.timeRangeOffset, this.state.logs, this.state.weekStartDay);
         const bucketTotals = this.getBucketTotals(range.labels.length, range.getBucketIndex);
@@ -133,9 +153,6 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
         this.container.appendChild(content);
         this.setupListeners(content);
         this.setupHighlights(content, highlights);
-        this.ensureHighlightCovers(highlights).catch(error => {
-            Logger.error('Failed to load dashboard highlight covers', error);
-        });
     }
 
     private setupListeners(root: HTMLElement) {
@@ -152,12 +169,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
     private setupHighlights(root: HTMLElement, highlights: HighlightCard[]) {
         const card = root.querySelector<HTMLElement>('.dashboard-highlights-card');
 
-        if (!card) {
-            this.ensureHighlightCovers(highlights).catch(error => {
-                Logger.error('Failed to load dashboard highlight covers', error);
-            });
-            return;
-        }
+        if (!card) return;
 
         root.querySelector<HTMLButtonElement>('[data-highlights-dir="prev"]')?.addEventListener('click', () => {
             this.highlightPage = Math.max(0, this.highlightPage - 1);
@@ -172,11 +184,6 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
             Logger.error('Failed to load dashboard highlight covers', error);
         });
     }
-
-    public destroy(): void {
-        this.resizeObserver?.disconnect();
-    }
-
     private getBucketTotals(length: number, getBucketIndex: (dateStr: string) => number): Totals[] {
         const totals = Array.from({ length }, () => ({ minutes: 0, characters: 0 }));
 

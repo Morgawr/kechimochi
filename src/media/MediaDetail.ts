@@ -1,13 +1,14 @@
 import { Logger } from '../logger';
 import { Component } from '../component';
 import { html, escapeHTML, rawHtml } from '../html';
-import { Media, ActivitySummary, Milestone, updateMedia, deleteMedia, getSetting, getMilestones, addMilestone, updateMilestone, deleteMilestone, clearMilestones, getLogsForMedia, readFileBytes, downloadAndSaveImage } from '../api';
+import { Media, ActivitySummary, Milestone, updateMedia, deleteMedia, getSetting, getMilestones, addMilestone, updateMilestone, deleteMilestone, clearMilestones, getLogsForMedia, downloadAndSaveImage } from '../api';
 import { customAlert, customConfirm, customPrompt } from '../modal_base';
 import { showLogActivityModal } from '../activity_modal';
 import { showAddMilestoneModal } from '../milestone_modal';
 import { showJitenSearchModal, showImportMergeModal } from './modal';
 import { isValidImporterUrl, fetchMetadataForUrl } from '../importers';
 import { getServices } from '../services';
+import { MediaCoverLoader } from './cover_loader';
 import { pushBackHandler } from '../back_stack';
 import { MediaLog } from './MediaLog';
 import { setupCopyButton } from '../clipboard';
@@ -37,7 +38,6 @@ export class MediaDetail extends Component<MediaDetailState> {
     private readonly onViewportResize: () => void;
     private readonly onGlobalPointerDown: (event: PointerEvent) => void;
     private readonly onGlobalKeyDown: (event: KeyboardEvent) => void;
-    private currentObjectUrl: string | null = null;
     private isDestroyed = false;
     private overflowMenuRoot: HTMLElement | null = null;
     private overflowMenu: HTMLElement | null = null;
@@ -55,7 +55,13 @@ export class MediaDetail extends Component<MediaDetailState> {
     }
 
     constructor(container: HTMLElement, media: Media, logs: ActivitySummary[], mediaList: Media[], currentIndex: number, callbacks: { onBack: () => void, onBackToLibrary: () => void, onNext: () => void, onPrev: () => void, onNavigate: (index: number) => void, onDelete: () => void }) {
-        super(container, { media, logs, milestones: [], imgSrc: null, isDescriptionExpanded: false });
+        super(container, {
+            media,
+            logs,
+            milestones: [],
+            imgSrc: media.cover_image ? MediaCoverLoader.getCached(media.cover_image) : null,
+            isDescriptionExpanded: false
+        });
         this.mediaList = mediaList;
         this.currentIndex = currentIndex;
         this.onBack = callbacks.onBack;
@@ -87,7 +93,6 @@ export class MediaDetail extends Component<MediaDetailState> {
         globalThis.removeEventListener('pointerdown', this.onGlobalPointerDown, true);
         globalThis.removeEventListener('keydown', this.onGlobalKeyDown);
         this.cleanupBackHandler();
-        this.revokeCurrentObjectUrl();
         super.destroy();
     }
 
@@ -105,49 +110,34 @@ export class MediaDetail extends Component<MediaDetailState> {
     private async loadImage() {
         const { cover_image } = this.state.media;
         if (!cover_image || cover_image.trim() === '') {
-            this.revokeCurrentObjectUrl();
             if (this.state.imgSrc !== null && !this.isDestroyed) {
                 this.setState({ imgSrc: null });
             }
             return;
         }
 
-        let src: string | null;
+        const cached = MediaCoverLoader.getCached(cover_image);
+        if (cached && this.state.imgSrc !== cached) {
+            this.setState({ imgSrc: cached });
+        }
+
+        const src = await MediaCoverLoader.load(cover_image);
+        if (!src || this.isDestroyed) return;
+
         if (getServices().isDesktop()) {
-            // Desktop: blob is already in memory, no need for preload
-            const bytes = await readFileBytes(cover_image);
-            const blob = new Blob([new Uint8Array(bytes)]);
-            src = URL.createObjectURL(blob);
-            this.revokeCurrentObjectUrl();
-            this.currentObjectUrl = src;
-            if (!this.isDestroyed) {
+            if (this.state.imgSrc !== src) {
                 this.setState({ imgSrc: src });
             }
         } else {
-            // Web: preload to avoid visible loading
-            src = await getServices().loadCoverImage(cover_image);
-            if (src && !this.isDestroyed) {
-                const img = new Image();
-                img.onload = () => {
-                    if (!this.isDestroyed && this.state.imgSrc !== src) {
-                        this.setState({ imgSrc: src });
-                    }
-                };
-                img.onerror = () => {
-                    Logger.error('Failed to preload image', src);
-                    if (!this.isDestroyed && this.state.imgSrc !== null) {
-                        this.setState({ imgSrc: null });
-                    }
-                };
-                img.src = src;
-            }
+            // Web: preload to avoid flicker
+            const img = new Image();
+            img.onload = () => {
+                if (!this.isDestroyed && this.state.imgSrc !== src) {
+                    this.setState({ imgSrc: src });
+                }
+            };
+            img.src = src;
         }
-    }
-
-    private revokeCurrentObjectUrl() {
-        if (!this.currentObjectUrl) return;
-        URL.revokeObjectURL(this.currentObjectUrl);
-        this.currentObjectUrl = null;
     }
 
     private getTrackingStatusClass(status: string): string {
