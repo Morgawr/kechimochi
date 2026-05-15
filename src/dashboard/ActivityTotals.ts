@@ -227,7 +227,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
             const media = mediaById.get(log.media_id);
             if (!media) continue;
 
-            const mediaCurrent = mediaTotals.get(log.media_id) || { minutes: 0, characters: 0, sessions: 0, dates: new Set<string>() };
+            const mediaCurrent = mediaTotals.get(log.media_id) ?? { minutes: 0, characters: 0, sessions: 0, dates: new Set<string>() };
             mediaCurrent.minutes += log.duration_minutes;
             mediaCurrent.characters += log.characters || 0;
             mediaCurrent.sessions += 1;
@@ -245,9 +245,9 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
             .map(([mediaId, totals]) => ({ media: mediaById.get(mediaId)!, totals }))
             .filter(entry => entry.media);
 
-        const mostTime = byMedia.sort((a, b) => b.totals.minutes - a.totals.minutes)[0];
-        const mostChars = byMedia.sort((a, b) => b.totals.characters - a.totals.characters)[0];
-        const mostSessions = byMedia.sort((a, b) => b.totals.sessions - a.totals.sessions)[0];
+        const mostTime = byMedia.toSorted((a, b) => b.totals.minutes - a.totals.minutes)[0];
+        const mostChars = byMedia.toSorted((a, b) => b.totals.characters - a.totals.characters)[0];
+        const mostSessions = byMedia.toSorted((a, b) => b.totals.sessions - a.totals.sessions)[0];
         const biggestStreak = byMedia
             .map(entry => ({ ...entry, streak: this.getLongestStreak(Array.from(entry.totals.dates)) }))
             .sort((a, b) => b.streak - a.streak || b.totals.minutes - a.totals.minutes)[0];
@@ -375,7 +375,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
             'dashboard-stats-row',
             row.isCurrent ? 'is-current' : '',
             row.isSelected ? 'is-selected' : '',
-            index !== null ? 'is-selectable' : '',
+            index === null ? '' : 'is-selectable',
         ].filter(Boolean).join(' ');
         const rowContent = `
             <span class="dashboard-stats-row-label">${escapeHTML(row.label)}</span>
@@ -494,8 +494,8 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
 
     private formatWeekdayDate(date: Date, includeYear: boolean): string {
         const weekday = date.toLocaleDateString("en-US", { weekday: 'long' });
-        const yearSuffix = includeYear ? `/${date.getFullYear()}` : '';
-        return `${weekday} ${this.formatShortDate(date)}${yearSuffix}`;
+        const fullYear = date.getFullYear();
+        return `${weekday} ${this.formatShortDate(date)}${includeYear ? fullYear : ''}`;
     }
 
     private formatShortDate(date: Date): string {
@@ -514,7 +514,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
     }
 
     private getLongestStreak(dates: string[]): number {
-        const uniqueDates = Array.from(new Set(dates)).sort();
+        const uniqueDates = Array.from(new Set(dates)).sort((a, b) => a.localeCompare(b));
         if (uniqueDates.length === 0) return 0;
 
         let best = 1;
@@ -523,14 +523,16 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
             const previousDate = new Date(uniqueDates[i - 1] + 'T00:00:00');
             const currentDate = new Date(uniqueDates[i] + 'T00:00:00');
             const diffDays = Math.round((currentDate.getTime() - previousDate.getTime()) / (24 * 60 * 60 * 1000));
-            current = diffDays === 1 ? current + 1 : 1;
-            best = Math.max(best, current);
+            if (diffDays === 1) {
+                current += 1;
+                best = Math.max(best, current);
+            }
         }
         return best;
     }
 
     private isMobileHighlightLayout(): boolean {
-        return typeof window !== 'undefined' && window.matchMedia?.('(max-width: 1024px)').matches;
+        return globalThis.window !== undefined && globalThis.matchMedia?.('(max-width: 1024px)').matches;
     }
 
     private renderHighlights(highlights: HighlightCard[]): string {
@@ -542,9 +544,8 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
         const start = this.highlightPage * pageSize;
         const visibleHighlights = highlights.slice(start, start + pageSize);
         const needsPagination = !isMobile && highlights.length > pageSize;
-        const pageLabel = needsPagination ? `${this.highlightPage + 1}/${maxPage + 1}` : '';
-        const prevDisabled = this.highlightPage === 0 ? 'disabled' : '';
-        const nextDisabled = this.highlightPage >= maxPage ? 'disabled' : '';
+        const disableLeftPageArrow = this.highlightPage === 0;
+        const disableRightPageArrow = this.highlightPage >= maxPage;
 
         if (highlights.length === 0) {
             return `
@@ -562,11 +563,11 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
             <div class="dashboard-highlights-section">
                 <div class="dashboard-stats-header">
                     <h3 class="dashboard-module-title dashboard-totals-title">Highlights</h3>
-                    <span class="dashboard-stats-range-label">${pageLabel}</span>
+                    <span class="dashboard-stats-range-label">${needsPagination ? `${this.highlightPage + 1}/${maxPage + 1}` : ''}</span>
                 </div>
                 ${needsPagination ? `
                     <div class="dashboard-highlights-shell">
-                        <button type="button" class="dashboard-highlights-nav" data-highlights-dir="prev" ${prevDisabled} aria-label="Previous highlights">
+                        <button type="button" class="dashboard-highlights-nav" data-highlights-dir="prev" ${disableLeftPageArrow} aria-label="Previous highlights">
                             <svg width="12" height="28" viewBox="0 0 12 28" fill="none">
                                 <path d="M8 4L3 14L8 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                             </svg>
@@ -576,7 +577,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
                                 ${visibleHighlights.map(highlight => this.renderHighlightCard(highlight)).join('')}
                             </div>
                         </div>
-                        <button type="button" class="dashboard-highlights-nav" data-highlights-dir="next" ${nextDisabled} aria-label="Next highlights">
+                        <button type="button" class="dashboard-highlights-nav" data-highlights-dir="next" ${disableRightPageArrow} aria-label="Next highlights">
                             <svg width="12" height="28" viewBox="0 0 12 28" fill="none">
                                 <path d="M4 4L9 14L4 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                             </svg>
