@@ -23,12 +23,12 @@ vi.stubGlobal('IntersectionObserver', vi.fn(() => ({
 })));
 
 export async function resetCoverLoaderTestState(resolvedUrl: string) {
+    const { MediaCoverLoader } = await import('../../../src/media/cover_loader');
+    MediaCoverLoader.clear();
+
     vi.clearAllMocks();
     mockServices.isDesktop.mockReturnValue(true);
     mockServices.loadCoverImage.mockResolvedValue(resolvedUrl);
-
-    const { MediaCoverLoader } = await import('../../../src/media/cover_loader');
-    MediaCoverLoader.clear();
 }
 
 export function triggerLatestIntersection(isIntersecting = true) {

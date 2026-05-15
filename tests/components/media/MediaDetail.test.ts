@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MediaDetail } from '../../../src/media/MediaDetail';
+import { MediaCoverLoader } from '../../../src/media/cover_loader';
 import * as api from '../../../src/api';
 
 vi.mock('../../../src/api', () => ({
@@ -70,6 +71,8 @@ vi.stubGlobal('URL', {
     revokeObjectURL: vi.fn(),
 });
 
+const normalizeLocalizedNumbers = (text: string | null) => (text || '').replace(/\u202f/g, ',');
+
 describe('MediaDetail', () => {
     let container: HTMLElement;
     const mockMedia = {
@@ -95,6 +98,7 @@ describe('MediaDetail', () => {
 
     beforeEach(() => {
         container = document.createElement('div');
+        MediaCoverLoader.clear();
         vi.clearAllMocks();
         mockServices.isDesktop.mockReturnValue(true);
         mockServices.loadCoverImage.mockResolvedValue('https://covers.example/test.jpg');
@@ -130,6 +134,25 @@ describe('MediaDetail', () => {
         expect(api.readFileBytes).not.toHaveBeenCalled();
     });
 
+    it('should use cached cover images without scheduling a second detail load', async () => {
+        vi.mocked(api.getMilestones).mockResolvedValue([]);
+        vi.mocked(api.readFileBytes).mockResolvedValue([1, 2, 3]);
+
+        await MediaCoverLoader.load('/path/to/img.jpg');
+        vi.clearAllMocks();
+        vi.mocked(api.getMilestones).mockResolvedValue([]);
+
+        const component = new MediaDetail(container, { ...mockMedia } as unknown as Media, [], [mockMedia as unknown as Media], 0, mockCallbacks);
+        component.triggerMount();
+
+        // @ts-expect-error - accessing private state for testing
+        expect(component.state.imgSrc).toBe('blob:abc');
+        await Promise.resolve();
+
+        expect(api.readFileBytes).not.toHaveBeenCalled();
+        expect(mockServices.loadCoverImage).not.toHaveBeenCalled();
+    });
+
     it('should render character counts in stats and milestones', async () => {
         const milestones = [{ id: 1, name: 'M1', duration: 100, characters: 5000 }];
         vi.mocked(api.getMilestones).mockResolvedValue(milestones as unknown as Milestone[]);
@@ -143,9 +166,10 @@ describe('MediaDetail', () => {
         component.triggerMount();
         
         await vi.waitUntil(() => container.querySelector('.milestone-item') !== null);
-        
-        expect(container.textContent).toContain('5,000 chars');
-        expect(container.textContent).toContain('Total Chars: 1,500');
+
+        const text = normalizeLocalizedNumbers(container.textContent);
+        expect(text).toContain('5,000 chars');
+        expect(text).toContain('Total Chars: 1,500');
     });
 
     it('should hide duration in milestones if it is 0', async () => {
@@ -156,8 +180,9 @@ describe('MediaDetail', () => {
         component.triggerMount();
         
         await vi.waitUntil(() => container.querySelector('.milestone-item') !== null);
-        
-        expect(container.textContent).toContain('5,000 chars');
+
+        const text = normalizeLocalizedNumbers(container.textContent);
+        expect(text).toContain('5,000 chars');
         expect(container.textContent).not.toContain('0m');
     });
 
@@ -199,7 +224,7 @@ describe('MediaDetail', () => {
         component.triggerMount();
 
         await vi.waitFor(() => expect(container.textContent).toContain('Est. Reading Speed'));
-        expect(container.textContent).toContain('10,000 char/hr');
+        expect(normalizeLocalizedNumbers(container.textContent)).toContain('10,000 char/hr');
     });
 
     it('should handle extra field deletion', async () => {

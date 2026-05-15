@@ -38,6 +38,7 @@ export class MediaDetail extends Component<MediaDetailState> {
     private readonly onViewportResize: () => void;
     private readonly onGlobalPointerDown: (event: PointerEvent) => void;
     private readonly onGlobalKeyDown: (event: KeyboardEvent) => void;
+    private currentObjectUrl: string | null = null;
     private isDestroyed = false;
     private overflowMenuRoot: HTMLElement | null = null;
     private overflowMenu: HTMLElement | null = null;
@@ -93,6 +94,7 @@ export class MediaDetail extends Component<MediaDetailState> {
         globalThis.removeEventListener('pointerdown', this.onGlobalPointerDown, true);
         globalThis.removeEventListener('keydown', this.onGlobalKeyDown);
         this.cleanupBackHandler();
+        this.revokeCurrentObjectUrl();
         super.destroy();
     }
 
@@ -110,6 +112,7 @@ export class MediaDetail extends Component<MediaDetailState> {
     private async loadImage() {
         const { cover_image } = this.state.media;
         if (!cover_image || cover_image.trim() === '') {
+            this.revokeCurrentObjectUrl();
             if (this.state.imgSrc !== null && !this.isDestroyed) {
                 this.setState({ imgSrc: null });
             }
@@ -117,27 +120,94 @@ export class MediaDetail extends Component<MediaDetailState> {
         }
 
         const cached = MediaCoverLoader.getCached(cover_image);
-        if (cached && this.state.imgSrc !== cached) {
-            this.setState({ imgSrc: cached });
+        if (cached) {
+            if (this.state.imgSrc !== cached) {
+                this.updateCoverImage(cached);
+            }
+            return;
         }
 
-        const src = await MediaCoverLoader.load(cover_image);
-        if (!src || this.isDestroyed) return;
+        const src = await MediaCoverLoader.load(cover_image, {
+            cache: false,
+            useCache: false,
+        });
+        if (!src) return;
+        if (this.isDestroyed) {
+            MediaCoverLoader.revokeIfObjectUrl(src);
+            return;
+        }
 
         if (getServices().isDesktop()) {
-            if (this.state.imgSrc !== src) {
-                this.setState({ imgSrc: src });
+            await this.preloadImageSource(src);
+            if (this.isDestroyed) {
+                MediaCoverLoader.revokeIfObjectUrl(src);
+                return;
             }
+
+            const previousObjectUrl = this.currentObjectUrl;
+            this.currentObjectUrl = src;
+            if (this.state.imgSrc !== src) {
+                this.updateCoverImage(src);
+            }
+            MediaCoverLoader.revokeIfObjectUrl(previousObjectUrl);
         } else {
             // Web: preload to avoid flicker
+            if (!this.state.imgSrc) {
+                this.updateCoverImage(src);
+                return;
+            }
+
             const img = new Image();
             img.onload = () => {
                 if (!this.isDestroyed && this.state.imgSrc !== src) {
-                    this.setState({ imgSrc: src });
+                    this.updateCoverImage(src);
                 }
             };
             img.src = src;
         }
+    }
+
+    private preloadImageSource(src: string): Promise<void> {
+        return new Promise((resolve) => {
+            const image = new Image();
+            image.onload = () => resolve();
+            image.onerror = () => resolve();
+            image.src = src;
+            if (typeof image.decode === 'function') {
+                image.decode().then(resolve).catch(resolve);
+            }
+        });
+    }
+
+    private updateCoverImage(src: string) {
+        this.state.imgSrc = src;
+
+        const current = this.container.querySelector<HTMLElement>('#media-cover-img');
+        if (!current) {
+            this.render();
+            return;
+        }
+
+        if (current instanceof HTMLImageElement) {
+            current.src = src;
+            return;
+        }
+
+        const image = document.createElement('img');
+        image.src = src;
+        image.id = 'media-cover-img';
+        image.alt = 'Cover';
+        image.title = 'Double click to change image';
+        image.style.cssText = 'width: 100%; aspect-ratio: 2/3; object-fit: cover; border-radius: var(--radius-md); cursor: pointer; opacity: 1; transition: opacity 0.2s ease-out;';
+        current.replaceWith(image);
+        this.attachCoverUploadListener(image);
+        this.adjustDesktopCoverSize();
+    }
+
+    private revokeCurrentObjectUrl() {
+        if (!this.currentObjectUrl) return;
+        MediaCoverLoader.revokeIfObjectUrl(this.currentObjectUrl);
+        this.currentObjectUrl = null;
     }
 
     private getTrackingStatusClass(status: string): string {
@@ -650,17 +720,7 @@ export class MediaDetail extends Component<MediaDetailState> {
         root.querySelector('#media-prev')?.addEventListener('click', this.onPrev);
         root.querySelector('#media-select')?.addEventListener('change', (e) => this.onNavigate(Number.parseInt((e.target as HTMLSelectElement).value, 10)));
 
-        root.querySelector('#media-cover-img')?.addEventListener('dblclick', async () => {
-            try {
-                const newPath = await getServices().pickAndUploadCover(this.state.media.id!);
-                if (newPath) {
-                    this.state.media.cover_image = newPath;
-                    await this.loadImage();
-                }
-            } catch (e) {
-                await customAlert("Error", "Failed to upload image: " + e);
-            }
-        });
+        this.attachCoverUploadListener(root.querySelector<HTMLElement>('#media-cover-img'));
 
         const copyBtn = root.querySelector('#btn-copy-title') as HTMLElement;
         if (copyBtn) setupCopyButton(copyBtn, this.state.media.title);
@@ -919,6 +979,20 @@ export class MediaDetail extends Component<MediaDetailState> {
                 const logs = await getLogsForMedia(this.state.media.id!);
                 this.setState({ logs });
                 this.notifyLocalDataChanged();
+            }
+        });
+    }
+
+    private attachCoverUploadListener(coverEl: HTMLElement | null) {
+        coverEl?.addEventListener('dblclick', async () => {
+            try {
+                const newPath = await getServices().pickAndUploadCover(this.state.media.id!);
+                if (newPath) {
+                    this.state.media.cover_image = newPath;
+                    await this.loadImage();
+                }
+            } catch (e) {
+                await customAlert("Error", "Failed to upload image: " + e);
             }
         });
     }

@@ -18,8 +18,8 @@ vi.mock('../../../src/services', () => ({
 
 describe('MediaCoverLoader', () => {
     beforeEach(() => {
-        vi.clearAllMocks();
         MediaCoverLoader.clear();
+        vi.clearAllMocks();
         mockServices.isDesktop.mockReturnValue(true);
         mockServices.loadCoverImage.mockResolvedValue('https://covers.example/from-web.jpg');
     });
@@ -39,6 +39,30 @@ describe('MediaCoverLoader', () => {
         await expect(MediaCoverLoader.load('/app/covers/cover.png')).resolves.toBe('blob:desktop-cover');
 
         expect(api.readFileBytes).toHaveBeenCalledTimes(1);
+    });
+
+    it('can load desktop covers without writing through to the shared cache', async () => {
+        vi.mocked(api.readFileBytes).mockResolvedValue([1, 2, 3]);
+        globalThis.URL.createObjectURL = vi.fn()
+            .mockReturnValueOnce('blob:detail-cover-1')
+            .mockReturnValueOnce('blob:detail-cover-2');
+
+        await expect(MediaCoverLoader.load('/app/covers/cover.png', { cache: false, useCache: false })).resolves.toBe('blob:detail-cover-1');
+        await expect(MediaCoverLoader.load('/app/covers/cover.png', { cache: false, useCache: false })).resolves.toBe('blob:detail-cover-2');
+
+        expect(api.readFileBytes).toHaveBeenCalledTimes(2);
+        expect(MediaCoverLoader.getCached('/app/covers/cover.png')).toBeNull();
+    });
+
+    it('revokes cached object URLs when clearing the shared cache', async () => {
+        vi.mocked(api.readFileBytes).mockResolvedValue([1, 2, 3]);
+        globalThis.URL.createObjectURL = vi.fn(() => 'blob:desktop-cover');
+        globalThis.URL.revokeObjectURL = vi.fn();
+
+        await MediaCoverLoader.load('/app/covers/cover.png');
+        MediaCoverLoader.clear();
+
+        expect(globalThis.URL.revokeObjectURL).toHaveBeenCalledWith('blob:desktop-cover');
     });
 
     it('uses web cover loading outside desktop mode', async () => {
