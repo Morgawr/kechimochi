@@ -6,7 +6,8 @@
     "lib": [
       "ES2021",
       "DOM",
-      "DOM.Iterable"
+      "DOM.Iterable",
+      "ES2023.Array"
     ],
     "skipLibCheck": true,
     /* Bundler mode */
