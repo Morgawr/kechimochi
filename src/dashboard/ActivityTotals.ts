@@ -2,7 +2,7 @@ import { Component } from '../component';
 import { ActivitySummary, Media } from '../api';
 import { escapeHTML, html, rawHtml } from '../html';
 import { formatStatsDuration } from '../time';
-import { getActivityRange, getLocalISODate } from './activity_ranges';
+import { getActivityRange, getLocalISODate, type ActivityRange } from './activity_ranges';
 import { MediaCoverLoader } from '../media/cover_loader';
 import { Logger } from '../logger';
 
@@ -28,6 +28,16 @@ interface BucketRow {
     isCurrent: boolean;
     isSelected: boolean;
 }
+
+interface TotalsColumns {
+    showCharacters: boolean;
+    showHours: boolean;
+}
+
+type MediaTotalsEntry = {
+    media: Media;
+    totals: Totals & { sessions: number; dates: Set<string> };
+};
 
 interface HighlightCard {
     key: string;
@@ -103,50 +113,25 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
                 isSelected: index === selectedIndex,
             };
         });
+        const categoryRows = categoryTotals.map(([category, totals]) => ({
+            key: category,
+            label: category,
+            subject: category,
+            totals,
+            isCurrent: false,
+            isSelected: false,
+        }));
         const selectedSubject = bucketRows[selectedIndex]?.subject || this.getCurrentSubjectLabel(range.unit);
         const highlights = this.getHighlights(range.validStart, range.validEnd);
+        const sections = [
+            this.renderStatsPanel(range, bucketTotals, bucketRows, selectedIndex, currentIndex, selectedSubject),
+            this.renderCategoriesPanel(range, categoryRows),
+            this.renderHighlightsPanel(highlights),
+        ].filter(Boolean).join('');
 
         const content = html`
             <div class="dashboard-totals-grid">
-                <section class="card dashboard-totals-card">
-                    <div class="dashboard-stats-header">
-                        <h3 class="dashboard-module-title dashboard-totals-title">${this.getTitle(range.unit)} Stats</h3>
-                        <span class="dashboard-stats-range-label">${this.getRangeLabel(range.validStart, range.validEnd, range.unit)}</span>
-                    </div>
-                    ${rawHtml(this.renderTotalsTable(
-                        this.getUnitHeader(range.unit),
-                        bucketRows,
-                        true
-                    ))}
-                    ${rawHtml(this.renderSelectedSummary(
-                        bucketTotals,
-                        selectedIndex,
-                        range.unit,
-                        this.state.timeRangeOffset === 0 && selectedIndex === currentIndex,
-                        selectedSubject
-                    ))}
-                </section>
-                <section class="card dashboard-totals-card">
-                    <div class="dashboard-stats-header">
-                        <h3 class="dashboard-module-title dashboard-totals-title">Categories</h3>
-                        <span class="dashboard-stats-range-label">${this.getRangeLabel(range.validStart, range.validEnd, range.unit)}</span>
-                    </div>
-                    ${rawHtml(this.renderTotalsTable(
-                        'Title',
-                        categoryTotals.map(([category, totals]) => ({
-                            key: category,
-                            label: category,
-                            subject: category,
-                            totals,
-                            isCurrent: false,
-                            isSelected: false,
-                        })),
-                        false
-                    ))}
-                </section>
-                <section class="card dashboard-totals-card dashboard-highlights-card">
-                    ${rawHtml(this.renderHighlights(highlights))}
-                </section>
+                ${rawHtml(sections)}
             </div>
         `;
 
@@ -184,6 +169,73 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
             Logger.error('Failed to load dashboard highlight covers', error);
         });
     }
+
+    private renderStatsPanel(
+        range: ActivityRange,
+        bucketTotals: Totals[],
+        bucketRows: BucketRow[],
+        selectedIndex: number,
+        currentIndex: number,
+        selectedSubject: string,
+    ): string {
+        const columns = this.getTotalsColumns(bucketRows);
+        if (!this.hasVisibleTotals(columns)) return '';
+
+        return `
+            <section class="card dashboard-totals-card">
+                <div class="dashboard-stats-header">
+                    <h3 class="dashboard-module-title dashboard-totals-title">${this.getTitle(range.unit)} Stats</h3>
+                    <span class="dashboard-stats-range-label">${this.getRangeLabel(range.validStart, range.validEnd, range.unit)}</span>
+                </div>
+                ${this.renderTotalsTable(this.getUnitHeader(range.unit), bucketRows, true, columns)}
+                ${this.renderSelectedSummary(
+            bucketTotals,
+            selectedIndex,
+            range.unit,
+            this.state.timeRangeOffset === 0 && selectedIndex === currentIndex,
+            selectedSubject,
+            columns,
+        )}
+            </section>
+        `;
+    }
+
+    private renderCategoriesPanel(range: ActivityRange, categoryRows: BucketRow[]): string {
+        const columns = this.getTotalsColumns(categoryRows);
+        if (!this.hasVisibleTotals(columns)) return '';
+
+        return `
+            <section class="card dashboard-totals-card">
+                <div class="dashboard-stats-header">
+                    <h3 class="dashboard-module-title dashboard-totals-title">Categories</h3>
+                    <span class="dashboard-stats-range-label">${this.getRangeLabel(range.validStart, range.validEnd, range.unit)}</span>
+                </div>
+                ${this.renderTotalsTable('Title', categoryRows, false, columns)}
+            </section>
+        `;
+    }
+
+    private renderHighlightsPanel(highlights: HighlightCard[]): string {
+        if (highlights.length === 0) return '';
+
+        return `
+            <section class="card dashboard-totals-card dashboard-highlights-card">
+                ${this.renderHighlights(highlights)}
+            </section>
+        `;
+    }
+
+    private getTotalsColumns(rows: Array<{ totals: Totals }>): TotalsColumns {
+        return {
+            showCharacters: rows.some(row => row.totals.characters > 0),
+            showHours: rows.some(row => row.totals.minutes > 0),
+        };
+    }
+
+    private hasVisibleTotals(columns: TotalsColumns): boolean {
+        return columns.showCharacters || columns.showHours;
+    }
+
     private getBucketTotals(length: number, getBucketIndex: (dateStr: string) => number): Totals[] {
         const totals = Array.from({ length }, () => ({ minutes: 0, characters: 0 }));
 
@@ -241,13 +293,13 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
             });
         }
 
-        const byMedia = Array.from(mediaTotals.entries())
+        const byMedia: MediaTotalsEntry[] = Array.from(mediaTotals.entries())
             .map(([mediaId, totals]) => ({ media: mediaById.get(mediaId)!, totals }))
             .filter(entry => entry.media);
 
-        const mostTime = byMedia.toSorted((a, b) => b.totals.minutes - a.totals.minutes)[0];
-        const mostChars = byMedia.toSorted((a, b) => b.totals.characters - a.totals.characters)[0];
-        const mostSessions = byMedia.toSorted((a, b) => b.totals.sessions - a.totals.sessions)[0];
+        const mostTime = this.getTopMediaEntry(byMedia, (a, b) => b.totals.minutes - a.totals.minutes);
+        const mostChars = this.getTopMediaEntry(byMedia, (a, b) => b.totals.characters - a.totals.characters);
+        const mostSessions = this.getTopMediaEntry(byMedia, (a, b) => b.totals.sessions - a.totals.sessions);
         const biggestStreak = byMedia
             .map(entry => ({ ...entry, streak: this.getLongestStreak(Array.from(entry.totals.dates)) }))
             .sort((a, b) => b.streak - a.streak || b.totals.minutes - a.totals.minutes)[0];
@@ -255,53 +307,57 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
             .sort((a, b) => b[1].minutes - a[1].minutes || b[1].characters - a[1].characters)[0];
 
         const highlights: Array<HighlightCard | undefined> = [
-            mostTime && {
+            mostTime && mostTime.totals.minutes > 0 ? {
                 key: 'most-time',
                 title: 'Most Time Spent',
                 label: mostTime.media.title,
                 value: formatStatsDuration(mostTime.totals.minutes, true),
-                detail: `${mostTime.totals.characters.toLocaleString()} chars`,
+                detail: this.formatOptionalCount(mostTime.totals.characters, 'char'),
                 media: mostTime.media,
                 tone: 'time' as const,
-            },
-            mostChars && {
+            } : undefined,
+            mostChars && mostChars.totals.characters > 0 ? {
                 key: 'most-chars',
                 title: 'Most Characters Read',
                 label: mostChars.media.title,
-                value: `${mostChars.totals.characters.toLocaleString()} chars`,
-                detail: formatStatsDuration(mostChars.totals.minutes, true),
+                value: this.formatCount(mostChars.totals.characters, 'char'),
+                detail: this.formatOptionalDuration(mostChars.totals.minutes),
                 media: mostChars.media,
                 tone: 'chars' as const,
-            },
-            mostSessions && {
+            } : undefined,
+            mostSessions && mostSessions.totals.sessions > 0 ? {
                 key: 'most-sessions',
                 title: 'Most Sessions',
                 label: mostSessions.media.title,
-                value: `${mostSessions.totals.sessions.toLocaleString()} sessions`,
-                detail: formatStatsDuration(mostSessions.totals.minutes, true),
+                value: this.formatCount(mostSessions.totals.sessions, 'session'),
+                detail: this.formatOptionalDuration(mostSessions.totals.minutes),
                 media: mostSessions.media,
                 tone: 'sessions' as const,
-            },
-            biggestDay && {
+            } : undefined,
+            biggestDay && biggestDay[1].minutes > 0 ? {
                 key: 'biggest-day',
                 title: 'Biggest Day',
                 label: this.formatFullDate(biggestDay[0]),
                 value: formatStatsDuration(biggestDay[1].minutes, true),
-                detail: `${biggestDay[1].characters.toLocaleString()} chars`,
+                detail: this.formatOptionalCount(biggestDay[1].characters, 'char'),
                 tone: 'day' as const,
-            },
-            biggestStreak && {
+            } : undefined,
+            biggestStreak && biggestStreak.streak > 0 ? {
                 key: 'biggest-streak',
                 title: 'Biggest Streak',
                 label: biggestStreak.media.title,
-                value: `${biggestStreak.streak.toLocaleString()} days`,
-                detail: `${biggestStreak.totals.sessions.toLocaleString()} sessions`,
+                value: this.formatCount(biggestStreak.streak, 'day'),
+                detail: this.formatOptionalCount(biggestStreak.totals.sessions, 'session'),
                 media: biggestStreak.media,
                 tone: 'streak' as const,
-            },
+            } : undefined,
         ];
 
         return highlights.filter((highlight): highlight is HighlightCard => Boolean(highlight));
+    }
+
+    private getTopMediaEntry(entries: MediaTotalsEntry[], compare: (a: MediaTotalsEntry, b: MediaTotalsEntry) => number): MediaTotalsEntry | undefined {
+        return [...entries].sort(compare)[0];
     }
 
     private getCurrentBucketIndex(getBucketIndex: (dateStr: string) => number, length: number): number {
@@ -310,18 +366,28 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
         return Math.max(0, length - 1);
     }
 
-    private renderSelectedSummary(totals: Totals[], selectedIndex: number, unit: string, isCurrentSelection: boolean, selectedSubject: string): string {
+    private renderSelectedSummary(
+        totals: Totals[],
+        selectedIndex: number,
+        unit: string,
+        isCurrentSelection: boolean,
+        selectedSubject: string,
+        columns: TotalsColumns,
+    ): string {
         const selected = totals[selectedIndex] || { minutes: 0, characters: 0 };
         const previous = totals[selectedIndex - 1] || { minutes: 0, characters: 0 };
         const subject = isCurrentSelection ? this.getCurrentSubjectLabel(unit) : selectedSubject;
         const comparisonLabel = isCurrentSelection ? this.getCurrentComparisonLabel(unit) : `previous ${this.getComparisonUnitLabel(unit)}`;
+        const metrics = [
+            columns.showHours ? this.renderSelectedMetric('Time', formatStatsDuration(selected.minutes, true), this.renderDiff(selected.minutes - previous.minutes, comparisonLabel, 'minutes')) : '',
+            columns.showCharacters ? this.renderSelectedMetric('Chars', selected.characters.toLocaleString(), this.renderDiff(selected.characters - previous.characters, comparisonLabel, 'characters')) : '',
+        ].filter(Boolean);
 
         return `
             <div class="dashboard-selected-summary">
                 <div class="dashboard-selected-context">Data for ${escapeHTML(subject)}</div>
-                <div class="dashboard-selected-metrics">
-                    ${this.renderSelectedMetric('Time', formatStatsDuration(selected.minutes, true), this.renderDiff(selected.minutes - previous.minutes, comparisonLabel, 'minutes'))}
-                    ${this.renderSelectedMetric('Chars', selected.characters.toLocaleString(), this.renderDiff(selected.characters - previous.characters, comparisonLabel, 'characters'))}
+                <div class="dashboard-selected-metrics" style="grid-template-columns: repeat(${metrics.length}, minmax(0, 1fr));">
+                    ${metrics.join('')}
                 </div>
             </div>
         `;
@@ -348,29 +414,29 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
         return `<div class="dashboard-selected-diff dashboard-selected-diff-${tone}">${escapeHTML(value)} ${direction} than ${escapeHTML(comparisonLabel)}</div>`;
     }
 
-    private renderTotalsTable(headerLabel: string, rows: BucketRow[], selectable: boolean): string {
-        if (rows.length === 0) {
-            return '<p class="dashboard-totals-empty">No activity for this timeframe.</p>';
-        }
+    private renderTotalsTable(headerLabel: string, rows: BucketRow[], selectable: boolean, columns: TotalsColumns): string {
+        if (rows.length === 0 || !this.hasVisibleTotals(columns)) return '';
+
+        const gridTemplateColumns = this.getTotalsGridTemplate(columns);
 
         return `
             <div class="dashboard-stats-table">
-                <div class="dashboard-stats-row dashboard-stats-row-header">
+                <div class="dashboard-stats-row dashboard-stats-row-header" style="grid-template-columns: ${gridTemplateColumns};">
                     <span>${escapeHTML(headerLabel)}</span>
-                    <span>Chars</span>
-                    <span>Hours</span>
+                    ${columns.showCharacters ? '<span>Chars</span>' : ''}
+                    ${columns.showHours ? '<span>Hours</span>' : ''}
                 </div>
-                ${rows.map((row, index) => this.renderTotalsRow(row, selectable ? index : null)).join('')}
-                <div class="dashboard-stats-row dashboard-stats-row-total">
+                ${rows.map((row, index) => this.renderTotalsRow(row, selectable ? index : null, columns, gridTemplateColumns)).join('')}
+                <div class="dashboard-stats-row dashboard-stats-row-total" style="grid-template-columns: ${gridTemplateColumns};">
                     <span>Total</span>
-                    <span>${escapeHTML(this.getRowsTotal(rows, 'characters'))}</span>
-                    <span>${escapeHTML(this.getRowsTotal(rows, 'hours'))}</span>
+                    ${columns.showCharacters ? `<span>${escapeHTML(this.getRowsTotal(rows, 'characters'))}</span>` : ''}
+                    ${columns.showHours ? `<span>${escapeHTML(this.getRowsTotal(rows, 'hours'))}</span>` : ''}
                 </div>
             </div>
         `;
     }
 
-    private renderTotalsRow(row: BucketRow, index: number | null): string {
+    private renderTotalsRow(row: BucketRow, index: number | null, columns: TotalsColumns, gridTemplateColumns: string): string {
         const classes = [
             'dashboard-stats-row',
             row.isCurrent ? 'is-current' : '',
@@ -379,15 +445,24 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
         ].filter(Boolean).join(' ');
         const rowContent = `
             <span class="dashboard-stats-row-label">${escapeHTML(row.label)}</span>
-            <span>${escapeHTML(row.totals.characters.toLocaleString())}</span>
-            <span>${escapeHTML(this.formatHours(row.totals.minutes))}</span>
+            ${columns.showCharacters ? `<span>${escapeHTML(row.totals.characters.toLocaleString())}</span>` : ''}
+            ${columns.showHours ? `<span>${escapeHTML(this.formatHours(row.totals.minutes))}</span>` : ''}
         `;
 
         if (index === null) {
-            return `<div class="${classes}">${rowContent}</div>`;
+            return `<div class="${classes}" style="grid-template-columns: ${gridTemplateColumns};">${rowContent}</div>`;
         }
 
-        return `<button type="button" class="${classes}" data-dashboard-total-index="${index}">${rowContent}</button>`;
+        return `<button type="button" class="${classes}" style="grid-template-columns: ${gridTemplateColumns};" data-dashboard-total-index="${index}">${rowContent}</button>`;
+    }
+
+    private getTotalsGridTemplate(columns: TotalsColumns): string {
+        const metricColumns = [
+            columns.showCharacters ? 'minmax(5rem, max-content)' : '',
+            columns.showHours ? 'minmax(4.25rem, max-content)' : '',
+        ].filter(Boolean);
+
+        return ['minmax(0, 1fr)', ...metricColumns].join(' ');
     }
 
     private getRowsTotal(rows: Array<{ totals: Totals }>, metric: 'characters' | 'hours'): string {
@@ -401,6 +476,19 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
 
     private formatHours(minutes: number): string {
         return (minutes / 60).toFixed(1);
+    }
+
+    private formatCount(value: number, singular: string): string {
+        const label = value === 1 ? singular : `${singular}s`;
+        return `${value.toLocaleString()} ${label}`;
+    }
+
+    private formatOptionalCount(value: number, singular: string): string {
+        return value > 0 ? this.formatCount(value, singular) : '';
+    }
+
+    private formatOptionalDuration(minutes: number): string {
+        return minutes > 0 ? formatStatsDuration(minutes, true) : '';
     }
 
     private getTitle(unit: string): string {
@@ -495,7 +583,8 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
     private formatWeekdayDate(date: Date, includeYear: boolean): string {
         const weekday = date.toLocaleDateString("en-US", { weekday: 'long' });
         const fullYear = date.getFullYear();
-        return `${weekday} ${this.formatShortDate(date)}${includeYear ? fullYear : ''}`;
+        const yearSuffix = includeYear ? `/${fullYear}` : '';
+        return `${weekday} ${this.formatShortDate(date)}${yearSuffix}`;
     }
 
     private formatShortDate(date: Date): string {
@@ -544,8 +633,8 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
         const start = this.highlightPage * pageSize;
         const visibleHighlights = highlights.slice(start, start + pageSize);
         const needsPagination = !isMobile && highlights.length > pageSize;
-        const disableLeftPageArrow = this.highlightPage === 0;
-        const disableRightPageArrow = this.highlightPage >= maxPage;
+        const disableLeftPageArrow = this.highlightPage === 0 ? 'disabled' : '';
+        const disableRightPageArrow = this.highlightPage >= maxPage ? 'disabled' : '';
 
         if (highlights.length === 0) {
             return `
@@ -598,6 +687,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
         const mediaId = highlight.media?.id;
         const coverUrl = mediaId ? this.coverUrls[mediaId] : '';
         const coverStyle = coverUrl ? ` style="--highlight-cover: url('${escapeHTML(coverUrl)}');"` : '';
+        const detail = highlight.detail ? `<span class="dashboard-highlight-detail">${escapeHTML(highlight.detail)}</span>` : '';
 
         return `
             <article class="dashboard-highlight-card dashboard-highlight-card-${highlight.tone}"${coverStyle}>
@@ -606,7 +696,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
                     <span class="dashboard-highlight-title">${escapeHTML(highlight.title)}</span>
                     <strong>${escapeHTML(highlight.label)}</strong>
                     <span class="dashboard-highlight-value">${escapeHTML(highlight.value)}</span>
-                    <span class="dashboard-highlight-detail">${escapeHTML(highlight.detail)}</span>
+                    ${detail}
                 </div>
             </article>
         `;
