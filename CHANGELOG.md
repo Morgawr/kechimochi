@@ -10,12 +10,19 @@ The format is based on Keep a Changelog, with one section per released version.
  - Ability to use go back gesture or button on android to quit a popup or a media.
  - Shortcut button to medias from quick log
  - DMM games metadata importer (works on Fanza games too)
+ - Total hours count in study stats
+ - Totals panel that shows a total of time spend / characters read for weeks, months, years and allows comparison with direct previous total.
+ - Categories panel that shows a total for each media type.
+ - Highlights panel that shows specific values : media with most time, sessions, chars, biggest streak, and day with the most time. All three panels use the timeframe selected in Activity Visualisation.
+ - Can change which day is the begining of the week in settings for "weekly" view of activity visualisation and Totals.
+ - Added "all time" selector in activity visualisation.
 
 ### Changed
  - Pop ups no longer appear behind the keyboard and center themselves in the visible space.
  - Reworked elements on the media page for compactness and aesthetics including : Estimation values, buttons above description and copy title button.
  - Adjusted a few colors in themes : Purple, Yellow lime, Deep blue, to have more readable buttons.
  - Made quick log display 6 elements on desktop and large mobiles.
+ - Made loading of Medias faster when clicking from library and quick log shortcuts.
 
 ### Fixed
  - Some elements are now readable in light themes including : Desktop window title, activity breakdown legend, android top bar.
