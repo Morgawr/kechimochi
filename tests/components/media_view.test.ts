@@ -241,6 +241,56 @@ describe('MediaView', () => {
         await vi.waitFor(() => expect(component.state.viewMode).toBe('grid'));
     });
 
+    it('reloads detail logs when navigating between media', async () => {
+        const mockMedia = [{ id: 10, title: 'Old' }, { id: 20, title: 'New' }];
+        const oldLogs = [{
+            id: 1,
+            media_id: 10,
+            title: 'Old',
+            media_type: 'Reading',
+            duration_minutes: 30,
+            characters: 1000,
+            date: '2026-01-01',
+            language: 'Japanese',
+        }];
+        const newLogs = [{
+            id: 2,
+            media_id: 20,
+            title: 'New',
+            media_type: 'Reading',
+            duration_minutes: 45,
+            characters: 2000,
+            date: '2026-01-02',
+            language: 'Japanese',
+        }];
+        vi.mocked(api.getAllMedia).mockResolvedValue(mockMedia as unknown as Media[]);
+        vi.mocked(api.getLogsForMedia).mockImplementation(async (mediaId: number) => (
+            mediaId === 10 ? oldLogs : newLogs
+        ) as api.ActivitySummary[]);
+
+        const component = new MediaView(container);
+        await renderAndWaitForBrowser(component);
+
+        const onSelect = vi.mocked(MediaLibraryBrowser).mock.calls[0][2];
+        onSelect(10);
+
+        await vi.waitFor(() => {
+            const detailProps = vi.mocked(MediaDetail).mock.calls.at(-1);
+            expect(detailProps?.[1]).toEqual(expect.objectContaining({ id: 10 }));
+            expect(detailProps?.[2]).toEqual(oldLogs);
+        });
+
+        const detailCallbacks = vi.mocked(MediaDetail).mock.calls.at(-1)?.[5];
+        detailCallbacks.onNext();
+
+        await vi.waitFor(() => {
+            const detailProps = vi.mocked(MediaDetail).mock.calls.at(-1);
+            expect(api.getLogsForMedia).toHaveBeenCalledWith(20);
+            expect(detailProps?.[1]).toEqual(expect.objectContaining({ id: 20 }));
+            expect(detailProps?.[2]).toEqual(newLogs);
+        });
+    });
+
     it('ignores keyboard shortcuts when focus is in an editable field and handles keyboard navigation otherwise', async () => {
         const mockMedia = [{ id: 10, title: 'T1' }, { id: 20, title: 'T2' }];
         vi.mocked(api.getAllMedia).mockResolvedValue(mockMedia as unknown as Media[]);
