@@ -27,6 +27,7 @@ The format is based on Keep a Changelog, with one section per released version.
 ### Fixed
  - Some elements are now readable in light themes including : Desktop window title, activity breakdown legend, android top bar.
  - Patch notes should now show long bullet lists with the right indentation
+ - Changing media using the pagination now properly loads the logs.
 
 ## [0.2.9] - 2026-05-09
 
