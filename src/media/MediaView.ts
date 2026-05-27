@@ -38,6 +38,7 @@ export class MediaView extends Component<MediaViewState> {
     private gridSupportQuery: MediaQueryList | null = null;
     private isDestroyed = false;
     private navigationSource?:  'dashboard' | 'timeline';
+    private detailNavigationRequestId = 0;
 
     constructor(container: HTMLElement) {
         super(container, {
@@ -167,7 +168,28 @@ export class MediaView extends Component<MediaViewState> {
         if (currentMediaList.length === 0) return;
 
         const nextIndex = (currentIndex + direction + currentMediaList.length) % currentMediaList.length;
-        this.setState({ currentIndex: nextIndex });
+        await this.navigateToDetailIndex(nextIndex);
+    }
+
+    private async navigateToDetailIndex(nextIndex: number) {
+        const media = this.state.currentMediaList[nextIndex];
+        if (!media) return;
+
+        const requestId = ++this.detailNavigationRequestId;
+        this.setState({ currentIndex: nextIndex, currentLogs: [] });
+
+        if (typeof media.id !== 'number') return;
+
+        try {
+            const currentLogs = await getLogsForMedia(media.id);
+            if (this.isDestroyed || requestId !== this.detailNavigationRequestId) return;
+            this.setState({ currentLogs });
+        } catch (e) {
+            Logger.error('Failed to load logs for media detail navigation', e);
+            if (!this.isDestroyed && requestId === this.detailNavigationRequestId) {
+                this.setState({ currentLogs: [] });
+            }
+        }
     }
 
     private async exitDetail(shouldRefresh: boolean = false) {
@@ -439,7 +461,7 @@ private async handleBack() {
                 onBackToLibrary: () => { this.runAsync(this.handleBackToLibrary(), 'Failed to navigate back to library'); },
                 onNext: () => { this.runAsync(this.navigateDetail(1), 'Failed to navigate to next media'); },
                 onPrev: () => { this.runAsync(this.navigateDetail(-1), 'Failed to navigate to previous media'); },
-                onNavigate: (index) => this.setState({ currentIndex: index }),
+                onNavigate: (index) => { this.runAsync(this.navigateToDetailIndex(index), 'Failed to navigate to selected media'); },
                 onDelete: () => { this.runAsync(this.exitDetail(true), 'Failed to refresh library after delete'); },
             },
         );
