@@ -98,6 +98,30 @@ describe('ActivityCharts', () => {
         expect(Chart).toHaveBeenCalled();
     });
 
+    it('should format weekly chart labels as month abbreviations with two-digit days', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-06-10T12:00:00'));
+
+        const component = new ActivityCharts(
+            container,
+            { logs: [], timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'media_type', chartType: 'bar', metric: 'minutes' },
+            onParamChange
+        );
+        component.render();
+
+        const barChartConfig = vi.mocked(Chart).mock.calls[1][1];
+
+        expect(barChartConfig.data.labels).toEqual([
+            'Jun 08',
+            'Jun 09',
+            'Jun 10',
+            'Jun 11',
+            'Jun 12',
+            'Jun 13',
+            'Jun 14',
+        ]);
+    });
+
     it('should keep offset weekly pie chart totals within the selected week when crossing months', () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-05-09T12:00:00'));

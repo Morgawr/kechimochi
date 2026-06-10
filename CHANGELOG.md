@@ -24,6 +24,7 @@ The format is based on Keep a Changelog, with one section per released version.
  - Made quick log display 6 elements on desktop and large mobiles.
  - Made loading of Medias faster when clicking from library and quick log shortcuts.
  - Monthly activity visualisation now labels bars with their date range (e.g. "Jun 1–7") instead of generic "Week 1 / Week 2".
+ - Weekly activity visualisation now labels days with month names (e.g. "Jun 08") instead of numeric month-day labels.
 
 ### Fixed
  - Some elements are now readable in light themes including : Desktop window title, activity breakdown legend, android top bar.

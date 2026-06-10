@@ -1,0 +1,337 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ActivityTotals } from '../../../src/dashboard/ActivityTotals';
+import { ActivitySummary, Media } from '../../../src/api';
+import { MediaCoverLoader } from '../../../src/media/cover_loader';
+import { Logger } from '../../../src/logger';
+
+vi.mock('../../../src/media/cover_loader', () => ({
+    MediaCoverLoader: {
+        load: vi.fn(),
+    },
+}));
+
+function makeMedia(overrides: Partial<Media> & { id: number; title: string }): Media {
+    return {
+        id: overrides.id,
+        title: overrides.title,
+        media_type: overrides.media_type ?? 'Reading',
+        status: overrides.status ?? 'In Progress',
+        language: overrides.language ?? 'Japanese',
+        description: overrides.description ?? '',
+        cover_image: overrides.cover_image ?? '',
+        extra_data: overrides.extra_data ?? '',
+        content_type: overrides.content_type ?? '',
+        tracking_status: overrides.tracking_status ?? 'active',
+        uid: overrides.uid,
+    };
+}
+
+function makeLog(overrides: Partial<ActivitySummary> & { id: number; media_id: number; date: string }): ActivitySummary {
+    return {
+        id: overrides.id,
+        media_id: overrides.media_id,
+        title: overrides.title ?? `Media ${overrides.media_id}`,
+        media_type: overrides.media_type ?? 'Reading',
+        duration_minutes: overrides.duration_minutes ?? 0,
+        characters: overrides.characters ?? 0,
+        date: overrides.date,
+        language: overrides.language ?? 'Japanese',
+    };
+}
+
+function textContent(container: HTMLElement): string {
+    return (container.textContent ?? '').replace(/\s+/g, ' ').trim();
+}
+
+async function flushPromises(): Promise<void> {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+}
+
+function weeklyMedia(): Media[] {
+    return [
+        makeMedia({ id: 1, title: 'Novel A', media_type: 'Reading', content_type: 'Novel', cover_image: 'novel-a.jpg' }),
+        makeMedia({ id: 2, title: 'Anime B', media_type: 'Watching', content_type: 'Anime' }),
+        makeMedia({ id: 3, title: 'Manga C', media_type: 'Reading', content_type: 'Manga' }),
+        makeMedia({ id: 4, title: 'Game D', media_type: 'Playing', content_type: 'Game' }),
+        makeMedia({ id: 5, title: 'Audio E', media_type: 'Listening', content_type: 'Audio' }),
+    ];
+}
+
+function weeklyLogs(): ActivitySummary[] {
+    return [
+        makeLog({ id: 1, media_id: 1, title: 'Novel A', media_type: 'Reading', date: '2026-06-08', duration_minutes: 60, characters: 1000 }),
+        makeLog({ id: 2, media_id: 1, title: 'Novel A', media_type: 'Reading', date: '2026-06-09', duration_minutes: 30, characters: 2000 }),
+        makeLog({ id: 3, media_id: 2, title: 'Anime B', media_type: 'Watching', date: '2026-06-10', duration_minutes: 120, characters: 0 }),
+        makeLog({ id: 4, media_id: 3, title: 'Manga C', media_type: 'Reading', date: '2026-06-11', duration_minutes: 20, characters: 5000 }),
+        makeLog({ id: 5, media_id: 4, title: 'Game D', media_type: 'Playing', date: '2026-06-12', duration_minutes: 15, characters: 0 }),
+        makeLog({ id: 6, media_id: 99, title: 'Mystery', media_type: 'Mystery', date: '2026-06-12', duration_minutes: 10, characters: 0 }),
+        makeLog({ id: 7, media_id: 5, title: 'Audio E', media_type: 'Listening', date: '2026-06-13', duration_minutes: 5, characters: 0 }),
+        makeLog({ id: 8, media_id: 1, title: 'Novel A', media_type: 'Reading', date: '2026-06-01', duration_minutes: 999, characters: 9999 }),
+    ];
+}
+
+describe('ActivityTotals', () => {
+    let container: HTMLElement;
+    let isMobileLayout: boolean;
+    let resizeCallback: (() => void) | undefined;
+    let observeSpy: ReturnType<typeof vi.fn>;
+    let disconnectSpy: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+        container = document.createElement('div');
+        isMobileLayout = false;
+        resizeCallback = undefined;
+        observeSpy = vi.fn();
+        disconnectSpy = vi.fn();
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-06-10T12:00:00'));
+        vi.mocked(MediaCoverLoader.load).mockResolvedValue('blob:loaded-cover');
+        vi.stubGlobal('matchMedia', vi.fn((query: string) => ({
+            matches: isMobileLayout,
+            media: query,
+            onchange: null,
+            addListener: vi.fn(),
+            removeListener: vi.fn(),
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+            dispatchEvent: vi.fn(),
+        })));
+        vi.stubGlobal('ResizeObserver', class {
+            constructor(callback: ResizeObserverCallback) {
+                resizeCallback = () => callback([], this as unknown as ResizeObserver);
+            }
+
+            observe = observeSpy;
+            disconnect = disconnectSpy;
+            unobserve = vi.fn();
+        });
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.restoreAllMocks();
+        vi.unstubAllGlobals();
+    });
+
+    it('renders no totals cards when there are no visible totals', () => {
+        const component = new ActivityTotals(container, {
+            logs: [],
+            mediaList: [],
+            timeRangeDays: 7,
+            timeRangeOffset: 0,
+            weekStartDay: 1,
+        });
+
+        component.render();
+
+        expect(container.querySelector('.dashboard-totals-grid')).not.toBeNull();
+        expect(container.querySelector('.dashboard-totals-card')).toBeNull();
+
+        const internals = component as unknown as {
+            renderHighlights: (highlights: unknown[]) => string;
+        };
+        expect(internals.renderHighlights([])).toContain('No activity for this timeframe.');
+    });
+
+    it('renders weekly totals, category totals, highlights, cover images, and selected day diffs', async () => {
+        const component = new ActivityTotals(container, {
+            logs: weeklyLogs(),
+            mediaList: weeklyMedia(),
+            timeRangeDays: 7,
+            timeRangeOffset: 0,
+            weekStartDay: 1,
+        });
+
+        component.render();
+        await flushPromises();
+
+        const text = textContent(container);
+        expect(text).toContain('Weekly Stats');
+        expect(text).toContain('06-08 to 06-14');
+        expect(text).toContain('Wednesday 10/06');
+        expect(text).toContain('Data for today');
+        expect(text).toContain('2h');
+        expect(text).toContain('1h 30m more than yesterday');
+        expect(text).toContain('2,000 less than yesterday');
+
+        expect(text).toContain('Categories');
+        expect(text).toContain('Anime');
+        expect(text).toContain('Novel');
+        expect(text).toContain('Mystery');
+
+        expect(text).toContain('Most Time Spent');
+        expect(text).toContain('Anime B');
+        expect(text).toContain('Most Characters Read');
+        expect(text).toContain('Manga C');
+        expect(text).toContain('Most Sessions');
+        expect(text).toContain('Novel A');
+        expect(text).toContain('1/2');
+        expect(MediaCoverLoader.load).toHaveBeenCalledWith('novel-a.jpg');
+        expect(container.innerHTML).toContain("--highlight-cover: url('blob:loaded-cover')");
+
+        container.querySelector<HTMLButtonElement>('[data-highlights-dir="next"]')?.click();
+        const secondPageText = textContent(container);
+        expect(secondPageText).toContain('2/2');
+        expect(secondPageText).toContain('Biggest Day');
+        expect(secondPageText).toContain('Wednesday 10/06/2026');
+        expect(secondPageText).toContain('Biggest Streak');
+        expect(secondPageText).toContain('2 days');
+
+        container.querySelector<HTMLButtonElement>('[data-highlights-dir="prev"]')?.click();
+        expect(textContent(container)).toContain('1/2');
+
+        container.querySelector<HTMLButtonElement>('[data-dashboard-total-index="0"]')?.click();
+        const selectedText = textContent(container);
+        expect(selectedText).toContain('Data for Monday 08/06/2026');
+        expect(selectedText).toContain('1h more than previous day');
+        expect(selectedText).toContain('1,000 more than previous day');
+    });
+
+    it('renders monthly week buckets and resets the selected bucket when the timeframe changes', () => {
+        const logs = weeklyLogs();
+        const component = new ActivityTotals(container, {
+            logs: [
+                ...logs,
+                makeLog({ id: 9, media_id: 2, title: 'Anime B', media_type: 'Watching', date: '2026-06-30', duration_minutes: 45, characters: 0 }),
+            ],
+            mediaList: weeklyMedia(),
+            timeRangeDays: 7,
+            timeRangeOffset: 0,
+            weekStartDay: 1,
+        });
+
+        component.render();
+        container.querySelector<HTMLButtonElement>('[data-dashboard-total-index="0"]')?.click();
+        expect(textContent(container)).toContain('Data for Monday 08/06/2026');
+
+        component.setState({ timeRangeDays: 30 });
+        const monthlyText = textContent(container);
+        expect(monthlyText).toContain('Monthly Stats');
+        expect(monthlyText).toContain('2026-06');
+        expect(monthlyText).toContain('Week 1 - 01/06 to 07/06');
+        expect(monthlyText).toContain('Week 5 - 29/06 to 30/06');
+        expect(monthlyText).toContain('Data for this week');
+
+        component.setState({ selectedBucketIndex: 4 });
+        expect(textContent(container)).toContain('Data for Week 5 (29/06 to 30/06)');
+    });
+
+    it('renders yearly month buckets and all-time year buckets', () => {
+        const component = new ActivityTotals(container, {
+            logs: [
+                makeLog({ id: 1, media_id: 1, title: 'Novel A', date: '2025-12-31', duration_minutes: 30, characters: 0 }),
+                makeLog({ id: 2, media_id: 1, title: 'Novel A', date: '2026-01-02', duration_minutes: 60, characters: 1000 }),
+                makeLog({ id: 3, media_id: 2, title: 'Anime B', media_type: 'Watching', date: '2026-06-10', duration_minutes: 90, characters: 0 }),
+            ],
+            mediaList: [
+                makeMedia({ id: 1, title: 'Novel A', content_type: 'Novel' }),
+                makeMedia({ id: 2, title: 'Anime B', media_type: 'Watching', content_type: 'Anime' }),
+            ],
+            timeRangeDays: 365,
+            timeRangeOffset: 0,
+            weekStartDay: 1,
+        });
+
+        component.render();
+        const yearlyText = textContent(container);
+        expect(yearlyText).toContain('Yearly Stats');
+        expect(yearlyText).toContain('2026');
+        expect(yearlyText).toContain('January');
+        expect(yearlyText).toContain('June');
+        expect(yearlyText).toContain('Data for this month');
+        expect(yearlyText).toContain('1h 30m more than last month');
+
+        component.setState({ timeRangeDays: 0 });
+        const allTimeText = textContent(container);
+        expect(allTimeText).toContain('All Time Stats');
+        expect(allTimeText).toContain('All Time');
+        expect(allTimeText).toContain('2025');
+        expect(allTimeText).toContain('2026');
+        expect(allTimeText).toContain('Data for this year');
+        expect(allTimeText).toContain('2h more than last year');
+
+        component.setState({
+            logs: [makeLog({ id: 4, media_id: 1, title: 'Novel A', date: '2024-01-01', duration_minutes: 15, characters: 0 })],
+        });
+        const fallbackText = textContent(container);
+        expect(fallbackText).toContain('2024');
+        expect(fallbackText).toContain('Data for this year');
+    });
+
+    it('renders characters-only totals without hour columns', () => {
+        const component = new ActivityTotals(container, {
+            logs: [
+                makeLog({ id: 1, media_id: 1, title: 'Visual Novel', date: '2026-06-08', duration_minutes: 0, characters: 1 }),
+                makeLog({ id: 2, media_id: 1, title: 'Visual Novel', date: '2026-06-09', duration_minutes: 0, characters: 2500 }),
+            ],
+            mediaList: [makeMedia({ id: 1, title: 'Visual Novel', content_type: 'Novel' })],
+            timeRangeDays: 7,
+            timeRangeOffset: 0,
+            weekStartDay: 1,
+        });
+
+        component.render();
+
+        const text = textContent(container);
+        expect(text).toContain('Chars');
+        expect(text).toContain('2,501');
+        expect(text).not.toContain('Hours');
+        expect(text).not.toContain('Time:');
+        expect(text).toContain('Most Characters Read');
+        expect(text).toContain('1 char');
+    });
+
+    it('renders mobile highlights without pagination and responds to resize observer changes', async () => {
+        const component = new ActivityTotals(container, {
+            logs: weeklyLogs(),
+            mediaList: weeklyMedia(),
+            timeRangeDays: 7,
+            timeRangeOffset: 0,
+            weekStartDay: 1,
+        });
+        const renderSpy = vi.spyOn(component, 'render');
+
+        component.render();
+        await flushPromises();
+        await flushPromises();
+
+        expect(observeSpy).toHaveBeenCalledWith(container);
+        container.querySelector<HTMLButtonElement>('[data-highlights-dir="next"]')?.click();
+        expect(textContent(container)).toContain('2/2');
+
+        resizeCallback?.();
+        expect(textContent(container)).toContain('2/2');
+
+        isMobileLayout = true;
+        resizeCallback?.();
+        const resizedText = textContent(container);
+        expect(renderSpy).toHaveBeenCalled();
+        expect(container.querySelector('[data-highlights-dir="next"]')).toBeNull();
+        expect(resizedText).toContain('Most Time Spent');
+        expect(resizedText).toContain('Biggest Day');
+        expect(resizedText).toContain('Biggest Streak');
+
+        component.destroy();
+        expect(disconnectSpy).toHaveBeenCalled();
+    });
+
+    it('logs cover loading failures without breaking highlight rendering', async () => {
+        const errorSpy = vi.spyOn(Logger, 'error').mockImplementation(() => {});
+        vi.mocked(MediaCoverLoader.load).mockRejectedValueOnce(new Error('cover failed'));
+        const component = new ActivityTotals(container, {
+            logs: weeklyLogs(),
+            mediaList: weeklyMedia(),
+            timeRangeDays: 7,
+            timeRangeOffset: 0,
+            weekStartDay: 1,
+        });
+
+        component.render();
+        await flushPromises();
+
+        expect(errorSpy).toHaveBeenCalledWith('Failed to load dashboard highlight covers', expect.any(Error));
+        expect(textContent(container)).toContain('Highlights');
+    });
+});

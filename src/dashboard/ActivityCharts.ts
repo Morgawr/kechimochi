@@ -5,6 +5,11 @@ import Chart from 'chart.js/auto';
 import { formatStatsDuration } from '../time';
 import { ACTIVITY_TIME_RANGES, getActivityRange } from './activity_ranges';
 
+const WEEKLY_LABEL_FORMATTER = new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: '2-digit',
+});
+
 interface ActivityChartsState {
     logs: ActivitySummary[];
     timeRangeDays: number;
@@ -238,7 +243,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         this.barChartInstance = new Chart(canvas, {
             type: chartType,
             data: {
-                labels: timeRangeDays === 7 ? labels.map((l: string) => l.slice(5)) : labels,
+                labels: timeRangeDays === 7 ? labels.map((label: string) => this.formatWeeklyDateLabel(label)) : labels,
                 datasets: datasets
             },
             options: {
@@ -276,6 +281,11 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                 }
             }
         });
+    }
+
+    private formatWeeklyDateLabel(label: string): string {
+        const [year, month, day] = label.split('-').map(Number);
+        return WEEKLY_LABEL_FORMATTER.format(new Date(year, month - 1, day));
     }
 
     private prepareBarChartDatasets(timeRange: { labels: string[], getBucketIndex: (dateStr: string) => number, validStart: string, validEnd: string }, colors: string[]) {

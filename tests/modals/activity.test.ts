@@ -1,7 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { showLogActivityModal, showExportCsvModal } from '../../src/activity_modal';
 import * as api from '../../src/api';
 import { Media } from '../../src/api';
+import { buildCalendar } from '../../src/calendar';
+import { Logger } from '../../src/logger';
 
 vi.mock('../../src/api', () => ({
     getAllMedia: vi.fn(),
@@ -57,6 +59,21 @@ describe('modals/activity.ts', () => {
         document.body.innerHTML = '';
         vi.clearAllMocks();
         vi.useFakeTimers();
+        HTMLInputElement.prototype.setCustomValidity = vi.fn();
+        vi.stubGlobal('setCustomValidity', vi.fn());
+        vi.mocked(buildCalendar).mockImplementation((containerId: string, initialDate: string, onSelect: (d: string) => void) => {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            container.innerHTML = `<button type="button" class="mock-calendar-day" data-date="${initialDate}">${initialDate}</button>`;
+            container.querySelector<HTMLButtonElement>('.mock-calendar-day')?.addEventListener('click', () => onSelect(initialDate));
+        });
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.restoreAllMocks();
+        vi.unstubAllGlobals();
+        document.body.innerHTML = '';
     });
 
     describe('showLogActivityModal', () => {
@@ -157,6 +174,28 @@ describe('modals/activity.ts', () => {
             }));
             expect(api.addLog).toHaveBeenCalledWith(expect.objectContaining({ media_id: 99 }));
         });
+
+        it('should keep the modal open if creating new media is cancelled', async () => {
+            vi.mocked(api.getAllMedia).mockResolvedValue([]);
+            const { customPrompt } = await import('../../src/modal_base');
+            vi.mocked(customPrompt).mockResolvedValue('');
+
+            const promise = showLogActivityModal();
+            await vi.waitFor(() => document.querySelector('#add-activity-form'));
+
+            (document.querySelector('#activity-media') as HTMLInputElement).value = 'Cancelled Series';
+            (document.querySelector('#activity-duration') as HTMLInputElement).value = '20';
+            document.querySelector('#add-activity-form')!.dispatchEvent(new Event('submit'));
+            await Promise.resolve();
+
+            expect(customPrompt).toHaveBeenCalled();
+            expect(api.addMedia).not.toHaveBeenCalled();
+            expect(api.addLog).not.toHaveBeenCalled();
+            expect(document.querySelector('.modal-overlay')).not.toBeNull();
+
+            (document.querySelector('#activity-cancel') as HTMLElement).click();
+            await expect(promise).resolves.toBe(false);
+        });
         
         it('should resolve false on cancel', async () => {
             vi.mocked(api.getAllMedia).mockResolvedValue([]);
@@ -222,6 +261,22 @@ describe('modals/activity.ts', () => {
             });
         });
 
+        it('should show alert when the submitted title is empty', async () => {
+            vi.mocked(api.getAllMedia).mockResolvedValue([]);
+            const { customAlert } = await import('../../src/modal_base');
+
+            showLogActivityModal();
+            await vi.waitFor(() => document.querySelector('#add-activity-form'));
+
+            (document.querySelector('#activity-duration') as HTMLInputElement).value = '15';
+            document.querySelector('#add-activity-form')!.dispatchEvent(new Event('submit'));
+
+            await vi.waitFor(() => {
+                expect(customAlert).toHaveBeenCalledWith("Required Field", "Please enter a Media Title.");
+            });
+            expect(api.addLog).not.toHaveBeenCalled();
+        });
+
         it('should have custom validation message for media title', async () => {
              vi.mocked(api.getAllMedia).mockResolvedValue([]);
              showLogActivityModal();
@@ -276,6 +331,214 @@ describe('modals/activity.ts', () => {
                 id: 123,
                 duration_minutes: 45
             }));
+        });
+
+        it('should use the edit log title fallback and selected activity type when the disabled title input is empty', async () => {
+            const editLog = {
+                id: 123,
+                media_id: 456,
+                title: 'Edit Fallback',
+                media_type: 'Listening',
+                duration_minutes: 0,
+                characters: 100,
+                date: '2024-03-01',
+                language: 'Japanese'
+            };
+            vi.mocked(api.getAllMedia).mockResolvedValue([]);
+
+            const promise = showLogActivityModal(undefined, editLog);
+            await vi.waitFor(() => document.querySelector('#add-activity-form'));
+
+            (document.querySelector('#activity-media') as HTMLInputElement).value = '';
+            (document.querySelector('#activity-characters') as HTMLInputElement).value = '250';
+            (document.querySelector('#activity-type') as HTMLSelectElement).value = 'Listening';
+            document.querySelector('#add-activity-form')!.dispatchEvent(new Event('submit'));
+
+            await expect(promise).resolves.toBe(true);
+            expect(api.updateLog).toHaveBeenCalledWith({
+                id: 123,
+                media_id: 456,
+                duration_minutes: 0,
+                characters: 250,
+                date: '2024-03-01',
+                activity_type: 'Listening'
+            });
+        });
+
+        it('should use the mobile date input when the mobile date field is visible', async () => {
+            vi.mocked(api.getAllMedia).mockResolvedValue([{ id: 10, title: 'Mobile Item', status: 'Active', tracking_status: 'Ongoing' }] as unknown as Media[]);
+
+            const promise = showLogActivityModal();
+            await vi.waitFor(() => document.querySelector('#add-activity-form'));
+
+            (document.querySelector('#activity-media') as HTMLInputElement).value = 'Mobile Item';
+            (document.querySelector('#activity-duration') as HTMLInputElement).value = '30';
+            (document.querySelector('#mobile-date-field') as HTMLElement).style.display = 'flex';
+            (document.querySelector('#mobile-date-input') as HTMLInputElement).value = '2026-06-10';
+            document.querySelector('#add-activity-form')!.dispatchEvent(new Event('submit'));
+
+            await expect(promise).resolves.toBe(true);
+            expect(api.addLog).toHaveBeenCalledWith(expect.objectContaining({
+                date: '2026-06-10'
+            }));
+        });
+
+        it('should show and interact with Android media suggestions', async () => {
+            document.body.dataset.runtime = 'mobile-app';
+            Object.defineProperty(globalThis.navigator, 'userAgent', {
+                value: 'Mozilla/5.0 Android',
+                configurable: true,
+            });
+            const titleKeydownListeners: EventListener[] = [];
+            const originalAddEventListener = HTMLInputElement.prototype.addEventListener;
+            vi.spyOn(HTMLInputElement.prototype, 'addEventListener').mockImplementation(function (
+                this: HTMLInputElement,
+                type: string,
+                listener: EventListenerOrEventListenerObject,
+                options?: boolean | AddEventListenerOptions,
+            ) {
+                if (this.id === 'activity-media' && type === 'keydown' && typeof listener === 'function') {
+                    titleKeydownListeners.push(listener as EventListener);
+                }
+                return originalAddEventListener.call(this, type, listener, options);
+            });
+            vi.mocked(api.getAllMedia).mockResolvedValue([
+                { id: 1, title: 'Blue Box', media_type: 'Reading', status: 'Active', tracking_status: 'Ongoing' },
+                { id: 2, title: 'Blue Lock', media_type: 'Watching', status: 'Active', tracking_status: 'Ongoing' },
+                { id: 3, title: 'Archived Blue', media_type: 'Reading', status: 'Archived', tracking_status: 'Ongoing' },
+                { id: 4, title: 'Paused Blue', media_type: 'Reading', status: 'Active', tracking_status: 'Paused' },
+            ] as unknown as Media[]);
+
+            const promise = showLogActivityModal();
+            await vi.waitFor(() => document.querySelector('#activity-media-suggestions'));
+
+            const titleInput = document.querySelector('#activity-media') as HTMLInputElement;
+            const typeSelect = document.querySelector('#activity-type') as HTMLSelectElement;
+            const suggestions = document.querySelector('#activity-media-suggestions') as HTMLElement;
+            titleInput.setCustomValidity = vi.fn();
+
+            expect(titleInput.getAttribute('list')).toBeNull();
+            titleInput.focus();
+            titleInput.value = 'blue';
+            titleInput.dispatchEvent(new Event('input'));
+
+            expect(suggestions.style.display).toBe('block');
+            expect(suggestions.textContent).toContain('Blue Box');
+            expect(suggestions.textContent).toContain('Blue Lock');
+            expect(suggestions.textContent).not.toContain('Archived Blue');
+            expect(suggestions.textContent).not.toContain('Paused Blue');
+
+            suggestions.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+            suggestions.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            expect(titleInput.value).toBe('blue');
+            expect(suggestions.style.display).toBe('block');
+
+            const firstSuggestion = suggestions.querySelector<HTMLButtonElement>('.activity-media-suggestion')!;
+            firstSuggestion.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+            firstSuggestion.click();
+
+            expect(titleInput.value).toBe('Blue Box');
+            expect(typeSelect.value).toBe('Reading');
+            expect(suggestions.style.display).toBe('none');
+
+            titleInput.focus();
+            titleInput.value = 'missing';
+            titleInput.dispatchEvent(new Event('input'));
+            expect(suggestions.style.display).toBe('none');
+
+            titleInput.value = 'Blue Lock';
+            titleInput.dispatchEvent(new Event('input'));
+            expect(suggestions.style.display).toBe('block');
+            titleKeydownListeners.at(-1)?.({ key: 'Escape' } as KeyboardEvent);
+            expect(suggestions.style.display).toBe('none');
+
+            titleInput.dispatchEvent(new Event('blur'));
+            expect(vi.getTimerCount()).toBeGreaterThan(0);
+            vi.advanceTimersByTime(120);
+            expect(suggestions.style.display).toBe('none');
+
+            (document.querySelector('#activity-duration') as HTMLInputElement).value = '25';
+            document.querySelector('#add-activity-form')!.dispatchEvent(new Event('submit'));
+            await expect(promise).resolves.toBe(true);
+            expect(api.addLog).toHaveBeenCalledWith(expect.objectContaining({
+                media_id: 2,
+                activity_type: 'Watching'
+            }));
+        });
+
+        it('should clear pending suggestion timers after successful save', async () => {
+            document.body.dataset.runtime = 'mobile-app';
+            Object.defineProperty(globalThis.navigator, 'userAgent', {
+                value: 'Mozilla/5.0 Android',
+                configurable: true,
+            });
+            vi.mocked(api.getAllMedia).mockResolvedValue([
+                { id: 1, title: 'Timer Item', media_type: 'Reading', status: 'Active', tracking_status: 'Ongoing' },
+            ] as unknown as Media[]);
+            const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
+
+            const promise = showLogActivityModal();
+            await vi.waitFor(() => document.querySelector('#add-activity-form'));
+
+            const titleInput = document.querySelector('#activity-media') as HTMLInputElement;
+            titleInput.setCustomValidity = vi.fn();
+            titleInput.focus();
+            titleInput.value = 'Timer Item';
+            titleInput.dispatchEvent(new Event('input'));
+            titleInput.dispatchEvent(new Event('blur'));
+            expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+            (document.querySelector('#activity-duration') as HTMLInputElement).value = '10';
+            document.querySelector('#add-activity-form')!.dispatchEvent(new Event('submit'));
+
+            await expect(promise).resolves.toBe(true);
+            expect(clearTimeoutSpy).toHaveBeenCalled();
+        });
+
+        it('should clear pending suggestion timers when cancelling the mobile suggestions modal', async () => {
+            document.body.dataset.runtime = 'mobile-app';
+            Object.defineProperty(globalThis.navigator, 'userAgent', {
+                value: 'Mozilla/5.0 Android',
+                configurable: true,
+            });
+            vi.mocked(api.getAllMedia).mockResolvedValue([
+                { id: 1, title: 'Cancel Timer Item', media_type: 'Reading', status: 'Active', tracking_status: 'Ongoing' },
+            ] as unknown as Media[]);
+            const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
+
+            const promise = showLogActivityModal();
+            await vi.waitFor(() => document.querySelector('#add-activity-form'));
+
+            const titleInput = document.querySelector('#activity-media') as HTMLInputElement;
+            titleInput.focus();
+            titleInput.dispatchEvent(new Event('blur'));
+            expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+            (document.querySelector('#activity-cancel') as HTMLElement).click();
+
+            await expect(promise).resolves.toBe(false);
+            expect(clearTimeoutSpy).toHaveBeenCalled();
+        });
+
+        it('should log and alert when saving activity fails', async () => {
+            const error = new Error('database unavailable');
+            vi.mocked(api.getAllMedia).mockResolvedValue([{ id: 10, title: 'Broken Item', status: 'Active', tracking_status: 'Ongoing' }] as unknown as Media[]);
+            vi.mocked(api.addLog).mockRejectedValueOnce(error);
+            const { customAlert } = await import('../../src/modal_base');
+            const errorSpy = vi.spyOn(Logger, 'error').mockImplementation(() => {});
+
+            showLogActivityModal();
+            await vi.waitFor(() => document.querySelector('#add-activity-form'));
+
+            (document.querySelector('#activity-media') as HTMLInputElement).value = 'Broken Item';
+            (document.querySelector('#activity-duration') as HTMLInputElement).value = '20';
+            document.querySelector('#add-activity-form')!.dispatchEvent(new Event('submit'));
+
+            await vi.waitFor(() => {
+                expect(errorSpy).toHaveBeenCalledWith("Failed to save activity", error);
+                expect(customAlert).toHaveBeenCalledWith("Error", `Failed to save activity: ${error}`);
+            });
+            expect(document.querySelector('.modal-overlay')).not.toBeNull();
         });
     });
 
