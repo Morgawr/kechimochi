@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+## [0.2.10] - 2026-06-10
+
 ### Added
  - Ability to use go back gesture or button on android to quit a popup or a media.
  - Shortcut button to medias from quick log
