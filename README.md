@@ -49,7 +49,7 @@ A fast and responsive library which tracks all the media you have added. You can
 The metadata of each entry is provided by various websites which the user can add and download from automatically:
 *   **Visual Novels**: VNDB
 *   **Anime and Movies**: AniList and IMDb
-*   **Manga and Books**: Bookmeter, BookWalker, Cmoa, and Shonen Jump Plus
+*   **Manga and Books**: AniList, Bookmeter, BookWalker, Cmoa, and Shonen Jump Plus
 *   **Video Games**: Backloggd and DMM Games
 *   **Dictionary Integration**: Jiten.moe metadata support
 

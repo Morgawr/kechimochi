@@ -8,6 +8,7 @@ describe('importers/index.ts', () => {
             { url: 'https://backloggd.com/games/persona-5/', expected: true },
             { url: 'https://www.imdb.com/title/tt12345/', expected: true },
             { url: 'https://anilist.co/anime/123', expected: true },
+            { url: 'https://anilist.co/manga/151254/Erio-to-Denki-Ningyou/', expected: true },
             { url: 'https://www.cmoa.jp/title/123/', expected: true },
             { url: 'https://bookwalker.jp/de123/', expected: true },
             { url: 'https://bookmeter.com/books/123', expected: true },
@@ -25,11 +26,17 @@ describe('importers/index.ts', () => {
     it('getRecommendedImportersForContentType should return relevant importers', () => {
         const novelImporters = importersIndex.getRecommendedImportersForContentType('Visual Novel');
         expect(novelImporters.some(i => i.name === 'VNDB')).toBe(true);
+
+        const mangaImporters = importersIndex.getRecommendedImportersForContentType('Manga');
+        expect(mangaImporters.some(i => i.name === 'Anilist')).toBe(true);
     });
 
     it('getAvailableSourcesForContentType should return list of names', () => {
         const sources = importersIndex.getAvailableSourcesForContentType('Visual Novel');
         expect(sources).toContain('VNDB');
+
+        const mangaSources = importersIndex.getAvailableSourcesForContentType('Manga');
+        expect(mangaSources).toContain('Anilist');
     });
 
     it('fetchMetadataForUrl should return mock metadata if window.mockMetadata exists', async () => {

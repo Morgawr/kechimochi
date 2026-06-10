@@ -10,6 +10,7 @@ The format is based on Keep a Changelog, with one section per released version.
  - Ability to use go back gesture or button on android to quit a popup or a media.
  - Shortcut button to medias from quick log
  - DMM games metadata importer (works on Fanza games too)
+ - AniList manga metadata importer
  - Total hours count in study stats
  - Totals panel that shows a total of time spend / characters read for weeks, months, years and allows comparison with direct previous total.
  - Categories panel that shows a total for each media type.
