@@ -126,6 +126,10 @@ export interface AppServices {
     exportMilestonesCsv(filePath: string): Promise<number>;
     importMilestonesCsv(filePath: string): Promise<number>;
 
+    // ── Report card operations ────────────────────────────────────────────────
+    /** Picks a destination or triggers browser download and saves the report card PNG. */
+    saveReportCardImage(imageBlob: Blob, defaultFileName: string): Promise<boolean>;
+
     // ── Profile picture operations ────────────────────────────────────────────
     /** Opens a file picker, validates/uploads the image, and returns the stored profile picture. */
     pickAndUploadProfilePicture(): Promise<ProfilePicture | null>;
