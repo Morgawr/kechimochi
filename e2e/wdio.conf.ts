@@ -324,6 +324,7 @@ export const config: WebdriverIO.Config = {
     caps['tauri:options'].envs = {
         ...caps['tauri:options'].envs,
         KECHIMOCHI_DATA_DIR: testDir,
+        KECHIMOCHI_DISABLE_WINDOW_MANAGEMENT: '1',
         ...syncEnv,
     };
 
@@ -367,6 +368,7 @@ export const config: WebdriverIO.Config = {
         env: {
           ...process.env,
           KECHIMOCHI_DATA_DIR: testDir,
+          KECHIMOCHI_DISABLE_WINDOW_MANAGEMENT: '1',
           ...syncEnv,
           RUST_LOG: 'debug',
           TAURI_DEBUG: '1'
@@ -413,8 +415,7 @@ export const config: WebdriverIO.Config = {
       const stageDir = process.env.SPEC_STAGE_DIR;
       if (stageDir) {
         const logFile = path.join(stageDir, 'tauri-driver.log');
-        const finalCode = tauriDriverExitCode;
-        try { appendFileSync(logFile, `\n[e2e] Session Complete with exit code: ${finalCode}\n`); } catch { /* ignore transient fs errors */ }
+        try { appendFileSync(logFile, `\n[e2e] Session Complete with exit code: ${tauriDriverExitCode}\n`); } catch { /* ignore transient fs errors */ }
       }
     }
 

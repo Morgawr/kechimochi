@@ -6,6 +6,12 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+### Fixed
+- Default window no longer opens larger than the screen / under the taskbar, which could hide the update dialog's close button (#202).
+
+### Added
+- The desktop app now remembers its window size, position, and maximized state between launches.
+
 ## [0.2.10] - 2026-06-10
 
 ### Added

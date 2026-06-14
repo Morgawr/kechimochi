@@ -45,6 +45,29 @@ const SYNC_PROGRESS_EVENT: &str = "sync-progress";
 const SYNC_TEST_AUTO_OPEN_ENV: &str = "KECHIMOCHI_SYNC_TEST_AUTO_OPEN";
 const SKIP_LEGACY_LOCAL_PROFILE_MIGRATION_ENV: &str =
     "KECHIMOCHI_E2E_SKIP_LEGACY_LOCAL_PROFILE_MIGRATION";
+const DISABLE_WINDOW_MANAGEMENT_ENV: &str = "KECHIMOCHI_DISABLE_WINDOW_MANAGEMENT";
+
+#[cfg(desktop)]
+fn window_management_enabled() -> bool {
+    std::env::var(DISABLE_WINDOW_MANAGEMENT_ENV).is_err()
+}
+
+/// Clamps a window's outer size so it fits within the monitor work area minus a
+/// margin. Only ever shrinks the window — a window that already fits is returned
+/// unchanged — and each dimension is clamped independently. Returns the
+/// `(width, height)` to apply.
+#[cfg(desktop)]
+fn clamp_size_to_work_area(
+    outer_width: u32,
+    outer_height: u32,
+    work_width: u32,
+    work_height: u32,
+    margin: u32,
+) -> (u32, u32) {
+    let max_width = work_width.saturating_sub(margin);
+    let max_height = work_height.saturating_sub(margin);
+    (outer_width.min(max_width), outer_height.min(max_height))
+}
 
 type SyncTokenStore = Box<dyn sync_auth::SecureTokenStore>;
 type SyncDbConn = Arc<Mutex<Connection>>;
@@ -1386,11 +1409,18 @@ pub fn get_username_logic() -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .plugin(init_google_auth_mobile_plugin())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_opener::init());
+
+    #[cfg(desktop)]
+    if window_management_enabled() {
+        builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
+    }
+
+    builder
         .setup(|app| {
             let app_dir = db::get_data_dir(app.handle());
             let user_db_path = app_dir.join("kechimochi_user.db");
@@ -1446,6 +1476,38 @@ pub fn run() {
                         }
                     }
                 });
+            }
+            #[cfg(desktop)]
+            if window_management_enabled() {
+                // Only clamp and center on first launch (no saved window state yet).
+                // Once the plugin has written its state file, it owns size/position restore.
+                let state_file = app
+                    .path()
+                    .app_config_dir()
+                    .map(|directory| directory.join(tauri_plugin_window_state::DEFAULT_FILENAME));
+                let is_first_launch = state_file.map_or(true, |path| !path.exists());
+                if is_first_launch {
+                    if let Some(window) = app.get_webview_window("main") {
+                        if let Ok(Some(monitor)) = window.current_monitor() {
+                            let work = monitor.work_area(); // tauri 2.10 — Rect of usable area (taskbar excluded)
+                            let margin = 32_u32; // breathing room
+                            if let Ok(outer) = window.outer_size() {
+                                let (new_w, new_h) = clamp_size_to_work_area(
+                                    outer.width,
+                                    outer.height,
+                                    work.size.width,
+                                    work.size.height,
+                                    margin,
+                                );
+                                if new_w != outer.width || new_h != outer.height {
+                                    let _ =
+                                        window.set_size(tauri::PhysicalSize::new(new_w, new_h));
+                                }
+                            }
+                            let _ = window.center();
+                        }
+                    }
+                }
             }
             Ok(())
         })
@@ -1526,4 +1588,41 @@ fn init_google_auth_mobile_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
             Ok(())
         })
         .build()
+}
+
+#[cfg(all(test, desktop))]
+mod window_clamp_tests {
+    use super::clamp_size_to_work_area;
+
+    #[test]
+    fn shrinks_a_window_larger_than_the_work_area() {
+        // 1280x1200 window on a 1080p work area (taskbar excluded), 32px margin.
+        assert_eq!(
+            clamp_size_to_work_area(1280, 1200, 1280, 1040, 32),
+            (1248, 1008)
+        );
+    }
+
+    #[test]
+    fn leaves_a_window_that_already_fits_unchanged() {
+        // 1280x860 default on a 1440p work area has room to spare.
+        assert_eq!(
+            clamp_size_to_work_area(1280, 860, 2560, 1440, 32),
+            (1280, 860)
+        );
+    }
+
+    #[test]
+    fn clamps_only_the_overflowing_dimension() {
+        // Width fits, height overflows.
+        assert_eq!(
+            clamp_size_to_work_area(1280, 1200, 2560, 1040, 32),
+            (1280, 1008)
+        );
+    }
+
+    #[test]
+    fn does_not_underflow_when_the_work_area_is_smaller_than_the_margin() {
+        assert_eq!(clamp_size_to_work_area(800, 600, 16, 16, 32), (0, 0));
+    }
 }

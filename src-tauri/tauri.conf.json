@@ -17,7 +17,8 @@
         "label": "main",
         "title": "ケチモチ",
         "width": 1280,
-        "height": 1200,
+        "height": 860,
+        "center": true,
         "decorations": false,
         "transparent": true
       }
