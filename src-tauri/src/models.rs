@@ -68,6 +68,7 @@ pub struct TimelineEvent {
     pub content_type: String,
     pub tracking_status: String,
     pub milestone_name: Option<String>,
+    pub milestone_id: Option<i64>,
     pub first_date: String,
     pub last_date: String,
     pub total_minutes: i64,
