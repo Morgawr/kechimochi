@@ -6,6 +6,9 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+### Added
+ - Shareable profile "report cards" - save a PNG of your stats from the Profile page, as either time spent per activity type or per content type, each with a matching donut chart.
+
 ## [0.2.10] - 2026-06-10
 
 ### Added
