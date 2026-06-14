@@ -280,6 +280,12 @@ export class WebServices implements AppServices {
         return count as number;
     }
 
+    // ── Report card operations ────────────────────────────────────────────────
+    async saveReportCardImage(imageBlob: Blob, defaultFileName: string): Promise<boolean> {
+        triggerDownload(imageBlob, defaultFileName);
+        return true;
+    }
+
     // ── Profile picture operations ────────────────────────────────────────────
     async pickAndUploadProfilePicture(): Promise<ProfilePicture | null> {
         const file = await pickFile('image/png,image/jpeg,image/webp');
