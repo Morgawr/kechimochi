@@ -6,6 +6,9 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+### Added
+ - Added a Notes field to activity log entries (editable in the log modal, shown on the media detail page, included in sync and CSV export).
+
 ## [0.2.10] - 2026-06-10
 
 ### Added

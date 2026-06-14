@@ -997,6 +997,7 @@ mod tests {
                     characters: 0,
                     date: "2024-01-01".to_string(),
                     activity_type: String::new(),
+                    notes: String::new(),
                 },
             )
             .unwrap();
@@ -1009,6 +1010,7 @@ mod tests {
                     characters: 0,
                     date: "2024-01-02".to_string(),
                     activity_type: String::new(),
+                    notes: String::new(),
                 },
             )
             .unwrap();
@@ -1053,6 +1055,7 @@ mod tests {
                     characters: 1500,
                     date: "2024-03-01".to_string(),
                     activity_type: "Reading".to_string(),
+                    notes: String::new(),
                 },
             )
             .unwrap();
@@ -1183,6 +1186,7 @@ mod tests {
                     characters: 0,
                     date: "2024-03-01".to_string(),
                     activity_type: String::new(),
+                    notes: String::new(),
                 },
             )
             .unwrap();

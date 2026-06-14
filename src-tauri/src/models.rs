@@ -25,6 +25,8 @@ pub struct ActivityLog {
     pub date: String, // YYYY-MM-DD
     #[serde(default)]
     pub activity_type: String,
+    #[serde(default)]
+    pub notes: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -37,6 +39,7 @@ pub struct ActivitySummary {
     pub characters: i64,
     pub date: String,
     pub language: String,
+    pub notes: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

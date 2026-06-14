@@ -1144,6 +1144,7 @@ mod tests {
             activity_type: kind.to_string(),
             duration_minutes: minutes,
             characters: chars,
+            notes: String::new(),
         }
     }
 

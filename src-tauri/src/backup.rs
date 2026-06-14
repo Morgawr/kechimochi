@@ -387,6 +387,7 @@ fn rollback_backup(app_dir: &Path, backup_dir: &Path, files: &[&str]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models;
 
     fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
         let ts = std::time::SystemTime::now()
@@ -594,6 +595,70 @@ mod tests {
         assert_eq!(logs.len(), 1);
         assert_eq!(logs[0].title, "Legacy VN");
         assert_eq!(logs[0].duration_minutes, 45);
+
+        fs::remove_dir_all(source_dir).ok();
+        fs::remove_dir_all(target_dir).ok();
+    }
+
+    #[test]
+    fn test_backup_export_import_preserves_activity_notes() {
+        let source_dir = unique_temp_dir("backup_notes_source");
+        let target_dir = unique_temp_dir("backup_notes_target");
+        fs::create_dir_all(&source_dir).unwrap();
+        fs::create_dir_all(&target_dir).unwrap();
+
+        // Build source DB with a log that has notes
+        let source_conn = db::init_db(source_dir.clone(), None).unwrap();
+        let media_id = db::add_media_with_id(
+            &source_conn,
+            &models::Media {
+                id: None,
+                uid: None,
+                title: "Backup Notes Media".to_string(),
+                media_type: "Reading".to_string(),
+                status: "Active".to_string(),
+                language: "Japanese".to_string(),
+                description: String::new(),
+                cover_image: String::new(),
+                extra_data: "{}".to_string(),
+                content_type: "Novel".to_string(),
+                tracking_status: "Ongoing".to_string(),
+            },
+        )
+        .unwrap();
+        db::add_log(
+            &source_conn,
+            &models::ActivityLog {
+                id: None,
+                media_id,
+                duration_minutes: 50,
+                characters: 0,
+                date: "2024-11-01".to_string(),
+                activity_type: "Reading".to_string(),
+                notes: "backup note content".to_string(),
+            },
+        )
+        .unwrap();
+
+        let zip_path = source_dir.join("notes_backup.zip");
+        export_full_backup_internal(
+            &source_dir,
+            &source_conn,
+            zip_path.to_str().unwrap(),
+            "{}",
+            "0.0.0",
+        )
+        .unwrap();
+
+        // Import the backup into a fresh connection
+        let mut target_conn = Connection::open_in_memory().unwrap();
+        import_full_backup_internal(&target_dir, &mut target_conn, zip_path.to_str().unwrap())
+            .unwrap();
+
+        let logs = db::get_logs(&target_conn).unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].notes, "backup note content");
+        assert_eq!(logs[0].title, "Backup Notes Media");
 
         fs::remove_dir_all(source_dir).ok();
         fs::remove_dir_all(target_dir).ok();

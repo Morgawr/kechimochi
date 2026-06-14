@@ -1118,6 +1118,7 @@ mod tests {
                     activity_type: "Playing".to_string(),
                     duration_minutes: 90,
                     characters: 0,
+                    notes: String::new(),
                 }],
                 milestones: vec![sync_snapshot::SnapshotMilestone {
                     name: "Finished Intro".to_string(),
