@@ -63,7 +63,7 @@ describe('HeatmapView', () => {
         expect(container.textContent).toContain('No data recorded yet');
     });
 
-    it('should color a character-only day (core bug fix)', () => {
+    it('should color a character-only day', () => {
         const heatmapData = [
             { date: '2024-01-01', total_minutes: 0, total_characters: 5000 }
         ];
@@ -76,7 +76,7 @@ describe('HeatmapView', () => {
         expect(styleAttribute).toContain('background-color: hsl(');
     });
 
-    it('should still color a time-only day (regression)', () => {
+    it('should color a time-only day', () => {
         const heatmapData = [
             { date: '2024-01-01', total_minutes: 60, total_characters: 0 }
         ];
@@ -89,7 +89,7 @@ describe('HeatmapView', () => {
         expect(styleAttribute).toContain('background-color: hsl(');
     });
 
-    it('should use the hotter of time and character ratios (no double-heat)', () => {
+    it('should use the hotter of time and character ratios', () => {
         const hslSaturationPattern = /background-color:\s*hsl\(\s*[\d.]+\s*,\s*([\d.]+)%/;
 
         // High-character + low-time day: character ratio dominates
@@ -136,7 +136,7 @@ describe('HeatmapView', () => {
         expect(bothTrackedSaturation).toBe(highCharacterSaturation);
     });
 
-    it('should produce higher saturation for more characters (monotonic ramp)', () => {
+    it('should produce higher saturation for more characters', () => {
         const hslSaturationPattern = /background-color:\s*hsl\(\s*[\d.]+\s*,\s*([\d.]+)%/;
 
         const lowCharacterData = [
