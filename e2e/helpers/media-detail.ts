@@ -1,7 +1,6 @@
 /**
  * Media Detail helpers.
  */
-/// <reference types="@wdio/globals/types" />
 import {
     submitPrompt,
     confirmAction,
@@ -9,10 +8,12 @@ import {
     getTopmostVisibleOverlay,
     waitForOverlayToDisappear,
     safeClick,
-    setInputValue,
-    waitForNoActiveOverlays
+    waitForNoActiveOverlays,
+    selectActivityDate
 } from './common.js';
-import { type LibraryLayoutMode, waitForLibraryLayout } from './library.js';
+import { getSelectValue, setText, setSelect } from './form-controls.js';
+import { type LibraryLayoutMode, waitForLibraryLayout, waitForLibraryDisplayed, isLayoutToggleAvailable } from './library.js';
+import type { ChainablePromiseElement } from 'webdriverio';
 
 /**
  * Clicks the "Mark as Complete" button in Media Detail.
@@ -24,7 +25,7 @@ export async function clickMarkAsComplete(): Promise<void> {
 
     // Wait for the tracking status badge to update to Complete
     await browser.waitUntil(async () => {
-        return (await $('#media-tracking-status').getValue()) === 'Complete';
+        return (await getSelectValue('#media-tracking-status')) === 'Complete';
     }, { timeout: 3000, timeoutMsg: 'Tracking status did not update to Complete' });
 }
 
@@ -32,27 +33,26 @@ export async function clickMarkAsComplete(): Promise<void> {
  * Gets the current tracking status from the detail view dropdown.
  */
 export async function getDetailTrackingStatus(): Promise<string> {
-    const select = $('#media-tracking-status');
-    return (await select.getValue()) as string;
+    return (await getSelectValue('#media-tracking-status')) ?? '';
 }
 
 /**
  * Checks if the archived/active toggle is in the "Active" position.
  */
 export async function isArchivedStatusActive(): Promise<boolean> {
-    const label = $('#status-label');
-    await label.waitForExist({ timeout: 5000 });
+    const selector = '#status-label';
+    await $(selector).waitForExist({ timeout: 5000 });
 
-    // We wait until the text is either Archive or Archived to avoid checking during transitions
+    // Re-fetch each poll: a status toggle re-renders the label, so a held handle goes stale.
     await browser.waitUntil(async () => {
-        const text = await label.getText();
+        const text = await $(selector).getText();
         return text === 'Archive' || text === 'Archived';
     }, {
         timeout: 5000,
         timeoutMsg: 'Status label did not settle on Archive or Archived'
     });
 
-    return (await label.getText()) === 'Archive';
+    return (await $(selector).getText()) === 'Archive';
 }
 
 /**
@@ -71,45 +71,45 @@ export async function toggleArchivedStatusDetail(): Promise<void> {
 }
 
 /**
- * Clicks the "Back to Grid" button in Media Detail.
+ * Leaves the Media Detail view back to the library, on any platform.
+ *
+ * Desktop/web show a "Back to Library" button (#btn-back-grid). Mobile hides
+ * #media-back-slot, so there is no button; dispatching Escape triggers
+ * MediaView's keydown handler, which exits detail the same way.
+ */
+async function exitMediaDetail(): Promise<void> {
+    await waitForNoActiveOverlays().catch(() => {});
+    const backButton = $('#btn-back-grid');
+    const hasBackButton = await backButton.waitForDisplayed({ timeout: 1000 }).then(() => true).catch(() => false);
+    if (hasBackButton) {
+        await safeClick(backButton);
+        return;
+    }
+
+    await browser.execute(() => {
+        globalThis.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+}
+
+/**
+ * Returns from Media Detail to the library view.
  */
 export async function backToGrid(): Promise<void> {
-    const btn = $('#btn-back-grid');
-    await btn.waitForDisplayed({ timeout: 5000 });
-    await btn.click();
-
-    // Wait for the detail view to be gone/grid to be displayed
-    const grid = $('#media-grid-container');
-    await grid.waitForDisplayed({ timeout: 5000 });
+    await exitMediaDetail();
+    await waitForLibraryDisplayed();
 }
 
 /**
- * Clicks the back button in Media Detail and waits for the requested library layout.
+ * Returns from Media Detail and waits for the requested library layout where the
+ * layout is selectable; on a list-only viewport (mobile) the request is moot, so
+ * it just waits for the library to render.
  */
 export async function backToLibrary(layout: LibraryLayoutMode): Promise<void> {
-    const btn = $('#btn-back-grid');
-    await btn.waitForDisplayed({ timeout: 5000 });
-    await btn.click();
-    await waitForLibraryLayout(layout);
-}
-
-/**
- * Clicks the back button in the media detail view.
- * @deprecated Use backToGrid instead if targeting the same element
- */
-export async function clickBackButton(): Promise<void> {
-    const btn = $('#btn-back-grid');
-    await btn.waitForDisplayed({ timeout: 5000 });
-    await btn.click();
-    await browser.waitUntil(async () => {
-        const detailVisible = await $('#media-detail-header').isDisplayed().catch(() => false);
-        const gridVisible = await $('#media-grid-container').isDisplayed().catch(() => false);
-        const listVisible = await $('#media-list-container').isDisplayed().catch(() => false);
-        return !detailVisible && (gridVisible || listVisible);
-    }, {
-        timeout: 5_000,
-        timeoutMsg: 'Media detail did not transition back to the library in time'
-    });
+    await exitMediaDetail();
+    await waitForLibraryDisplayed();
+    if (await isLayoutToggleAvailable()) {
+        await waitForLibraryLayout(layout);
+    }
 }
 
 /**
@@ -117,7 +117,7 @@ export async function clickBackButton(): Promise<void> {
  */
 export async function editDescription(newDescription: string): Promise<void> {
     await browser.waitUntil(async () => {
-        const descEl = await $('#media-description');
+        const descEl = $('#media-description');
         return await descEl.isDisplayed().catch(() => false);
     }, {
         timeout: 5000,
@@ -140,7 +140,7 @@ export async function editDescription(newDescription: string): Promise<void> {
         timeoutMsg: 'Failed to enter description edit mode after retries'
     });
 
-    const textarea = await $('textarea');
+    const textarea = $('textarea');
     await textarea.waitForDisplayed({ timeout: 3000 });
 
     await browser.execute((value) => {
@@ -187,27 +187,29 @@ export async function isDescriptionCollapsed(): Promise<boolean> {
 }
 
 export async function toggleDescriptionVisibility(expectedLabel: 'see more' | 'see less'): Promise<void> {
-    const toggle = $('#media-description-toggle');
-    await toggle.waitForDisplayed({ timeout: 5000 });
+    const selector = '#media-description-toggle';
+    await $(selector).waitForDisplayed({ timeout: 5000 });
+    // Re-fetch each poll: expanding/collapsing re-renders the toggle, so a held handle goes stale.
     await browser.waitUntil(async () => {
-        return (await toggle.getText()).trim().toLowerCase() === expectedLabel;
+        return (await $(selector).getText()).trim().toLowerCase() === expectedLabel;
     }, {
         timeout: 5000,
         timeoutMsg: `Description toggle did not show "${expectedLabel}"`
     });
-    await toggle.click();
+    await $(selector).click();
 }
 
 /**
  * Gets the value of an extra field by its key in Media Detail.
  */
 export async function getExtraField(key: string): Promise<string> {
-    const el = $(`.editable-extra[data-key="${key}"]`);
-    await el.waitForExist({ timeout: 5000 });
+    const selector = `.editable-extra[data-key="${key}"]`;
+    await $(selector).waitForExist({ timeout: 5000 });
 
+    // Re-fetch each poll: adding/editing a field re-renders the card, so a held handle goes stale.
     let text = "";
     await browser.waitUntil(async () => {
-        text = await el.getText();
+        text = await $(selector).getText();
         return text !== "" && text !== "-"; // "-" is our placeholder for empty
     }, {
         timeout: 5000,
@@ -215,13 +217,12 @@ export async function getExtraField(key: string): Promise<string> {
         timeoutMsg: `Value for extra field "${key}" never settled`
     }).catch(() => { });
 
-    return await el.getText();
+    return await $(selector).getText();
 }
 
 export async function addExtraField(key: string, value: string): Promise<void> {
-    const btn = $('#btn-add-extra');
-    await btn.waitForDisplayed({ timeout: 5000 });
-    await btn.click();
+    await waitForNoActiveOverlays();
+    await safeClick('#btn-add-extra');
 
     // First prompt for key
     await submitPrompt(key);
@@ -280,9 +281,9 @@ export async function editExtraField(key: string, newValue: string): Promise<voi
     await input.waitForDisplayed({ reverse: true, timeout: 5000 });
 
     // Additional verification: ensure the label text eventually matches the new value
-    const label = $(`.card[data-ekey="${key}"] .editable-extra[data-key="${key}"]`);
+    const labelSelector = `.card[data-ekey="${key}"] .editable-extra[data-key="${key}"]`;
     await browser.waitUntil(async () => {
-        return (await label.getText()) === newValue;
+        return (await $(labelSelector).getText()) === newValue;
     }, { timeout: 5000, timeoutMsg: `Extra field "${key}" value did not update in UI to "${newValue}"` });
 }
 
@@ -313,7 +314,7 @@ async function waitForMilestoneCardReady(): Promise<void> {
     await addBtn.waitForDisplayed({ timeout: 5000 });
 }
 
-async function openMilestoneModal(): Promise<WebdriverIO.Element> {
+async function openMilestoneModal(): Promise<ChainablePromiseElement> {
     await waitForMilestoneCardReady();
     await safeClick('#btn-add-milestone');
 
@@ -323,11 +324,11 @@ async function openMilestoneModal(): Promise<WebdriverIO.Element> {
     return overlay;
 }
 
-async function populateMilestoneForm(overlay: WebdriverIO.Element, values: MilestoneFormValues): Promise<string | null> {
-    await setInputValue(() => overlay.$('#milestone-name'), values.name);
-    await setInputValue(() => overlay.$('#milestone-hours'), values.hours);
-    await setInputValue(() => overlay.$('#milestone-minutes'), values.minutes);
-    await setInputValue(() => overlay.$('#milestone-characters'), values.characters ?? '0');
+async function populateMilestoneForm(overlay: ChainablePromiseElement, values: MilestoneFormValues): Promise<string | null> {
+    await setText('#milestone-name', values.name);
+    await setText('#milestone-hours', values.hours);
+    await setText('#milestone-minutes', values.minutes);
+    await setText('#milestone-characters', values.characters ?? '0');
 
     let selectedDate: string | null = null;
     if (typeof values.pickDate === 'boolean') {
@@ -384,9 +385,9 @@ export async function addMilestone(name: string, hours: string, minutes: string,
 
 export async function getMilestonePrefillValues(): Promise<{ hours: string; minutes: string; characters: string; }> {
     const overlay = await openMilestoneModal();
-    const hours = await overlay.$('#milestone-hours').getValue();
-    const minutes = await overlay.$('#milestone-minutes').getValue();
-    const characters = await overlay.$('#milestone-characters').getValue();
+    const hours = await overlay.$('#milestone-hours').getValue() as string;
+    const minutes = await overlay.$('#milestone-minutes').getValue() as string;
+    const characters = await overlay.$('#milestone-characters').getValue() as string;
 
     await safeClick(() => overlay.$('#milestone-cancel'));
     await waitForOverlayToDisappear(overlay, 5000);
@@ -399,20 +400,6 @@ export async function submitInvalidMilestone(name: string, hours: string, minute
     const overlay = await openMilestoneModal();
     await populateMilestoneForm(overlay, { name, hours, minutes, characters });
     await safeClick(() => overlay.$('#milestone-confirm'));
-}
-
-/**
- * Deletes a milestone by index.
- */
-export async function deleteMilestone(index: number): Promise<void> {
-    await waitForMilestoneCardReady();
-
-    const deleteBtns = await $$('.delete-milestone-btn');
-    if (deleteBtns[index]) {
-        await safeClick(deleteBtns[index]);
-        await confirmAction(true);
-        await waitForMilestoneActionToSettle();
-    }
 }
 
 export async function deleteMilestoneByName(name: string): Promise<void> {
@@ -493,55 +480,48 @@ export async function getMilestoneListText(): Promise<string> {
  * Logs an activity directly from the Media Detail view using the "+ New Entry" button.
  */
 export async function logActivityFromDetail(expectedTitle: string, duration: string, characters: string = "0", activityType?: string): Promise<void> {
-    const newEntryBtn = $('#btn-new-media-entry');
-    await newEntryBtn.waitForDisplayed({ timeout: 5000 });
-    await newEntryBtn.click();
+    await waitForNoActiveOverlays();
+    await safeClick('#btn-new-media-entry');
 
-    const modal = $('.modal-content');
+    const overlay = await getTopmostVisibleOverlay('#add-activity-form', 5000);
+    const modal = overlay.$('.modal-content');
     await modal.waitForDisplayed({ timeout: 5000 });
 
-    const titleInput = $('#activity-media');
+    const titleInput = overlay.$('#activity-media');
     await titleInput.waitForDisplayed({ timeout: 5000 });
-    const currentValue = await browser.execute(() => {
-        const input = document.querySelector<HTMLInputElement>('#activity-media');
-        return input?.value || '';
-    });
+    const currentValue = await titleInput.getValue();
     if (currentValue !== expectedTitle) {
-        await titleInput.setValue(expectedTitle);
+        await setText('#activity-media', expectedTitle);
     }
 
-    const durationInput = $('#activity-duration');
+    const durationInput = overlay.$('#activity-duration');
     await browser.waitUntil(async () => await durationInput.isFocused(), {
         timeout: 2000,
         timeoutMsg: 'Duration input should be focused when modal opens with pre-filled title'
     });
-    await durationInput.setValue(duration);
+    await setText('#activity-duration', duration);
 
-    const charInput = $('#activity-characters');
+    const charInput = overlay.$('#activity-characters');
     if (await charInput.isExisting()) {
-        await charInput.setValue(characters);
+        await setText('#activity-characters', characters);
     }
 
     if (activityType) {
-        const typeSelect = $('#activity-type');
+        const typeSelect = overlay.$('#activity-type');
         if (await typeSelect.isExisting()) {
-            await typeSelect.selectByVisibleText(activityType);
+            await setSelect('#activity-type', { text: activityType });
         }
     }
 
     // Pick today in the calendar
-    const todayCell = $('.cal-day.today');
-    await todayCell.waitForClickable({ timeout: 2000 });
-    await todayCell.click();
+    await selectActivityDate();
 
-    const submitBtn = $('#add-activity-form button[type="submit"]');
-    await submitBtn.click();
+    await safeClick(() => overlay.$('#add-activity-form button[type="submit"]'));
 
     // Wait for modal to disappear
-    await modal.waitForDisplayed({ reverse: true, timeout: 5000 });
+    await waitForOverlayToDisappear(overlay, 5000);
     await browser.waitUntil(async () => {
-        const entries = await $$('.media-detail-log-item');
-        for (const entry of entries) {
+        for await (const entry of $$('.media-detail-log-item')) {
             const text = await entry.getText().catch(() => '');
             if (text.includes(`${duration} Minutes`)) {
                 return await entry.isDisplayed().catch(() => false);

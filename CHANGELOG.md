@@ -6,6 +6,14 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+### Added
+ - Web E2E suite: the shared spec suite runs against `web_server` in headless Chrome via `npm run e2e:web`, plus web-only specs for browser refresh and direct URL load.
+ - Android E2E: the shared spec suite runs on-device (seeded) via Appium + UiAutomator2 (`npm run e2e:android`), with an `ANDROID_E2E_TARGET=emulator|remote` selector for local AVDs or any Appium-compatible device cloud, plus Android-only fresh-install and seeded-DB smoke specs.
+ - Multi-platform CI: new `e2e-web` job in `test.yml` runs per-PR (headless Chrome, no VM); new `android-e2e.yml` workflow runs on `workflow_dispatch`, with a weekly schedule included but commented out pending repo-owner sign-off.
+
+### Changed
+ - E2E specs reorganised under `e2e/specs/` into `shared/` (desktop + web + android), `desktop/`, `web/`, `android/`, and `non-mobile/` (desktop + web); redundant spec pairs merged.
+
 ## [0.2.10] - 2026-06-10
 
 ### Added

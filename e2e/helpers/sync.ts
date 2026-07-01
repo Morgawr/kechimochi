@@ -1,4 +1,3 @@
-/// <reference types="@wdio/globals/types" />
 import { dismissAlert, confirmAction, findTopmostVisibleOverlay, getTopmostVisibleOverlay, safeClick, waitForNoActiveOverlays } from './common.js';
 import { navigateTo, verifyActiveView } from './navigation.js';
 

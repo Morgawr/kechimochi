@@ -1,7 +1,6 @@
 /**
  * Profile view helpers.
  */
-/// <reference types="@wdio/globals/types" />
 import { Logger } from '../../src/logger';
 import { dismissAlert, setDialogMockPath } from './common.js';
 

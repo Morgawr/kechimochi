@@ -298,32 +298,35 @@ export async function customPrompt(title: string, defaultValue = "", text = ""):
         const escapedText = text ? escapeHTML(text) : '';
         
         overlay.innerHTML = `
-            <div class="modal-content">
+            <form id="prompt-form" class="modal-content">
                 <h3>${escapedTitle}</h3>
                 <div style="margin-top: 1rem;">
                     <input type="text" id="prompt-input" style="width: 100%; border: 1px solid var(--border-color); background: var(--bg-dark); color: var(--text-primary); padding: 0.5rem; border-radius: var(--radius-sm);" value="${escapedDefaultValue}" autocomplete="off" />
                 </div>
                 ${escapedText ? `<p style="margin-top: 0.5rem; font-size: 0.85rem; color: var(--text-secondary);">${escapedText}</p>` : ''}
                 <div style="display: flex; justify-content: flex-end; gap: 1rem; margin-top: 1.5rem;">
-                    <button class="btn btn-ghost" id="prompt-cancel">Cancel</button>
-                    <button class="btn btn-primary" id="prompt-confirm">OK</button>
+                    <button type="button" class="btn btn-ghost" id="prompt-cancel">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="prompt-confirm">OK</button>
                 </div>
-            </div>
+            </form>
         `;
-        
+
         const input = overlay.querySelector<HTMLInputElement>('#prompt-input')!;
         const confirm = () => {
             cleanup();
             resolve(input.value);
         };
-        
+
         overlay.querySelector('#prompt-cancel')?.addEventListener('click', dismiss);
-        overlay.querySelector('#prompt-confirm')!.addEventListener('click', confirm);
-        input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') { confirm(); }
-            if (e.key === 'Escape') { dismiss(); }
+        overlay.querySelector<HTMLFormElement>('#prompt-form')!.addEventListener('submit', (e) => {
+            e.preventDefault();
+            confirm();
         });
-        
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') { dismiss(); }
+            else if (e.key === 'Enter') { e.preventDefault(); confirm(); }
+        });
+
         input.focus();
     });
 }

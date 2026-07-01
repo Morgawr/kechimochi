@@ -1,0 +1,141 @@
+name: "Android E2E"
+
+# Triggers: weekly cron + manual dispatch.
+on:
+  workflow_dispatch:
+    inputs:
+      avd_name:
+        description: "AVD name to use (default: Pixel_6_API_34)"
+        required: false
+        default: "Pixel_6_API_34"
+      api_level:
+        description: "Android API level (default: 34)"
+        required: false
+        default: "34"
+  schedule:
+    - cron: '0 6 * * 1'  # Monday 06:00 UTC
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  CARGO_TERM_COLOR: always
+  ANDROID_E2E_TARGET: emulator
+
+jobs:
+  android-e2e:
+    runs-on: ubuntu-latest
+    # Cap the job so a hung emulator/Appium session can't burn the 6h default.
+    timeout-minutes: 35
+    env:
+      # SSOT for the emulator identity — feeds both the action inputs below and
+      # android-driver.ts (restartEmulator reads them from process.env).
+      AVD_NAME: ${{ github.event.inputs.avd_name || 'Pixel_6_API_34' }}
+      EMULATOR_OPTIONS: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+      EMULATOR_PORT: '5554'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: enable KVM hardware acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: install node dependencies
+        run: npm ci
+
+      - name: seed e2e databases
+        run: npm run e2e:seed
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+        with:
+          toolchain: stable
+
+      - name: cache rust dependencies
+        uses: swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: setup Java (required for Android Gradle)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: install Android build tools and platform
+        run: |
+          sdkmanager "build-tools;34.0.0" "platforms;android-34" "platform-tools"
+
+      - name: build debug APK
+        run: npm run tauri -- android build --apk --debug --ci --target x86_64
+        env:
+          KECHIMOCHI_GOOGLE_ANDROID_CLIENT_ID: ${{ secrets.KECHIMOCHI_GOOGLE_ANDROID_CLIENT_ID }}
+
+      - name: locate debug APK
+        # Tauri emits ABI-split APKs (app-x86_64-debug.apk / app-universal-debug.apk),
+        # not a plain app-debug.apk — pick one and pass it via ANDROID_APK_PATH.
+        run: |
+          set -e
+          echo "Debug APKs produced by the Tauri Android build:"
+          find src-tauri/gen/android -path '*/outputs/apk/*' -name '*debug*.apk' -print
+          CHOSEN="$(find src-tauri/gen/android -path '*/outputs/apk/*' -name '*debug*.apk' | grep -E 'x86_64|universal' | head -n1 || true)"
+          if [ -z "$CHOSEN" ]; then
+            CHOSEN="$(find src-tauri/gen/android -path '*/outputs/apk/*' -name '*debug*.apk' | head -n1 || true)"
+          fi
+          if [ -z "$CHOSEN" ]; then
+            echo "::error::No debug APK found under src-tauri/gen/android"; exit 1
+          fi
+          echo "Using APK: $CHOSEN"
+          echo "ANDROID_APK_PATH=$(realpath "$CHOSEN")" >> "$GITHUB_ENV"
+
+      - name: install Appium
+        run: |
+          npm install -g appium
+          appium driver install uiautomator2
+
+      - name: run Android E2E tests
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          ANDROID_APK_PATH: ${{ env.ANDROID_APK_PATH }}
+          AVD_NAME: ${{ env.AVD_NAME }}
+          EMULATOR_OPTIONS: ${{ env.EMULATOR_OPTIONS }}
+          EMULATOR_PORT: ${{ env.EMULATOR_PORT }}
+        with:
+          api-level: ${{ github.event.inputs.api_level || '34' }}
+          avd-name: ${{ env.AVD_NAME }}
+          arch: x86_64
+          profile: pixel_6
+          emulator-options: ${{ env.EMULATOR_OPTIONS }}
+          disable-animations: true
+          script: |
+            # --allow-insecure lets Appium auto-fetch a chromedriver matching the
+            # device WebView (the specs drive the web context). Appium runs
+            # backgrounded and MUST be killed, else it holds the step's stdout
+            # pipe open and the GitHub step hangs after tests finish.
+            appium --port 4723 --allow-insecure=uiautomator2:chromedriver_autodownload --log-level error:debug --log /tmp/appium.log > /tmp/appium.stdout.log 2>&1 &
+            APPIUM_PID=$!
+            sleep 5
+            npm run e2e:test:android
+            STATUS=$?
+            kill "$APPIUM_PID" 2>/dev/null || true
+            exit $STATUS
+
+      - name: upload android e2e logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-e2e-logs
+          path: |
+            e2e/logs/
+            /tmp/appium.log
+          if-no-files-found: ignore

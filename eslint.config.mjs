@@ -1,11 +1,11 @@
 import eslint from "@eslint/js";
 import tseslint from "typescript-eslint";
-import sonarjs from "eslint-plugin-sonarjs";
+import { configs as sonarjsConfigs } from "eslint-plugin-sonarjs";
 
 export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
-  sonarjs.configs.recommended,
+  sonarjsConfigs.recommended,
   {
     rules: {
       "sonarjs/cognitive-complexity": ["error", 15],
@@ -17,6 +17,17 @@ export default tseslint.config(
     files: ["tests/**/*.ts", "e2e/**/*.ts"],
     rules: {
       "sonarjs/no-duplicate-string": "off",
+    },
+  },
+  {
+    files: ["src/**/*.ts", "tests/**/*.ts"],
+    rules: {
+      "no-restricted-imports": ["error", {
+        patterns: [{
+          group: ["**/e2e/**"],
+          message: "e2e-only modules cannot be imported from src/ or tests/. Keep e2e constants in e2e/.",
+        }],
+      }],
     },
   },
   {
