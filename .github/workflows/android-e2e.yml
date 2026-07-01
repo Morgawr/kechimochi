@@ -70,7 +70,7 @@ jobs:
           java-version: '17'
 
       - name: setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
 
       - name: install Android build tools and platform
         run: |
@@ -104,7 +104,7 @@ jobs:
           appium driver install uiautomator2
 
       - name: run Android E2E tests
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@e89f39f1abbbd05b1113a29cf4db69e7540cae5a # v2
         env:
           ANDROID_APK_PATH: ${{ env.ANDROID_APK_PATH }}
           AVD_NAME: ${{ env.AVD_NAME }}

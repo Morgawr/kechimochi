@@ -19,7 +19,7 @@ describe('modals/calendar.ts', () => {
 
         expect(container.textContent).toContain('2024 / 1');
         const days = container.querySelectorAll('.cal-day');
-        expect(days.length).toBe(31);
+        expect(days).toHaveLength(31);
         
         const day15 = Array.from(days).find(d => d.textContent === '15') as HTMLElement;
         expect(day15).toBeDefined();
