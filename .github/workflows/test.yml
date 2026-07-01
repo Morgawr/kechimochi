@@ -131,7 +131,7 @@ jobs:
       - name: run desktop e2e tests
         env:
           E2E_MAX_INSTANCES: 2
-        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" wdio run e2e/wdio/wdio.desktop.conf.ts
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" npm run e2e:test:desktop
 
       - name: upload e2e logs
         if: failure()
@@ -168,7 +168,12 @@ jobs:
       - name: install system dependencies (linux)
         run: |
           sudo apt-get update
-          sudo apt-get install -y fonts-noto-cjk
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            fonts-noto-cjk
 
       - name: seed e2e databases
         run: npm run e2e:seed
@@ -180,7 +185,7 @@ jobs:
         run: cargo build --manifest-path src-tauri/Cargo.toml --bin web_server
 
       - name: run web e2e tests
-        run: wdio run e2e/wdio/wdio.web.conf.ts
+        run: npm run e2e:test:web
 
       - name: upload web e2e logs
         if: failure()
