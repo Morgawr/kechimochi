@@ -7,10 +7,11 @@ The format is based on Keep a Changelog, with one section per released version.
 ## [Unreleased]
 
 ### Fixed
-- Default window no longer opens larger than the screen / under the taskbar, which could hide the update dialog's close button (#202).
+ - Default window no longer opens larger than the screen / under the taskbar, which could hide the update dialog's close button (#202).
 
 ### Added
-- The desktop app now remembers its window size, position, and maximized state between launches.
+ - The desktop app now remembers its window size, position, and maximized state between launches.
+ - Milestones on the same media and same date now appear in creation order (oldest at the bottom, newest at the top) instead of alphabetically by name.
 
 ## [0.2.10] - 2026-06-10
 
