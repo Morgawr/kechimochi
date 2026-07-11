@@ -7,6 +7,7 @@ import { setText } from './form-controls.js';
 import type { ChainablePromiseElement } from 'webdriverio';
 
 type ElementTarget = string | ChainablePromiseElement | (() => ChainablePromiseElement);
+let promptSubmissionCounter = 0;
 
 function resolveElement(target: ElementTarget): ChainablePromiseElement {
     if (typeof target === 'string') {
@@ -413,28 +414,42 @@ export async function submitPrompt(value: string, timeout = 15000): Promise<void
 
     await setText('#prompt-input', value);
 
-    const promptModalId = await browser.execute(() => {
+    // Modal IDs restart at 1 after a reload. Tag this specific overlay so a
+    // newly loaded first-run modal cannot be mistaken for the prompt we just
+    // submitted (notably during factory reset).
+    promptSubmissionCounter += 1;
+    const promptToken = `e2e-prompt-${promptSubmissionCounter}`;
+    const submitted = await browser.execute((token) => {
         const overlays = Array.from(document.querySelectorAll('.modal-overlay')).reverse();
         const activeOverlay = overlays.find(
             (candidate) => candidate instanceof HTMLElement && candidate.classList.contains('active'),
         );
 
-        const modalId = activeOverlay instanceof HTMLElement ? (activeOverlay.dataset.modalId ?? null) : null;
-        const form = (activeOverlay ?? document).querySelector('#prompt-form');
-        if (form instanceof HTMLFormElement) {
-            form.requestSubmit();
+        if (!(activeOverlay instanceof HTMLElement)) {
+            return false;
         }
-        return modalId;
-    });
+
+        const form = activeOverlay.querySelector('#prompt-form');
+        if (!(form instanceof HTMLFormElement)) {
+            return false;
+        }
+
+        activeOverlay.dataset.e2ePromptToken = token;
+        form.requestSubmit();
+        return true;
+    }, promptToken);
+
+    if (!submitted) {
+        throw new Error('Active prompt form disappeared before it could be submitted');
+    }
 
     await browser.waitUntil(async () => {
-        return browser.execute((id) => {
-            if (id === null) {
-                return !document.querySelector('#prompt-input');
-            }
-            const tracked = document.querySelector(`.modal-overlay[data-modal-id="${id}"]`);
-            return !tracked || !tracked.classList.contains('active');
-        }, promptModalId).catch(() => true);
+        return browser.execute((token) => {
+            const tracked = Array.from(document.querySelectorAll('.modal-overlay')).find(
+                (candidate) => candidate instanceof HTMLElement && candidate.dataset.e2ePromptToken === token,
+            );
+            return !(tracked instanceof HTMLElement) || !tracked.classList.contains('active');
+        }, promptToken).catch(() => true);
     }, { timeout, timeoutMsg: 'Prompt overlay did not disappear in time' });
 }
 

@@ -1,6 +1,6 @@
 import { waitForAppReady } from '../../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../../helpers/navigation.js';
-import { submitPrompt } from '../../helpers/common.js';
+import { submitPrompt, waitForSelectorDisplayed } from '../../helpers/common.js';
 import { setText } from '../../helpers/form-controls.js';
 import { TEST_PROFILE_NAME } from '../../config/test-constants.js';
 describe('Factory Reset CUJ', () => {
@@ -32,14 +32,11 @@ describe('Factory Reset CUJ', () => {
     await wipeBtn.click();
 
     await submitPrompt('WIPE_EVERYTHING');
-
-    const initialInput = $('#initial-prompt-input');
-    await initialInput.waitForDisplayed({ timeout: 30000 });
+    await waitForSelectorDisplayed('#initial-prompt-input', 30000);
   });
 
   it('should prompt for a new user name and create BESTUSER', async () => {
-    const initialInput = $('#initial-prompt-input');
-    await initialInput.waitForDisplayed({ timeout: 10000 });
+    await waitForSelectorDisplayed('#initial-prompt-input', 10000);
     await setText('#initial-prompt-input', 'BESTUSER');
 
     const startBtn = $('#initial-prompt-confirm');

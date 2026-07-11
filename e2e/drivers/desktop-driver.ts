@@ -97,6 +97,19 @@ export const desktopDriver: PlatformDriver = {
       tauriDriverArgs.push('--native-driver', nativeDriverPath);
     }
 
+    const driverEnv = {
+      ...process.env,
+      RUST_LOG: 'debug',
+      TAURI_DEBUG: '1',
+    };
+    const testDirectory = process.env.KECHIMOCHI_DATA_DIR;
+    if (process.platform === 'linux' && testDirectory) {
+      // WebKitGTK resolves its storage directories before the app-level
+      // capability environment is applied. Set these on tauri-driver so the
+      // native driver, app, and WebKit child processes all inherit them.
+      driverEnv.XDG_DATA_HOME = path.join(testDirectory, 'xdg-data');
+    }
+
     tauriDriverProcess = spawn(
       resolveTauriDriverCommand(),
       tauriDriverArgs,
@@ -105,11 +118,7 @@ export const desktopDriver: PlatformDriver = {
         // POSIX: make tauri-driver a process-group leader so stop() can kill the whole tree
         // (tauri-driver, WebKitWebDriver, app) in one signal, even if the app gets orphaned.
         detached: process.platform !== 'win32',
-        env: {
-          ...process.env,
-          RUST_LOG: 'debug',
-          TAURI_DEBUG: '1',
-        },
+        env: driverEnv,
       },
     );
 
@@ -161,7 +170,17 @@ export const desktopDriver: PlatformDriver = {
     const tauriOptions = caps['tauri:options'] as Record<string, unknown> | undefined;
     if (tauriOptions) {
       const existing = (tauriOptions['envs'] as Record<string, string> | undefined) ?? {};
-      tauriOptions['envs'] = { ...existing, ...env };
+      const isolatedDesktopEnv = { ...env };
+
+      // WebKitGTK stores localStorage below XDG_DATA_HOME, independently from
+      // KECHIMOCHI_DATA_DIR. Without this, parallel desktop workers share the
+      // same profile value and destructive flows (factory reset/full backup)
+      // race even though their SQLite databases are isolated.
+      if (process.platform === 'linux' && env.KECHIMOCHI_DATA_DIR) {
+        isolatedDesktopEnv.XDG_DATA_HOME = path.join(env.KECHIMOCHI_DATA_DIR, 'xdg-data');
+      }
+
+      tauriOptions['envs'] = { ...existing, ...isolatedDesktopEnv };
     }
   },
 };

@@ -6,7 +6,7 @@ This document outlines the steps for setting up a development environment, build
 
 Before you begin, ensure you have the following installed on your system:
 
-*   **Node.js** (version 18 or higher)
+*   **Node.js** (20.19+, 22.13+, or 24–26; CI uses Node 20). An `.nvmrc` is provided for `nvm use`.
 *   **Rust** (latest stable via [rustup](https://rustup.rs/))
 *   **System Dependencies** (Linux only):
     ```bash
@@ -132,7 +132,7 @@ The E2E suite relies on deterministic fixture databases to ensure consistent tes
 *   A **User Profile Database** populated with historical activity logs and initial settings.
 *   **Placeholder Assets** like cover images for the media library.
 
-Seed the databases manually (also run automatically by `npm run e2e`):
+Seed the databases manually (also run automatically by `npm run e2e`, `npm run e2e:test`, and the full platform suite commands):
 ```bash
 npm run e2e:seed
 ```
@@ -167,8 +167,8 @@ npm run e2e:web
 
 Run a single spec:
 ```bash
-npm run e2e:test:web -- --spec e2e/specs/shared/dashboard.spec.ts
-npm run e2e:test:web -- --spec e2e/specs/web/web-load.spec.ts
+npm run e2e:web -- --spec e2e/specs/shared/dashboard.spec.ts
+npm run e2e:web -- --spec e2e/specs/web/web-load.spec.ts
 ```
 
 **Cost note:** Web E2E runs in headless Chrome against a local `web_server` binary.  It is cheap (no VM or emulator needed) and runs per-PR in CI.

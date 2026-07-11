@@ -72,6 +72,16 @@ export function makeConfig(
     connectionRetryTimeout: 120000,
     connectionRetryCount: 3,
 
+    // WDIO calculates Content-Length itself, but Node 26's Undici dispatcher
+    // rejects that explicit header before a local WebDriver request is sent.
+    // Fetch derives the same value from the string body when the header is
+    // omitted, which works across the supported Node versions and drivers.
+    transformRequest: (requestOptions: RequestInit): RequestInit => {
+      const headers = new Headers(requestOptions.headers);
+      headers.delete('content-length');
+      return { ...requestOptions, headers };
+    },
+
     framework: 'mocha',
     reporters: ['spec'],
     mochaOpts: {

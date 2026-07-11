@@ -3,7 +3,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { waitForAppReady } from '../../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../../helpers/navigation.js';
-import { confirmAction, dismissAlert, setDialogMockPath, submitPrompt } from '../../helpers/common.js';
+import {
+  confirmAction,
+  dismissAlert,
+  setDialogMockPath,
+  submitPrompt,
+  waitForSelectorDisplayed,
+} from '../../helpers/common.js';
 import { setText, setSelect } from '../../helpers/form-controls.js';
 import { TEST_PROFILE_NAME } from '../../config/test-constants.js';
 
@@ -68,14 +74,11 @@ async function performFactoryReset(): Promise<void> {
   await wipeBtn.click();
 
   await submitPrompt('WIPE_EVERYTHING');
-
-  const initialInput = $('#initial-prompt-input');
-  await initialInput.waitForDisplayed({ timeout: 30000 });
+  await waitForSelectorDisplayed('#initial-prompt-input', 30000);
 }
 
 async function completeFirstTimeSetup(profileName: string): Promise<void> {
-  const initialInput = $('#initial-prompt-input');
-  await initialInput.waitForDisplayed({ timeout: 10000 });
+  await waitForSelectorDisplayed('#initial-prompt-input', 10000);
   await setText('#initial-prompt-input', profileName);
 
   const startBtn = $('#initial-prompt-confirm');
