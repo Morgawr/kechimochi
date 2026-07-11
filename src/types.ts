@@ -40,6 +40,7 @@ export interface ActivityLog {
     characters: number;
     date: string;
     activity_type?: string;
+    notes?: string;
 }
 
 export interface ActivitySummary {
@@ -51,6 +52,7 @@ export interface ActivitySummary {
     characters: number;
     date: string;
     language: string;
+    notes: string;
 }
 
 export interface DailyHeatmap {

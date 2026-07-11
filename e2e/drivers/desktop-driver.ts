@@ -99,6 +99,7 @@ export const desktopDriver: PlatformDriver = {
 
     const driverEnv = {
       ...process.env,
+      KECHIMOCHI_DISABLE_WINDOW_MANAGEMENT: '1',
       RUST_LOG: 'debug',
       TAURI_DEBUG: '1',
     };
@@ -170,7 +171,10 @@ export const desktopDriver: PlatformDriver = {
     const tauriOptions = caps['tauri:options'] as Record<string, unknown> | undefined;
     if (tauriOptions) {
       const existing = (tauriOptions['envs'] as Record<string, string> | undefined) ?? {};
-      const isolatedDesktopEnv = { ...env };
+      const isolatedDesktopEnv = {
+        ...env,
+        KECHIMOCHI_DISABLE_WINDOW_MANAGEMENT: '1',
+      };
 
       // WebKitGTK stores localStorage below XDG_DATA_HOME, independently from
       // KECHIMOCHI_DATA_DIR. Without this, parallel desktop workers share the

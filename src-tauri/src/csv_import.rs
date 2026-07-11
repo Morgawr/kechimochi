@@ -25,6 +25,8 @@ struct CsvRow {
     characters: Option<i64>,
     #[serde(rename = "Activity Type", default)]
     activity_type: Option<String>,
+    #[serde(rename = "Notes", default)]
+    notes: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -143,6 +145,7 @@ pub fn import_csv_from_reader<R: Read>(conn: &mut Connection, reader: R) -> Resu
                 .activity_type
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| record.media_type.clone()),
+            notes: record.notes.unwrap_or_default(),
         };
 
         match db::add_log(&tx, &new_log) {
@@ -235,6 +238,7 @@ pub fn export_logs_csv(
         "Language",
         "Characters",
         "Activity Type",
+        "Notes",
     ])
     .map_err(|e| e.to_string())?;
 
@@ -258,6 +262,7 @@ pub fn export_logs_csv(
             &log.language,
             &log.characters.to_string(),
             &log.media_type,
+            &log.notes,
         ])
         .map_err(|e| e.to_string())?;
 
@@ -689,6 +694,7 @@ mod tests {
                 characters: 100,
                 date: "2024-01-01".to_string(),
                 activity_type: "Reading".to_string(),
+                notes: String::new(),
             },
         )
         .unwrap();
@@ -701,6 +707,7 @@ mod tests {
                 characters: 200,
                 date: "2024-02-01".to_string(),
                 activity_type: "Reading".to_string(),
+                notes: String::new(),
             },
         )
         .unwrap();
@@ -713,6 +720,7 @@ mod tests {
                 characters: 300,
                 date: "2024-03-01".to_string(),
                 activity_type: "Reading".to_string(),
+                notes: String::new(),
             },
         )
         .unwrap();
@@ -908,6 +916,84 @@ mod tests {
 
         let logs = db::get_logs(&conn).unwrap();
         assert_eq!(logs.len(), 0);
+
+        std::fs::remove_file(csv_path).ok();
+    }
+
+    #[test]
+    fn test_export_logs_csv_includes_notes_column() {
+        let conn = setup_test_db();
+        let media_id = db::add_media_with_id(&conn, &sample_media("Notes Export")).unwrap();
+
+        db::add_log(
+            &conn,
+            &ActivityLog {
+                id: None,
+                media_id,
+                duration_minutes: 30,
+                characters: 0,
+                date: "2024-07-01".to_string(),
+                activity_type: "Reading".to_string(),
+                notes: "exported note text".to_string(),
+            },
+        )
+        .unwrap();
+
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!(
+            "notes_export_{}_{}.csv",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::SeqCst)
+        ));
+        let path_str = path.to_str().unwrap().to_string();
+
+        let count = export_logs_csv(&conn, &path_str, None, None).unwrap();
+        assert_eq!(count, 1);
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("Notes"), "Header should include 'Notes'");
+        assert!(
+            content.contains("exported note text"),
+            "Row should contain the note text"
+        );
+
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn test_import_csv_with_notes_column_imports_note() {
+        let mut conn = setup_test_db();
+        let csv_path = write_csv(
+            "Date,Log Name,Media Type,Duration,Language,Characters,Activity Type,Notes\n\
+             2024-08-01,Notes Media,Reading,45,Japanese,1000,Reading,My note here\n",
+        );
+
+        let count = import_csv(&mut conn, &csv_path).unwrap();
+        assert_eq!(count, 1);
+
+        let logs = db::get_logs(&conn).unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].notes, "My note here");
+
+        std::fs::remove_file(csv_path).ok();
+    }
+
+    #[test]
+    fn test_import_csv_without_notes_column_imports_with_empty_notes() {
+        // Old-format CSV without a Notes column should import cleanly with empty notes.
+        // Guards the #[serde(rename = "Notes", default)] on CsvRow.notes.
+        let mut conn = setup_test_db();
+        let csv_path = write_csv(
+            "Date,Log Name,Media Type,Duration,Language,Characters,Activity Type\n\
+             2024-09-01,Old Format Media,Reading,30,Japanese,500,Reading\n",
+        );
+
+        let count = import_csv(&mut conn, &csv_path).unwrap();
+        assert_eq!(count, 1);
+
+        let logs = db::get_logs(&conn).unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].notes, "");
 
         std::fs::remove_file(csv_path).ok();
     }
