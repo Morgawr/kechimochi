@@ -115,7 +115,7 @@ async function blobToBase64(blob: Blob): Promise<string> {
     const bytes = new Uint8Array(await blob.arrayBuffer());
     let binaryString = '';
     for (const byte of bytes) {
-        binaryString += String.fromCharCode(byte);
+        binaryString += String.fromCodePoint(byte);
     }
     return btoa(binaryString);
 }
