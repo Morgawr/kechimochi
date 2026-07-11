@@ -12,7 +12,7 @@ use crate::models::{
     TimelineEventKind,
 };
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 2;
+pub const CURRENT_SCHEMA_VERSION: i64 = 3;
 
 type MigrationFn = fn(&Connection) -> Result<()>;
 
@@ -22,11 +22,18 @@ struct Migration {
     apply: MigrationFn,
 }
 
-const VERSIONED_MIGRATIONS: &[Migration] = &[Migration {
-    from: 1,
-    to: 2,
-    apply: migrate_v1_to_v2_add_sync_foundation,
-}];
+const VERSIONED_MIGRATIONS: &[Migration] = &[
+    Migration {
+        from: 1,
+        to: 2,
+        apply: migrate_v1_to_v2_add_sync_foundation,
+    },
+    Migration {
+        from: 2,
+        to: 3,
+        apply: migrate_v2_to_v3_add_activity_notes,
+    },
+];
 
 const KECHIMOCHI_SYNC_NAMESPACE: &str = "0718e147-943f-4f0a-977d-5447bb2342f2";
 
@@ -51,6 +58,7 @@ const ACTIVITY_LOG_COLUMNS: &[&str] = &[
     "characters",
     "date",
     "activity_type",
+    "notes",
 ];
 
 const MILESTONE_COLUMNS: &[&str] = &[
@@ -620,6 +628,17 @@ fn migrate_v1_to_v2_add_sync_foundation(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn migrate_v2_to_v3_add_activity_notes(conn: &Connection) -> Result<()> {
+    let _ = add_column_if_missing(
+        conn,
+        "main",
+        "activity_logs",
+        "notes",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
+    Ok(())
+}
+
 fn migrate_to_shared(conn: &Connection) -> Result<()> {
     // Check if `main.media` exists
     if table_exists(conn, "main", "media")? {
@@ -761,7 +780,8 @@ fn create_activity_logs_table(conn: &Connection) -> Result<()> {
             duration_minutes INTEGER NOT NULL,
             characters INTEGER NOT NULL DEFAULT 0,
             date TEXT NOT NULL,
-            activity_type TEXT NOT NULL DEFAULT ''
+            activity_type TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT ''
         )",
         [],
     )?;
@@ -943,6 +963,7 @@ fn migrate_legacy_pre_release_to_current_schema(conn: &Connection) -> Result<()>
     migrate_to_character_tracking(conn)?;
     migrate_activity_type_to_logs(conn)?;
     migrate_settings_updated_at(conn)?;
+    migrate_v2_to_v3_add_activity_notes(conn)?;
     create_indexes(conn)?;
     Ok(())
 }
@@ -1274,8 +1295,8 @@ pub fn add_log(conn: &Connection, log: &ActivityLog) -> Result<i64> {
         )));
     }
     conn.execute(
-        "INSERT INTO main.activity_logs (media_id, duration_minutes, characters, date, activity_type) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![log.media_id, log.duration_minutes, log.characters, log.date, log.activity_type],
+        "INSERT INTO main.activity_logs (media_id, duration_minutes, characters, date, activity_type, notes) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![log.media_id, log.duration_minutes, log.characters, log.date, log.activity_type, log.notes],
     )?;
     Ok(conn.last_insert_rowid())
 }
@@ -1295,8 +1316,8 @@ pub fn update_log(conn: &Connection, log: &ActivityLog) -> Result<()> {
         )));
     }
     conn.execute(
-        "UPDATE main.activity_logs SET media_id = ?1, duration_minutes = ?2, characters = ?3, date = ?4, activity_type = ?5 WHERE id = ?6",
-        params![log.media_id, log.duration_minutes, log.characters, log.date, log.activity_type, log.id.unwrap()],
+        "UPDATE main.activity_logs SET media_id = ?1, duration_minutes = ?2, characters = ?3, date = ?4, activity_type = ?5, notes = ?6 WHERE id = ?7",
+        params![log.media_id, log.duration_minutes, log.characters, log.date, log.activity_type, log.notes, log.id.unwrap()],
     )?;
     Ok(())
 }
@@ -1308,8 +1329,8 @@ pub fn clear_activities(conn: &Connection) -> Result<()> {
 
 pub fn get_logs(conn: &Connection) -> Result<Vec<ActivitySummary>> {
     let mut stmt = conn.prepare(
-        "SELECT a.id, a.media_id, m.title, COALESCE(NULLIF(a.activity_type, ''), m.media_type) as activity_type, a.duration_minutes, a.characters, a.date, m.language 
-         FROM main.activity_logs a 
+        "SELECT a.id, a.media_id, m.title, COALESCE(NULLIF(a.activity_type, ''), m.media_type) as activity_type, a.duration_minutes, a.characters, a.date, m.language, a.notes
+         FROM main.activity_logs a
          JOIN shared.media m ON a.media_id = m.id
          ORDER BY a.date DESC, a.id DESC",
     )?;
@@ -1323,6 +1344,7 @@ pub fn get_logs(conn: &Connection) -> Result<Vec<ActivitySummary>> {
             characters: row.get(5)?,
             date: row.get(6)?,
             language: row.get(7)?,
+            notes: row.get(8)?,
         })
     })?;
 
@@ -1335,8 +1357,8 @@ pub fn get_logs(conn: &Connection) -> Result<Vec<ActivitySummary>> {
 
 pub fn get_logs_for_media(conn: &Connection, media_id: i64) -> Result<Vec<ActivitySummary>> {
     let mut stmt = conn.prepare(
-        "SELECT a.id, a.media_id, m.title, COALESCE(NULLIF(a.activity_type, ''), m.media_type) as activity_type, a.duration_minutes, a.characters, a.date, m.language 
-         FROM main.activity_logs a 
+        "SELECT a.id, a.media_id, m.title, COALESCE(NULLIF(a.activity_type, ''), m.media_type) as activity_type, a.duration_minutes, a.characters, a.date, m.language, a.notes
+         FROM main.activity_logs a
          JOIN shared.media m ON a.media_id = m.id
          WHERE a.media_id = ?1
          ORDER BY a.date DESC, a.id DESC",
@@ -1351,6 +1373,7 @@ pub fn get_logs_for_media(conn: &Connection, media_id: i64) -> Result<Vec<Activi
             characters: row.get(5)?,
             date: row.get(6)?,
             language: row.get(7)?,
+            notes: row.get(8)?,
         })
     })?;
 
@@ -2028,6 +2051,7 @@ mod tests {
             characters: 1200,
             date: date.to_string(),
             activity_type: activity_type.to_string(),
+            notes: String::new(),
         }
     }
 
@@ -2263,6 +2287,7 @@ mod tests {
             characters: 0,
             date: "2024-01-15".to_string(),
             activity_type: String::new(),
+            notes: String::new(),
         };
         add_log(&conn, &log).unwrap();
         add_milestone(
@@ -2308,6 +2333,7 @@ mod tests {
                 characters: 0,
                 date: "2024-01-01".to_string(),
                 activity_type: String::new(),
+                notes: String::new(),
             },
         )
         .unwrap();
@@ -2330,6 +2356,7 @@ mod tests {
             characters: 100,
             date: "2024-03-01".to_string(),
             activity_type: String::new(),
+            notes: String::new(),
         };
         let log_id = add_log(&conn, &log).unwrap();
         assert!(log_id > 0);
@@ -2353,6 +2380,7 @@ mod tests {
             characters: 0,
             date: "2024-03-01".to_string(),
             activity_type: String::new(),
+            notes: String::new(),
         };
         let result = add_log(&conn, &log);
         assert!(result.is_err());
@@ -2378,6 +2406,7 @@ mod tests {
                 characters: 100,
                 date: "2024-06-01".to_string(),
                 activity_type: String::new(),
+                notes: String::new(),
             },
         )
         .unwrap();
@@ -2390,6 +2419,7 @@ mod tests {
                 characters: 200,
                 date: "2024-06-01".to_string(),
                 activity_type: String::new(),
+                notes: String::new(),
             },
         )
         .unwrap();
@@ -2404,6 +2434,7 @@ mod tests {
                 characters: 50,
                 date: "2024-06-02".to_string(),
                 activity_type: String::new(),
+                notes: String::new(),
             },
         )
         .unwrap();
@@ -2433,6 +2464,7 @@ mod tests {
                 characters: 0,
                 date: "2024-03-01".to_string(),
                 activity_type: String::new(),
+                notes: String::new(),
             },
         )
         .unwrap();
@@ -2445,6 +2477,7 @@ mod tests {
                 characters: 0,
                 date: "2024-03-02".to_string(),
                 activity_type: String::new(),
+                notes: String::new(),
             },
         )
         .unwrap();
@@ -2870,6 +2903,7 @@ mod tests {
                 characters: 0,
                 date: "2024-01-01".to_string(),
                 activity_type: String::new(),
+                notes: String::new(),
             },
         )
         .unwrap();
@@ -2905,6 +2939,7 @@ mod tests {
                 characters: 0,
                 date: "2024-03-01".to_string(),
                 activity_type: String::new(),
+                notes: String::new(),
             },
         )
         .unwrap();
@@ -2928,6 +2963,7 @@ mod tests {
                 characters: 0,
                 date: "2024-03-02".to_string(),
                 activity_type: String::new(),
+                notes: String::new(),
             },
         )
         .unwrap();
@@ -2951,6 +2987,7 @@ mod tests {
                 characters: 0,
                 date: "2024-01-01".to_string(),
                 activity_type: String::new(),
+                notes: String::new(),
             },
         )
         .unwrap();
@@ -3500,6 +3537,7 @@ mod tests {
             characters: 0,
             date: "2024-01-01".to_string(),
             activity_type: String::new(),
+            notes: String::new(),
         };
         let id = add_log(&conn, &log).unwrap();
 
@@ -3510,6 +3548,7 @@ mod tests {
             characters: 100,
             date: "2024-01-02".to_string(),
             activity_type: "Watching".to_string(),
+            notes: String::new(),
         };
         update_log(&conn, &updated_log).unwrap();
 
@@ -3518,5 +3557,261 @@ mod tests {
         assert_eq!(logs[0].duration_minutes, 45);
         assert_eq!(logs[0].characters, 100);
         assert_eq!(logs[0].date, "2024-01-02");
+    }
+
+    #[test]
+    fn test_fresh_db_has_notes_column_and_is_at_schema_v3() {
+        let temp_dir = unique_temp_dir("notes_fresh_v3");
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let conn = init_db(temp_dir.clone(), None).unwrap();
+
+        assert_eq!(
+            get_bundle_schema_version(&conn).unwrap(),
+            CURRENT_SCHEMA_VERSION
+        );
+        assert_eq!(CURRENT_SCHEMA_VERSION, 3);
+        assert!(table_has_column(&conn, "main", "activity_logs", "notes").unwrap());
+        assert!(latest_schema_is_present(&conn).unwrap());
+        validate_latest_schema(&conn).unwrap();
+
+        std::fs::remove_dir_all(temp_dir).ok();
+    }
+
+    #[test]
+    fn test_v2_to_v3_migration_adds_notes_column() {
+        let temp_dir = unique_temp_dir("notes_v2_to_v3");
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let user_db = temp_dir.join("kechimochi_user.db");
+        let shared_db = temp_dir.join("kechimochi_shared_media.db");
+
+        // Set up a v2 database (no notes column, schema version 2)
+        {
+            let conn = Connection::open(&user_db).unwrap();
+            conn.execute_batch(
+                "PRAGMA user_version = 2;
+                 CREATE TABLE main.activity_logs (
+                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                     media_id INTEGER NOT NULL,
+                     duration_minutes INTEGER NOT NULL,
+                     characters INTEGER NOT NULL DEFAULT 0,
+                     date TEXT NOT NULL,
+                     activity_type TEXT NOT NULL DEFAULT ''
+                 );
+                 CREATE TABLE main.milestones (
+                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                     media_uid TEXT,
+                     media_title TEXT NOT NULL DEFAULT '',
+                     name TEXT NOT NULL DEFAULT '',
+                     duration INTEGER NOT NULL DEFAULT 0,
+                     characters INTEGER NOT NULL DEFAULT 0,
+                     date TEXT
+                 );
+                 CREATE TABLE main.settings (
+                     key TEXT PRIMARY KEY,
+                     value TEXT NOT NULL,
+                     updated_at TEXT NOT NULL DEFAULT ''
+                 );
+                 CREATE TABLE main.profile_picture (
+                     id INTEGER PRIMARY KEY CHECK (id = 1),
+                     mime_type TEXT NOT NULL,
+                     base64_data TEXT NOT NULL,
+                     byte_size INTEGER NOT NULL,
+                     width INTEGER NOT NULL,
+                     height INTEGER NOT NULL,
+                     updated_at TEXT NOT NULL
+                 );
+                 INSERT INTO main.activity_logs (media_id, duration_minutes, characters, date, activity_type)
+                     VALUES (1, 60, 0, '2024-01-01', 'Reading');",
+            )
+            .unwrap();
+        }
+        {
+            let conn = Connection::open(&shared_db).unwrap();
+            conn.execute_batch(
+                "PRAGMA user_version = 2;
+                 CREATE TABLE main.media (
+                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                     uid TEXT,
+                     title TEXT NOT NULL UNIQUE,
+                     media_type TEXT NOT NULL,
+                     status TEXT NOT NULL,
+                     language TEXT NOT NULL,
+                     description TEXT DEFAULT '',
+                     cover_image TEXT DEFAULT '',
+                     extra_data TEXT DEFAULT '{}',
+                     content_type TEXT DEFAULT 'Unknown',
+                     tracking_status TEXT DEFAULT 'Untracked',
+                     updated_at TEXT DEFAULT '',
+                     updated_by_device_id TEXT DEFAULT ''
+                 );
+                 INSERT INTO main.media (id, uid, title, media_type, status, language, description, cover_image, extra_data, content_type, tracking_status, updated_at, updated_by_device_id)
+                     VALUES (1, 'test-uid-1', 'Pre-existing Media', 'Reading', 'Active', 'Japanese', '', '', '{}', 'Novel', 'Ongoing', '', '');",
+            )
+            .unwrap();
+        }
+
+        let conn = init_db(temp_dir.clone(), None).unwrap();
+
+        assert_eq!(
+            get_bundle_schema_version(&conn).unwrap(),
+            CURRENT_SCHEMA_VERSION
+        );
+        assert!(table_has_column(&conn, "main", "activity_logs", "notes").unwrap());
+
+        // Pre-existing row should have empty notes
+        let logs = get_logs(&conn).unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].notes, "");
+        assert_eq!(logs[0].duration_minutes, 60);
+
+        std::fs::remove_dir_all(temp_dir).ok();
+    }
+
+    #[test]
+    fn test_no_op_startup_on_v3_db_stays_at_v3() {
+        let temp_dir = unique_temp_dir("notes_noop_v3");
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        // First init creates the DB at v3
+        let conn1 = init_db(temp_dir.clone(), None).unwrap();
+        let media_id = add_media_with_id(&conn1, &sample_media("No-op Media")).unwrap();
+        add_log(
+            &conn1,
+            &ActivityLog {
+                id: None,
+                media_id,
+                duration_minutes: 20,
+                characters: 0,
+                date: "2024-05-01".to_string(),
+                activity_type: "Reading".to_string(),
+                notes: "persistent note".to_string(),
+            },
+        )
+        .unwrap();
+        drop(conn1);
+
+        // Second init should be a no-op
+        let conn2 = init_db(temp_dir.clone(), None).unwrap();
+        assert_eq!(get_bundle_schema_version(&conn2).unwrap(), 3);
+
+        let logs = get_logs(&conn2).unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].notes, "persistent note");
+
+        std::fs::remove_dir_all(temp_dir).ok();
+    }
+
+    #[test]
+    fn test_notes_are_saved_and_retrieved_via_add_update_log() {
+        let conn = setup_test_db();
+        let media_id = add_media_with_id(&conn, &sample_media("Notes CRUD")).unwrap();
+
+        // Add a log with notes
+        let log_id = add_log(
+            &conn,
+            &ActivityLog {
+                id: None,
+                media_id,
+                duration_minutes: 30,
+                characters: 0,
+                date: "2024-06-01".to_string(),
+                activity_type: "Reading".to_string(),
+                notes: "My first note".to_string(),
+            },
+        )
+        .unwrap();
+
+        let logs = get_logs(&conn).unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].notes, "My first note");
+
+        let logs_for_media = get_logs_for_media(&conn, media_id).unwrap();
+        assert_eq!(logs_for_media[0].notes, "My first note");
+
+        // Update to a different note
+        update_log(
+            &conn,
+            &ActivityLog {
+                id: Some(log_id),
+                media_id,
+                duration_minutes: 30,
+                characters: 0,
+                date: "2024-06-01".to_string(),
+                activity_type: "Reading".to_string(),
+                notes: "Updated note".to_string(),
+            },
+        )
+        .unwrap();
+
+        let updated_logs = get_logs(&conn).unwrap();
+        assert_eq!(updated_logs[0].notes, "Updated note");
+    }
+
+    #[test]
+    fn test_legacy_unversioned_upgrade_gains_notes_column() {
+        let temp_dir = unique_temp_dir("notes_legacy_upgrade");
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let user_db = temp_dir.join("kechimochi_user.db");
+        let shared_db = temp_dir.join("kechimochi_shared_media.db");
+
+        // Legacy DB layout: old-style main.media + activity_logs without notes
+        {
+            let legacy_conn = Connection::open(&user_db).unwrap();
+            legacy_conn
+                .execute(
+                    "CREATE TABLE media (
+                        id INTEGER PRIMARY KEY,
+                        title TEXT,
+                        media_type TEXT,
+                        status TEXT,
+                        language TEXT
+                    )",
+                    [],
+                )
+                .unwrap();
+            legacy_conn
+                .execute(
+                    "INSERT INTO media (id, title, media_type, status, language)
+                     VALUES (1, 'Legacy Notes Media', 'Reading', 'Ongoing', 'Japanese')",
+                    [],
+                )
+                .unwrap();
+            legacy_conn
+                .execute(
+                    "CREATE TABLE activity_logs (
+                        id INTEGER PRIMARY KEY,
+                        media_id INTEGER,
+                        duration_minutes INTEGER,
+                        date TEXT
+                    )",
+                    [],
+                )
+                .unwrap();
+            legacy_conn
+                .execute(
+                    "INSERT INTO activity_logs (id, media_id, duration_minutes, date)
+                     VALUES (1, 1, 90, '2024-03-01')",
+                    [],
+                )
+                .unwrap();
+        }
+        Connection::open(&shared_db).unwrap();
+
+        let conn = init_db(temp_dir.clone(), None).unwrap();
+        assert_eq!(
+            get_bundle_schema_version(&conn).unwrap(),
+            CURRENT_SCHEMA_VERSION
+        );
+        assert!(table_has_column(&conn, "main", "activity_logs", "notes").unwrap());
+
+        let logs = get_logs(&conn).unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].title, "Legacy Notes Media");
+        assert_eq!(logs[0].notes, "");
+
+        std::fs::remove_dir_all(temp_dir).ok();
     }
 }

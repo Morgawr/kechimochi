@@ -2,6 +2,16 @@ import { Component } from '../component';
 import { html } from '../html';
 import { DailyHeatmap } from '../api';
 
+// A day reaches full heatmap intensity at 6 hours of time, or 60,000 characters.
+// This assumes an average-ish learner reading at ~10,000 characters/hour.
+const HEATMAP_FULL_INTENSITY_MINUTES = 360;
+const HEATMAP_FULL_INTENSITY_CHARACTERS = 60000;
+
+function getIntensityRatio(value: number, fullIntensityValue: number): number {
+    if (value <= 0) return 0;
+    return Math.min(1, (value - 1) / (fullIntensityValue - 1));
+}
+
 interface HeatmapViewState {
     heatmapData: DailyHeatmap[];
     year: number;
@@ -142,10 +152,12 @@ export class HeatmapView extends Component<HeatmapViewState> {
         }
     ): string {
         const cellStyles: string[] = [];
-        if (minutes > 0) {
-            const ratio = Math.min(1, (minutes - 1) / 359);
-            const saturation = theme.satBase + (ratio * theme.satRange);
-            const lightness = theme.lightBase + (ratio * theme.lightRange);
+        const timeRatio = getIntensityRatio(minutes, HEATMAP_FULL_INTENSITY_MINUTES);
+        const characterRatio = getIntensityRatio(characters, HEATMAP_FULL_INTENSITY_CHARACTERS);
+        const higherRatio = Math.max(timeRatio, characterRatio);
+        if (minutes > 0 || characters > 0) {
+            const saturation = theme.satBase + (higherRatio * theme.satRange);
+            const lightness = theme.lightBase + (higherRatio * theme.lightRange);
             cellStyles.push(`background-color: hsl(${theme.heatmapHue}, ${saturation}%, ${lightness}%);`);
         }
 

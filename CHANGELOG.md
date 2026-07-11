@@ -6,12 +6,13 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
-### Fixed
- - Default window no longer opens larger than the screen / under the taskbar, which could hide the update dialog's close button (#202).
-
 ### Added
+ - Added a Notes field to activity log entries (editable in the log modal, shown on the media detail page, included in sync and CSV export).
  - The desktop app now remembers its window size, position, and maximized state between launches.
+### Fixed
+ - The tracking heatmap now colors days that have characters logged but no time tracked, in addition to days with time tracked. Cell intensity reflects whichever of the two is higher, so days tracked with both time and characters are not artificially brighter.
  - Milestones on the same media and same date now appear in creation order (oldest at the bottom, newest at the top) instead of alphabetically by name.
+ - Default window no longer opens larger than the screen / under the taskbar, which could hide the update dialog's close button.
 
 ## [0.2.10] - 2026-06-10
 

@@ -78,6 +78,8 @@ pub struct SnapshotActivity {
     pub activity_type: String,
     pub duration_minutes: i64,
     pub characters: i64,
+    #[serde(default)]
+    pub notes: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -220,6 +222,7 @@ where
                 activity_type: log.media_type,
                 duration_minutes: log.duration_minutes,
                 characters: log.characters,
+                notes: log.notes,
             });
         }
     }
@@ -443,6 +446,7 @@ fn apply_snapshot_inner(
                     characters: activity.characters,
                     date: activity.date.clone(),
                     activity_type: activity.activity_type.clone(),
+                    notes: activity.notes.clone(),
                 },
             )
             .map_err(|e| e.to_string())?;
@@ -709,6 +713,7 @@ mod tests {
                 characters: 200,
                 date: "2026-04-02".to_string(),
                 activity_type: "Reading".to_string(),
+                notes: String::new(),
             },
         )
         .unwrap();
@@ -721,6 +726,7 @@ mod tests {
                 characters: 100,
                 date: "2026-04-01".to_string(),
                 activity_type: "Reading".to_string(),
+                notes: String::new(),
             },
         )
         .unwrap();
@@ -827,6 +833,7 @@ mod tests {
                 characters: 0,
                 date: "2026-04-02".to_string(),
                 activity_type: "Reading".to_string(),
+                notes: String::new(),
             },
         )
         .unwrap();
@@ -925,6 +932,7 @@ mod tests {
                 characters: 0,
                 date: "2026-04-01".to_string(),
                 activity_type: "Reading".to_string(),
+                notes: String::new(),
             },
         )
         .unwrap();
@@ -963,5 +971,114 @@ mod tests {
             rebuilt_media.updated_by_device_id,
             base_media.updated_by_device_id
         );
+    }
+
+    #[test]
+    fn test_snapshot_round_trips_activity_notes() {
+        let conn = setup_test_db();
+        let temp_dir = unique_temp_dir("snapshot_notes_roundtrip");
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let media_id = db::add_media_with_id(
+            &conn,
+            &sample_media("Notes Media", String::new(), "{}"),
+        )
+        .unwrap();
+
+        db::add_log(
+            &conn,
+            &ActivityLog {
+                id: None,
+                media_id,
+                duration_minutes: 40,
+                characters: 500,
+                date: "2026-05-01".to_string(),
+                activity_type: "Reading".to_string(),
+                notes: "My sync note".to_string(),
+            },
+        )
+        .unwrap();
+
+        let snapshot = build_snapshot(
+            &conn,
+            SnapshotBuildOptions {
+                snapshot_id: "snap_notes",
+                created_at: "2026-05-01T12:00:00Z",
+                created_by_device_id: "dev_notes",
+                profile_id: "prof_notes",
+                base_snapshot: None,
+                tombstones: &[],
+            },
+        )
+        .unwrap();
+
+        let media_entry = snapshot.library.values().next().unwrap();
+        assert_eq!(media_entry.activities.len(), 1);
+        assert_eq!(media_entry.activities[0].notes, "My sync note");
+
+        let json = snapshot_to_canonical_json(&snapshot).unwrap();
+        let parsed = parse_snapshot_json(&json).unwrap();
+        apply_snapshot(&conn, &parsed).unwrap();
+
+        let logs = db::get_logs(&conn).unwrap();
+        // After apply there will be duplicates since we applied on top of existing data,
+        // but all logs with non-empty notes should carry the note through.
+        let note_logs: Vec<_> = logs.iter().filter(|l| !l.notes.is_empty()).collect();
+        assert!(!note_logs.is_empty());
+        assert_eq!(note_logs[0].notes, "My sync note");
+
+        std::fs::remove_dir_all(temp_dir).ok();
+    }
+
+    #[test]
+    fn test_snapshot_activity_missing_notes_field_parses_as_empty() {
+        // A JSON snapshot without a "notes" field in activities should deserialize
+        // with notes defaulting to "".  This guards the #[serde(default)] on
+        // SnapshotActivity.notes.
+        let json_without_notes = r#"{
+            "sync_protocol_version": 1,
+            "db_schema_version": 2,
+            "snapshot_id": "old-snap",
+            "created_at": "2026-01-01T00:00:00Z",
+            "created_by_device_id": "old-device",
+            "profile": {
+                "profile_id": "prof-old",
+                "profile_name": "Old User",
+                "updated_at": "2026-01-01T00:00:00Z"
+            },
+            "library": {
+                "media-uid-1": {
+                    "uid": "media-uid-1",
+                    "title": "Old Media",
+                    "media_type": "Reading",
+                    "status": "Active",
+                    "language": "Japanese",
+                    "description": "",
+                    "content_type": "Novel",
+                    "tracking_status": "Ongoing",
+                    "extra_data": "{}",
+                    "cover_blob_sha256": null,
+                    "updated_at": "2026-01-01T00:00:00Z",
+                    "updated_by_device_id": "old-device",
+                    "activities": [
+                        {
+                            "date": "2026-01-01",
+                            "activity_type": "Reading",
+                            "duration_minutes": 30,
+                            "characters": 0
+                        }
+                    ],
+                    "milestones": []
+                }
+            },
+            "settings": {},
+            "profile_picture": null,
+            "tombstones": []
+        }"#;
+
+        let parsed = parse_snapshot_json(json_without_notes).unwrap();
+        let media_entry = parsed.library.values().next().unwrap();
+        assert_eq!(media_entry.activities.len(), 1);
+        assert_eq!(media_entry.activities[0].notes, "");
     }
 }

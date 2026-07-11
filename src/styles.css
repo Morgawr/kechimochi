@@ -1419,7 +1419,6 @@ input:focus, select:focus {
   padding: 0.2rem;
   margin: -0.2rem;
 }
-<
 #media-title-block{
   margin: 0.2rem;
   padding: 0.1rem;
@@ -2792,6 +2791,8 @@ input:focus, select:focus {
     padding: 0.65rem;
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
+    /* --highlight-cover is injected at runtime per-card by ActivityTotals.ts (inline style); the var() below has a fallback. */
+    /*noinspection CssUnresolvedCustomProperty*/
     background:
         linear-gradient(90deg, color-mix(in srgb, var(--bg-dark) 92%, transparent), color-mix(in srgb, var(--bg-dark) 74%, transparent)),
         var(--highlight-cover, linear-gradient(135deg, var(--bg-dark), var(--bg-card-hover)));
@@ -3390,7 +3391,7 @@ input:checked + .slider:before {
 
   .mobile-top-bar {
     display: flex;
-    padding: 0.2rem 0rem;
+    padding: 0.2rem 0;
     gap:0.5rem;
     z-index: 84;
     height: calc(env(safe-area-inset-top) + 2rem);
