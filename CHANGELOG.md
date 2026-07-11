@@ -8,6 +8,8 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ### Added
  - Added a Notes field to activity log entries (editable in the log modal, shown on the media detail page, included in sync and CSV export).
+### Fixed
+ - Milestones on the same media and same date now appear in creation order (oldest at the bottom, newest at the top) instead of alphabetically by name.
 
 ## [0.2.10] - 2026-06-10
 
