@@ -38,8 +38,8 @@ export async function showExportCsvModal(): Promise<{mode: 'all' | 'range', star
         
         let selectedStart = todayStr;
         let selectedEnd = todayStr;
-        buildCalendar('cal-start-container', todayStr, (d) => selectedStart = d);
-        buildCalendar('cal-end-container', todayStr, (d) => selectedEnd = d);
+        buildCalendar(overlay.querySelector<HTMLElement>('#cal-start-container')!, todayStr, (d) => selectedStart = d);
+        buildCalendar(overlay.querySelector<HTMLElement>('#cal-end-container')!, todayStr, (d) => selectedEnd = d);
 
         const modeRange = overlay.querySelector<HTMLInputElement>('input[value="range"]')!;
         const rangeInputs = overlay.querySelector<HTMLElement>('#export-range-inputs')!;
@@ -151,7 +151,7 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
             </div>`;
 
         let selectedDate = editLog?.date || getTodayStr();
-        buildCalendar('activity-cal-container', selectedDate, (d) => selectedDate = d);
+        buildCalendar(overlay.querySelector<HTMLElement>('#activity-cal-container')!, selectedDate, (d) => selectedDate = d);
 
         // Set default date for mobile input
         const mobileDateInput = overlay.querySelector<HTMLInputElement>('#mobile-date-input')!;

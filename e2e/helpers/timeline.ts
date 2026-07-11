@@ -1,8 +1,8 @@
 /**
  * Timeline view helpers.
  */
-/// <reference types="@wdio/globals/types" />
 import { navigateTo, verifyActiveView } from './navigation.js';
+import { setText, setSelect } from './form-controls.js';
 
 export interface TimelineEntrySnapshot {
     kind: string;
@@ -37,49 +37,12 @@ export async function waitForTimelineReady(): Promise<void> {
 }
 
 export async function setTimelineKindFilter(label: string): Promise<void> {
-    const select = $('#timeline-kind-filter');
-    await select.waitForDisplayed({ timeout: 5000 });
-    await select.selectByVisibleText(label);
-
-    await browser.waitUntil(async () => {
-        return await browser.execute(expectedLabel => {
-            const element = document.getElementById('timeline-kind-filter') as HTMLSelectElement | null;
-            return element?.selectedOptions[0]?.textContent?.trim() === expectedLabel;
-        }, label);
-    }, {
-        timeout: 5000,
-        interval: 100,
-        timeoutMsg: `Timeline kind filter did not switch to "${label}"`,
-    });
-
+    await setSelect('#timeline-kind-filter', { text: label });
     await waitForTimelineReady();
 }
 
 export async function searchTimeline(query: string): Promise<void> {
-    const input = $('#timeline-search');
-    await input.waitForDisplayed({ timeout: 5000 });
-
-    await browser.execute(nextQuery => {
-        const element = document.getElementById('timeline-search') as HTMLInputElement | null;
-        if (!element) {
-            return;
-        }
-
-        element.value = nextQuery;
-        element.dispatchEvent(new Event('input', { bubbles: true }));
-    }, query);
-
-    await browser.waitUntil(async () => {
-        return await browser.execute(expectedQuery => {
-            const element = document.getElementById('timeline-search') as HTMLInputElement | null;
-            return element?.value === expectedQuery;
-        }, query);
-    }, {
-        timeout: 5000,
-        interval: 100,
-        timeoutMsg: `Timeline search input did not settle to "${query}"`,
-    });
-
+    await setText('#timeline-search', query);
     await waitForTimelineReady();
 }
 

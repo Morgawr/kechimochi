@@ -1,8 +1,8 @@
 /**
  * Import and conflict resolution helpers.
  */
-/// <reference types="@wdio/globals/types" />
 import { dismissAlert } from './common.js';
+import { setText } from './form-controls.js';
 
 /**
  * Handle the media import conflict modal.
@@ -11,10 +11,7 @@ export async function resolveConflicts(action: 'keep' | 'replace'): Promise<void
     const modal = $('.modal-content');
     await modal.waitForDisplayed({ timeout: 5000 });
 
-    const radios = await $$(`input[value="${action}"]`);
-    const count = await radios.length;
-    for (let i = 0; i < count; i++) {
-        const radio = radios[i];
+    for await (const radio of $$(`input[value="${action}"]`)) {
         await radio.waitForClickable({ timeout: 5000 });
         await radio.click();
         await browser.waitUntil(async () => await radio.isSelected(), { timeout: 1000 });
@@ -39,7 +36,7 @@ export async function fetchMetadata(url: string): Promise<void> {
 
     const input = $('#prompt-input');
     await input.waitForDisplayed({ timeout: 5000 });
-    await input.setValue(url);
+    await setText('#prompt-input', url);
 
     const confirmBtn = $('#prompt-confirm');
     await confirmBtn.click();
@@ -61,7 +58,7 @@ export async function confirmMerge(): Promise<void> {
 
     await browser.waitUntil(async () => {
         const className = await overlay.getAttribute('class').catch(() => '');
-        return !className.split(/\s+/).includes('active');
+        return !(className ?? '').split(/\s+/).includes('active');
     }, {
         timeout: 10000,
         timeoutMsg: 'Import merge modal did not disappear in time'

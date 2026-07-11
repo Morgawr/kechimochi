@@ -13,10 +13,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Logger } from '../../src/logger';
+import { SEED_USER_DB_FILENAME } from '../config/test-constants.js';
 
 const FIXTURES_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SHARED_DB_PATH = path.join(FIXTURES_DIR, 'kechimochi_shared_media.db');
-const USER_DB_PATH = path.join(FIXTURES_DIR, 'kechimochi_TESTUSER.db');
+const USER_DB_PATH = path.join(FIXTURES_DIR, SEED_USER_DB_FILENAME);
 const COVERS_DIR = path.join(FIXTURES_DIR, 'covers');
 
 type SeedMediaEntryInput = {

@@ -1,7 +1,8 @@
 /**
  * Navigation and view state helpers.
  */
-/// <reference types="@wdio/globals/types" />
+
+import { waitForSelectorDisplayed } from './common.js';
 
 export type ViewName = 'dashboard' | 'media' | 'timeline' | 'profile';
 
@@ -19,7 +20,10 @@ export async function navigateTo(view: ViewName): Promise<void> {
   const link = $(`[data-view="${view}"]`);
   await link.waitForDisplayed({ timeout: 5000 });
   const rootSelector = getRootSelector(view);
-  const root = $(rootSelector);
+
+  // Re-fetch the root element on every poll (see waitForSelectorDisplayed) so a
+  // stale reference from an async re-render can't make navigation hang on web.
+  const waitForRootDisplayed = () => waitForSelectorDisplayed(rootSelector, 10000);
 
   const isAlreadyActive = async () => {
     const classes = await link.getAttribute('class').catch(() => '');
@@ -27,10 +31,7 @@ export async function navigateTo(view: ViewName): Promise<void> {
   };
 
   if (await isAlreadyActive()) {
-    await root.waitForDisplayed({
-      timeout: 10000,
-      timeoutMsg: `View ${view} (${rootSelector}) did not render in time`,
-    });
+    await waitForRootDisplayed();
     return;
   }
 
@@ -51,10 +52,7 @@ export async function navigateTo(view: ViewName): Promise<void> {
   }, { timeout: 10000, timeoutMsg: `Nav link for ${view} did not become active` });
 
   // Wait for the view-specific root to be present and displayed
-  await root.waitForDisplayed({ 
-    timeout: 10000, 
-    timeoutMsg: `View ${view} (${rootSelector}) did not render in time` 
-  });
+  await waitForRootDisplayed();
 }
 
 /**

@@ -1,14 +1,15 @@
 /**
  * Common UI interaction helpers.
  */
-/// <reference types="@wdio/globals/types" />
-/// <reference types="@wdio/visual-service" />
-/// <reference types="@wdio/ocr-service" />
 import path from 'node:path';
+import { isDesktop } from '../config/platform.js';
+import { setText } from './form-controls.js';
+import type { ChainablePromiseElement } from 'webdriverio';
 
-type ElementTarget = string | WebdriverIO.Element | (() => WebdriverIO.Element);
+type ElementTarget = string | ChainablePromiseElement | (() => ChainablePromiseElement);
+let promptSubmissionCounter = 0;
 
-function resolveElement(target: ElementTarget): WebdriverIO.Element {
+function resolveElement(target: ElementTarget): ChainablePromiseElement {
     if (typeof target === 'string') {
         return $(target);
     }
@@ -20,7 +21,7 @@ function resolveElement(target: ElementTarget): WebdriverIO.Element {
     return target;
 }
 
-function selectorForTarget(target: ElementTarget, element: WebdriverIO.Element): string | null {
+function selectorForTarget(target: ElementTarget, element: ChainablePromiseElement): string | null {
     if (typeof target === 'string') {
         return target;
     }
@@ -53,7 +54,29 @@ function clickLastVisibleMatch(selector: string): Promise<void> {
     }, selector);
 }
 
-export async function isOverlayActive(overlay: WebdriverIO.Element): Promise<boolean> {
+/**
+ * Waits until the element matching `selector` is displayed, re-querying the
+ * selector on every poll.
+ *
+ * Prefer this over `$(selector).waitForDisplayed()` for elements that appear
+ * after an async data load. On web the view roots accumulate in the DOM and a
+ * render can replace the target node, so a reference captured up-front goes
+ * stale and never reports displayed. Re-fetching each tick is robust on every
+ * platform (desktop renders fast enough that the stale-reference race never
+ * surfaced there).
+ */
+export async function waitForSelectorDisplayed(selector: string, timeout = 8000): Promise<void> {
+    await browser.waitUntil(async () => {
+        const element = $(selector);
+        return await element.isDisplayed().catch(() => false);
+    }, {
+        timeout,
+        interval: 100,
+        timeoutMsg: `element ("${selector}") still not displayed after ${timeout}ms`,
+    });
+}
+
+export async function isOverlayActive(overlay: ChainablePromiseElement): Promise<boolean> {
     const className = await overlay.getAttribute('class').catch(() => '');
     return (className ?? '').split(/\s+/).includes('active');
 }
@@ -99,7 +122,7 @@ export async function getTopmostVisibleOverlay(selector?: string, timeout = 8000
     throw new Error(`No visible modal overlay found for selector "${selector || '<any>'}"`);
 }
 
-export async function findTopmostVisibleOverlay(selector?: string): Promise<WebdriverIO.Element | null> {
+export async function findTopmostVisibleOverlay(selector?: string): Promise<ChainablePromiseElement | null> {
     const modalId = await browser.execute((targetSelector) => {
         const overlays = Array.from(document.querySelectorAll('.modal-overlay')).reverse();
         const isVisible = (node: Element | null): boolean => {
@@ -227,7 +250,7 @@ export async function clickTopmostOverlayChild(selector: string, timeout = 8000)
     }, selector);
 }
 
-export async function waitForOverlayToDisappear(overlay: WebdriverIO.Element, timeout = 5000) {
+export async function waitForOverlayToDisappear(overlay: ChainablePromiseElement, timeout = 5000) {
     const modalId = await browser.execute((el) => {
         return (el as HTMLElement).dataset.modalId ?? '';
     }, overlay).catch(() => '');
@@ -295,113 +318,43 @@ export async function safeClick(target: ElementTarget, timeout = 5000): Promise<
     throw lastError instanceof Error ? lastError : new Error('Failed to click element');
 }
 
-export async function setInputValue(target: ElementTarget, value: string, timeout = 5000): Promise<void> {
-    let lastError: unknown;
-
-    for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-            const element = resolveElement(target);
-            await element.waitForExist({ timeout });
-            await element.scrollIntoView().catch(() => { });
-            await element.waitForDisplayed({ timeout });
-            await safeClick(element, timeout);
-
-            try {
-                await element.clearValue();
-            } catch {
-                await browser.keys(['Control', 'a', 'Backspace']).catch(() => { });
-            }
-
-            if (value !== '') {
-                try {
-                    await element.addValue(value);
-                } catch {
-                    await element.setValue(value);
-                }
-            }
-
-            await browser.waitUntil(async () => {
-                const currentValue = await resolveElement(target).getValue().catch(() => null);
-                return `${currentValue ?? ''}` === value;
-            }, {
-                timeout: Math.min(timeout, 3000),
-                interval: 100,
-                timeoutMsg: 'Input value did not settle to the expected value'
-            });
-
-            return;
-        } catch (error) {
-            lastError = error;
-            await browser.pause(150 * (attempt + 1));
-        }
-    }
-
-    throw lastError instanceof Error ? lastError : new Error('Failed to set input value');
-}
-
-
 /**
- * Use OCR to verify text is visible on screen.
- * Falls back to DOM text search if OCR is not available.
- */
-export async function assertTextVisible(text: string): Promise<void> {
-  const stageDir = process.env.SPEC_STAGE_DIR;
-  const imagesFolder = stageDir ? path.join(stageDir, 'ocr') : undefined;
-
-  if (imagesFolder) {
-    const { mkdirSync } = await import('node:fs');
-    mkdirSync(imagesFolder, { recursive: true });
-  }
-
-  try {
-    // Force specific imagesFolder for OCR
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (browser as any).ocrWaitForTextDisplayed({
-      text,
-      timeout: 5000,
-      imagesFolder,
-    });
-  } catch {
-    // Fallback: search in page text content
-    const body = $('body');
-    const bodyText = await body.getText();
-    expect(bodyText).toContain(text);
-  }
-}
-
-/**
- * Take a screenshot and compare against baseline using visual service.
+ * Takes a screenshot and compares it against the desktop baseline.
+ *
+ * Desktop-only: on web/android this is a no-op until per-platform baselines are
+ * curated (avoids false diffs from font/rendering differences).
  */
 export async function takeAndCompareScreenshot(tag: string): Promise<void> {
-  const stageDir = process.env.SPEC_STAGE_DIR;
+  if (!isDesktop()) return;
 
+  await waitForVisualComparisonReady().catch(() => undefined);
+
+  const stageDir = process.env.SPEC_STAGE_DIR;
   const options: Record<string, string> = {};
   if (stageDir) {
+    const { mkdirSync } = await import('node:fs');
     const actualFolder = path.join(stageDir, 'visual', 'actual');
     const diffFolder = path.join(stageDir, 'visual', 'diff');
-
-    const { mkdirSync } = await import('node:fs');
     mkdirSync(actualFolder, { recursive: true });
     mkdirSync(diffFolder, { recursive: true });
-
     options.actualFolder = actualFolder;
     options.diffFolder = diffFolder;
   }
 
+  const maximumMismatch = 10;
+  const retryAttempts = 3;
   let result = Number.POSITIVE_INFINITY;
-  const attempts = 3;
-  for (let attempt = 0; attempt < attempts; attempt++) {
-    await waitForVisualComparisonReady().catch(() => undefined);
-    result = await browser.checkScreen(tag, options);
-    if (result <= 10) break;
-    if (attempt < attempts - 1) {
+  for (let attempt = 0; attempt < retryAttempts; attempt++) {
+    result = await browser.checkScreen(tag, options) as number;
+    if (result <= maximumMismatch) break;
+    if (attempt < retryAttempts - 1) {
       await browser.pause(500 * (attempt + 1));
     }
   }
 
-  // High tolerance for environmental rendering noise
-  expect(result).toBeLessThanOrEqual(10);
+  expect(result).toBeLessThanOrEqual(maximumMismatch);
 }
+
 
 async function waitForVisualComparisonReady(timeout = 5000): Promise<void> {
   await browser.waitUntil(async () => {
@@ -431,7 +384,7 @@ async function waitForVisualComparisonReady(timeout = 5000): Promise<void> {
  */
 export async function dismissAlert(expectedText?: string, timeout = 5000): Promise<void> {
     try {
-        let overlay: WebdriverIO.Element | null = null;
+        let overlay: ChainablePromiseElement | null;
         if (expectedText) {
             await waitForTopmostOverlayText('#alert-ok', expectedText, timeout);
             overlay = await getTopmostVisibleOverlay('#alert-ok', timeout > 0 ? timeout : 1000);
@@ -459,21 +412,44 @@ export async function submitPrompt(value: string, timeout = 15000): Promise<void
     const input = overlay.$('#prompt-input');
     await input.waitForDisplayed({ timeout: 5000 });
 
-    await setInputValue(input, value);
+    await setText('#prompt-input', value);
 
-    const confirmBtn = overlay.$('#prompt-confirm');
-    await safeClick(confirmBtn);
+    // Modal IDs restart at 1 after a reload. Tag this specific overlay so a
+    // newly loaded first-run modal cannot be mistaken for the prompt we just
+    // submitted (notably during factory reset).
+    promptSubmissionCounter += 1;
+    const promptToken = `e2e-prompt-${promptSubmissionCounter}`;
+    const submitted = await browser.execute((token) => {
+        const overlays = Array.from(document.querySelectorAll('.modal-overlay')).reverse();
+        const activeOverlay = overlays.find(
+            (candidate) => candidate instanceof HTMLElement && candidate.classList.contains('active'),
+        );
 
-    // Wait for the prompt-input to disappear. We do this via a direct browser script
-    // to avoid WebdriverIO v9 auto-refetching the 'overlay' element if the app reloads
-    // (e.g. during a factory reset) and finding a new modal.
+        if (!(activeOverlay instanceof HTMLElement)) {
+            return false;
+        }
+
+        const form = activeOverlay.querySelector('#prompt-form');
+        if (!(form instanceof HTMLFormElement)) {
+            return false;
+        }
+
+        activeOverlay.dataset.e2ePromptToken = token;
+        form.requestSubmit();
+        return true;
+    }, promptToken);
+
+    if (!submitted) {
+        throw new Error('Active prompt form disappeared before it could be submitted');
+    }
+
     await browser.waitUntil(async () => {
-        return browser.execute(() => {
-            const el = document.querySelector('#prompt-input');
-            if (!el) return true;
-            const ov = el.closest('.modal-overlay');
-            return ov ? !ov.classList.contains('active') : true;
-        }).catch(() => true);
+        return browser.execute((token) => {
+            const tracked = Array.from(document.querySelectorAll('.modal-overlay')).find(
+                (candidate) => candidate instanceof HTMLElement && candidate.dataset.e2ePromptToken === token,
+            );
+            return !(tracked instanceof HTMLElement) || !tracked.classList.contains('active');
+        }, promptToken).catch(() => true);
     }, { timeout, timeoutMsg: 'Prompt overlay did not disappear in time' });
 }
 
@@ -495,14 +471,73 @@ export async function closeModal(cancelBtnSelector: string): Promise<void> {
     await clickTopmostOverlayChild(cancelBtnSelector);
     await waitForOverlayToDisappear(overlay, 5000);
 }
+
 /**
- * Sets the mock path for file save/open dialogs in Tauri.
+ * Picks a date in the activity-log modal on any platform. Desktop shows an in-page
+ * calendar (.cal-day); mobile (<750px) hides it and shows a native
+ * <input type="date" id="mobile-date-input"> pre-filled with today. Pass a
+ * YYYY-MM-DD date to choose one, or omit to keep the pre-filled "today".
+ */
+export async function selectActivityDate(date?: string): Promise<void> {
+    const mobileDateFieldVisible = await $('#mobile-date-field').isDisplayed().catch(() => false);
+    if (mobileDateFieldVisible) {
+        if (date) {
+            await setText('#mobile-date-input', date);
+        }
+        return;
+    }
+    await safeClick(date ? `.cal-day[data-date="${date}"]` : '.cal-day.today');
+}
+
+/**
+ * Sets the mock path for file save/open dialogs.
+ *
+ * Desktop-only: injects mockSavePath / mockOpenPath into the Tauri WebView so an
+ * intercepted dialog returns the given path. No-op on web/android (no dialogs).
  */
 export async function setDialogMockPath(filePath: string): Promise<void> {
-    await browser.execute((p) => {
-        (globalThis as unknown as { mockSavePath: string, mockOpenPath: string }).mockSavePath = p;
-        (globalThis as unknown as { mockSavePath: string, mockOpenPath: string }).mockOpenPath = p;
+    if (!isDesktop()) return;
+
+    await browser.execute((normalizedPath) => {
+        (globalThis as unknown as { mockSavePath: string; mockOpenPath: string }).mockSavePath = normalizedPath;
+        (globalThis as unknown as { mockSavePath: string; mockOpenPath: string }).mockOpenPath = normalizedPath;
     }, filePath);
+}
+
+/**
+ * Switches Appium into the app's WEBVIEW context on Android.
+ *
+ * The Tauri UI is an Android WebView, but Appium starts in NATIVE_APP where
+ * DOM/CSS selectors are invalid, so this must run before any DOM access.
+ * Idempotent. Android-only — callers guard with isAndroid().
+ */
+export async function ensureAndroidWebContext(timeoutMs = 30000): Promise<void> {
+    const mobile = browser as unknown as {
+        getContext: () => Promise<string | null>;
+        getContexts: () => Promise<string[]>;
+        switchContext: (name: string) => Promise<void>;
+    };
+
+    const current = await mobile.getContext().catch(() => null);
+    if (current && current.startsWith('WEBVIEW')) return;
+
+    const startTimestamp = Date.now();
+    let webContext: string | undefined;
+    while (Date.now() - startTimestamp < timeoutMs) {
+        const contexts = await mobile.getContexts().catch(() => [] as string[]);
+        webContext = contexts.find((context) => context.startsWith('WEBVIEW'));
+        if (webContext) break;
+        await browser.pause(1000);
+    }
+
+    if (!webContext) {
+        throw new Error(
+            'No WEBVIEW context became available on Android. Is the WebView debuggable '
+            + '(debug build) and chromedriver available to Appium?',
+        );
+    }
+
+    await mobile.switchContext(webContext);
 }
 
 /**
@@ -526,11 +561,11 @@ export async function performActivityEdit(btnSelector: string, newDuration: stri
         timeoutMsg: 'Modal did not enter Edit Activity mode'
     });
 
-    await setInputValue(() => overlay.$('#activity-duration'), newDuration, 3000);
+    await setText('#activity-duration', newDuration, 3000);
 
     const charInput = overlay.$('#activity-characters');
     if (await charInput.isExisting()) {
-        await setInputValue(() => overlay.$('#activity-characters'), newCharacters, 3000);
+        await setText('#activity-characters', newCharacters, 3000);
     }
 
     const submitBtn = overlay.$('#add-activity-form button[type="submit"]');

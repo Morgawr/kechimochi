@@ -1,5 +1,4 @@
-export function buildCalendar(containerId: string, initialDate: string, onSelect: (d: string) => void) {
-    const container = document.getElementById(containerId)!;
+export function buildCalendar(container: HTMLElement, initialDate: string, onSelect: (d: string) => void) {
     const curr = initialDate ? new Date(initialDate + "T00:00:00") : new Date();
     let vY = curr.getFullYear();
     let vM = curr.getMonth();
@@ -13,9 +12,9 @@ export function buildCalendar(containerId: string, initialDate: string, onSelect
         let html = `
             <div style="background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 0.5rem; width: 230px; user-select: none;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                    <button type="button" class="btn btn-ghost" style="padding: 0 0.5rem; height: 24px; min-width: 24px; font-size: 0.8rem;" id="c-p-${containerId}">&lt;</button>
+                    <button type="button" class="btn btn-ghost cal-nav-prev" style="padding: 0 0.5rem; height: 24px; min-width: 24px; font-size: 0.8rem;">&lt;</button>
                     <span style="font-size: 0.9rem; font-weight: 500;">${vY} / ${vM + 1}</span>
-                    <button type="button" class="btn btn-ghost" style="padding: 0 0.5rem; height: 24px; min-width: 24px; font-size: 0.8rem;" id="c-n-${containerId}">&gt;</button>
+                    <button type="button" class="btn btn-ghost cal-nav-next" style="padding: 0 0.5rem; height: 24px; min-width: 24px; font-size: 0.8rem;">&gt;</button>
                 </div>
                 <div style="display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
                     <div style="color: #ff4757;">Su</div><div>Mo</div><div>Tu</div><div>We</div><div>Th</div><div>Fr</div><div style="color: #1e90ff;">Sa</div>
@@ -40,12 +39,11 @@ export function buildCalendar(containerId: string, initialDate: string, onSelect
         html += `</div></div>`;
         container.innerHTML = html;
         
-        container.querySelector(`#c-p-${containerId}`)!.addEventListener('click', (e) => { e.preventDefault(); vM--; if(vM < 0){vM=11; vY--;} render(); });
-        container.querySelector(`#c-n-${containerId}`)!.addEventListener('click', (e) => { e.preventDefault(); vM++; if(vM > 11){vM=0; vY++;} render(); });
+        container.querySelector('.cal-nav-prev')!.addEventListener('click', (e) => { e.preventDefault(); vM--; if(vM < 0){vM=11; vY--;} render(); });
+        container.querySelector('.cal-nav-next')!.addEventListener('click', (e) => { e.preventDefault(); vM++; if(vM > 11){vM=0; vY++;} render(); });
         container.querySelectorAll<HTMLElement>('.cal-day').forEach(el => {
             el.addEventListener('click', () => {
-                const date = el.dataset.date!;
-                activeDateStr = date;
+                activeDateStr = el.dataset.date!;
                 render();
                 onSelect(activeDateStr);
             });

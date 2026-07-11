@@ -4,6 +4,9 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { Logger } from '../../src/logger';
+import { isWeb, isAndroid } from '../config/platform.js';
+import { ensureAndroidWebContext } from './common.js';
+import { TEST_PROFILE_NAME, SEED_USER_DB_FILENAME, MOCK_DATE } from '../config/test-constants.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = path.resolve(__dirname, '..', 'fixtures');
@@ -45,13 +48,13 @@ export function prepareTestDir(options: PrepareTestDirOptions = {}): string {
   }
 
   // Copy and pre-migrate fixture databases so localStorage leak is bypassed entirely
-  const srcTestUser = path.join(FIXTURES_DIR, 'kechimochi_TESTUSER.db');
+  const srcTestUser = path.join(FIXTURES_DIR, SEED_USER_DB_FILENAME);
   const destUser = path.join(testDir, 'kechimochi_user.db');
   if (fs.existsSync(srcTestUser)) {
     fs.copyFileSync(srcTestUser, destUser);
     try {
       seedSettings(destUser, {
-        profile_name: 'TESTUSER',
+        profile_name: TEST_PROFILE_NAME,
         updates_auto_check_enabled: 'false',
         updates_last_seen_release_version: PACKAGE_VERSION.version,
         ...options.extraSettings,
@@ -123,14 +126,29 @@ export async function waitForAppReady(
   timeout = 30000,
   options: { seedLocalProfile?: boolean } = {},
 ): Promise<void> {
-  const MOCK_DATE = '2024-03-31';
   const seedLocalProfile = options.seedLocalProfile ?? true;
-  const startTs = Date.now();
+  const startTimestamp = Date.now();
   const reserveMs = 1000;
-  const timeLeft = () => Math.max(0, timeout - (Date.now() - startTs));
+  const timeLeft = () => Math.max(0, timeout - (Date.now() - startTimestamp));
   const phaseBudget = (maxMs: number, minMs = 1000) => Math.max(minMs, Math.min(maxMs, Math.max(0, timeLeft() - reserveMs)));
 
   Logger.info(`[e2e] Ensuring app is ready and date is mocked to ${MOCK_DATE}...`);
+
+  if (isAndroid()) {
+    await ensureAndroidWebContext();
+  }
+
+  // On web, the browser starts on about:blank/data: — unlike the desktop Tauri
+  // build, nothing auto-loads the SPA. Navigate to the app origin (baseUrl) so
+  // the DOM/storage checks below have a real document to work against. Only do
+  // this when not already on the origin, so web specs that test a specific URL
+  // state (e.g. a hard refresh) keep the page they navigated to.
+  if (isWeb()) {
+    const currentUrl = await browser.getUrl().catch(() => '');
+    if (!currentUrl.startsWith('http')) {
+      await browser.url('/');
+    }
+  }
 
   // Keep visual snapshots deterministic across different host DPI settings.
   await normalizeWindowSize();
@@ -161,14 +179,14 @@ export async function waitForAppReady(
   try {
     await browser.waitUntil(async () => {
       try {
-        await browser.execute((date: string, shouldSeedLocalProfile: boolean) => {
+        await browser.execute((date: string, shouldSeedLocalProfile: boolean, profileName: string) => {
           sessionStorage.setItem('kechimochi_mock_date', date);
           if (shouldSeedLocalProfile) {
-            localStorage.setItem('kechimochi_profile', 'TESTUSER');
+            localStorage.setItem('kechimochi_profile', profileName);
           } else {
             localStorage.removeItem('kechimochi_profile');
           }
-        }, MOCK_DATE, seedLocalProfile);
+        }, MOCK_DATE, seedLocalProfile, TEST_PROFILE_NAME);
         setResolved = true;
         return true;
       } catch (e: unknown) {
@@ -210,10 +228,10 @@ export async function waitForAppReady(
   await browser.waitUntil(
     async () => {
       retries++;
-      const dashboardNav = await $('[data-view="dashboard"]');
-      const profileNav = await $('[data-view="profile"]');
-      const viewContainer = await $('#view-container');
-      const initialPrompt = await $('#initial-prompt-input');
+      const dashboardNav = $('[data-view="dashboard"]');
+      const profileNav = $('[data-view="profile"]');
+      const viewContainer = $('#view-container');
+      const initialPrompt = $('#initial-prompt-input');
 
       const bootState = await browser.execute(() => {
         return document.getElementById('app')?.dataset.bootState || '';
@@ -238,7 +256,7 @@ export async function waitForAppReady(
   ).catch(async () => {
     const appRootExists = await $('#app').isExisting().catch(() => false);
     const viewContainerExists = await $('#view-container').isExisting().catch(() => false);
-    const navLinkCount = await $$('.nav-link').then((links) => links.length).catch(() => 0);
+    const navLinkCount = await $$('.nav-link').length.catch(() => 0);
     const bodyTextLength = await $('body').getText().then((text) => text.trim().length).catch(() => 0);
 
     if (appRootExists) {

@@ -94,7 +94,7 @@ export async function showAddMilestoneModal(mediaTitle: string, initialValues?: 
         const charactersInput = overlay.querySelector<HTMLInputElement>('#milestone-characters')!;
         nameInput.value = existingMilestone?.name ?? '';
         if (hasExistingDate) {
-            buildCalendar('milestone-calendar', existingDate, (d) => {
+            buildCalendar(overlay.querySelector<HTMLElement>('#milestone-calendar')!, existingDate, (d) => {
                 selectedDate = d;
             });
         }
@@ -140,7 +140,7 @@ export async function showAddMilestoneModal(mediaTitle: string, initialValues?: 
             if (recordDateCheckbox.checked) {
                 calendarContainer.style.display = 'flex';
                 selectedDate = selectedDate || today;
-                buildCalendar('milestone-calendar', selectedDate, (d) => {
+                buildCalendar(overlay.querySelector<HTMLElement>('#milestone-calendar')!, selectedDate, (d) => {
                     selectedDate = d;
                 });
             } else {

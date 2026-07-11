@@ -6,7 +6,6 @@ describe('modals/calendar.ts', () => {
 
     beforeEach(() => {
         container = document.createElement('div');
-        container.id = 'test-cal-container';
         document.body.appendChild(container);
     });
 
@@ -16,11 +15,11 @@ describe('modals/calendar.ts', () => {
 
     it('should render the calendar for a given month', () => {
         const onSelect = vi.fn();
-        buildCalendar('test-cal-container', '2024-01-15', onSelect);
+        buildCalendar(container, '2024-01-15', onSelect);
 
         expect(container.textContent).toContain('2024 / 1');
         const days = container.querySelectorAll('.cal-day');
-        expect(days.length).toBe(31);
+        expect(days).toHaveLength(31);
         
         const day15 = Array.from(days).find(d => d.textContent === '15') as HTMLElement;
         expect(day15).toBeDefined();
@@ -28,14 +27,14 @@ describe('modals/calendar.ts', () => {
 
     it('should navigate months', () => {
         const onSelect = vi.fn();
-        buildCalendar('test-cal-container', '2024-01-15', onSelect);
+        buildCalendar(container, '2024-01-15', onSelect);
 
-        const prevBtn = container.querySelector('#c-p-test-cal-container') as HTMLElement;
+        const prevBtn = container.querySelector('.cal-nav-prev') as HTMLElement;
         expect(prevBtn).not.toBeNull();
         prevBtn.click();
         expect(container.textContent).toContain('2023 / 12');
 
-        const nextBtn = container.querySelector('#c-n-test-cal-container') as HTMLElement;
+        const nextBtn = container.querySelector('.cal-nav-next') as HTMLElement;
         expect(nextBtn).not.toBeNull();
         nextBtn.click();
         expect(container.textContent).toContain('2024 / 1');
@@ -43,7 +42,7 @@ describe('modals/calendar.ts', () => {
 
     it('should trigger onSelect when a day is clicked', () => {
         const onSelect = vi.fn();
-        buildCalendar('test-cal-container', '2024-01-15', onSelect);
+        buildCalendar(container, '2024-01-15', onSelect);
 
         const day20 = Array.from(container.querySelectorAll('.cal-day')).find(d => d.textContent === '20') as HTMLElement;
         expect(day20).toBeDefined();

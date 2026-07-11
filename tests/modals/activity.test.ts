@@ -61,8 +61,7 @@ describe('modals/activity.ts', () => {
         vi.useFakeTimers();
         HTMLInputElement.prototype.setCustomValidity = vi.fn();
         vi.stubGlobal('setCustomValidity', vi.fn());
-        vi.mocked(buildCalendar).mockImplementation((containerId: string, initialDate: string, onSelect: (d: string) => void) => {
-            const container = document.getElementById(containerId);
+        vi.mocked(buildCalendar).mockImplementation((container: HTMLElement, initialDate: string, onSelect: (d: string) => void) => {
             if (!container) return;
             container.innerHTML = `<button type="button" class="mock-calendar-day" data-date="${initialDate}">${initialDate}</button>`;
             container.querySelector<HTMLButtonElement>('.mock-calendar-day')?.addEventListener('click', () => onSelect(initialDate));

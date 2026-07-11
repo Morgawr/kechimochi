@@ -1,49 +1,47 @@
 /**
  * Dashboard-specific helpers.
  */
-/// <reference types="@wdio/globals/types" />
-import { clickTopmostOverlayChild, confirmAction, performActivityEdit, safeClick, getTopmostVisibleOverlay, waitForOverlayToDisappear } from './common.js';
+import { clickTopmostOverlayChild, confirmAction, performActivityEdit, safeClick, getTopmostVisibleOverlay, waitForOverlayToDisappear, waitForNoActiveOverlays, selectActivityDate } from './common.js';
+import { setText, setSelect } from './form-controls.js';
 
 /**
  * High-level helper to log an activity from the dashboard
  */
 export async function logActivity(title: string, duration: string, characters: string = "0", date?: string, activityType?: string): Promise<void> {
+    await waitForNoActiveOverlays();
     const addActivityBtn = $('#btn-add-activity');
     await addActivityBtn.waitForClickable({ timeout: 5000 });
     await addActivityBtn.click();
 
+    const overlay = await getTopmostVisibleOverlay('#add-activity-form', 10000);
+
     // Dynamically fetch and wait for elements to avoid StaleElementReferenceException from UI updates
-    await browser.waitUntil(async () => await $('#activity-media').isDisplayed().catch(() => false), { timeout: 10000 });
-    await $('#activity-media').setValue(title);
+    await browser.waitUntil(async () => await overlay.$('#activity-media').isDisplayed().catch(() => false), { timeout: 10000 });
+    await setText('#activity-media', title);
 
-    await browser.waitUntil(async () => await $('#activity-duration').isDisplayed().catch(() => false), { timeout: 5000 });
-    await $('#activity-duration').setValue(duration);
+    await browser.waitUntil(async () => await overlay.$('#activity-duration').isDisplayed().catch(() => false), { timeout: 5000 });
+    await setText('#activity-duration', duration);
 
-    if (await $('#activity-characters').isExisting()) {
-        await $('#activity-characters').setValue(characters);
+    if (await overlay.$('#activity-characters').isExisting()) {
+        await setText('#activity-characters', characters);
     }
 
     if (activityType) {
-        if (await $('#activity-type').isExisting()) {
-            await $('#activity-type').selectByVisibleText(activityType);
+        if (await overlay.$('#activity-type').isExisting()) {
+            await setSelect('#activity-type', { text: activityType });
         }
     }
 
     if (date) {
-        const dateEl = $(`.cal-day[data-date="${date}"]`);
-        if (await dateEl.isExisting()) {
-            await dateEl.click();
-        }
+        await selectActivityDate(date);
     }
 
-    const submitBtn = $('#add-activity-form button[type="submit"]');
+    const submitBtn = overlay.$('#add-activity-form button[type="submit"]');
     await submitBtn.waitForClickable({ timeout: 5000 });
     await submitBtn.click();
-    
+
     // Wait for the modal to close so it doesn't bleed into the next test
-    await browser.waitUntil(async () => {
-        return !(await $('#add-activity-form').isExisting());
-    }, { timeout: 5000 }).catch(() => {});
+    await waitForOverlayToDisappear(overlay, 5000).catch(() => {});
 }
 
 /**
@@ -151,14 +149,7 @@ export async function clickHeatmapCell(date: string): Promise<void> {
 }
 
 export async function selectActivityChartTimeRange(days: '7' | '30' | '365'): Promise<void> {
-    const select = $('#select-time-range');
-    await select.waitForDisplayed({ timeout: 5000 });
-    await select.selectByAttribute('value', days);
-    await browser.waitUntil(async () => (await select.getValue()) === days, {
-        timeout: 5000,
-        interval: 100,
-        timeoutMsg: `Expected activity chart time range to be ${days}`
-    });
+    await setSelect('#select-time-range', { value: days });
 }
 
 export async function getActivityChartRangeMetadata(): Promise<{
@@ -194,104 +185,18 @@ export async function logActivityGlobal(mediaTitle: string, minutes: number, cha
     const logBtn = $('#btn-add-activity');
     await safeClick(logBtn);
     
-    await setTopmostActivityFieldValue('#activity-media', mediaTitle);
-    await setTopmostActivityFieldValue('#activity-duration', String(minutes));
-    await setTopmostActivityFieldValue('#activity-characters', String(characters), false);
+    await setText('#activity-media', mediaTitle);
+    await setText('#activity-duration', String(minutes));
+    if (await $('#activity-characters').isExisting()) {
+        await setText('#activity-characters', String(characters));
+    }
 
-    if (activityType) {
-        await setTopmostActivityFieldValue('#activity-type', activityType, false);
+    if (activityType && await $('#activity-type').isExisting()) {
+        await setSelect('#activity-type', { text: activityType });
     }
     
     const submitBtnSelector = '#add-activity-form button[type="submit"]';
     const overlay = await getTopmostVisibleOverlay(submitBtnSelector);
     await clickTopmostOverlayChild(submitBtnSelector);
     await waitForOverlayToDisappear(overlay, 5000);
-}
-
-async function setTopmostActivityFieldValue(selector: string, value: string, required = true): Promise<void> {
-    await browser.waitUntil(async () => {
-        return browser.execute((targetSelector, shouldExist) => {
-            if (!shouldExist) {
-                return true;
-            }
-
-            return Array.from(document.querySelectorAll('.modal-overlay')).reverse().some((overlay) => {
-                if (!(overlay instanceof HTMLElement) || !overlay.classList.contains('active')) {
-                    return false;
-                }
-
-                const style = globalThis.getComputedStyle(overlay);
-                const rect = overlay.getBoundingClientRect();
-                return style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && rect.width > 0
-                    && rect.height > 0
-                    && overlay.querySelector(targetSelector as string) !== null;
-            });
-        }, selector, required).catch(() => false);
-    }, {
-        timeout: 5000,
-        interval: 100,
-        timeoutMsg: `Expected activity modal field ${selector} to exist`
-    });
-
-    await browser.execute((targetSelector, nextValue, shouldExist) => {
-        const findActiveOverlayElement = (selector: string): Element | null => {
-            const overlays = Array.from(document.querySelectorAll('.modal-overlay')).reverse();
-            for (const overlay of overlays) {
-                if (!(overlay instanceof HTMLElement) || !overlay.classList.contains('active')) {
-                    continue;
-                }
-
-                const style = globalThis.getComputedStyle(overlay);
-                const rect = overlay.getBoundingClientRect();
-                if (style.display === 'none' || style.visibility === 'hidden' || rect.width <= 0 || rect.height <= 0) {
-                    continue;
-                }
-
-                const element = overlay.querySelector(selector);
-                if (element) {
-                    return element;
-                }
-            }
-
-            return null;
-        };
-        const element = findActiveOverlayElement(targetSelector as string);
-        if (!element) {
-            if (shouldExist) {
-                throw new Error(`Activity modal field not found: ${targetSelector}`);
-            }
-            return;
-        }
-
-        if (element instanceof HTMLSelectElement) {
-            const requestedValue = String(nextValue);
-            const option = Array.from(element.options).find(candidate => {
-                return candidate.value === requestedValue || candidate.textContent?.trim() === requestedValue;
-            });
-            if (!option) {
-                if (shouldExist) {
-                    throw new Error(`Activity modal option not found: ${requestedValue}`);
-                }
-                return;
-            }
-
-            element.focus();
-            element.value = option.value;
-            element.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
-            element.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
-            return;
-        }
-
-        if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
-            element.focus();
-            element.value = String(nextValue);
-            element.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
-            element.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
-            return;
-        }
-
-        throw new Error(`Activity modal field is not editable: ${targetSelector}`);
-    }, selector, value, required);
 }

@@ -6,7 +6,7 @@ This document outlines the steps for setting up a development environment, build
 
 Before you begin, ensure you have the following installed on your system:
 
-*   **Node.js** (version 18 or higher)
+*   **Node.js** (20.19+, 22.13+, or 24–26; CI uses Node 20). An `.nvmrc` is provided for `nvm use`.
 *   **Rust** (latest stable via [rustup](https://rustup.rs/))
 *   **System Dependencies** (Linux only):
     ```bash
@@ -111,46 +111,111 @@ Navigate to the `src-tauri` directory or use the `--manifest-path` flag to run b
     ```
 
 ### End-to-End (E2E) Tests
-The E2E suite verifies the entire application stack using WebdriverIO. These tests run on isolated temporary databases.
 
-Ensure you have `tauri-driver` installed:
-```bash
-cargo install tauri-driver
+The E2E suite verifies the entire application stack using WebdriverIO.  It supports three platforms — Desktop (Tauri), Web (Chrome + web_server), and Android (Appium + emulator/cloud) — controlled by separate config files.  All tests run against isolated temporary databases.
+
+#### Spec layout
+
+```
+e2e/specs/
+  shared/     — platform-agnostic CUJs (run on Desktop + Web + Android)
+  desktop/    — Desktop-only: file dialogs, disk export/import, native window
+  web/        — Web-exclusive: browser refresh, direct URL load
+  android/    — Android-only smoke: fresh-install + seeded-DB
+  non-mobile/ — Desktop + Web only (e.g. window-resize / breakpoints)
 ```
 
 #### Database Seeding
-The E2E suite relies on deterministic fixture databases to ensure consistent test results. We use a seed script to generate these databases, which include:
+
+The E2E suite relies on deterministic fixture databases to ensure consistent test results.  We use a seed script to generate these databases, which include:
 *   A **Shared Media Database** containing a curated set of Japanese media titles (Manga, Anime, Visual Novels, etc.).
 *   A **User Profile Database** populated with historical activity logs and initial settings.
 *   **Placeholder Assets** like cover images for the media library.
 
-You can run the seeding process manually using:
+Seed the databases manually (also run automatically by `npm run e2e`, `npm run e2e:test`, and the full platform suite commands):
 ```bash
 npm run e2e:seed
 ```
 
-This command is automatically executed as part of the main `npm run e2e` command, but it is useful to run independently if you are debugging specific test cases or want to inspect the fixture data.
+#### Desktop E2E
 
-#### Running Tests
-Run the full E2E suite (including database seeding and application build):
+Pre-requisite: `tauri-driver` installed.
 ```bash
-npm run e2e
+cargo install tauri-driver
 ```
 
-#### Parallel Execution
-By default, the test suite runs with **2 parallel jobs**. You can override this using the `E2E_MAX_INSTANCES` environment variable.
+Run the full Desktop suite (seed + build + shared/desktop specs):
+```bash
+npm run e2e           # shorthand — also aliases to desktop
+npm run e2e:desktop   # explicit
+```
 
+Run a single spec:
+```bash
+npm run e2e:test -- --spec e2e/specs/shared/dashboard.spec.ts
+npm run e2e:test -- --spec e2e/specs/desktop/bulk-management.spec.ts
+```
+
+#### Web E2E
+
+Pre-requisite: `cargo` (already required for Tauri).  Uses WDIO's managed chromedriver — no separate install.
+
+Run the full Web suite (seed + frontend build + web_server build + shared/web specs):
+```bash
+npm run e2e:web
+```
+
+Run a single spec:
+```bash
+npm run e2e:web -- --spec e2e/specs/shared/dashboard.spec.ts
+npm run e2e:web -- --spec e2e/specs/web/web-load.spec.ts
+```
+
+**Cost note:** Web E2E runs in headless Chrome against a local `web_server` binary.  It is cheap (no VM or emulator needed) and runs per-PR in CI.
+
+#### Android E2E
+
+Pre-requisites:
+1.  Android SDK installed, `ANDROID_HOME` set.
+2.  An AVD created and booted: `emulator -avd Pixel_6_API_34`.
+3.  Appium with the UiAutomator2 driver installed (`appium driver install uiautomator2`), running
+    with chromedriver autodownload so it can drive the Tauri WebView (the app UI is an Android
+    WebView, not native): `npx appium --port 4723 --allow-insecure=uiautomator2:chromedriver_autodownload`.
+4.  Debug APK built: `npm run tauri -- android build --apk --debug`.
+
+Run the Android suite (shared + Android-only specs):
+```bash
+npm run e2e:android
+```
+
+> **Running the emulator inside a VM/CI** needs nested virtualization (KVM); without it the emulator
+> falls back to software rendering and is too slow to be usable. On GitHub's Ubuntu runners KVM is
+> available but `/dev/kvm` must be opened up — `android-e2e.yml` does this in its "enable KVM" step.
+> Developing in a VM with no nested virtualization (no `/dev/kvm`) means you can't run it locally at
+> all — trigger the `Android E2E` workflow manually (`workflow_dispatch`) to run it in CI instead.
+
+Target a remote Appium grid (BrowserStack, Sauce Labs, LambdaTest, AWS Device Farm):
+```bash
+ANDROID_E2E_TARGET=remote \
+  APPIUM_HOST=hub.browserstack.com \
+  APPIUM_USER=<user> \
+  APPIUM_KEY=<key> \
+  npm run e2e:android
+```
+
+**Cost note:** Emulator boot is the heaviest CI step (~10–20 min).  Android E2E runs on a weekly schedule (Monday 06:00 UTC) plus manual `workflow_dispatch`, in `.github/workflows/android-e2e.yml`.
+
+**Firebase Test Lab is not compatible with this suite.**  FTL runs Espresso / UIAutomator2 *instrumentation* tests (JVM, APK-packaged), not a live Appium WebDriver grid.  Adapting these specs for FTL would require rewriting them as instrumentation tests — a separate effort.
+
+#### Parallel Execution
+
+By default, Desktop and Web E2E run with **2 parallel workers**.  Override with:
 ```bash
 E2E_MAX_INSTANCES=4 npm run e2e
 ```
 
 > [!WARNING]
-> Running more than **4 or 5 parallel instances** can lead to significant CPU overhead and application slowdowns. This often results in flaky tests, unexpected timeouts, and failures. It is recommended to stay within the default limits unless you are on high performance hardware.
-
-To run only specific test specs:
-```bash
-npm run e2e:test -- --spec specs/profile.spec.ts
-```
+> More than 4–5 parallel instances can cause CPU overhead and flaky timeouts.  Android E2E always uses `maxInstances: 1` to avoid AVD conflicts.
 
 ## Building for Production
 
