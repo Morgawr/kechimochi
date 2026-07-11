@@ -598,7 +598,7 @@ export function seedRemoteSyncProfile(options?: {
 
     const snapshot: SyncSnapshot = {
         sync_protocol_version: 1,
-        db_schema_version: 2,
+        db_schema_version: 3,
         snapshot_id: snapshotId,
         created_at: createdAt,
         created_by_device_id: REMOTE_DEVICE_ID,

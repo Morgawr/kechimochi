@@ -95,7 +95,7 @@ describe('modals/milestone.ts', () => {
         expect((document.querySelector('#milestone-minutes') as HTMLInputElement).value).toBe('5');
         expect((document.querySelector('#milestone-characters') as HTMLInputElement).value).toBe('900');
         expect((document.querySelector('#milestone-record-date') as HTMLInputElement).checked).toBe(true);
-        expect(buildCalendar).toHaveBeenCalledWith('milestone-calendar', '2025-05-14', expect.any(Function));
+        expect(buildCalendar).toHaveBeenCalledWith(document.querySelector('#milestone-calendar'), '2025-05-14', expect.any(Function));
 
         (document.querySelector('#milestone-name') as HTMLInputElement).value = 'Updated milestone';
         (document.querySelector('#milestone-confirm') as HTMLElement).click();

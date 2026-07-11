@@ -93,7 +93,7 @@ function renderStartupErrorScreen(message: string): void {
     `;
 
     appRoot.querySelector('#alert-ok')?.addEventListener('click', () => {
-        (appRoot.querySelector('#alert-ok') as HTMLButtonElement | null)?.blur();
+        getServices().closeWindow();
     });
 }
 

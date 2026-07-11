@@ -7,7 +7,19 @@ The format is based on Keep a Changelog, with one section per released version.
 ## [Unreleased]
 
 ### Added
+ - Added a Notes field to activity log entries (editable in the log modal, shown on the media detail page, included in sync and CSV export).
+ - The desktop app now remembers its window size, position, and maximized state between launches. 
  - Shareable profile "report cards" - save a PNG of your stats from the Profile page, as either time spent per activity type or per content type, each with a matching donut chart.
+
+
+### Changed
+ - UI aggregate metrics now report hours with proper breakdown of minutes rather than confusing decimals
+
+### Fixed
+ - The tracking heatmap now colors days that have characters logged but no time tracked, in addition to days with time tracked. Cell intensity reflects whichever of the two is higher, so days tracked with both time and characters are not artificially brighter.
+ - Milestones on the same media and same date now appear in creation order (oldest at the bottom, newest at the top) instead of alphabetically by name.
+ - Default window no longer opens larger than the screen / under the taskbar, which could hide the update dialog's close button.
+ - Fixed the "OK" button not closing the app during a startup error notice (database mismatch, etc)
 
 ## [0.2.10] - 2026-06-10
 

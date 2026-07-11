@@ -600,7 +600,8 @@ describe('main.ts initialization', () => {
         await vi.waitFor(() => expect(document.getElementById('alert-body')?.textContent).toContain(
             'Database schema version 3 is newer than this app supports (2)'
         ));
-        expect(document.getElementById('alert-ok')).not.toBeNull();
+        document.getElementById('alert-ok')?.click();
+        expect(mockWindow.close).toHaveBeenCalled();
     });
 
     it('should refresh timeline data after logging activity from the timeline view', async () => {

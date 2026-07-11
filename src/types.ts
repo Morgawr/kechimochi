@@ -40,6 +40,7 @@ export interface ActivityLog {
     characters: number;
     date: string;
     activity_type?: string;
+    notes?: string;
 }
 
 export interface ActivitySummary {
@@ -51,6 +52,7 @@ export interface ActivitySummary {
     characters: number;
     date: string;
     language: string;
+    notes: string;
 }
 
 export interface DailyHeatmap {
@@ -76,6 +78,7 @@ export interface TimelineEvent {
     contentType: string;
     trackingStatus: string;
     milestoneName: string | null;
+    milestoneId: number | null;
     firstDate: string;
     lastDate: string;
     totalMinutes: number;

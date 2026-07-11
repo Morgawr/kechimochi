@@ -61,8 +61,7 @@ describe('modals/activity.ts', () => {
         vi.useFakeTimers();
         HTMLInputElement.prototype.setCustomValidity = vi.fn();
         vi.stubGlobal('setCustomValidity', vi.fn());
-        vi.mocked(buildCalendar).mockImplementation((containerId: string, initialDate: string, onSelect: (d: string) => void) => {
-            const container = document.getElementById(containerId);
+        vi.mocked(buildCalendar).mockImplementation((container: HTMLElement, initialDate: string, onSelect: (d: string) => void) => {
             if (!container) return;
             container.innerHTML = `<button type="button" class="mock-calendar-day" data-date="${initialDate}">${initialDate}</button>`;
             container.querySelector<HTMLButtonElement>('.mock-calendar-day')?.addEventListener('click', () => onSelect(initialDate));
@@ -102,7 +101,8 @@ describe('modals/activity.ts', () => {
                 duration_minutes: 45,
                 characters: 0,
                 date: expect.any(String),
-                activity_type: 'Reading'
+                activity_type: 'Reading',
+                notes: ''
             });
         });
 
@@ -295,7 +295,8 @@ describe('modals/activity.ts', () => {
                 duration_minutes: 30,
                 characters: 100,
                 date: '2024-03-01',
-                language: 'Japanese'
+                language: 'Japanese',
+                notes: ''
             };
             
             vi.mocked(api.getAllMedia).mockResolvedValue([{ 
@@ -342,7 +343,8 @@ describe('modals/activity.ts', () => {
                 duration_minutes: 0,
                 characters: 100,
                 date: '2024-03-01',
-                language: 'Japanese'
+                language: 'Japanese',
+                notes: ''
             };
             vi.mocked(api.getAllMedia).mockResolvedValue([]);
 
@@ -361,7 +363,8 @@ describe('modals/activity.ts', () => {
                 duration_minutes: 0,
                 characters: 250,
                 date: '2024-03-01',
-                activity_type: 'Listening'
+                activity_type: 'Listening',
+                notes: ''
             });
         });
 
@@ -449,7 +452,7 @@ describe('modals/activity.ts', () => {
             titleInput.value = 'Blue Lock';
             titleInput.dispatchEvent(new Event('input'));
             expect(suggestions.style.display).toBe('block');
-            titleKeydownListeners.at(-1)?.({ key: 'Escape' } as KeyboardEvent);
+            titleKeydownListeners[titleKeydownListeners.length - 1]?.({ key: 'Escape' } as KeyboardEvent);
             expect(suggestions.style.display).toBe('none');
 
             titleInput.dispatchEvent(new Event('blur'));

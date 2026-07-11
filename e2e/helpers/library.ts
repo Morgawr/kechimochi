@@ -1,25 +1,30 @@
 /**
  * Library (Media Grid) helpers.
  */
-/// <reference types="@wdio/globals/types" />
 import { Logger } from '../../src/logger';
-import { waitForNoActiveOverlays } from './common.js';
+import { waitForNoActiveOverlays, waitForSelectorDisplayed, safeClick as safeClickBySelector } from './common.js';
+import { setText, setSelect } from './form-controls.js';
 import { navigateTo, verifyActiveView } from './navigation.js';
 
 export type LibraryLayoutMode = 'grid' | 'list';
+
+const GRID_ITEM_SELECTOR = '.media-grid-item';
+const LIST_ITEM_SELECTOR = '.media-list-item-shell';
+
+/** Matches a media item in whichever layout is active (grid on wide viewports, list on narrow). */
+export const MEDIA_ITEM_SELECTOR = `${GRID_ITEM_SELECTOR}, ${LIST_ITEM_SELECTOR}`;
 
 function getLibraryContainerSelector(layout: LibraryLayoutMode): string {
     return layout === 'grid' ? '#media-grid-container' : '#media-list-container';
 }
 
 function getLibraryItemSelector(title: string, layout: LibraryLayoutMode): string {
-    return layout === 'grid'
-        ? `.media-grid-item[data-title="${title}"]`
-        : `.media-list-item-shell[data-title="${title}"]`;
+    const itemSelector = layout === 'grid' ? GRID_ITEM_SELECTOR : LIST_ITEM_SELECTOR;
+    return `${itemSelector}[data-title="${title}"]`;
 }
 
 function getLibraryItemsSelector(layout: LibraryLayoutMode): string {
-    return layout === 'grid' ? '.media-grid-item' : '.media-list-item-shell';
+    return layout === 'grid' ? GRID_ITEM_SELECTOR : LIST_ITEM_SELECTOR;
 }
 
 export async function getActiveLibraryLayout(): Promise<LibraryLayoutMode> {
@@ -33,15 +38,62 @@ export async function getActiveLibraryLayout(): Promise<LibraryLayoutMode> {
     return 'grid';
 }
 
-export async function waitForLibraryLayout(layout: LibraryLayoutMode): Promise<void> {
-    const container = $(getLibraryContainerSelector(layout));
-    const inactiveContainer = $(getLibraryContainerSelector(layout === 'grid' ? 'list' : 'grid'));
-    const toggle = $(`#btn-layout-${layout}`);
+/**
+ * Whether the grid/list layout toggle is reachable in the current viewport.
+ *
+ * The toggle shell is `display:none` below the grid breakpoint (mobile), where
+ * the library is list-only. Callers use this to skip toggle interactions rather
+ * than branching on platform.
+ */
+export async function isLayoutToggleAvailable(): Promise<boolean> {
+    const shell = $('.media-layout-toggle-shell');
+    return await shell.isDisplayed().catch(() => false);
+}
 
+/** Selector for media items in the active layout, optionally narrowed to a title. */
+export async function getActiveMediaItemSelector(title?: string): Promise<string> {
+    const itemSelector = getLibraryItemsSelector(await getActiveLibraryLayout());
+    return title ? `${itemSelector}[data-title="${title}"]` : itemSelector;
+}
+
+/** Waits until the active library container is displayed (grid or list). */
+export async function waitForLibraryDisplayed(timeout = 8000): Promise<void> {
     await browser.waitUntil(async () => {
-        const isPressed = (await toggle.getAttribute('aria-pressed').catch(() => 'false')) === 'true';
-        const isVisible = await container.isDisplayed().catch(() => false);
-        const inactiveVisible = await inactiveContainer.isDisplayed().catch(() => false);
+        const listVisible = await $(getLibraryContainerSelector('list')).isDisplayed().catch(() => false);
+        const gridVisible = await $(getLibraryContainerSelector('grid')).isDisplayed().catch(() => false);
+        return listVisible || gridVisible;
+    }, {
+        timeout,
+        interval: 100,
+        timeoutMsg: 'Library view did not become visible',
+    });
+}
+
+/** Layout-agnostic item count: counts items in whichever layout is active. */
+export async function waitForLibraryItemCount(count: number | ((actual: number) => boolean), options: { timeout?: number, timeoutMsg?: string } = {}): Promise<void> {
+    const itemSelector = getLibraryItemsSelector(await getActiveLibraryLayout());
+    await browser.waitUntil(async () => {
+        const actualCount = await $$(itemSelector).length;
+        if (typeof count === 'function') {
+            return count(actualCount);
+        }
+        return actualCount === count;
+    }, {
+        timeout: options.timeout || 10000,
+        timeoutMsg: options.timeoutMsg || 'Library did not reach the expected item count',
+    });
+}
+
+export async function waitForLibraryLayout(layout: LibraryLayoutMode): Promise<void> {
+    const containerSelector = getLibraryContainerSelector(layout);
+    const inactiveSelector = getLibraryContainerSelector(layout === 'grid' ? 'list' : 'grid');
+    const toggleSelector = `#btn-layout-${layout}`;
+
+    // Re-fetch by selector each poll: web re-renders swap these nodes, staling a captured handle.
+    await browser.waitUntil(async () => {
+        const isPressed = (await $(toggleSelector).getAttribute('aria-pressed').catch(() => 'false')) === 'true';
+        const isVisible = await $(containerSelector).isDisplayed().catch(() => false);
+        const inactiveVisible = await $(inactiveSelector).isDisplayed().catch(() => false);
         return isPressed && isVisible && !inactiveVisible;
     }, {
         timeout: 10000,
@@ -54,15 +106,36 @@ export async function setLibraryLayout(layout: LibraryLayoutMode): Promise<void>
         await navigateTo('media');
     }
 
-    const toggle = $(`#btn-layout-${layout}`);
-    await toggle.waitForDisplayed({ timeout: 5000 });
-
-    const isActive = (await toggle.getAttribute('aria-pressed').catch(() => 'false')) === 'true';
-    if (!isActive) {
-        await safeClick(toggle);
+    // Below the grid breakpoint (mobile) the layout is fixed to list and the
+    // toggle is hidden, so the requested layout can't be chosen via the UI. The
+    // viewport dictates the layout — nothing to switch.
+    if (!(await isLayoutToggleAvailable())) {
+        await waitForLibraryDisplayed();
+        return;
     }
 
-    await waitForLibraryLayout(layout);
+    const toggleSelector = `#btn-layout-${layout}`;
+    await waitForSelectorDisplayed(toggleSelector, 5000);
+
+    const containerSelector = getLibraryContainerSelector(layout);
+    const inactiveSelector = getLibraryContainerSelector(layout === 'grid' ? 'list' : 'grid');
+
+    // Re-click by selector each poll: a slow web re-render can drop or revert a single click.
+    await browser.waitUntil(async () => {
+        const isPressed = (await $(toggleSelector).getAttribute('aria-pressed').catch(() => 'false')) === 'true';
+        const isVisible = await $(containerSelector).isDisplayed().catch(() => false);
+        const inactiveVisible = await $(inactiveSelector).isDisplayed().catch(() => false);
+        if (isPressed && isVisible && !inactiveVisible) {
+            return true;
+        }
+        if (!isPressed) {
+            await safeClickBySelector(toggleSelector).catch(() => undefined);
+        }
+        return false;
+    }, {
+        timeout: 15000,
+        timeoutMsg: `Library did not switch to ${layout} layout`,
+    });
 }
 
 /**
@@ -77,20 +150,16 @@ export async function addMedia(title: string, type: string, contentType?: string
 
     const addBtn = $('#btn-add-media-grid');
     await addBtn.waitForDisplayed({ timeout: 5000 });
-    await safeClick(addBtn);
+    await safeClickBySelector('#btn-add-media-grid');
 
     const titleInput = $('#add-media-title');
     await titleInput.waitForDisplayed({ timeout: 5000 });
-    await titleInput.setValue(title);
+    await setText('#add-media-title', title);
 
-    const typeSelect = $('#add-media-type');
-    await typeSelect.waitForDisplayed({ timeout: 5000 });
-    await typeSelect.selectByVisibleText(type);
+    await setSelect('#add-media-type', { text: type });
 
     if (contentType) {
-        const contentSelect = $('#add-media-content-type');
-        await contentSelect.waitForDisplayed({ timeout: 5000 });
-        await contentSelect.selectByVisibleText(contentType);
+        await setSelect('#add-media-content-type', { text: contentType });
     }
 
     const confirmBtn = $('#add-media-confirm');
@@ -98,7 +167,7 @@ export async function addMedia(title: string, type: string, contentType?: string
     
     const { getTopmostVisibleOverlay, waitForOverlayToDisappear } = await import('./common.js');
     const overlay = await getTopmostVisibleOverlay('#add-media-confirm');
-    await safeClick(confirmBtn);
+    await safeClickBySelector('#add-media-confirm');
     await waitForOverlayToDisappear(overlay);
 
     // Addition can either auto-open detail or return to grid depending on timing.
@@ -119,7 +188,7 @@ export async function addMedia(title: string, type: string, contentType?: string
             if (await detailNow.isDisplayed().catch(() => false)) {
                 return true;
             }
-            const added = $(`.media-grid-item[data-title="${title}"]`);
+            const added = $(`${GRID_ITEM_SELECTOR}[data-title="${title}"]`);
             return await added.isExisting().catch(() => false);
         }, {
             timeout: 10000,
@@ -131,8 +200,7 @@ export async function addMedia(title: string, type: string, contentType?: string
             await clickMediaItem(title);
         }
 
-        const desc = $('#media-description');
-        await desc.waitForDisplayed({ timeout: 8000 });
+        await waitForSelectorDisplayed('#media-description', 8000);
     }
 }
 
@@ -140,23 +208,14 @@ export async function addMedia(title: string, type: string, contentType?: string
  * Set the search query in the library grid.
  */
 export async function setSearchQuery(query: string): Promise<void> {
-    const input = $('#grid-search-filter');
-    await input.waitForDisplayed({ timeout: 5000 });
-
-    // Clicking and using keys is often more reliable for triggering 'input' events in all drivers
-    await input.click();
-    // Select all and delete (works on Linux/Windows, for Mac it might need Command)
-    await browser.keys(['Control', 'a', 'Backspace']);
-
-    if (query !== '') {
-        await input.addValue(query);
-    }
+    await setText('#grid-search-filter', query);
 }
 
 async function waitForLibraryRefresh(): Promise<void> {
-    await browser.executeAsync((done) => {
-        requestAnimationFrame(() => requestAnimationFrame(() => done(true)));
-    });
+    await browser.execute(() => new Promise<void>((resolve) => {
+        const settle = () => resolve();
+        requestAnimationFrame(() => requestAnimationFrame(settle));
+    }));
 }
 
 async function waitForFilterPanelState(expanded: boolean): Promise<void> {
@@ -165,9 +224,10 @@ async function waitForFilterPanelState(expanded: boolean): Promise<void> {
 
     await browser.waitUntil(async () => {
         const ariaHidden = await panel.getAttribute('aria-hidden');
-        const height = await browser.execute((el) => {
-            return Math.round((el as HTMLElement).getBoundingClientRect().height);
-        }, await panel);
+        const height = await browser.execute(() => {
+            const el = document.getElementById('media-grid-filter-panel');
+            return el ? Math.round(el.getBoundingClientRect().height) : 0;
+        });
 
         if (expanded) {
             return ariaHidden === 'false' && height > 0;
@@ -180,57 +240,6 @@ async function waitForFilterPanelState(expanded: boolean): Promise<void> {
     });
 }
 
-async function safeClick(element: WebdriverIO.Element): Promise<void> {
-    let lastError: unknown;
-
-    for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-            await element.waitForExist({ timeout: 5000 });
-            await element.scrollIntoView().catch(() => { });
-            await element.waitForDisplayed({ timeout: 5000 });
-            await element.waitForClickable({ timeout: 2000 }).catch(() => { });
-            await element.click();
-            return;
-        } catch {
-            // Fall through to the selector-based click fallback below.
-        }
-
-        try {
-            const selector = (element as unknown as { selector?: unknown }).selector;
-            if (typeof selector !== 'string') {
-                throw new TypeError('Library click fallback requires a selector');
-            }
-
-            await browser.execute((resolvedSelector) => {
-                const nodes = Array.from(document.querySelectorAll(resolvedSelector as string)).reverse();
-                const node = nodes.find((candidate) => {
-                    if (!(candidate instanceof HTMLElement)) {
-                        return false;
-                    }
-
-                    const style = globalThis.getComputedStyle(candidate);
-                    const rect = candidate.getBoundingClientRect();
-                    return style.display !== 'none'
-                        && style.visibility !== 'hidden'
-                        && rect.width > 0
-                        && rect.height > 0;
-                });
-
-                if (!(node instanceof HTMLElement)) {
-                    throw new TypeError(`Could not resolve clickable element for selector ${resolvedSelector}`);
-                }
-                node.click();
-            }, selector);
-            return;
-        } catch (error) {
-            lastError = error;
-            await browser.pause(150 * (attempt + 1));
-        }
-    }
-
-    throw lastError instanceof Error ? lastError : new Error('Failed to click library element');
-}
-
 export async function setFiltersExpanded(expanded: boolean): Promise<void> {
     const toggle = $('#btn-toggle-filters');
     await toggle.waitForDisplayed({ timeout: 5000 });
@@ -241,7 +250,7 @@ export async function setFiltersExpanded(expanded: boolean): Promise<void> {
         return;
     }
 
-    await safeClick(toggle);
+    await safeClickBySelector('#btn-toggle-filters');
     await browser.waitUntil(isExpanded, {
         timeout: 5000,
         timeoutMsg: `Filters toggle did not become ${expanded ? 'expanded' : 'collapsed'}`
@@ -253,7 +262,7 @@ async function clickFilterChip(group: 'type' | 'status', value: string): Promise
     const selector = `.media-filter-chip[data-filter-group="${group}"][data-filter-value="${value}"]`;
     const chip = $(selector);
     await chip.waitForDisplayed({ timeout: 5000 });
-    await safeClick(chip);
+    await safeClickBySelector(selector);
 }
 
 async function setFilterGroup(group: 'type' | 'status', values: string[]): Promise<void> {
@@ -268,27 +277,10 @@ async function setFilterGroup(group: 'type' | 'status', values: string[]): Promi
     }
 }
 
-/**
- * Wait for the library grid to have a specific number of items.
- */
-export async function waitForGridCount(count: number | ((actual: number) => boolean), options: { timeout?: number, timeoutMsg?: string } = {}): Promise<void> {
-    await browser.waitUntil(async () => {
-        const items = $$('.media-grid-item');
-        const actualCount = await items.length;
-        if (typeof count === 'function') {
-            return count(actualCount);
-        }
-        return actualCount === count;
-    }, {
-        timeout: options.timeout || 10000,
-        timeoutMsg: options.timeoutMsg || `Grid did not reach expected item count`
-    });
-}
-
 export async function waitForListCount(count: number | ((actual: number) => boolean), options: { timeout?: number, timeoutMsg?: string } = {}): Promise<void> {
     await waitForLibraryLayout('list');
     await browser.waitUntil(async () => {
-        const items = $$('.media-list-item-shell');
+        const items = $$(LIST_ITEM_SELECTOR);
         const actualCount = await items.length;
         if (typeof count === 'function') {
             return count(actualCount);
@@ -300,22 +292,8 @@ export async function waitForListCount(count: number | ((actual: number) => bool
     });
 }
 
-/**
- * Set the media type filter in the library grid.
- */
-export async function setMediaTypeFilter(type: string): Promise<void> {
-    await setMediaTypeFilters(type === 'All' ? [] : [type]);
-}
-
 export async function setMediaTypeFilters(types: string[]): Promise<void> {
     await setFilterGroup('type', types);
-}
-
-/**
- * Set the tracking status filter in the library grid.
- */
-export async function setTrackingStatusFilter(status: string): Promise<void> {
-    await setTrackingStatusFilters(status === 'All' ? [] : [status]);
 }
 
 export async function setTrackingStatusFilters(statuses: string[]): Promise<void> {
@@ -362,14 +340,8 @@ async function findMediaItemInternal(title: string, timeout = 5000, layout?: Lib
         // Resolved element is what we return
         return itemProxy;
     } catch {
-        const allItems = await $$(getLibraryItemsSelector(activeLayout));
-        const titles = [];
-        for (const it of allItems) {
-            const itemTitle = await it.getAttribute('data-title');
-            if (itemTitle) {
-                titles.push(itemTitle);
-            }
-        }
+        const items = $$(getLibraryItemsSelector(activeLayout));
+        const titles = (await items.map((item) => item.getAttribute('data-title'))).filter(Boolean);
         Logger.info(`[E2E] Media item "${title}" not found in ${activeLayout} layout. Current items: [${titles.join(', ')}]`);
         return null;
     }
@@ -414,16 +386,18 @@ export async function isMediaNotVisible(title: string): Promise<boolean> {
  */
 export async function clickMediaItem(title: string): Promise<void> {
     await waitForNoActiveOverlays(5_000).catch(() => undefined);
-    const item = await findMediaItemInternal(title);
+    const activeLayout = await getActiveLibraryLayout();
+    const item = await findMediaItemInternal(title, 5000, activeLayout);
     if (!item) {
         throw new Error(`[E2E] Failed to click "${title}": not found in the active library layout.`);
     }
     await item.waitForDisplayed({ timeout: 5000 });
-    await safeClick(item);
-    
-    // Wait for the detail view root to be present and displayed before returning
-    const detailHeader = $('#media-detail-header');
-    await detailHeader.waitForDisplayed({ timeout: 8000 });
+    await safeClickBySelector(getLibraryItemSelector(title, activeLayout));
+
+    // Wait for the detail view root to be present and displayed before returning.
+    // Re-fetch each poll (see waitForSelectorDisplayed) so an async re-render on
+    // web can't leave us waiting on a stale node.
+    await waitForSelectorDisplayed('#media-detail-header', 8000);
 }
 
 export async function getMediaItemText(title: string): Promise<string> {

@@ -43,12 +43,14 @@ function stubStorage(options: {
 
 async function importMainWithFailingBootstrap(error: unknown) {
     const domReady = captureDomContentLoaded();
+    const closeWindow = vi.fn();
     vi.doMock('../src/logger', () => ({ Logger: loggerMock }));
     vi.doMock('../src/services', () => ({
         initServices: vi.fn(() => Promise.reject(error)),
         getServices: vi.fn(() => ({
             isDesktop: () => true,
             supportsWindowControls: () => true,
+            closeWindow,
         })),
     }));
     vi.doMock('../src/app_shell', () => ({
@@ -58,6 +60,7 @@ async function importMainWithFailingBootstrap(error: unknown) {
     await import('../src/main');
     domReady.restore();
     domReady.run();
+    return { closeWindow };
 }
 
 function captureDomContentLoaded() {
@@ -135,16 +138,16 @@ describe('main.ts bootstrap side effects', () => {
     });
 
     it('renders the unsupported schema bootstrap failure with upgrade guidance', async () => {
-        const blurSpy = vi.spyOn(HTMLButtonElement.prototype, 'blur').mockImplementation(() => {});
-        await importMainWithFailingBootstrap(new Error('Database schema version 3 is newer than this app supports (2)'));
+        const { closeWindow } = await importMainWithFailingBootstrap(
+            new Error('Database schema version 3 is newer than this app supports (2)'),
+        );
 
         await vi.waitFor(() => expect(document.getElementById('alert-body')?.textContent).toContain(
             'Use a newer version of the app that supports this database schema.',
         ));
 
         document.getElementById('alert-ok')?.dispatchEvent(new Event('click'));
-        expect(blurSpy).toHaveBeenCalled();
-        blurSpy.mockRestore();
+        expect(closeWindow).toHaveBeenCalledTimes(1);
     });
 
     it('does not replace an existing startup error screen during bootstrap failure handling', async () => {

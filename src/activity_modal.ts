@@ -38,8 +38,8 @@ export async function showExportCsvModal(): Promise<{mode: 'all' | 'range', star
         
         let selectedStart = todayStr;
         let selectedEnd = todayStr;
-        buildCalendar('cal-start-container', todayStr, (d) => selectedStart = d);
-        buildCalendar('cal-end-container', todayStr, (d) => selectedEnd = d);
+        buildCalendar(overlay.querySelector<HTMLElement>('#cal-start-container')!, todayStr, (d) => selectedStart = d);
+        buildCalendar(overlay.querySelector<HTMLElement>('#cal-end-container')!, todayStr, (d) => selectedEnd = d);
 
         const modeRange = overlay.querySelector<HTMLInputElement>('input[value="range"]')!;
         const rangeInputs = overlay.querySelector<HTMLElement>('#export-range-inputs')!;
@@ -139,6 +139,10 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
                         <label style="font-size: 0.85rem; color: var(--text-secondary);">Date</label>
                         <div id="activity-cal-container"></div>
                     </div>
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                        <label style="font-size: 0.85rem; color: var(--text-secondary);">Notes</label>
+                        <textarea id="activity-notes" rows="3" placeholder="Optional notes or reminders…" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); width: 100%; box-sizing: border-box; height: 4.5rem; resize: none; overflow-y: auto; font: inherit;">${escapeHTML(editLog?.notes || '')}</textarea>
+                    </div>
                     <div style="display: flex; justify-content: flex-end; gap: 1rem; margin-top: 0.5rem;">
                         <button type="button" class="btn btn-ghost" id="activity-cancel">Cancel</button>
                         <button type="submit" class="btn btn-primary">${editLog ? 'Update Activity' : 'Log Activity'}</button>
@@ -147,7 +151,7 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
             </div>`;
 
         let selectedDate = editLog?.date || getTodayStr();
-        buildCalendar('activity-cal-container', selectedDate, (d) => selectedDate = d);
+        buildCalendar(overlay.querySelector<HTMLElement>('#activity-cal-container')!, selectedDate, (d) => selectedDate = d);
 
         // Set default date for mobile input
         const mobileDateInput = overlay.querySelector<HTMLInputElement>('#mobile-date-input')!;
@@ -306,6 +310,7 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
 
             try {
                 const activityType = overlay.querySelector<HTMLSelectElement>('#activity-type')!.value;
+                const notes = overlay.querySelector<HTMLTextAreaElement>('#activity-notes')!.value;
                 if (editLog) {
                     await updateLog({
                         id: editLog.id,
@@ -313,12 +318,13 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
                         duration_minutes: duration,
                         characters,
                         date: dateToSave,
-                        activity_type: activityType
+                        activity_type: activityType,
+                        notes
                     });
                 } else {
                     const mediaId = await resolveMediaId(mediaTitle);
                     if (mediaId === null) return;
-                    await addLog({ media_id: mediaId, duration_minutes: duration, characters, date: dateToSave, activity_type: activityType });
+                    await addLog({ media_id: mediaId, duration_minutes: duration, characters, date: dateToSave, activity_type: activityType, notes });
                 }
                 cleanup();
                 if (suggestionHideTimer) {
