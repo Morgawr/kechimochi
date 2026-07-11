@@ -25,7 +25,7 @@ jobs:
       - name: setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: install node dependencies
@@ -69,7 +69,7 @@ jobs:
       - name: setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: install node dependencies
@@ -134,7 +134,7 @@ jobs:
       - name: setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: install node dependencies
@@ -185,7 +185,7 @@ jobs:
       - name: setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: install node dependencies
@@ -227,6 +227,7 @@ jobs:
 
   build-release-linux:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     needs: validate-release
     permissions:
       contents: read
@@ -236,7 +237,7 @@ jobs:
       - name: setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: install node dependencies
@@ -260,7 +261,18 @@ jobs:
             libgtk-3-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev
-          cargo install tauri-cli --git https://github.com/tauri-apps/tauri --branch feat/truly-portable-appimage
+          # Pin the experimental Tauri CLI and quick-sharun to a verified pairing so
+          # unchecked upstream changes cannot introduce new CI regressions.
+          mkdir -p "$HOME/.cache/tauri"
+          curl --fail --silent --show-error --location \
+            https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/2ad1bcd2c81b0d314b1435c08ae9d0196fedacc0/useful-tools/quick-sharun.sh \
+            --output "$HOME/.cache/tauri/quick-sharun.sh"
+          echo "05f8cfa26e76ee343a92d2192a6f1533853a1face896f0828b3e2cf84a51fa9b  $HOME/.cache/tauri/quick-sharun.sh" | sha256sum --check
+          chmod +x "$HOME/.cache/tauri/quick-sharun.sh"
+          cargo install tauri-cli \
+            --git https://github.com/tauri-apps/tauri \
+            --rev 105550cf9986a1a752eafb288baa562d6a564cce \
+            --locked
 
       - name: build tauri app
         working-directory: ./src-tauri
@@ -298,7 +310,7 @@ jobs:
       - name: setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: install node dependencies
@@ -348,7 +360,7 @@ jobs:
       - name: setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: install node dependencies
@@ -399,7 +411,7 @@ jobs:
       - name: setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: install node dependencies
@@ -491,7 +503,7 @@ jobs:
       - name: setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: install node dependencies
