@@ -283,6 +283,34 @@ describe('ActivityTotals', () => {
         expect(text).toContain('1 char');
     });
 
+    it('renders table durations as hours and minutes instead of decimal hours', () => {
+        const component = new ActivityTotals(container, {
+            logs: [
+                makeLog({ id: 1, media_id: 1, date: '2026-06-08', duration_minutes: 30 }),
+                makeLog({ id: 2, media_id: 1, date: '2026-06-09', duration_minutes: 90 }),
+            ],
+            mediaList: [makeMedia({ id: 1, title: 'Novel A', content_type: 'Novel' })],
+            timeRangeDays: 7,
+            timeRangeOffset: 0,
+            weekStartDay: 1,
+        });
+
+        component.render();
+
+        const statsTable = container.querySelector<HTMLElement>('.dashboard-stats-table');
+        expect(statsTable).not.toBeNull();
+        const mondayRow = statsTable?.querySelector<HTMLElement>('[data-dashboard-total-index="0"]');
+        const tuesdayRow = statsTable?.querySelector<HTMLElement>('[data-dashboard-total-index="1"]');
+        const totalRow = statsTable?.querySelector<HTMLElement>('.dashboard-stats-row-total');
+
+        expect(mondayRow).not.toBeNull();
+
+        expect(mondayRow?.lastElementChild?.textContent).toBe('30m');
+        expect(tuesdayRow?.lastElementChild?.textContent).toBe('1h 30m');
+        expect(totalRow?.lastElementChild?.textContent).toBe('2h');
+        expect(statsTable?.textContent).not.toMatch(/\b\d+\.\d+\b/);
+    });
+
     it('renders mobile highlights without pagination and responds to resize observer changes', async () => {
         const component = new ActivityTotals(container, {
             logs: weeklyLogs(),

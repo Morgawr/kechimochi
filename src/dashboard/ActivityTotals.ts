@@ -475,7 +475,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
     }
 
     private formatHours(minutes: number): string {
-        return (minutes / 60).toFixed(1);
+        return formatStatsDuration(minutes, true);
     }
 
     private formatCount(value: number, singular: string): string {
