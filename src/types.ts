@@ -76,6 +76,7 @@ export interface TimelineEvent {
     contentType: string;
     trackingStatus: string;
     milestoneName: string | null;
+    milestoneId: number | null;
     firstDate: string;
     lastDate: string;
     totalMinutes: number;
