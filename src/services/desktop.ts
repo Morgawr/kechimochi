@@ -308,4 +308,5 @@ export class DesktopServices implements AppServices {
     isDesktop(): boolean { return true; }
     supportsLocalHttpApi(): boolean { return !this.isAndroidRuntime(); }
     supportsWindowControls(): boolean { return this.supportsDesktopWindowControls(); }
+    supportsReportCardExport(): boolean { return !this.isAndroidRuntime(); }
 }

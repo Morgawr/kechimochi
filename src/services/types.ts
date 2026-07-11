@@ -166,4 +166,6 @@ export interface AppServices {
     supportsLocalHttpApi(): boolean;
     /** True when the runtime exposes desktop-style window chrome controls. */
     supportsWindowControls(): boolean;
+    /** True when this runtime can save the report card PNG (unsupported on Android). */
+    supportsReportCardExport(): boolean;
 }

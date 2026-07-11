@@ -101,6 +101,25 @@ function triggerDownload(blob: Blob, filename: string): void {
     URL.revokeObjectURL(url);
 }
 
+/**
+ * True when the E2E harness has set the dialog-mock global, signalling the web
+ * service to capture the generated report card on an in-page global instead of
+ * triggering a real browser download (mirrors desktop's getMockSavePath).
+ */
+function isReportCardCaptureRequested(): boolean {
+    const mockSavePath = (globalThis as unknown as Record<string, unknown>).mockSavePath;
+    return typeof mockSavePath === 'string' && mockSavePath.length > 0;
+}
+
+async function blobToBase64(blob: Blob): Promise<string> {
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let binaryString = '';
+    for (const byte of bytes) {
+        binaryString += String.fromCharCode(byte);
+    }
+    return btoa(binaryString);
+}
+
 function syncUnavailableError(): Error {
     return new Error('Cloud Sync is only available in the app (not web).');
 }
@@ -282,7 +301,12 @@ export class WebServices implements AppServices {
 
     // ── Report card operations ────────────────────────────────────────────────
     async saveReportCardImage(imageBlob: Blob, defaultFileName: string): Promise<boolean> {
-        triggerDownload(imageBlob, defaultFileName);
+        if (isReportCardCaptureRequested()) {
+            const globals = globalThis as unknown as Record<string, unknown>;
+            globals.__lastSavedReportCard = await blobToBase64(imageBlob);
+        } else {
+            triggerDownload(imageBlob, defaultFileName);
+        }
         return true;
     }
 
@@ -348,4 +372,5 @@ export class WebServices implements AppServices {
     isDesktop(): boolean { return false; }
     supportsLocalHttpApi(): boolean { return false; }
     supportsWindowControls(): boolean { return false; }
+    supportsReportCardExport(): boolean { return true; }
 }

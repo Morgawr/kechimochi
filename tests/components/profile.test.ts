@@ -61,6 +61,7 @@ const mockServices = {
     isDesktop: vi.fn(() => true),
     supportsLocalHttpApi: vi.fn(() => true),
     supportsWindowControls: vi.fn(() => true),
+    supportsReportCardExport: vi.fn(() => true),
 };
 
 vi.mock('../../src/services', () => ({

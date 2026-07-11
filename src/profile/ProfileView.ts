@@ -519,7 +519,7 @@ export class ProfileView extends Component<ProfileState> {
                     <p style="color: var(--text-secondary); margin-top: 0.5rem;">Manage your profile and data</p>
                 </div>
 
-                ${renderReportCardButtons(hasLoggedTime)}
+                ${getServices().supportsReportCardExport() ? renderReportCardButtons(hasLoggedTime) : ''}
 
                 <div class="card" id="profile-report-card" style="display: flex; flex-direction: column; gap: 1rem;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
