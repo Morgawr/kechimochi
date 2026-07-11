@@ -1592,6 +1592,7 @@ fn build_timeline_event(
     kind: TimelineEventKind,
     date: String,
     milestone_name: Option<String>,
+    milestone_id: Option<i64>,
     milestone_minutes: i64,
     milestone_characters: i64,
 ) -> TimelineEvent {
@@ -1605,6 +1606,7 @@ fn build_timeline_event(
         content_type: context.content_type.clone(),
         tracking_status: context.tracking_status.clone(),
         milestone_name,
+        milestone_id,
         first_date: context.first_date.clone(),
         last_date: context.last_date.clone(),
         total_minutes: context.total_minutes,
@@ -1697,6 +1699,7 @@ pub fn get_timeline_events(conn: &Connection) -> Result<Vec<TimelineEvent>> {
                 kind,
                 last_date.clone(),
                 None,
+                None,
                 0,
                 0,
             ));
@@ -1706,6 +1709,7 @@ pub fn get_timeline_events(conn: &Connection) -> Result<Vec<TimelineEvent>> {
                     &context,
                     TimelineEventKind::Started,
                     first_date,
+                    None,
                     None,
                     0,
                     0,
@@ -1718,6 +1722,7 @@ pub fn get_timeline_events(conn: &Connection) -> Result<Vec<TimelineEvent>> {
             &context,
             TimelineEventKind::Started,
             first_date.clone(),
+            None,
             None,
             0,
             0,
@@ -1746,6 +1751,7 @@ pub fn get_timeline_events(conn: &Connection) -> Result<Vec<TimelineEvent>> {
             TimelineEventKind::Milestone,
             date,
             Some(milestone.name),
+            milestone.id,
             milestone.duration,
             milestone.characters,
         ));
@@ -1758,12 +1764,7 @@ pub fn get_timeline_events(conn: &Connection) -> Result<Vec<TimelineEvent>> {
             .then_with(|| timeline_sort_rank(left).cmp(&timeline_sort_rank(right)))
             .then_with(|| left.media_title.cmp(&right.media_title))
             .then_with(|| left.media_id.cmp(&right.media_id))
-            .then_with(|| {
-                left.milestone_name
-                    .as_deref()
-                    .unwrap_or("")
-                    .cmp(right.milestone_name.as_deref().unwrap_or(""))
-            })
+            .then_with(|| right.milestone_id.cmp(&left.milestone_id))
     });
 
     Ok(timeline_events)
@@ -2755,6 +2756,75 @@ mod tests {
 
         assert_eq!(same_day_events[4].kind, TimelineEventKind::Milestone);
         assert_eq!(same_day_events[4].media_title, "Complete Title");
+    }
+
+    #[test]
+    fn test_get_timeline_events_orders_same_date_milestones_by_id_descending() {
+        let conn = setup_test_db();
+
+        let media_id = add_media_with_id(
+            &conn,
+            &Media {
+                tracking_status: "Ongoing".to_string(),
+                content_type: "Novel".to_string(),
+                ..sample_media("Sorted Media")
+            },
+        )
+        .unwrap();
+
+        add_log(&conn, &sample_log(media_id, "2024-06-01", "Reading")).unwrap();
+
+        // Insert milestone A first (lower id = older)
+        add_milestone(
+            &conn,
+            &Milestone {
+                id: None,
+                media_uid: None,
+                media_title: "Sorted Media".to_string(),
+                name: "Milestone A".to_string(),
+                duration: 30,
+                characters: 0,
+                date: Some("2024-06-01".to_string()),
+            },
+        )
+        .unwrap();
+
+        // Insert milestone B second (higher id = newer)
+        add_milestone(
+            &conn,
+            &Milestone {
+                id: None,
+                media_uid: None,
+                media_title: "Sorted Media".to_string(),
+                name: "Milestone B".to_string(),
+                duration: 30,
+                characters: 0,
+                date: Some("2024-06-01".to_string()),
+            },
+        )
+        .unwrap();
+
+        let milestone_events = get_timeline_events(&conn)
+            .unwrap()
+            .into_iter()
+            .filter(|event| {
+                event.kind == TimelineEventKind::Milestone
+                    && event.media_title == "Sorted Media"
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(milestone_events.len(), 2);
+        // Higher id (newer, Milestone B) must appear first (index 0)
+        assert_eq!(
+            milestone_events[0].milestone_name.as_deref(),
+            Some("Milestone B")
+        );
+        assert_eq!(
+            milestone_events[1].milestone_name.as_deref(),
+            Some("Milestone A")
+        );
+        // Confirm id ordering matches expectation
+        assert!(milestone_events[0].milestone_id > milestone_events[1].milestone_id);
     }
 
     #[test]
