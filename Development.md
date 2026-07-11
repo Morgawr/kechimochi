@@ -6,7 +6,7 @@ This document outlines the steps for setting up a development environment, build
 
 Before you begin, ensure you have the following installed on your system:
 
-*   **Node.js** (20.19+, 22.13+, or 24–26; CI uses Node 20). An `.nvmrc` is provided for `nvm use`.
+*   **Node.js** (22.13+; CI uses Node 22). An `.nvmrc` is provided for `nvm use`.
 *   **Rust** (latest stable via [rustup](https://rustup.rs/))
 *   **System Dependencies** (Linux only):
     ```bash
