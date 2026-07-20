@@ -6,11 +6,12 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+## [0.2.11] - 2026-07-20
+
 ### Added
  - Added a Notes field to activity log entries (editable in the log modal, shown on the media detail page, included in sync and CSV export).
- - The desktop app now remembers its window size, position, and maximized state between launches. 
+ - The desktop app now remembers its window size, position, and maximized state between launches.
  - Shareable profile "report cards" - save a PNG of your stats from the Profile page, as either time spent per activity type or per content type, each with a matching donut chart.
-
 
 ### Changed
  - UI aggregate metrics now report hours with proper breakdown of minutes rather than confusing decimals
