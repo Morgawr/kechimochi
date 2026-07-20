@@ -9,6 +9,7 @@ The format is based on Keep a Changelog, with one section per released version.
 ### Added
  - Added an optional media variant tag, editable from the library detail view and shown when choosing or logging media.
  - Media, activity, and milestone CSV exports now include optional variant tag.
+ - Added a Windows .exe (NSIS) installer alongside the existing MSI installer.
 
 ### Changed
  - When browsing media entries, left and right buttons now cycle through entries according to any previously-applied media filters
@@ -17,6 +18,7 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## Fixed
  - Activity CSV now exports Media Type that reflects the media’s default while Activity Type preserves individual log override
+ - Windows: Kechimochi no longer loses its pinned taskbar icon when updating via the MSI installer.
 
 ## [0.2.11] - 2026-07-20
 

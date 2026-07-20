@@ -1,0 +1,42 @@
+name: "Windows Test Build"
+
+on:
+  workflow_dispatch:
+
+jobs:
+  win-test-build:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'`
+
+      - name: install node dependencies
+        run: npm ci
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: stable
+
+      - name: cache rust dependencies
+        uses: swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: build tauri app
+        run: npm run tauri build -- --bundles msi,nsis --verbose
+
+      - name: upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: win-test-build
+          path: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*-setup.exe

@@ -81,7 +81,7 @@ jobs:
           toolchain: stable
 
       - name: cache rust dependencies
-        uses: swatinem/rust-cache@aa7c1c80a07a27a84c0aa76d0cef0aad3830e330 # v2.7.8
+        uses: swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
         with:
           workspaces: './src-tauri -> target'
 
@@ -146,7 +146,7 @@ jobs:
           toolchain: stable
 
       - name: cache rust dependencies
-        uses: swatinem/rust-cache@aa7c1c80a07a27a84c0aa76d0cef0aad3830e330 # v2.7.8
+        uses: swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
         with:
           workspaces: './src-tauri -> target'
 
@@ -197,7 +197,7 @@ jobs:
           toolchain: stable
 
       - name: cache rust dependencies
-        uses: swatinem/rust-cache@aa7c1c80a07a27a84c0aa76d0cef0aad3830e330 # v2.7.8
+        uses: swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
         with:
           workspaces: './src-tauri -> target'
 
@@ -249,7 +249,7 @@ jobs:
           toolchain: stable
 
       - name: cache rust dependencies
-        uses: swatinem/rust-cache@aa7c1c80a07a27a84c0aa76d0cef0aad3830e330 # v2.7.8
+        uses: swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
         with:
           workspaces: './src-tauri -> target'
 
@@ -322,7 +322,7 @@ jobs:
           toolchain: stable
 
       - name: cache rust dependencies
-        uses: swatinem/rust-cache@aa7c1c80a07a27a84c0aa76d0cef0aad3830e330 # v2.7.8
+        uses: swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
         with:
           workspaces: './src-tauri -> target'
 
@@ -333,21 +333,25 @@ jobs:
           VITE_APP_VERSION: ${{ needs.validate-release.outputs.version }}
           VITE_APP_CHANNEL: release
           VITE_RELEASE_STAGE: ${{ needs.validate-release.outputs.release_stage }}
-        run: npm run tauri build -- --bundles msi --verbose
+        run: npm run tauri build -- --bundles msi,nsis --verbose
 
-      - name: rename MSI asset
+      - name: rename MSI and NSIS assets
         shell: pwsh
         run: |
           $version = "${{ needs.validate-release.outputs.version }}"
           New-Item -ItemType Directory -Force -Path release-desktop | Out-Null
           $msi = Get-ChildItem -Recurse -Path src-tauri/target/release/bundle/msi -Filter *.msi | Select-Object -First 1
           Copy-Item $msi.FullName "release-desktop/kechimochi-windows-$version.msi"
+          $nsis = Get-ChildItem -Recurse -Path src-tauri/target/release/bundle/nsis -Filter *-setup.exe | Select-Object -First 1
+          Copy-Item $nsis.FullName "release-desktop/kechimochi-windows-$version.exe"
 
       - name: upload release asset
         uses: actions/upload-artifact@v4
         with:
           name: release-windows
-          path: release-desktop/kechimochi-windows-${{ needs.validate-release.outputs.version }}.msi
+          path: |
+            release-desktop/kechimochi-windows-${{ needs.validate-release.outputs.version }}.msi
+            release-desktop/kechimochi-windows-${{ needs.validate-release.outputs.version }}.exe
 
   build-release-macos:
     runs-on: macos-latest
@@ -373,7 +377,7 @@ jobs:
           targets: aarch64-apple-darwin, x86_64-apple-darwin
 
       - name: cache rust dependencies
-        uses: swatinem/rust-cache@aa7c1c80a07a27a84c0aa76d0cef0aad3830e330 # v2.7.8
+        uses: swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
         with:
           workspaces: './src-tauri -> target'
 
@@ -424,7 +428,7 @@ jobs:
           targets: aarch64-linux-android
 
       - name: cache rust dependencies
-        uses: swatinem/rust-cache@aa7c1c80a07a27a84c0aa76d0cef0aad3830e330 # v2.7.8
+        uses: swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
         with:
           workspaces: './src-tauri -> target'
 
@@ -563,6 +567,7 @@ jobs:
           files: |
             release-assets/release-linux/kechimochi-linux-${{ needs.validate-release.outputs.version }}.AppImage
             release-assets/release-windows/kechimochi-windows-${{ needs.validate-release.outputs.version }}.msi
+            release-assets/release-windows/kechimochi-windows-${{ needs.validate-release.outputs.version }}.exe
             release-assets/release-macos/kechimochi-macos-${{ needs.validate-release.outputs.version }}.dmg
             release-assets/release-android/kechimochi-android-${{ needs.validate-release.outputs.version }}.apk
             release-assets/release-web-linux/kechimochi-web-linux-${{ needs.validate-release.outputs.version }}.zip
