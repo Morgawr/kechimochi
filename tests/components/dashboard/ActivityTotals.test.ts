@@ -189,7 +189,7 @@ describe('ActivityTotals', () => {
         expect(selectedText).toContain('1,000 more than previous day');
     });
 
-    it('renders monthly week buckets and resets the selected bucket when the timeframe changes', () => {
+    it('renders every day in monthly stats and resets the selected bucket when the timeframe changes', () => {
         const logs = weeklyLogs();
         const component = new ActivityTotals(container, {
             logs: [
@@ -210,12 +210,16 @@ describe('ActivityTotals', () => {
         const monthlyText = textContent(container);
         expect(monthlyText).toContain('Monthly Stats');
         expect(monthlyText).toContain('2026-06');
-        expect(monthlyText).toContain('Week 1 - 01/06 to 07/06');
-        expect(monthlyText).toContain('Week 5 - 29/06 to 30/06');
-        expect(monthlyText).toContain('Data for this week');
+        expect(monthlyText).toContain('Monday 01/06');
+        expect(monthlyText).toContain('Tuesday 30/06');
+        expect(monthlyText).toContain('Data for today');
+        expect(monthlyText).not.toContain('Week 1');
+        expect(container.querySelectorAll('[data-dashboard-total-index]')).toHaveLength(30);
 
-        component.setState({ selectedBucketIndex: 4 });
-        expect(textContent(container)).toContain('Data for Week 5 (29/06 to 30/06)');
+        component.setState({ selectedBucketIndex: 29 });
+        const selectedText = textContent(container);
+        expect(selectedText).toContain('Data for Tuesday 30/06/2026');
+        expect(selectedText).toContain('45m more than previous day');
     });
 
     it('renders yearly month buckets and all-time year buckets', () => {

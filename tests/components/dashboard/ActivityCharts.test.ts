@@ -32,6 +32,12 @@ describe('ActivityCharts', () => {
         expect(container.querySelector('#barChart')).toBeDefined();
         expect(container.querySelector('#toggle-chart-type')).toBeDefined();
         expect(container.querySelector('#toggle-group-by')).toBeDefined();
+        expect(Array.from(container.querySelectorAll<HTMLOptionElement>('#select-time-range option')).map(option => option.textContent)).toEqual([
+            'Week',
+            'Month',
+            'Year',
+            'All Time',
+        ]);
         expect((container.querySelector('#activity-charts-grid') as HTMLElement | null)?.dataset.timeRangeDays).toBe('7');
         expect(Chart).toHaveBeenCalledTimes(2);
     });
@@ -120,6 +126,39 @@ describe('ActivityCharts', () => {
             'Jun 13',
             'Jun 14',
         ]);
+    });
+
+    it('should chart monthly activity as one data point per day', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-06-10T12:00:00'));
+
+        const component = new ActivityCharts(
+            container,
+            {
+                logs: [
+                    { date: '2026-06-01', duration_minutes: 15, title: 'Novel', media_id: 1, media_type: 'Reading', language: 'Japanese' } as unknown as ActivitySummary,
+                    { date: '2026-06-08', duration_minutes: 30, title: 'Novel', media_id: 1, media_type: 'Reading', language: 'Japanese' } as unknown as ActivitySummary,
+                    { date: '2026-06-30', duration_minutes: 45, title: 'Novel', media_id: 1, media_type: 'Reading', language: 'Japanese' } as unknown as ActivitySummary,
+                ],
+                timeRangeDays: 30,
+                timeRangeOffset: 0,
+                groupByMode: 'media_type',
+                chartType: 'bar',
+                metric: 'minutes',
+            },
+            onParamChange,
+        );
+        component.render();
+
+        const barChartConfig = vi.mocked(Chart).mock.calls[1][1];
+
+        expect(barChartConfig.data.labels).toHaveLength(30);
+        expect(barChartConfig.data.labels[0]).toBe('Jun 01');
+        expect(barChartConfig.data.labels[29]).toBe('Jun 30');
+        expect(barChartConfig.data.datasets[0].data).toHaveLength(30);
+        expect(barChartConfig.data.datasets[0].data[0]).toBe(15);
+        expect(barChartConfig.data.datasets[0].data[7]).toBe(30);
+        expect(barChartConfig.data.datasets[0].data[29]).toBe(45);
     });
 
     it('should keep offset weekly pie chart totals within the selected week when crossing months', () => {

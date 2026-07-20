@@ -12,6 +12,8 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ### Changed
  - When browsing media entries, left and right buttons now cycle through entries according to any previously-applied media filters
+ - Reworked the "Monthly" view to show daily amounts instead of weeks, because weeks were inconsistent and not accurate.
+ - Renamed "Weekly", "Monthly", and "Yearly" options to "Week", "Month", and "Year"
 
 ## [0.2.11] - 2026-07-20
 
