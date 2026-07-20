@@ -983,11 +983,9 @@ mod tests {
         let temp_dir = unique_temp_dir("snapshot_notes_roundtrip");
         std::fs::create_dir_all(&temp_dir).unwrap();
 
-        let media_id = db::add_media_with_id(
-            &conn,
-            &sample_media("Notes Media", String::new(), "{}"),
-        )
-        .unwrap();
+        let media_id =
+            db::add_media_with_id(&conn, &sample_media("Notes Media", String::new(), "{}"))
+                .unwrap();
 
         db::add_log(
             &conn,

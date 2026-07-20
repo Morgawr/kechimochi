@@ -42,7 +42,8 @@ const GOOGLE_OPENID_SCOPE: &str = "openid";
 const GOOGLE_USERINFO_EMAIL_SCOPE: &str = "https://www.googleapis.com/auth/userinfo.email";
 const GOOGLE_USERINFO_PROFILE_SCOPE: &str = "https://www.googleapis.com/auth/userinfo.profile";
 const ANDROID_ACCESS_TOKEN_LIFETIME_SECS: i64 = 3600;
-const ANDROID_ACCESS_TOKEN_SENTINEL_REFRESH_TOKEN: &str = "__android_google_identity_access_token__";
+const ANDROID_ACCESS_TOKEN_SENTINEL_REFRESH_TOKEN: &str =
+    "__android_google_identity_access_token__";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GoogleOAuthClientConfig {
@@ -152,13 +153,12 @@ impl GoogleOAuthClientConfig {
     }
 
     pub fn from_env() -> Result<Self, String> {
-        let client_id = Self::configured_runtime_client_id()
-            .ok_or_else(|| {
-                format!(
-                    "Missing Google OAuth client ID in {}",
-                    Self::active_client_id_env()
-                )
-            })?;
+        let client_id = Self::configured_runtime_client_id().ok_or_else(|| {
+            format!(
+                "Missing Google OAuth client ID in {}",
+                Self::active_client_id_env()
+            )
+        })?;
         let client_secret = Self::configured_client_secret_override();
         let auth_endpoint =
             std::env::var(ENV_AUTH_ENDPOINT).unwrap_or_else(|_| DEFAULT_AUTH_ENDPOINT.to_string());
@@ -497,7 +497,8 @@ pub async fn persist_google_drive_android_access_token(
 
     tokens.refresh_token = ANDROID_ACCESS_TOKEN_SENTINEL_REFRESH_TOKEN.to_string();
     tokens.access_token = Some(access_token.to_string());
-    tokens.access_token_expires_at = Some(compute_expiry_timestamp(ANDROID_ACCESS_TOKEN_LIFETIME_SECS));
+    tokens.access_token_expires_at =
+        Some(compute_expiry_timestamp(ANDROID_ACCESS_TOKEN_LIFETIME_SECS));
     tokens.scope = Some(format!(
         "{} {} {} {}",
         GOOGLE_DRIVE_APPDATA_SCOPE,
@@ -601,7 +602,9 @@ pub fn load_google_account_email(
 pub fn load_google_access_token(
     token_store: &dyn SecureTokenStore,
 ) -> Result<Option<String>, String> {
-    Ok(token_store.load_tokens()?.and_then(|tokens| tokens.access_token))
+    Ok(token_store
+        .load_tokens()?
+        .and_then(|tokens| tokens.access_token))
 }
 
 pub fn has_google_drive_tokens(token_store: &dyn SecureTokenStore) -> Result<bool, String> {
@@ -862,7 +865,9 @@ async fn load_google_account_email_from_access_token(
     if !status.is_success() {
         let body = response.text().await.unwrap_or_default();
         if body.trim().is_empty() {
-            return Err(format!("Google user info request failed with status {status}."));
+            return Err(format!(
+                "Google user info request failed with status {status}."
+            ));
         }
         return Err(format!("Google user info request failed: {body}"));
     }

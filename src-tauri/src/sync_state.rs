@@ -360,7 +360,9 @@ pub fn calculate_backup_size(app_dir: &Path) -> u64 {
         .filter_map(|e| e.ok())
         .filter(|e| {
             e.file_type().is_file()
-                && e.file_name().to_string_lossy().starts_with("pre_sync_backup_")
+                && e.file_name()
+                    .to_string_lossy()
+                    .starts_with("pre_sync_backup_")
                 && e.file_name().to_string_lossy().ends_with(".zip")
         })
         .map(|e| e.metadata().map(|m| m.len()).unwrap_or(0))

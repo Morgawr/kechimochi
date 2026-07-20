@@ -2733,7 +2733,10 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(result.sync_status.profile_name.as_deref(), Some("Remote User"));
+        assert_eq!(
+            result.sync_status.profile_name.as_deref(),
+            Some("Remote User")
+        );
 
         let target_config = sync_state::load_sync_config(target_dir.path())
             .unwrap()

@@ -1515,13 +1515,18 @@ mod tests {
 
         let base_media = media("uid-1");
         base.library.insert("uid-1".to_string(), base_media.clone());
-        local.library.insert("uid-1".to_string(), base_media.clone());
+        local
+            .library
+            .insert("uid-1".to_string(), base_media.clone());
         remote.library.insert("uid-1".to_string(), base_media);
         local.library.get_mut("uid-1").unwrap().variant = "Manga".to_string();
 
         let outcome = merge_snapshots(Some(&base), &local, &remote).unwrap();
         assert!(outcome.conflicts.is_empty());
-        assert_eq!(outcome.merged_snapshot.db_schema_version, db::CURRENT_SCHEMA_VERSION);
+        assert_eq!(
+            outcome.merged_snapshot.db_schema_version,
+            db::CURRENT_SCHEMA_VERSION
+        );
         assert_eq!(outcome.merged_snapshot.library["uid-1"].variant, "Manga");
     }
 

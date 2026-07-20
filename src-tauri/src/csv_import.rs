@@ -1,10 +1,10 @@
+use chrono::NaiveDate;
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
-use chrono::NaiveDate;
 
 use crate::db;
 use crate::models::{ActivityLog, Media, Milestone};
@@ -221,12 +221,10 @@ pub fn import_csv_from_reader<R: Read>(conn: &mut Connection, reader: R) -> Resu
 }
 
 fn normalize_activity_date(value: &str, row_number: usize) -> Result<String, String> {
-    let is_slash_format = value.len() == 10
-        && value.chars().nth(4) == Some('/')
-        && value.chars().nth(7) == Some('/');
-    let is_dash_format = value.len() == 10
-        && value.chars().nth(4) == Some('-')
-        && value.chars().nth(7) == Some('-');
+    let is_slash_format =
+        value.len() == 10 && value.chars().nth(4) == Some('/') && value.chars().nth(7) == Some('/');
+    let is_dash_format =
+        value.len() == 10 && value.chars().nth(4) == Some('-') && value.chars().nth(7) == Some('-');
 
     if !(is_slash_format || is_dash_format) {
         return Err(format!(
@@ -235,7 +233,11 @@ fn normalize_activity_date(value: &str, row_number: usize) -> Result<String, Str
         ));
     }
 
-    let parse_format = if is_slash_format { "%Y/%m/%d" } else { "%Y-%m-%d" };
+    let parse_format = if is_slash_format {
+        "%Y/%m/%d"
+    } else {
+        "%Y-%m-%d"
+    };
     let parsed_date = NaiveDate::parse_from_str(value, parse_format).map_err(|_| {
         format!(
             "Invalid date value on CSV row {}: '{}'. Expected YYYY/MM/DD or YYYY-MM-DD.",

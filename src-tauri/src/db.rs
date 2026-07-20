@@ -2864,8 +2864,7 @@ mod tests {
             .unwrap()
             .into_iter()
             .filter(|event| {
-                event.kind == TimelineEventKind::Milestone
-                    && event.media_title == "Sorted Media"
+                event.kind == TimelineEventKind::Milestone && event.media_title == "Sorted Media"
             })
             .collect::<Vec<_>>();
 

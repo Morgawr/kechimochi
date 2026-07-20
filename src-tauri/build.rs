@@ -31,7 +31,8 @@ fn main() {
         println!("cargo:rerun-if-changed={}", path.display());
     }
 
-    let source_client_id_env = if env::var("CARGO_CFG_TARGET_OS").ok().as_deref() == Some("android") {
+    let source_client_id_env = if env::var("CARGO_CFG_TARGET_OS").ok().as_deref() == Some("android")
+    {
         ANDROID_CLIENT_ID_ENV
     } else {
         DESKTOP_CLIENT_ID_ENV
@@ -45,7 +46,7 @@ fn main() {
 
     if source_client_id_env != ANDROID_CLIENT_ID_ENV {
         if let Some(value) = resolve_env_value(&local_env_paths, DESKTOP_CLIENT_SECRET_ENV) {
-        println!("cargo:rustc-env={BUNDLED_CLIENT_SECRET_ENV}={value}");
+            println!("cargo:rustc-env={BUNDLED_CLIENT_SECRET_ENV}={value}");
         }
     }
 
@@ -56,7 +57,11 @@ fn resolve_env_value(local_env_paths: &[PathBuf], key: &str) -> Option<String> {
     env::var(key)
         .ok()
         .filter(|value| !value.trim().is_empty())
-        .or_else(|| local_env_paths.iter().find_map(|path| read_env_value(path, key)))
+        .or_else(|| {
+            local_env_paths
+                .iter()
+                .find_map(|path| read_env_value(path, key))
+        })
 }
 
 fn read_env_value(path: &Path, key: &str) -> Option<String> {
