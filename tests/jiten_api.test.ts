@@ -28,7 +28,7 @@ describe('jiten_api.ts', () => {
       vi.mocked(invoke).mockResolvedValueOnce(JSON.stringify(mockResult));
 
       const results = await jiten.searchJiten('Title', 'Novel');
-      expect(results.length).toBe(1);
+      expect(results).toHaveLength(1);
       expect(results[0].deckId).toBe(1);
       expect(invoke).toHaveBeenCalledTimes(1);
     });
@@ -39,7 +39,7 @@ describe('jiten_api.ts', () => {
         .mockResolvedValueOnce(JSON.stringify({ data: [{ deckId: 2 }] })); // Fallback
 
       const results = await jiten.searchJiten('Title', 'Novel');
-      expect(results.length).toBe(1);
+      expect(results).toHaveLength(1);
       expect(results[0].deckId).toBe(2);
       expect(invoke).toHaveBeenCalledTimes(2);
     });
@@ -51,7 +51,7 @@ describe('jiten_api.ts', () => {
       vi.mocked(invoke).mockResolvedValue(JSON.stringify(largeResult));
 
       const results = await jiten.searchJiten('Title', 'Novel');
-      expect(results.length).toBe(0);
+      expect(results).toHaveLength(0);
     });
 
     it('should try no-punctuation search', async () => {
@@ -97,7 +97,7 @@ describe('jiten_api.ts', () => {
       vi.mocked(invoke).mockResolvedValue(JSON.stringify(mockDetail));
 
       const children = await jiten.getJitenDeckChildren(100);
-      expect(children.length).toBe(1);
+      expect(children).toHaveLength(1);
       expect(children[0].deckId).toBe(101);
     });
 

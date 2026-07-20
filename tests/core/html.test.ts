@@ -26,7 +26,7 @@ describe('core/html.ts', () => {
             children[0].textContent = 'C1';
             children[1].textContent = 'C2';
             const parent = html`<div>${children}</div>`;
-            expect(parent.children.length).toBe(2);
+            expect(parent.children).toHaveLength(2);
             expect(parent.textContent).toBe('C1C2');
         });
 

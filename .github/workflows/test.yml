@@ -49,7 +49,10 @@ jobs:
           cache: 'npm'
 
       - name: install node dependencies
-        run: npm ci
+        run: |
+          npm ci --ignore-scripts
+          # better-sqlite3 is the only install script required by this job.
+          npm rebuild better-sqlite3
 
       - name: install rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
@@ -80,7 +83,7 @@ jobs:
           fi
 
       - name: typescript check
-        run: npx tsc --noEmit
+        run: npm run typecheck
 
       - name: frontend lint check
         run: npm run lint
@@ -153,7 +156,10 @@ jobs:
           cache: 'npm'
 
       - name: install node dependencies
-        run: npm ci
+        run: |
+          npm ci --ignore-scripts
+          # The fixture seeder imports better-sqlite3.
+          npm rebuild better-sqlite3
 
       - name: install rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
@@ -182,7 +188,7 @@ jobs:
         run: npm run web:build
 
       - name: build web_server binary
-        run: cargo build --manifest-path src-tauri/Cargo.toml --bin web_server
+        run: cargo build --locked --manifest-path src-tauri/Cargo.toml --bin web_server
 
       - name: run web e2e tests
         run: npm run e2e:test:web

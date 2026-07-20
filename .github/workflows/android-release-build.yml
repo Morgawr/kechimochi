@@ -54,7 +54,7 @@ jobs:
           cache: 'npm'
 
       - name: install node dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: install rust toolchain
         uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1

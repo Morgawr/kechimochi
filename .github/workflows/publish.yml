@@ -52,7 +52,7 @@ jobs:
           cache: 'npm'
 
       - name: install node dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: install rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
@@ -115,7 +115,7 @@ jobs:
           cache: 'npm'
 
       - name: install node dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: install rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
@@ -167,7 +167,7 @@ jobs:
           cache: 'npm'
 
       - name: install node dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: install rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
@@ -221,7 +221,7 @@ jobs:
           cache: 'npm'
 
       - name: install node dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: install rust toolchain
         uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
@@ -244,7 +244,7 @@ jobs:
           # Pin the experimental Tauri CLI and quick-sharun to a verified pairing so
           # unchecked upstream changes cannot introduce new CI regressions.
           mkdir -p "$HOME/.cache/tauri"
-          curl --fail --silent --show-error --location \
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
             https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/2ad1bcd2c81b0d314b1435c08ae9d0196fedacc0/useful-tools/quick-sharun.sh \
             --output "$HOME/.cache/tauri/quick-sharun.sh"
           echo "05f8cfa26e76ee343a92d2192a6f1533853a1face896f0828b3e2cf84a51fa9b  $HOME/.cache/tauri/quick-sharun.sh" | sha256sum --check
@@ -289,7 +289,7 @@ jobs:
           cache: 'npm'
 
       - name: install node dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: install rust toolchain
         uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
@@ -334,7 +334,7 @@ jobs:
           cache: 'npm'
 
       - name: install node dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: install rust toolchain
         uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
@@ -388,7 +388,7 @@ jobs:
           cache: 'npm'
 
       - name: install node dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: install rust toolchain
         uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
