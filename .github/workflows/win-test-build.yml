@@ -2,6 +2,9 @@ name: "Windows Test Build"
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - bug/225-windows-taskbar-icon
 
 jobs:
   win-test-build:
