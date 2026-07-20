@@ -101,7 +101,9 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
     private getFilteredMediaList(): Media[] {
         const { mediaList, searchQuery, typeFilters, statusFilters, hideArchived } = this.state;
         return mediaList.filter((media) => {
-            const matchesQuery = media.title.toLowerCase().includes(searchQuery.toLowerCase());
+            const normalizedQuery = searchQuery.toLowerCase();
+            const matchesQuery = media.title.toLowerCase().includes(normalizedQuery)
+                || (media.variant || '').toLowerCase().includes(normalizedQuery);
             const mediaType = (media.content_type || 'Unknown').trim() || 'Unknown';
             const typeMatch = typeFilters.length === 0 || typeFilters.includes(mediaType);
             const statusMatch = statusFilters.length === 0 || statusFilters.includes(media.tracking_status);
@@ -269,6 +271,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
 
             const newId = await addMedia({
                 title: result.title,
+                variant: result.variant,
                 media_type: result.type,
                 status: MEDIA_STATUS.ACTIVE,
                 language: 'Japanese',

@@ -135,7 +135,7 @@ describe('MediaLibraryBrowser', () => {
     });
 
     it('reuses shared add and refresh actions from the browser toolbar', async () => {
-        vi.mocked(showAddMediaModal).mockResolvedValue({ title: 'New Media', type: 'Anime', contentType: 'Anime' });
+        vi.mocked(showAddMediaModal).mockResolvedValue({ title: 'New Media', variant: 'TV Series', type: 'Anime', contentType: 'Anime' });
         vi.mocked(api.addMedia).mockResolvedValue(123);
         const onDataChange = vi.fn().mockResolvedValue(undefined);
 
@@ -150,7 +150,7 @@ describe('MediaLibraryBrowser', () => {
         (container.querySelector('#btn-add-media-grid') as HTMLButtonElement).click();
 
         await vi.waitFor(() => expect(onDataChange).toHaveBeenCalledWith(123));
-        expect(api.addMedia).toHaveBeenCalledWith(expect.objectContaining({ title: 'New Media' }));
+        expect(api.addMedia).toHaveBeenCalledWith(expect.objectContaining({ title: 'New Media', variant: 'TV Series' }));
 
         (container.querySelector('#btn-refresh-grid') as HTMLButtonElement).click();
         await vi.waitFor(() => expect(onDataChange).toHaveBeenCalledWith());
@@ -174,6 +174,25 @@ describe('MediaLibraryBrowser', () => {
         await vi.waitFor(() => expect(showAddMediaModal).toHaveBeenCalled());
         expect(api.addMedia).not.toHaveBeenCalled();
         expect(onDataChange).not.toHaveBeenCalled();
+    });
+
+    it('includes variants in library search', () => {
+        const component = new MediaLibraryBrowser(
+            container,
+            createState({
+                mediaList: [
+                    { id: 1, title: 'Horimiya', variant: 'Manga', status: 'Active', content_type: 'Manga', tracking_status: 'Ongoing' } as Media,
+                    { id: 2, title: 'Horimiya Anime', variant: '', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' } as Media,
+                ],
+                searchQuery: 'manga',
+            }),
+            vi.fn(),
+            vi.fn(),
+        );
+
+        component.render();
+
+        expect((vi.mocked(MediaGrid).mock.calls[0][1] as { mediaList: Media[] }).mediaList.map(media => media.id)).toEqual([1]);
     });
 
     it('disables the grid toggle and renders list mode when the viewport is too small', () => {

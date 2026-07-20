@@ -601,7 +601,7 @@ mod tests {
     }
 
     #[test]
-    fn test_backup_export_import_preserves_activity_notes() {
+    fn test_backup_export_import_preserves_activity_notes_and_media_variant() {
         let source_dir = unique_temp_dir("backup_notes_source");
         let target_dir = unique_temp_dir("backup_notes_target");
         fs::create_dir_all(&source_dir).unwrap();
@@ -615,6 +615,7 @@ mod tests {
                 id: None,
                 uid: None,
                 title: "Backup Notes Media".to_string(),
+                variant: "Novel".to_string(),
                 media_type: "Reading".to_string(),
                 status: "Active".to_string(),
                 language: "Japanese".to_string(),
@@ -659,6 +660,7 @@ mod tests {
         assert_eq!(logs.len(), 1);
         assert_eq!(logs[0].notes, "backup note content");
         assert_eq!(logs[0].title, "Backup Notes Media");
+        assert_eq!(db::get_all_media(&target_conn).unwrap()[0].variant, "Novel");
 
         fs::remove_dir_all(source_dir).ok();
         fs::remove_dir_all(target_dir).ok();

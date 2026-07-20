@@ -104,6 +104,7 @@ export class MediaListItem extends Component<MediaListItemState> {
                     <div class="media-list-header">
                         <div class="media-list-title-block">
                             <h3 class="media-list-title">${media.title}</h3>
+                            ${media.variant ? html`<div class="media-list-variant" style="color: var(--text-secondary); font-size: 0.82rem;">${media.variant}</div>` : ''}
                             <div class="media-list-badges">
                                 ${rawHtml(contentTypeBadge)}
                                 <span class="badge badge-status ${this.getTrackingStatusClass(media.tracking_status)}">${media.tracking_status}</span>
@@ -137,7 +138,7 @@ export class MediaListItem extends Component<MediaListItemState> {
         root.querySelector('.media-list-cover-shell')?.appendChild(cover);
 
         this.container.classList.add('media-list-item-shell');
-        this.container.title = media.title;
+        this.container.title = media.variant ? `${media.title} — ${media.variant}` : media.title;
         this.container.dataset.title = media.title;
         this.container.style.cursor = 'pointer';
         this.container.appendChild(root);

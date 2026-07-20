@@ -16,8 +16,20 @@
  * process.env.WEB_SERVER_URL before any spec accesses browser.url().
  */
 
-import { makeConfig } from './wdio.base.conf.js';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { repairIncompleteWebdriverCache } from '../helpers/webdriver-cache.js';
 import { webDriver } from '../drivers/web-driver.js';
+import { Logger } from '../../src/logger.js';
+import { makeConfig } from './wdio.base.conf.js';
+
+const __dirname = fileURLToPath(new URL('.', import.meta.url));
+const webdriverCacheDirectory = process.env.KECHIMOCHI_WEBDRIVER_CACHE_DIR
+  || path.join(__dirname, '..', '..', 'node_modules', '.cache', 'kechimochi-webdriver');
+
+for (const removedDirectory of repairIncompleteWebdriverCache(webdriverCacheDirectory)) {
+  Logger.warn(`[e2e] Removed incomplete WebDriver cache entry: ${removedDirectory}`);
+}
 
 process.env.E2E_PLATFORM = 'web';
 
@@ -30,6 +42,10 @@ const baseBeforeSession = baseConfig.beforeSession as (
 
 export const config: WebdriverIO.Config = {
   ...baseConfig,
+
+  // Keep browser downloads scoped to this checkout. Before WDIO inspects the
+  // cache, remove half-extracted installs that its downloader cannot repair.
+  cacheDir: webdriverCacheDirectory,
 
   // No hostname/port set: WDIO v9 only auto-manages chromedriver when no custom
   // connection is configured. The base config leaves the connection unset, so

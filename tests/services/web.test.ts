@@ -243,6 +243,7 @@ describe('WebServices', () => {
         mockFilePicker(file);
         const records: MediaCsvRow[] = [{
             Title: 'Example',
+            Variant: 'Manga',
             'Media Type': 'Book',
             Status: 'reading',
             Language: 'Japanese',

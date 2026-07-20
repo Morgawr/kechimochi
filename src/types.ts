@@ -5,6 +5,7 @@
 
 export interface MediaCsvRow {
     "Title": string;
+    "Variant"?: string;
     "Media Type": string;
     "Status": string;
     "Language": string;
@@ -23,6 +24,7 @@ export interface Media {
     id?: number;
     uid?: string;
     title: string;
+    variant?: string;
     media_type: string;
     status: string;
     language: string;
@@ -232,6 +234,7 @@ export interface SyncAttachPreview {
 export interface SyncConflictMediaAggregate {
     uid: string;
     title: string;
+    variant: string;
     media_type: string;
     status: string;
     language: string;

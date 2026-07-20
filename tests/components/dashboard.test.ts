@@ -109,6 +109,43 @@ describe('Dashboard', () => {
         expect(dashboard.state.currentPage).toBe(2);
     });
 
+    it('shows a media variant on recent activity rows', async () => {
+        vi.mocked(api.getLogs).mockResolvedValue([{
+            id: 1,
+            title: 'Horimiya',
+            media_id: 7,
+            duration_minutes: 24,
+            characters: 0,
+            date: '2026-07-20',
+            media_type: 'Watching',
+            language: 'Japanese',
+            notes: ''
+        }]);
+        vi.mocked(api.getHeatmap).mockResolvedValue([]);
+        vi.mocked(api.getAllMedia).mockResolvedValue([{
+            id: 7,
+            title: 'Horimiya',
+            variant: 'Anime',
+            media_type: 'Watching',
+            status: 'Active',
+            language: 'Japanese',
+            description: '',
+            cover_image: '',
+            extra_data: '{}',
+            content_type: 'Anime',
+            tracking_status: 'Ongoing'
+        }]);
+
+        const dashboard = new Dashboard(container);
+        await vi.waitFor(() => {
+            dashboard.render();
+            // @ts-expect-error - accessing private state
+            if (!dashboard.state.isInitialized) throw new Error('Not initialized');
+        });
+
+        expect(container.querySelector('.dashboard-activity-variant')?.textContent).toBe('Anime');
+    });
+
     it('should prompt before deleting a log', async () => {
         const logs: ActivitySummary[] = [{ id: 456, title: 'To Delete', media_id: 1, duration_minutes: 10, characters: 0, date: '2024-01-01', media_type: 'Type', language: 'Japanese' }];
         vi.mocked(api.getLogs).mockResolvedValue(logs);

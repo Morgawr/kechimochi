@@ -6,7 +6,7 @@ import { ACTIVITY_TYPES } from '../constants';
 import { getExtraDataValue } from '../extra_data';
 import type { ScrapedFieldSource, ScrapedMetadata } from '../importers/types';
 
-export async function showAddMediaModal(): Promise<{title: string, type: string, contentType: string} | null> {
+export async function showAddMediaModal(): Promise<{title: string, variant: string, type: string, contentType: string} | null> {
     return new Promise((resolve) => {
         const { overlay, cleanup, dismiss } = createCancelableOverlay(() => resolve(null));
         
@@ -17,6 +17,10 @@ export async function showAddMediaModal(): Promise<{title: string, type: string,
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">
                         <label style="font-size: 0.85rem; color: var(--text-secondary);">Media Title</label>
                         <input type="text" id="add-media-title" autocomplete="off" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm);" />
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                        <label style="font-size: 0.85rem; color: var(--text-secondary);">Variant <span style="font-weight: normal;">(optional)</span></label>
+                        <input type="text" id="add-media-variant" autocomplete="off" placeholder="e.g. Manga" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm);" />
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">
                         <label style="font-size: 0.85rem; color: var(--text-secondary);">Activity Type</label>
@@ -38,6 +42,7 @@ export async function showAddMediaModal(): Promise<{title: string, type: string,
         `;
         
         const titleInput = overlay.querySelector<HTMLInputElement>('#add-media-title')!;
+        const variantInput = overlay.querySelector<HTMLInputElement>('#add-media-variant')!;
         const typeInput = overlay.querySelector<HTMLSelectElement>('#add-media-type')!;
         const contentInput = overlay.querySelector<HTMLSelectElement>('#add-media-content-type')!;
 
@@ -60,7 +65,7 @@ export async function showAddMediaModal(): Promise<{title: string, type: string,
             const title = titleInput.value.trim();
             if (!title) return;
             cleanup(); 
-            resolve({ title, type: typeInput.value, contentType: contentInput.value }); 
+            resolve({ title, variant: variantInput.value.trim(), type: typeInput.value, contentType: contentInput.value });
         });
         titleInput.focus();
     });
@@ -221,6 +226,9 @@ export async function showMediaCsvConflictModal(conflicts: MediaConflict[]): Pro
                 <div style="flex: 1;">
                     <div style="font-weight: 500; font-size: 0.9rem;">${conflict.incoming["Title"]}</div>
                     <div style="font-size: 0.75rem; color: var(--text-secondary);">Currently: ${conflict.existing!.status} | Incoming: ${conflict.incoming["Status"]}</div>
+                    ${(conflict.existing!.variant || conflict.incoming["Variant"])
+                        ? `<div style="font-size: 0.75rem; color: var(--text-secondary);">Variant: ${escapeHTML(conflict.existing!.variant || 'none')} (existing) | ${escapeHTML(conflict.incoming["Variant"] || 'none')} (incoming)</div>`
+                        : ''}
                 </div>
                 <div style="display: flex; gap: 1rem;">
                     <label style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; cursor: pointer;">
@@ -235,7 +243,7 @@ export async function showMediaCsvConflictModal(conflicts: MediaConflict[]): Pro
         overlay.innerHTML = `
             <div class="modal-content" style="max-width: 600px; width: 90vw; max-height: 90vh; display: flex; flex-direction: column;">
                 <h3>Import Conflicts</h3>
-                <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1rem;">Some entries already exist. How do you want to handle them?</p>
+                <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1rem;">Some entries already exist. How do you want to handle them? Replacing an entry preserves its existing variant.</p>
                 <div style="display: flex; flex-direction: column; overflow-y: auto; flex: 1; padding-right: 0.5rem;">
                     ${rowsHtml}
                 </div>

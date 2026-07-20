@@ -148,6 +148,32 @@ describe('modals/activity.ts', () => {
             }));
         });
 
+        it('should show the selected media variant as disambiguating context', async () => {
+            vi.mocked(api.getAllMedia).mockResolvedValue([{
+                id: 10,
+                title: 'Horimiya',
+                variant: 'Anime',
+                media_type: 'Watching',
+                status: 'Active',
+                language: 'Japanese',
+                description: '',
+                cover_image: '',
+                extra_data: '{}',
+                content_type: 'Anime',
+                tracking_status: 'Ongoing'
+            }]);
+
+            const promise = showLogActivityModal('Horimiya');
+            await vi.waitFor(() => document.querySelector('#activity-media-variant'));
+
+            const variant = document.querySelector('#activity-media-variant') as HTMLElement;
+            expect(variant.textContent).toBe('Anime');
+            expect(variant.style.display).toBe('block');
+
+            (document.querySelector('#activity-cancel') as HTMLElement).click();
+            await expect(promise).resolves.toBe(false);
+        });
+
         it('should create new media if it does not exist', async () => {
             vi.mocked(api.getAllMedia).mockResolvedValue([]);
             const { customPrompt } = await import('../../src/modal_base');

@@ -83,7 +83,10 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
         const activeMedia = mediaList.filter(m => m.status !== 'Archived' && m.tracking_status === 'Ongoing');
 
         const escapedTitle = escapeHTML(editLog?.title || prefillMediaTitle || '');
-        const activeMediaOptions = activeMedia.map(m => `<option value="${escapeHTML(m.title)}">`).join('');
+        const activeMediaOptions = activeMedia.map(m => {
+            const variantLabel = m.variant ? ' label="' + escapeHTML(m.variant) + '"' : '';
+            return `<option value="${escapeHTML(m.title)}"${variantLabel}>`;
+        }).join('');
 
         const findMediaByTitle = (title: string) => {
             const normalizedTitle = title.trim().toLowerCase();
@@ -109,6 +112,7 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
                     <div style="display: flex; flex-direction: column; gap: 0.5rem; position: relative; z-index: 2">
                         <label style="font-size: 0.85rem; color: var(--text-secondary);">Media Title</label>
                         <input type="text" id="activity-media" ${useCustomMediaSuggestions ? '' : 'list="media-datalist"'} autocomplete="off" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm);" value="${escapedTitle}" ${editLog ? 'disabled' : ''} required oninvalid="this.setCustomValidity('Media Title is required')" oninput="this.setCustomValidity('')" />
+                        <div id="activity-media-variant" style="display: none; color: var(--text-secondary); font-size: 0.78rem;"></div>
                         ${useCustomMediaSuggestions
                 ? '<div id="activity-media-suggestions" style="display: none; margin-top: 0.35rem; max-height: 11rem; overflow-y: auto; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: color-mix(in srgb, var(--bg-card) 94%, black 6%); box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22); position: absolute; top: 100%"></div>'
                 : `<datalist id="media-datalist">${activeMediaOptions}</datalist>`}
@@ -187,7 +191,9 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
             const renderSuggestions = () => {
                 const query = titleInput.value.trim().toLowerCase();
                 const matches = activeMedia
-                    .filter(media => query.length === 0 || media.title.toLowerCase().includes(query))
+                    .filter(media => query.length === 0
+                        || media.title.toLowerCase().includes(query)
+                        || (media.variant || '').toLowerCase().includes(query))
                     .slice(0, 8);
 
                 if (matches.length === 0 || document.activeElement !== titleInput) {
@@ -201,9 +207,10 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
                         type="button"
                         class="activity-media-suggestion"
                         data-title="${escapeHTML(media.title)}"
-                        style="display: flex; width: 100%; padding: 0.65rem 0.8rem; border: none; background: transparent; color: var(--text-primary); text-align: left; cursor: pointer; font: inherit;"
+                        style="display: flex; flex-direction: column; gap: 0.15rem; width: 100%; padding: 0.65rem 0.8rem; border: none; background: transparent; color: var(--text-primary); text-align: left; cursor: pointer; font: inherit;"
                     >
-                        ${escapeHTML(media.title)}
+                        <span>${escapeHTML(media.title)}</span>
+                        ${media.variant ? `<span style="color: var(--text-secondary); font-size: 0.78rem;">${escapeHTML(media.variant)}</span>` : ''}
                     </button>
                 `).join('');
                 suggestionList.style.display = 'block';
@@ -234,12 +241,21 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
 
         const mediaInput = overlay.querySelector<HTMLInputElement>('#activity-media')!;
         const activityTypeSelect = overlay.querySelector<HTMLSelectElement>('#activity-type')!;
+        const mediaVariantLabel = overlay.querySelector<HTMLElement>('#activity-media-variant')!;
+        const syncVariantFromSelectedMedia = () => {
+            const variant = findMediaByTitle(mediaInput.value)?.variant?.trim() || '';
+            mediaVariantLabel.textContent = variant;
+            mediaVariantLabel.style.display = variant ? 'block' : 'none';
+        };
         const syncActivityTypeFromSelectedMedia = () => {
             const defaultActivityType = getDefaultActivityTypeForTitle(mediaInput.value);
             if (defaultActivityType) {
                 activityTypeSelect.value = defaultActivityType;
             }
+            syncVariantFromSelectedMedia();
         };
+
+        syncVariantFromSelectedMedia();
 
         if (!editLog) {
             mediaInput.addEventListener('input', syncActivityTypeFromSelectedMedia);

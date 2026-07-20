@@ -82,7 +82,7 @@ These endpoints are available only when API Scope is set to `full`.
 | `POST /api/import/activities` | Import activity logs from CSV. | `curl -s -X POST "$BASE/api/import/activities" -F "file=@activities.csv"` |
 | `GET /api/export/activities` | Export activity logs as CSV. Optional `start` and `end` query parameters filter by date. | `curl -s "$BASE/api/export/activities?start=2026-01-01&end=2026-01-31" -o activities.csv` |
 | `POST /api/import/media/analyze` | Analyze a media-library CSV and return conflicts. | `curl -s -X POST "$BASE/api/import/media/analyze" -F "file=@media_library.csv"` |
-| `POST /api/import/media/apply` | Apply approved media CSV rows. | `curl -s -X POST "$BASE/api/import/media/apply" -H 'Content-Type: application/json' -d '[{"Title":"New Media","Media Type":"Reading","Status":"Active","Language":"Japanese","Description":"","Content Type":"Novel","Extra Data":"{}","Cover Image (Base64)":""}]'` |
+| `POST /api/import/media/apply` | Apply approved media CSV rows. | `curl -s -X POST "$BASE/api/import/media/apply" -H 'Content-Type: application/json' -d '[{"Title":"New Media","Media Type":"Reading","Status":"Active","Language":"Japanese","Description":"","Content Type":"Novel","Extra Data":"{}","Cover Image (Base64)":"","Variant":"Light Novel"}]'` |
 | `GET /api/export/media` | Export the media library as CSV. | `curl -s "$BASE/api/export/media" -o media_library.csv` |
 | `POST /api/import/milestones` | Import milestones from CSV. | `curl -s -X POST "$BASE/api/import/milestones" -F "file=@milestones.csv"` |
 | `GET /api/export/milestones` | Export milestones as CSV. | `curl -s "$BASE/api/export/milestones" -o milestones.csv` |

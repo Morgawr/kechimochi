@@ -4,7 +4,7 @@ export default defineConfig({
   test: {
     environment: 'happy-dom',
     setupFiles: ['./tests/setup.ts'],
-    exclude: ['**/node_modules/**', '**/dist/**', '**/e2e/**', '**/src-tauri/**'],
+    exclude: ['**/node_modules/**', '**/dist/**', 'e2e/specs/**', '**/src-tauri/**'],
     coverage: {
       include: ['src/**'],
       exclude: ['src-tauri/**', '**/node_modules/**', '**/dist/**', '**/e2e/**', 'src/**/*.d.ts', 'src/**/types.ts'],

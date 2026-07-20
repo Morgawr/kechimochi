@@ -125,6 +125,10 @@ export class QuickLog extends Component<QuickLogState> {
     private renderItem(media: Media): string {
         const coverUrl = media.id ? this.state.coverUrls[media.id] : '';
         const contentType = (media.content_type || media.media_type || 'Unknown').trim() || 'Unknown';
+        const variant = (media.variant || '').trim();
+        const secondaryLabel = variant && variant.toLowerCase() !== contentType.toLowerCase()
+            ? `${contentType} · ${variant}`
+            : variant || contentType;
         const placeholderLabel = media.cover_image ? 'Loading' : 'No Image';
         const isMobileApp = document.body.dataset.runtime === 'mobile-app';
         const coverHtml = coverUrl
@@ -135,6 +139,7 @@ export class QuickLog extends Component<QuickLogState> {
             <div
                 class="quick-log-item"
                 data-quick-log-media-id="${media.id}"
+                data-quick-log-title="${escapeHTML(media.title)}"
                 role="button"
                 tabindex="0"
                 style="position: relative; display: grid; grid-template-columns: 2.8rem minmax(0, 1fr) auto; gap: 0.7rem; align-items: center; width: 100%; padding: 0.45rem 0; border: none; background: transparent; color: inherit; cursor: pointer; text-align: left;"
@@ -157,7 +162,7 @@ export class QuickLog extends Component<QuickLogState> {
                 <div class="quick-log-copy" style="display: flex; flex-direction: column; min-width: 0; gap: 0.18rem;">
                     <div class="quick-log-title" style="font-size: 0.84rem; font-weight: 600; color: var(--text-primary); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; line-height: 1.2;">${escapeHTML(media.title)}</div>
                     <div class="quick-log-second-row">
-                        <div class="quick-log-type" style="font-size: 0.74rem; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHTML(contentType)}</div>
+                        <div class="quick-log-type" style="font-size: 0.74rem; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHTML(secondaryLabel)}</div>
                         <button
                             type="button"
                             class="quick-log-shortcut-btn"

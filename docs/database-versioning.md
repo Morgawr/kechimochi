@@ -22,7 +22,7 @@ An app release may keep the same database schema version, and a new backup forma
 
 ## Current Baseline
 
-- Current database schema version: `2`
+- Current database schema version: `4`
 - Current backup format version: `1`
 - First stable release schema: the current latest schema in `src-tauri`
 

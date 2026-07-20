@@ -141,7 +141,7 @@ export async function setLibraryLayout(layout: LibraryLayoutMode): Promise<void>
 /**
  * High-level helper to add a new media item from the Library view
  */
-export async function addMedia(title: string, type: string, contentType?: string): Promise<void> {
+export async function addMedia(title: string, type: string, contentType?: string, variant?: string): Promise<void> {
     if (!(await verifyActiveView('media'))) {
         await navigateTo('media');
     }
@@ -155,6 +155,10 @@ export async function addMedia(title: string, type: string, contentType?: string
     const titleInput = $('#add-media-title');
     await titleInput.waitForDisplayed({ timeout: 5000 });
     await setText('#add-media-title', title);
+
+    if (variant) {
+        await setText('#add-media-variant', variant);
+    }
 
     await setSelect('#add-media-type', { text: type });
 

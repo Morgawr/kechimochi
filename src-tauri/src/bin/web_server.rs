@@ -886,6 +886,7 @@ mod tests {
             id: None,
             uid: None,
             title: title.to_string(),
+            variant: String::new(),
             media_type: "Reading".to_string(),
             status: "Active".to_string(),
             language: "Japanese".to_string(),

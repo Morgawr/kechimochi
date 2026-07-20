@@ -347,6 +347,10 @@ export class MediaDetail extends Component<MediaDetailState> {
     render() {
         this.clear();
         const { media, imgSrc, logs, isDescriptionExpanded } = this.state;
+        const mediaOptions = this.mediaList.map((entry, index) => {
+            const label = entry.variant ? entry.title + ' — ' + entry.variant : entry.title;
+            return `<option value="${index}" ${index === this.currentIndex ? 'selected' : ''}>${escapeHTML(label)}</option>`;
+        }).join('');
 
         const detailView = html`
             <div style="display: flex; flex-direction: column; height: 100%; gap: 1rem;" id="media-root">
@@ -364,7 +368,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                         </button>
                         <div id="media-title-group" style="position: relative; display: flex; align-items: center; gap: 0.45rem; min-width: 0;">
                             <select id="media-select" style="flex: 1 1 auto; min-width: 0; text-align: center; border: none; background: transparent; font-size: 1.1rem; color: var(--text-primary); outline: none; appearance: none; cursor: pointer; text-align-last: center; text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">
-                                ${rawHtml(this.mediaList.map((m, i) => `<option value="${i}" ${i === this.currentIndex ? 'selected' : ''}>${escapeHTML(m.title)}</option>`).join(''))}
+                                ${rawHtml(mediaOptions)}
                             </select>
                             <div id="media-overflow-root" style="position: relative; flex: 0 0 auto;">
                                 <button
@@ -436,6 +440,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                                 <button class="copy-btn" id="btn-copy-title" title="Copy Title" style="margin-bottom: 3px;  display:inline; ">
                                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                                 </button>
+                                <div id="media-variant" title="Double click to edit variant" style="margin-top: 0.3rem; color: var(--text-secondary); cursor: pointer; font-size: 1rem; font-style: ${media.variant ? 'normal' : 'italic'};">${media.variant || '(Optional) Describe variant...'}</div>
                             </div>
                             ${rawHtml(this.renderHeaderActions(media))}
                         </div>
@@ -811,6 +816,9 @@ export class MediaDetail extends Component<MediaDetailState> {
 
         const titleEl = root.querySelector('#media-title') as HTMLElement;
         if (titleEl) setupEditable(titleEl, 'title');
+
+        const variantEl = root.querySelector('#media-variant') as HTMLElement;
+        if (variantEl) setupEditable(variantEl, 'variant');
 
         const descEl = root.querySelector('#media-description') as HTMLElement;
         if (descEl) setupEditable(descEl, 'description', { isTextArea: true });

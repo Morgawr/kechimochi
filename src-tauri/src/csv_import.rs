@@ -1,5 +1,6 @@
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
@@ -27,6 +28,8 @@ struct CsvRow {
     activity_type: Option<String>,
     #[serde(rename = "Notes", default)]
     notes: Option<String>,
+    #[serde(rename = "Media Variant", default)]
+    media_variant: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -41,6 +44,8 @@ pub struct MilestoneCsvRow {
     pub characters: i64,
     #[serde(rename = "Date")]
     pub date: Option<String>,
+    #[serde(rename = "Media Variant", default)]
+    pub media_variant: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -61,6 +66,8 @@ pub struct MediaCsvRow {
     pub extra_data: String,
     #[serde(rename = "Cover Image (Base64)")]
     pub cover_image_b64: String,
+    #[serde(rename = "Variant", default)]
+    pub variant: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -84,8 +91,8 @@ pub fn import_csv_from_reader<R: Read>(conn: &mut Connection, reader: R) -> Resu
         .has_headers(true)
         .from_reader(reader);
 
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
-    let mut imported_count = 0;
+    let mut records = Vec::new();
+    let mut variants_by_title: HashMap<String, HashSet<String>> = HashMap::new();
 
     for (index, result) in rdr.deserialize().enumerate() {
         let record: CsvRow = match result {
@@ -95,8 +102,21 @@ pub fn import_csv_from_reader<R: Read>(conn: &mut Connection, reader: R) -> Resu
                 continue;
             }
         };
+        let variant = record.media_variant.trim();
+        if !variant.is_empty() {
+            variants_by_title
+                .entry(record.log_name.clone())
+                .or_default()
+                .insert(variant.to_string());
+        }
+        records.push((index + 2, record));
+    }
 
-        let formatted_date = normalize_activity_date(&record.date, index + 2)?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let mut imported_count = 0;
+
+    for (row_number, record) in records {
+        let formatted_date = normalize_activity_date(&record.date, row_number)?;
 
         // Check if media exists
         let media_id: i64 = match tx.query_row(
@@ -111,6 +131,12 @@ pub fn import_csv_from_reader<R: Read>(conn: &mut Connection, reader: R) -> Resu
                     id: None,
                     uid: None,
                     title: record.log_name.clone(),
+                    variant: variants_by_title
+                        .get(&record.log_name)
+                        .filter(|variants| variants.len() == 1)
+                        .and_then(|variants| variants.iter().next())
+                        .cloned()
+                        .unwrap_or_default(),
                     media_type: record.media_type.clone(),
                     status: "Complete".into(), // Default to Complete for historical data
                     language: record.language.clone(),
@@ -202,6 +228,7 @@ pub fn export_media_csv(conn: &Connection, file_path: &str) -> Result<usize, Str
 
         let row = MediaCsvRow {
             title: m.title,
+            variant: m.variant,
             media_type: m.media_type,
             status: m.status,
             language: m.language,
@@ -225,8 +252,6 @@ pub fn export_logs_csv(
     start_date: Option<String>,
     end_date: Option<String>,
 ) -> Result<usize, String> {
-    let logs = db::get_logs(conn).map_err(|e| e.to_string())?;
-
     let mut count = 0;
     let mut wtr = csv::Writer::from_path(file_path).map_err(|e| e.to_string())?;
 
@@ -239,30 +264,69 @@ pub fn export_logs_csv(
         "Characters",
         "Activity Type",
         "Notes",
+        "Media Variant",
     ])
     .map_err(|e| e.to_string())?;
 
+    let mut stmt = conn
+        .prepare(
+            "SELECT a.id, a.date, m.title, m.media_type, a.duration_minutes, m.language,
+                    a.characters, COALESCE(NULLIF(a.activity_type, ''), m.media_type),
+                    a.notes, m.variant
+             FROM main.activity_logs a
+             JOIN shared.media m ON a.media_id = m.id
+             ORDER BY a.date DESC, a.id DESC",
+        )
+        .map_err(|e| e.to_string())?;
+    let logs = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, i64>(6)?,
+                row.get::<_, String>(7)?,
+                row.get::<_, String>(8)?,
+                row.get::<_, String>(9)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?;
+
     for log in logs {
+        let (
+            date,
+            title,
+            media_type,
+            duration,
+            language,
+            characters,
+            activity_type,
+            notes,
+            variant,
+        ) = log.map_err(|e| e.to_string())?;
         if let Some(start) = &start_date {
-            if &log.date < start {
+            if &date < start {
                 continue;
             }
         }
         if let Some(end) = &end_date {
-            if &log.date > end {
+            if &date > end {
                 continue;
             }
         }
 
         wtr.write_record([
-            &log.date,
-            &log.title,
-            &log.media_type,
-            &log.duration_minutes.to_string(),
-            &log.language,
-            &log.characters.to_string(),
-            &log.media_type,
-            &log.notes,
+            &date,
+            &title,
+            &media_type,
+            &duration.to_string(),
+            &language,
+            &characters.to_string(),
+            &activity_type,
+            &notes,
+            &variant,
         ])
         .map_err(|e| e.to_string())?;
 
@@ -274,7 +338,14 @@ pub fn export_logs_csv(
 }
 
 pub fn export_milestones_csv(conn: &Connection, file_path: &str) -> Result<usize, String> {
-    let mut stmt = conn.prepare("SELECT id, media_title, name, duration, characters, date FROM main.milestones ORDER BY id ASC")
+    let mut stmt = conn.prepare(
+        "SELECT ms.id, ms.media_title, ms.name, ms.duration, ms.characters, ms.date,
+                COALESCE(mu.variant, mt.variant, '')
+         FROM main.milestones ms
+         LEFT JOIN shared.media mu ON mu.uid = ms.media_uid
+         LEFT JOIN shared.media mt ON (ms.media_uid IS NULL OR ms.media_uid = '') AND mt.title = ms.media_title
+         ORDER BY ms.id ASC"
+    )
         .map_err(|e| e.to_string())?;
 
     let milestone_iter = stmt
@@ -285,6 +356,7 @@ pub fn export_milestones_csv(conn: &Connection, file_path: &str) -> Result<usize
                 duration: row.get(3)?,
                 characters: row.get(4)?,
                 date: row.get(5)?,
+                media_variant: row.get(6)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -383,7 +455,7 @@ pub fn analyze_media_csv_from_reader<R: Read>(
         };
 
         let existing: Option<Media> = conn.query_row(
-            "SELECT id, uid, title, media_type, status, language, description, cover_image, extra_data, content_type, tracking_status FROM shared.media WHERE title = ?1",
+            "SELECT id, uid, title, media_type, status, language, description, cover_image, extra_data, content_type, tracking_status, variant FROM shared.media WHERE title = ?1",
             [&record.title],
             |row| Ok(Media {
                 id: row.get(0)?,
@@ -397,6 +469,7 @@ pub fn analyze_media_csv_from_reader<R: Read>(
                 extra_data: row.get(8).unwrap_or_else(|_| "{}".to_string()),
                 content_type: row.get(9).unwrap_or_else(|_| "Unknown".to_string()),
                 tracking_status: row.get(10).unwrap_or_else(|_| "Untracked".to_string()),
+                variant: row.get(11).unwrap_or_default(),
             })
         ).optional().map_err(|e| e.to_string())?;
 
@@ -421,11 +494,11 @@ pub fn apply_media_import(
 
     for req in records {
         // Find existing to possibly delete old cover
-        let existing_id: Option<i64> = tx
+        let existing: Option<(i64, String)> = tx
             .query_row(
-                "SELECT id FROM shared.media WHERE title = ?1",
+                "SELECT id, variant FROM shared.media WHERE title = ?1",
                 [&req.title],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1).unwrap_or_default())),
             )
             .ok();
 
@@ -446,7 +519,7 @@ pub fn apply_media_import(
             }
         }
 
-        if let Some(id) = existing_id {
+        if let Some((id, existing_variant)) = existing {
             // Delete old cover
             let old_cover: String = tx
                 .query_row(
@@ -464,6 +537,7 @@ pub fn apply_media_import(
                 id: Some(id),
                 uid: None,
                 title: req.title,
+                variant: existing_variant,
                 media_type: req.media_type,
                 status: req.status,
                 language: req.language,
@@ -479,6 +553,7 @@ pub fn apply_media_import(
                 id: None,
                 uid: None,
                 title: req.title,
+                variant: req.variant.trim().to_string(),
                 media_type: req.media_type,
                 status: req.status,
                 language: req.language,
@@ -530,6 +605,7 @@ mod tests {
             id: None,
             uid: None,
             title: title.to_string(),
+            variant: String::new(),
             media_type: "Reading".to_string(),
             status: "Active".to_string(),
             language: "Japanese".to_string(),
@@ -538,6 +614,20 @@ mod tests {
             extra_data: "{}".to_string(),
             content_type: "Unknown".to_string(),
             tracking_status: "Untracked".to_string(),
+        }
+    }
+
+    fn sample_media_csv_row(title: &str, variant: &str) -> MediaCsvRow {
+        MediaCsvRow {
+            title: title.to_string(),
+            media_type: "Reading".to_string(),
+            status: "Active".to_string(),
+            language: "Japanese".to_string(),
+            description: String::new(),
+            content_type: "Manga".to_string(),
+            extra_data: "{}".to_string(),
+            cover_image_b64: String::new(),
+            variant: variant.to_string(),
         }
     }
 
@@ -586,6 +676,102 @@ mod tests {
     }
 
     #[test]
+    fn test_activity_import_preserves_existing_variant_when_csv_variant_is_missing_or_different() {
+        let mut conn = setup_test_db();
+        let mut existing = sample_media("Horimiya");
+        existing.variant = "Manga".to_string();
+        let existing_id = db::add_media_with_id(&conn, &existing).unwrap();
+
+        let csv = "Date,Log Name,Media Type,Duration,Language,Characters,Activity Type,Notes,Media Variant\n\
+                   2024-01-15,Horimiya,Watching,25,Japanese,0,Watching,,\n\
+                   2024-01-16,Horimiya,Watching,25,Japanese,0,Watching,,Anime\n";
+        assert_eq!(
+            import_csv_from_reader(&mut conn, csv.as_bytes()).unwrap(),
+            2
+        );
+
+        let media = db::get_all_media(&conn).unwrap();
+        assert_eq!(media.len(), 1);
+        assert_eq!(media[0].id, Some(existing_id));
+        assert_eq!(media[0].variant, "Manga");
+        assert_eq!(db::get_logs_for_media(&conn, existing_id).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn test_activity_import_uses_consensus_variant_only_for_new_media() {
+        let mut conn = setup_test_db();
+        let csv = "Date,Log Name,Media Type,Duration,Language,Characters,Activity Type,Notes,Media Variant\n\
+                   2024-01-15,Horimiya,Reading,25,Japanese,0,Reading,,Manga\n\
+                   2024-01-16,Horimiya,Reading,25,Japanese,0,Reading,,Manga\n\
+                   2024-01-15,Mixed,Reading,25,Japanese,0,Reading,,Manga\n\
+                   2024-01-16,Mixed,Watching,25,Japanese,0,Watching,,Anime\n";
+        assert_eq!(
+            import_csv_from_reader(&mut conn, csv.as_bytes()).unwrap(),
+            4
+        );
+
+        let media = db::get_all_media(&conn).unwrap();
+        assert_eq!(
+            media
+                .iter()
+                .find(|entry| entry.title == "Horimiya")
+                .unwrap()
+                .variant,
+            "Manga"
+        );
+        assert_eq!(
+            media
+                .iter()
+                .find(|entry| entry.title == "Mixed")
+                .unwrap()
+                .variant,
+            ""
+        );
+    }
+
+    #[test]
+    fn test_media_import_preserves_existing_variant_and_sets_it_only_for_new_titles() {
+        let mut conn = setup_test_db();
+        let mut existing = sample_media("Horimiya");
+        existing.variant = "Manga".to_string();
+        db::add_media_with_id(&conn, &existing).unwrap();
+
+        let covers_dir = std::env::temp_dir().join(format!(
+            "variant_media_import_{}_{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::SeqCst)
+        ));
+        apply_media_import(
+            covers_dir.clone(),
+            &mut conn,
+            vec![
+                sample_media_csv_row("Horimiya", ""),
+                sample_media_csv_row("New Title", "Light Novel"),
+            ],
+        )
+        .unwrap();
+
+        let media = db::get_all_media(&conn).unwrap();
+        assert_eq!(
+            media
+                .iter()
+                .find(|entry| entry.title == "Horimiya")
+                .unwrap()
+                .variant,
+            "Manga"
+        );
+        assert_eq!(
+            media
+                .iter()
+                .find(|entry| entry.title == "New Title")
+                .unwrap()
+                .variant,
+            "Light Novel"
+        );
+        std::fs::remove_dir_all(covers_dir).ok();
+    }
+
+    #[test]
     fn test_import_csv_date_formatting() {
         let mut conn = setup_test_db();
         let csv_path = write_csv(
@@ -609,6 +795,7 @@ mod tests {
             id: None,
             uid: None,
             title: "Export Test".to_string(),
+            variant: "Light Novel".to_string(),
             media_type: "Reading".to_string(),
             status: "Ongoing".to_string(),
             language: "Japanese".to_string(),
@@ -630,6 +817,7 @@ mod tests {
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("Export Test"));
         assert!(content.contains("Novel"));
+        assert!(content.contains("Light Novel"));
         // CSV escapes double quotes in fields by doubling them
         assert!(
             content.contains("\"{ \"\"key\"\": \"\"val\"\" }\"")
@@ -648,6 +836,7 @@ mod tests {
             id: None,
             uid: None,
             title: "Existing".to_string(),
+            variant: "Manga".to_string(),
             media_type: "Reading".to_string(),
             status: "Complete".to_string(),
             language: "Japanese".to_string(),
@@ -683,7 +872,9 @@ mod tests {
     #[test]
     fn test_export_logs_csv() {
         let conn = setup_test_db();
-        let m_id = db::add_media_with_id(&conn, &sample_media("Log Test")).unwrap();
+        let mut media = sample_media("Log Test");
+        media.variant = "Manga".to_string();
+        let m_id = db::add_media_with_id(&conn, &media).unwrap();
 
         db::add_log(
             &conn,
@@ -706,7 +897,7 @@ mod tests {
                 duration_minutes: 45,
                 characters: 200,
                 date: "2024-02-01".to_string(),
-                activity_type: "Reading".to_string(),
+                activity_type: "Watching".to_string(),
                 notes: String::new(),
             },
         )
@@ -743,6 +934,9 @@ mod tests {
         assert!(content.contains("2024-02-01"));
         assert!(content.contains("45"));
         assert!(content.contains("200")); // Characters
+        assert!(content.contains("Media Variant"));
+        assert!(content.contains("Manga"));
+        assert!(content.contains("Log Test,Reading,45,Japanese,200,Watching"));
         assert!(!content.contains("2024-01-01"));
         assert!(!content.contains("2024-03-01"));
 
@@ -805,6 +999,7 @@ mod tests {
             content_type: "Anime".to_string(),
             extra_data: "{}".to_string(),
             cover_image_b64: b64_img,
+            variant: "Anime".to_string(),
         }];
 
         apply_media_import(covers_dir.clone(), &mut conn, records).unwrap();
@@ -824,6 +1019,9 @@ mod tests {
     #[test]
     fn test_export_milestones_csv() {
         let conn = setup_test_db();
+        let mut media = sample_media("Export M");
+        media.variant = "Manga".to_string();
+        db::add_media_with_id(&conn, &media).unwrap();
         db::add_milestone(
             &conn,
             &Milestone {
@@ -851,6 +1049,8 @@ mod tests {
         assert!(content.contains("120"));
         assert!(content.contains("500"));
         assert!(content.contains("2024-03-12"));
+        assert!(content.contains("Media Variant"));
+        assert!(content.contains("Manga"));
 
         std::fs::remove_file(path).ok();
     }

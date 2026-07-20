@@ -19,6 +19,7 @@ describe('MediaListItem', () => {
     it('renders description and aggregated activity fields', () => {
         const media = {
             title: 'Library Item',
+            variant: 'Manga',
             description: 'A short blurb about this item.',
             status: 'Active',
             content_type: 'Anime',
@@ -41,6 +42,7 @@ describe('MediaListItem', () => {
         component.render();
 
         expect(container.textContent).toContain('Library Item');
+        expect(container.textContent).toContain('Manga');
         expect(container.textContent).toContain('A short blurb about this item.');
         expect(container.textContent).toContain('2026-03-01');
         expect(container.textContent).toContain('2026-03-20');

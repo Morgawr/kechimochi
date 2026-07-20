@@ -39,6 +39,7 @@ type RemoteManifest = {
 type SnapshotMedia = JsonObject & {
     uid: string;
     title: string;
+    variant: string;
     description: string;
     extra_data: string;
     updated_at: string;
@@ -63,6 +64,7 @@ type SyncSnapshot = JsonObject & {
 
 type SeedRemoteMedia = {
     title: string;
+    variant?: string;
     description?: string;
     mediaType?: string;
     status?: string;
@@ -581,6 +583,7 @@ export function seedRemoteSyncProfile(options?: {
         library[mediaUid] = {
             uid: mediaUid,
             title: entry.title,
+            variant: entry.variant ?? '',
             media_type: entry.mediaType ?? 'Reading',
             status: entry.status ?? 'Active',
             language: entry.language ?? 'Japanese',
@@ -598,7 +601,7 @@ export function seedRemoteSyncProfile(options?: {
 
     const snapshot: SyncSnapshot = {
         sync_protocol_version: 1,
-        db_schema_version: 3,
+        db_schema_version: 4,
         snapshot_id: snapshotId,
         created_at: createdAt,
         created_by_device_id: REMOTE_DEVICE_ID,

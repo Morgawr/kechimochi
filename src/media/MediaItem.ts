@@ -62,17 +62,23 @@ export class MediaItem extends Component<MediaItemState> {
         this.clear();
 
         const noImageLabel = media.cover_image ? 'Loading...' : 'No Image';
+        const placeholderVariant = media.variant
+            ? html`<div class="grid-item-variant" style="margin-top: 0.35rem; font-size: 0.78rem; color: var(--text-secondary);">${media.variant}</div>`
+            : '';
         const content = imgSrc
             ? html`<img src="${imgSrc}" style="width: 100%; height: 100%; object-fit: cover; display: block;" alt="${media.title}" />`
             : html`
                 <div class="image-placeholder" style="flex: 1; display: flex; flex-direction: column; padding: 1.2rem 1rem; color: var(--text-secondary); text-align: center; justify-content: space-between;">
-                    <div class="grid-item-title" style="font-size: 0.9rem; font-weight: 600; color: var(--text-primary); display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; line-height: 1.3;">${media.title}</div>
+                    <div>
+                        <div class="grid-item-title" style="font-size: 0.9rem; font-weight: 600; color: var(--text-primary); display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; line-height: 1.3;">${media.title}</div>
+                        ${placeholderVariant}
+                    </div>
                     <div style="font-size: 0.75rem; opacity: 0.6; text-transform: uppercase; letter-spacing: 1px;">${noImageLabel}</div>
                 </div>
             `;
 
         this.container.classList.add('media-grid-item');
-        this.container.title = media.title;
+        this.container.title = media.variant ? `${media.title} — ${media.variant}` : media.title;
         this.container.dataset.title = media.title;
         
         const isArchived = media.status === 'Archived';

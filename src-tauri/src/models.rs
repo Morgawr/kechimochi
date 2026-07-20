@@ -6,6 +6,8 @@ pub struct Media {
     #[serde(default)]
     pub uid: Option<String>,
     pub title: String,
+    #[serde(default)]
+    pub variant: String,
     pub media_type: String, // "Reading", "Watching", "Playing", "None", "Listening"
     pub status: String,     // "Active", "Paused", "Complete", "Dropped", "Planned"
     pub language: String,

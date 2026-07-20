@@ -12,7 +12,7 @@ use crate::models::{
     TimelineEventKind,
 };
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 3;
+pub const CURRENT_SCHEMA_VERSION: i64 = 4;
 
 type MigrationFn = fn(&Connection) -> Result<()>;
 
@@ -33,6 +33,11 @@ const VERSIONED_MIGRATIONS: &[Migration] = &[
         to: 3,
         apply: migrate_v2_to_v3_add_activity_notes,
     },
+    Migration {
+        from: 3,
+        to: 4,
+        apply: migrate_v3_to_v4_add_media_variant,
+    },
 ];
 
 const KECHIMOCHI_SYNC_NAMESPACE: &str = "0718e147-943f-4f0a-977d-5447bb2342f2";
@@ -49,6 +54,7 @@ const SHARED_MEDIA_COLUMNS: &[&str] = &[
     "extra_data",
     "content_type",
     "tracking_status",
+    "variant",
 ];
 
 const ACTIVITY_LOG_COLUMNS: &[&str] = &[
@@ -487,7 +493,8 @@ fn create_shared_media_table_named(conn: &Connection, table_name: &str) -> Resul
                 cover_image TEXT DEFAULT '',
                 extra_data TEXT DEFAULT '{{}}',
                 content_type TEXT DEFAULT 'Unknown',
-                tracking_status TEXT DEFAULT 'Untracked'
+                tracking_status TEXT DEFAULT 'Untracked',
+                variant TEXT NOT NULL DEFAULT ''
             )",
             table_name
         ),
@@ -634,6 +641,17 @@ fn migrate_v2_to_v3_add_activity_notes(conn: &Connection) -> Result<()> {
         "main",
         "activity_logs",
         "notes",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
+    Ok(())
+}
+
+fn migrate_v3_to_v4_add_media_variant(conn: &Connection) -> Result<()> {
+    let _ = add_column_if_missing(
+        conn,
+        "shared",
+        "media",
+        "variant",
         "TEXT NOT NULL DEFAULT ''",
     )?;
     Ok(())
@@ -964,6 +982,7 @@ fn migrate_legacy_pre_release_to_current_schema(conn: &Connection) -> Result<()>
     migrate_activity_type_to_logs(conn)?;
     migrate_settings_updated_at(conn)?;
     migrate_v2_to_v3_add_activity_notes(conn)?;
+    migrate_v3_to_v4_add_media_variant(conn)?;
     create_indexes(conn)?;
     Ok(())
 }
@@ -1165,7 +1184,7 @@ fn resolve_milestone_media_identity(
 // Media Operations
 pub fn get_all_media(conn: &Connection) -> Result<Vec<Media>> {
     let mut stmt = conn.prepare(
-        "SELECT id, uid, title, media_type, status, language, description, cover_image, extra_data, content_type, tracking_status 
+        "SELECT id, uid, title, media_type, status, language, description, cover_image, extra_data, content_type, tracking_status, variant
          FROM shared.media m
          ORDER BY 
             CASE 
@@ -1189,6 +1208,7 @@ pub fn get_all_media(conn: &Connection) -> Result<Vec<Media>> {
             extra_data: row.get(8).unwrap_or_else(|_| "{}".to_string()),
             content_type: row.get(9).unwrap_or_else(|_| "Unknown".to_string()),
             tracking_status: row.get(10).unwrap_or_else(|_| "Untracked".to_string()),
+            variant: row.get(11).unwrap_or_default(),
         })
     })?;
 
@@ -1203,8 +1223,8 @@ pub fn add_media_with_id(conn: &Connection, media: &Media) -> Result<i64> {
     let uid =
         normalize_optional_string(media.uid.clone()).unwrap_or_else(generate_random_media_uid);
     conn.execute(
-        "INSERT INTO shared.media (uid, title, media_type, status, language, description, cover_image, extra_data, content_type, tracking_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        params![uid, media.title, media.media_type, media.status, media.language, media.description, media.cover_image, media.extra_data, media.content_type, media.tracking_status],
+        "INSERT INTO shared.media (uid, title, media_type, status, language, description, cover_image, extra_data, content_type, tracking_status, variant) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        params![uid, media.title, media.media_type, media.status, media.language, media.description, media.cover_image, media.extra_data, media.content_type, media.tracking_status, media.variant.trim()],
     )?;
     Ok(conn.last_insert_rowid())
 }
@@ -1226,8 +1246,8 @@ pub fn update_media(conn: &Connection, media: &Media) -> Result<()> {
         "UPDATE shared.media
          SET uid = ?1, title = ?2, media_type = ?3, status = ?4, language = ?5,
              description = ?6, cover_image = ?7, extra_data = ?8, content_type = ?9,
-             tracking_status = ?10
-         WHERE id = ?11",
+             tracking_status = ?10, variant = ?11
+         WHERE id = ?12",
         params![
             uid,
             media.title,
@@ -1239,6 +1259,7 @@ pub fn update_media(conn: &Connection, media: &Media) -> Result<()> {
             media.extra_data,
             media.content_type,
             media.tracking_status,
+            media.variant.trim(),
             media_id
         ],
     )?;
@@ -2021,6 +2042,7 @@ mod tests {
             id: None,
             uid: None,
             title: title.to_string(),
+            variant: String::new(),
             media_type: "Reading".to_string(),
             status: "Active".to_string(),
             language: "Japanese".to_string(),
@@ -2208,6 +2230,7 @@ mod tests {
             id: Some(id),
             uid: None,
             title: "呪術廻戦".to_string(),
+            variant: "Anime".to_string(),
             media_type: "Watching".to_string(),
             status: "Complete".to_string(),
             language: "Japanese".to_string(),
@@ -3560,8 +3583,8 @@ mod tests {
     }
 
     #[test]
-    fn test_fresh_db_has_notes_column_and_is_at_schema_v3() {
-        let temp_dir = unique_temp_dir("notes_fresh_v3");
+    fn test_fresh_db_has_latest_columns_and_is_at_schema_v4() {
+        let temp_dir = unique_temp_dir("fresh_v4");
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         let conn = init_db(temp_dir.clone(), None).unwrap();
@@ -3570,8 +3593,9 @@ mod tests {
             get_bundle_schema_version(&conn).unwrap(),
             CURRENT_SCHEMA_VERSION
         );
-        assert_eq!(CURRENT_SCHEMA_VERSION, 3);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 4);
         assert!(table_has_column(&conn, "main", "activity_logs", "notes").unwrap());
+        assert!(table_has_column(&conn, "shared", "media", "variant").unwrap());
         assert!(latest_schema_is_present(&conn).unwrap());
         validate_latest_schema(&conn).unwrap();
 
@@ -3659,22 +3683,25 @@ mod tests {
             CURRENT_SCHEMA_VERSION
         );
         assert!(table_has_column(&conn, "main", "activity_logs", "notes").unwrap());
+        assert!(table_has_column(&conn, "shared", "media", "variant").unwrap());
 
         // Pre-existing row should have empty notes
         let logs = get_logs(&conn).unwrap();
         assert_eq!(logs.len(), 1);
         assert_eq!(logs[0].notes, "");
         assert_eq!(logs[0].duration_minutes, 60);
+        let media = get_all_media(&conn).unwrap();
+        assert_eq!(media[0].variant, "");
 
         std::fs::remove_dir_all(temp_dir).ok();
     }
 
     #[test]
-    fn test_no_op_startup_on_v3_db_stays_at_v3() {
-        let temp_dir = unique_temp_dir("notes_noop_v3");
+    fn test_no_op_startup_on_v4_db_stays_at_v4() {
+        let temp_dir = unique_temp_dir("noop_v4");
         std::fs::create_dir_all(&temp_dir).unwrap();
 
-        // First init creates the DB at v3
+        // First init creates the DB at v4
         let conn1 = init_db(temp_dir.clone(), None).unwrap();
         let media_id = add_media_with_id(&conn1, &sample_media("No-op Media")).unwrap();
         add_log(
@@ -3694,13 +3721,41 @@ mod tests {
 
         // Second init should be a no-op
         let conn2 = init_db(temp_dir.clone(), None).unwrap();
-        assert_eq!(get_bundle_schema_version(&conn2).unwrap(), 3);
+        assert_eq!(get_bundle_schema_version(&conn2).unwrap(), 4);
 
         let logs = get_logs(&conn2).unwrap();
         assert_eq!(logs.len(), 1);
         assert_eq!(logs[0].notes, "persistent note");
 
         std::fs::remove_dir_all(temp_dir).ok();
+    }
+
+    #[test]
+    fn test_v3_to_v4_migration_adds_variant_without_changing_existing_media() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute("ATTACH DATABASE ':memory:' AS shared", [])
+            .unwrap();
+        conn.execute_batch(
+            "CREATE TABLE shared.media (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL UNIQUE
+             );
+             INSERT INTO shared.media (title) VALUES ('Horimiya');",
+        )
+        .unwrap();
+
+        migrate_v3_to_v4_add_media_variant(&conn).unwrap();
+
+        assert!(table_has_column(&conn, "shared", "media", "variant").unwrap());
+        let (title, variant): (String, String) = conn
+            .query_row(
+                "SELECT title, variant FROM shared.media WHERE title = 'Horimiya'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(title, "Horimiya");
+        assert_eq!(variant, "");
     }
 
     #[test]

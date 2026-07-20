@@ -448,6 +448,10 @@ export class Dashboard extends Component<DashboardState> {
             const escapedMediaType = escapeHTML(log.media_type);
             const escapedTitle = escapeHTML(log.title);
             const escapedDate = escapeHTML(log.date);
+            const mediaVariant = this.state.mediaList.find(media => media.id === log.media_id)?.variant?.trim() || '';
+            const variantHtml = mediaVariant
+                ? `<span class="dashboard-activity-variant" style="color: var(--text-secondary); font-size: 0.8rem;">${escapeHTML(mediaVariant)}</span>`
+                : '';
 
             let activityDesc = '';
             if (log.duration_minutes > 0 && log.characters > 0) {
@@ -469,6 +473,7 @@ export class Dashboard extends Component<DashboardState> {
                         </div>
                         <div class="dashboard-activity-title-row" style="display: inline; align-items: center; gap: 0.35rem; min-width: 0;">
                             <a class="dashboard-media-link dashboard-activity-title" data-media-id="${log.media_id}" style="display: inline; color: var(--text-primary); font-weight: 600; cursor: pointer; text-decoration: underline; text-decoration-color: var(--accent-blue); min-width: 0;">${escapedTitle}</a>
+                            ${variantHtml}
                             <button class="copy-btn copy-activity-title" data-title="${escapeHTML(String(log.title || ''))}" title="Copy Title" style="background: transparent; border: none; padding: 0; cursor: pointer; display: inline; align-items: center; justify-content: center; flex: 0 0 auto; white-space:nowrap;">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-secondary);"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                             </button>

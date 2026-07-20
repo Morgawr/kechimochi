@@ -31,10 +31,12 @@ describe('modals/media.ts', () => {
             await vi.waitFor(() => document.querySelector('#add-media-confirm'));
             
             const titleInput = document.querySelector('#add-media-title') as HTMLInputElement;
+            const variantInput = document.querySelector('#add-media-variant') as HTMLInputElement;
             const typeSelect = document.querySelector('#add-media-type') as HTMLSelectElement;
             const contentSelect = document.querySelector('#add-media-content-type') as HTMLSelectElement;
             
             titleInput.value = 'New Manga';
+            variantInput.value = '  Print Edition  ';
             typeSelect.value = 'Reading';
             typeSelect.dispatchEvent(new Event('change'));
             contentSelect.value = 'Manga';
@@ -42,7 +44,7 @@ describe('modals/media.ts', () => {
             (document.querySelector('#add-media-confirm') as HTMLElement).click();
             
             const result = await promise;
-            expect(result).toEqual({ title: 'New Manga', type: 'Reading', contentType: 'Manga' });
+            expect(result).toEqual({ title: 'New Manga', variant: 'Print Edition', type: 'Reading', contentType: 'Manga' });
         });
 
         it('should resolve null on cancel', async () => {

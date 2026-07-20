@@ -156,7 +156,7 @@ fn validate_merge_inputs(
                 snapshot.sync_protocol_version
             ));
         }
-        if snapshot.db_schema_version != db::CURRENT_SCHEMA_VERSION {
+        if snapshot.db_schema_version > db::CURRENT_SCHEMA_VERSION {
             return Err(format!(
                 "Unsupported db schema version {}",
                 snapshot.db_schema_version
@@ -352,6 +352,14 @@ fn merge_media_three_way(
         &remote.title,
         &mut conflicts,
     );
+    let variant = merge_scalar_field(
+        uid,
+        "variant",
+        Some(&base.variant),
+        &local.variant,
+        &remote.variant,
+        &mut conflicts,
+    );
     let media_type = merge_scalar_field(
         uid,
         "media_type",
@@ -432,6 +440,7 @@ fn merge_media_three_way(
     let mut merged = SnapshotMediaAggregate {
         uid: uid.to_string(),
         title,
+        variant,
         media_type,
         status,
         language,
@@ -469,6 +478,14 @@ fn merge_media_created_on_both(
         None,
         &local.title,
         &remote.title,
+        &mut conflicts,
+    );
+    let variant = merge_scalar_field(
+        uid,
+        "variant",
+        None,
+        &local.variant,
+        &remote.variant,
         &mut conflicts,
     );
     let media_type = merge_scalar_field(
@@ -543,6 +560,7 @@ fn merge_media_created_on_both(
     let mut merged = SnapshotMediaAggregate {
         uid: uid.to_string(),
         title,
+        variant,
         media_type,
         status,
         language,
@@ -1064,6 +1082,7 @@ fn media_content_eq_ignoring_meta(
 ) -> bool {
     left.uid == right.uid
         && left.title == right.title
+        && left.variant == right.variant
         && left.media_type == right.media_type
         && left.status == right.status
         && left.language == right.language
@@ -1123,6 +1142,7 @@ mod tests {
         SnapshotMediaAggregate {
             uid: uid.to_string(),
             title: format!("Title {}", uid),
+            variant: String::new(),
             media_type: "Reading".to_string(),
             status: "Active".to_string(),
             language: "Japanese".to_string(),
@@ -1459,6 +1479,50 @@ mod tests {
             outcome.merged_snapshot.library["uid-1"].description,
             "Local"
         );
+    }
+
+    #[test]
+    fn test_merge_variant_changes_and_conflicts_like_other_media_fields() {
+        let mut base = empty_snapshot();
+        let mut local = empty_snapshot();
+        let mut remote = empty_snapshot();
+        let mut base_media = media("uid-1");
+        base_media.variant = "Manga".to_string();
+
+        base.library.insert("uid-1".to_string(), base_media.clone());
+        local
+            .library
+            .insert("uid-1".to_string(), base_media.clone());
+        remote.library.insert("uid-1".to_string(), base_media);
+
+        local.library.get_mut("uid-1").unwrap().variant = "Anime".to_string();
+        remote.library.get_mut("uid-1").unwrap().variant = "Live Action".to_string();
+
+        let outcome = merge_snapshots(Some(&base), &local, &remote).unwrap();
+        assert!(matches!(
+            &outcome.conflicts[0],
+            SyncConflict::MediaFieldConflict { field_name, .. } if field_name == "variant"
+        ));
+    }
+
+    #[test]
+    fn test_merge_accepts_v3_snapshots_with_default_empty_variant() {
+        let mut base = empty_snapshot();
+        let mut local = empty_snapshot();
+        let mut remote = empty_snapshot();
+        base.db_schema_version = 3;
+        remote.db_schema_version = 3;
+
+        let base_media = media("uid-1");
+        base.library.insert("uid-1".to_string(), base_media.clone());
+        local.library.insert("uid-1".to_string(), base_media.clone());
+        remote.library.insert("uid-1".to_string(), base_media);
+        local.library.get_mut("uid-1").unwrap().variant = "Manga".to_string();
+
+        let outcome = merge_snapshots(Some(&base), &local, &remote).unwrap();
+        assert!(outcome.conflicts.is_empty());
+        assert_eq!(outcome.merged_snapshot.db_schema_version, db::CURRENT_SCHEMA_VERSION);
+        assert_eq!(outcome.merged_snapshot.library["uid-1"].variant, "Manga");
     }
 
     #[test]

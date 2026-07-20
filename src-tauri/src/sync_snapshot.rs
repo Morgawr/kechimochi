@@ -58,6 +58,8 @@ pub struct SnapshotProfile {
 pub struct SnapshotMediaAggregate {
     pub uid: String,
     pub title: String,
+    #[serde(default)]
+    pub variant: String,
     pub media_type: String,
     pub status: String,
     pub language: String,
@@ -193,6 +195,7 @@ where
         let aggregate = SnapshotMediaAggregate {
             uid: media_uid.clone(),
             title: media.title.clone(),
+            variant: media.variant,
             media_type: media.media_type,
             status: media.status,
             language: media.language,
@@ -424,6 +427,7 @@ fn apply_snapshot_inner(
                 id: None,
                 uid: Some(aggregate.uid.clone()),
                 title: aggregate.title.clone(),
+                variant: aggregate.variant.clone(),
                 media_type: aggregate.media_type.clone(),
                 status: aggregate.status.clone(),
                 language: aggregate.language.clone(),
@@ -570,6 +574,7 @@ fn milestone_sort_key(left: &SnapshotMilestone, right: &SnapshotMilestone) -> st
 fn media_content_eq(left: &SnapshotMediaAggregate, right: &SnapshotMediaAggregate) -> bool {
     left.uid == right.uid
         && left.title == right.title
+        && left.variant == right.variant
         && left.media_type == right.media_type
         && left.status == right.status
         && left.language == right.language
@@ -639,6 +644,7 @@ mod tests {
             id: None,
             uid: None,
             title: title.to_string(),
+            variant: String::new(),
             media_type: "Reading".to_string(),
             status: "Active".to_string(),
             language: "Japanese".to_string(),
@@ -815,15 +821,13 @@ mod tests {
         let cover_path = temp_dir.join("cover.png");
         std::fs::write(&cover_path, b"roundtrip-cover").unwrap();
 
-        let media_id = db::add_media_with_id(
-            &conn,
-            &sample_media(
-                "Roundtrip Title",
-                cover_path.to_string_lossy().to_string(),
-                "{\"b\":2,\"a\":1}",
-            ),
-        )
-        .unwrap();
+        let mut roundtrip_media = sample_media(
+            "Roundtrip Title",
+            cover_path.to_string_lossy().to_string(),
+            "{\"b\":2,\"a\":1}",
+        );
+        roundtrip_media.variant = "Light Novel".to_string();
+        let media_id = db::add_media_with_id(&conn, &roundtrip_media).unwrap();
         db::add_log(
             &conn,
             &ActivityLog {
@@ -1078,6 +1082,7 @@ mod tests {
 
         let parsed = parse_snapshot_json(json_without_notes).unwrap();
         let media_entry = parsed.library.values().next().unwrap();
+        assert_eq!(media_entry.variant, "");
         assert_eq!(media_entry.activities.len(), 1);
         assert_eq!(media_entry.activities[0].notes, "");
     }

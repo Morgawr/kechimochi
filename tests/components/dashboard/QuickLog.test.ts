@@ -125,4 +125,15 @@ describe('QuickLog', () => {
             type: 'app-navigate',
         }));
     });
+
+    it('shows the variant alongside the content type', () => {
+        const mediaList: Media[] = [
+            { id: 9, title: 'Horimiya', variant: 'TV Series', media_type: 'Watching', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Anime', tracking_status: 'Ongoing' },
+        ];
+
+        const component = new QuickLog(container, { logs: [], mediaList }, { onLogged: vi.fn().mockResolvedValue(undefined) });
+        component.render();
+
+        expect(container.querySelector('.quick-log-type')?.textContent).toBe('Anime · TV Series');
+    });
 });

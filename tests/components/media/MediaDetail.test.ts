@@ -118,6 +118,34 @@ describe('MediaDetail', () => {
 
         expect(container.textContent).toContain('Author');
         expect(container.textContent).toContain('Writer');
+        expect(container.querySelector('#media-variant')?.textContent)
+            .toBe('(Optional) Describe variant...');
+    });
+
+    it('should render and edit the media variant', async () => {
+        vi.mocked(api.getMilestones).mockResolvedValue([]);
+        vi.mocked(api.updateMedia).mockResolvedValue(undefined);
+        const component = new MediaDetail(
+            container,
+            { ...mockMedia, variant: 'Manga' } as unknown as Media,
+            [],
+            [{ ...mockMedia, variant: 'Manga' } as unknown as Media],
+            0,
+            mockCallbacks
+        );
+        component.render();
+
+        const variant = container.querySelector('#media-variant') as HTMLElement;
+        expect(variant.textContent).toBe('Manga');
+        variant.dispatchEvent(new Event('dblclick'));
+
+        const input = container.querySelector('.edit-input') as HTMLInputElement;
+        input.value = 'Anime';
+        input.dispatchEvent(new Event('blur'));
+
+        await vi.waitFor(() => expect(api.updateMedia).toHaveBeenCalledWith(
+            expect.objectContaining({ variant: 'Anime' })
+        ));
     });
 
     it('should load web cover images via services when not on desktop', async () => {
