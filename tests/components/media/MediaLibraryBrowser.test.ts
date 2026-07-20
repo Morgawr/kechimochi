@@ -80,6 +80,7 @@ describe('MediaLibraryBrowser', () => {
     });
 
     it('passes the same filtered dataset to grid and list layouts', () => {
+        const onGridMediaClick = vi.fn();
         const mediaList = [
             { id: 1, title: 'Alpha', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' },
             { id: 2, title: 'Beta', status: 'Archived', content_type: 'Manga', tracking_status: 'Paused' },
@@ -95,7 +96,7 @@ describe('MediaLibraryBrowser', () => {
                 statusFilters: ['Ongoing', 'Complete'],
                 preferredLayout: 'grid',
             }),
-            vi.fn(),
+            onGridMediaClick,
             vi.fn(),
         );
         gridComponent.render();
@@ -114,8 +115,13 @@ describe('MediaLibraryBrowser', () => {
         });
         expect((vi.mocked(MediaGrid).mock.calls[0][1] as { mediaList: Media[] }).mediaList.map((media) => media.title)).toEqual(expectedTitles);
 
+        const onVisibleGridMediaClick = vi.mocked(MediaGrid).mock.calls[0][2];
+        onVisibleGridMediaClick(3);
+        expect(onGridMediaClick).toHaveBeenCalledWith({ mediaId: 3, navigationIds: [1, 3] });
+
         vi.clearAllMocks();
         listInstances.length = 0;
+        const onListMediaClick = vi.fn();
 
         const listComponent = new MediaLibraryBrowser(
             container,
@@ -126,12 +132,16 @@ describe('MediaLibraryBrowser', () => {
                 statusFilters: ['Ongoing', 'Complete'],
                 preferredLayout: 'list',
             }),
-            vi.fn(),
+            onListMediaClick,
             vi.fn(),
         );
         listComponent.render();
 
         expect((vi.mocked(MediaList).mock.calls[0][1] as { mediaList: Media[] }).mediaList.map((media) => media.title)).toEqual(expectedTitles);
+
+        const onVisibleListMediaClick = vi.mocked(MediaList).mock.calls[0][2];
+        onVisibleListMediaClick(1);
+        expect(onListMediaClick).toHaveBeenCalledWith({ mediaId: 1, navigationIds: [1, 3] });
     });
 
     it('reuses shared add and refresh actions from the browser toolbar', async () => {

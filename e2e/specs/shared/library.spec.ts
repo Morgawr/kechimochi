@@ -18,8 +18,17 @@ import {
   clickMediaItem,
   getActiveMediaItemSelector,
 } from '../../helpers/library.js';
-import { takeAndCompareScreenshot } from '../../helpers/common.js';
+import { safeClick, takeAndCompareScreenshot } from '../../helpers/common.js';
 import { backToLibrary } from '../../helpers/media-detail.js';
+
+async function waitForDetailTitle(title: string) {
+  await browser.waitUntil(async () => {
+    return (await $('#media-title').getText().catch(() => '')) === title;
+  }, {
+    timeout: 5000,
+    timeoutMsg: `Expected media detail title to become "${title}"`,
+  });
+}
 
 async function resetLibraryFilters() {
   await setSearchQuery('');
@@ -202,6 +211,36 @@ describe('CUJ: Library Exploration (Search & Filter)', () => {
     } finally {
       await resetLibraryFilters();
       await setLibraryLayout('grid');
+    }
+  });
+
+  it('should keep detail navigation constrained to the filtered library order', async () => {
+    await navigateTo('media');
+    await resetLibraryFilters();
+    await setMediaTypeFilters(['Manga']);
+
+    try {
+      await waitForLibraryItemCount(2, { timeoutMsg: 'Manga filter did not produce exactly two entries' });
+      await clickMediaItem('呪術廻戦');
+      await waitForDetailTitle('呪術廻戦');
+
+      const navigationTitles = await browser.execute(() => {
+        const select = document.querySelector<HTMLSelectElement>('#media-select');
+        return select ? Array.from(select.options, (option) => option.textContent?.trim() || '') : [];
+      });
+      expect(navigationTitles).toEqual(['呪術廻戦', 'ダンジョン飯']);
+
+      await safeClick('#media-next');
+      await waitForDetailTitle('ダンジョン飯');
+
+      await safeClick('#media-next');
+      await waitForDetailTitle('呪術廻戦');
+
+      await safeClick('#media-prev');
+      await waitForDetailTitle('ダンジョン飯');
+    } finally {
+      await backToLibrary('grid');
+      await resetLibraryFilters();
     }
   });
 });

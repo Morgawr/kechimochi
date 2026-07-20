@@ -29,8 +29,13 @@ export interface MediaLibraryFilters {
     hideArchived?: boolean;
 }
 
+export interface LibraryMediaSelection {
+    mediaId: number;
+    navigationIds: readonly number[];
+}
+
 export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
-    private readonly onMediaClick: (mediaId: number) => void;
+    private readonly onMediaClick: (selection: LibraryMediaSelection) => void;
     private readonly onDataChange: (jumpToId?: number) => Promise<void>;
     private readonly onFilterChange?: (filters: MediaLibraryFilters) => void;
     private readonly onLayoutChange?: (layout: LibraryLayoutMode) => void;
@@ -40,7 +45,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
     constructor(
         container: HTMLElement,
         initialState: MediaLibraryBrowserInitialState,
-        onMediaClick: (mediaId: number) => void,
+        onMediaClick: (selection: LibraryMediaSelection) => void,
         onDataChange: (jumpToId?: number) => Promise<void>,
         onFilterChange?: (filters: MediaLibraryFilters) => void,
         onLayoutChange?: (layout: LibraryLayoutMode) => void,
@@ -98,7 +103,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         ).sort((a, b) => a.localeCompare(b));
     }
 
-    private getFilteredMediaList(): Media[] {
+    private getVisibleMediaList(): Media[] {
         const { mediaList, searchQuery, typeFilters, statusFilters, hideArchived } = this.state;
         return mediaList.filter((media) => {
             const normalizedQuery = searchQuery.toLowerCase();
@@ -246,18 +251,25 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         layoutRoot.style.cssText = 'display: flex; flex: 1; min-height: 0; min-width: 0;';
         container.appendChild(layoutRoot);
 
-        const filteredList = this.getFilteredMediaList();
+        const visibleList = this.getVisibleMediaList();
+        const navigationIds = visibleList.flatMap((media) => (
+            typeof media.id === 'number' ? [media.id] : []
+        ));
+        const onVisibleMediaClick = (mediaId: number) => {
+            this.onMediaClick({ mediaId, navigationIds: [...navigationIds] });
+        };
+
         if (this.getActiveLayout() === 'grid') {
-            this.activeLayoutComponent = new MediaGrid(layoutRoot, { mediaList: filteredList }, this.onMediaClick);
+            this.activeLayoutComponent = new MediaGrid(layoutRoot, { mediaList: visibleList }, onVisibleMediaClick);
         } else {
             this.activeLayoutComponent = new MediaList(
                 layoutRoot,
                 {
-                    mediaList: filteredList,
+                    mediaList: visibleList,
                     metricsByMediaId: this.state.listMetricsByMediaId,
                     isMetricsLoading: this.state.isListMetricsLoading,
                 },
-                this.onMediaClick,
+                onVisibleMediaClick,
             );
         }
 
