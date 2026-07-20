@@ -18,11 +18,11 @@ Used for importing and exporting your daily activity history.
 | :--- | :--- | :--- | :--- |
 | **Date** | The date of the activity. Supports `YYYY-MM-DD` or `YYYY/MM/DD`. | Yes | 2024-01-15 |
 | **Log Name** | The title of the media being logged. | Yes | Frieren: Beyond Journey's End |
-| **Media Type** | The category of the media. Must be one of: `Reading`, `Watching`, `Playing`, `Listening`, `None`. | Yes | Watching |
+| **Media Type** | The media entry's default activity type. Used when an import creates a missing media entry. Must be one of: `Reading`, `Watching`, `Playing`, `Listening`, `None`. | Yes | Watching |
 | **Duration** | The time spent in minutes. | Yes | 24 |
 | **Language** | The language of the content. | Yes | Japanese |
 | **Characters** | The number of characters read or written (useful for books/writing). | No | 0 |
-| **Activity Type** | Sub-category of activity. Defaults to `Media Type` if empty. | No | Anime |
+| **Activity Type** | The type of this individual activity. May override the media entry's default and falls back to `Media Type` if empty. | No | Reading |
 | **Notes** | Optional notes attached to the activity. | No | Episode 1 |
 | **Media Variant** | A descriptive subtitle for the media, used only when the import creates a new library entry. | No | Anime |
 
@@ -30,8 +30,10 @@ Used for importing and exporting your daily activity history.
 ```csv
 Date,Log Name,Media Type,Duration,Language,Characters,Activity Type,Notes,Media Variant
 2024-01-15,ある魔女が死ぬまで,Reading,45,Japanese,1000,Reading,,Light Novel
-2024-01-16,呪術廻戦,Watching,25,Japanese,0,Watching,Episode 1,Anime
+2024-01-16,呪術廻戦,Watching,25,Japanese,0,Reading,Read an interview,Anime
 ```
+
+`Media Type` and `Activity Type` both use activity labels such as `Reading` or `Watching`. In the second example, the media normally defaults to `Watching`, but that individual activity was logged as `Reading`.
 
 ---
 
@@ -44,7 +46,7 @@ Used for bulk importing media metadata or exporting your entire library.
 | Column Name | Description | Required | Example |
 | :--- | :--- | :--- | :--- |
 | **Title** | The unique title of the media. | Yes | FF7 Rebirth |
-| **Media Type** | Category. Must be one of: `Reading`, `Watching`, `Playing`, `Listening`, `None`. | Yes | Playing |
+| **Media Type** | Default activity type for new logs. Must be one of: `Reading`, `Watching`, `Playing`, `Listening`, `None`. | Yes | Playing |
 | **Status** | The library state. Must be one of: `Active`, `Archived`. Note: 'Tracking Status' (e.g. Ongoing, Complete) is not currently imported from CSV. | Yes | Active |
 | **Language** | Primary language. | Yes | Japanese |
 | **Description** | A brief summary or notes. | No | Remake part 2. |
@@ -55,6 +57,8 @@ Used for bulk importing media metadata or exporting your entire library.
 
 > [!NOTE]
 > Content Types are case-sensitive and should match the labels used in the application (e.g., `Videogame`, `Visual Novel`, `Novel`, `Anime`, `Manga`, `Movie`, `WebNovel`).
+
+`Content Type` describes what the media is, while `Media Type` is the default action selected when logging it. For example, a `Visual Novel` can default to either `Reading` or `Playing`.
 
 ### Example
 ```csv

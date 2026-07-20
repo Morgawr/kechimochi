@@ -5,6 +5,65 @@ import { Logger } from '../../../src/logger';
 import { waitForAppReady } from '../../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../../helpers/navigation.js';
 import { dismissAlert } from '../../helpers/common.js';
+import { clickMediaItem } from '../../helpers/library.js';
+import { logActivityFromDetail } from '../../helpers/media-detail.js';
+
+const ACTIVITY_CSV_HEADERS = [
+  'Date',
+  'Log Name',
+  'Media Type',
+  'Duration',
+  'Language',
+  'Characters',
+  'Activity Type',
+  'Notes',
+  'Media Variant',
+] as const;
+
+function parseCsv(content: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = '';
+  let quoted = false;
+
+  for (let index = 0; index < content.length; index += 1) {
+    const char = content[index];
+    if (char === '"') {
+      if (quoted && content[index + 1] === '"') {
+        field += '"';
+        index += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (char === ',' && !quoted) {
+      row.push(field);
+      field = '';
+    } else if (char === '\n' && !quoted) {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = '';
+    } else if (char !== '\r' || quoted) {
+      field += char;
+    }
+  }
+
+  if (quoted) {
+    throw new Error('CSV ended inside a quoted field');
+  }
+  if (field.length > 0 || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+
+  return rows;
+}
+
+function parseActivityCsv(content: string): Record<string, string>[] {
+  const [headers, ...rows] = parseCsv(content);
+  if (!headers) return [];
+  return rows.map(row => Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ''])));
+}
 
 async function applyDialogMock(savePath: string) {
   await browser.execute(() => {
@@ -35,9 +94,17 @@ describe('CUJ: Data Management (CSV Export)', () => {
           if (fs.existsSync(tempExportAll)) fs.unlinkSync(tempExportAll);
           if (fs.existsSync(tempExportRange)) fs.unlinkSync(tempExportRange);
       }
-    });
+  });
 
   it('should export all history and verify file contents', async () => {
+    await navigateTo('media');
+    expect(await verifyActiveView('media')).toBe(true);
+    await clickMediaItem('呪術廻戦');
+
+    const defaultActivityType = await $('#media-type').getValue();
+    expect(defaultActivityType).toBe('Reading');
+    await logActivityFromDetail('呪術廻戦', '37', '0', 'Watching');
+
     await navigateTo('profile');
     expect(await verifyActiveView('profile')).toBe(true);
 
@@ -63,9 +130,18 @@ describe('CUJ: Data Management (CSV Export)', () => {
     expect(fs.existsSync(tempExportAll)).toBe(true);
     
     const content = fs.readFileSync(tempExportAll, 'utf-8');
-    expect(content).toContain('Date,Log Name,Media Type,Duration,Language,Characters,Activity Type,Notes,Media Variant');
-    expect(content).toContain('呪術廻戦');
-    expect(content.split('\n').length).toBeGreaterThan(10); 
+    const [headers] = parseCsv(content);
+    expect(headers).toEqual(ACTIVITY_CSV_HEADERS);
+
+    const records = parseActivityCsv(content);
+    const override = records.find(record =>
+      record['Log Name'] === '呪術廻戦'
+      && record.Duration === '37'
+      && record['Activity Type'] === 'Watching'
+    );
+    expect(override).toBeDefined();
+    expect(override?.['Media Type']).toBe('Reading');
+    expect(records.length).toBeGreaterThan(10);
   });
 
   it('should export custom range and verify difference', async () => {

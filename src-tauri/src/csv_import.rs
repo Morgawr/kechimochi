@@ -32,6 +32,42 @@ struct CsvRow {
     media_variant: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct ActivityCsvRow {
+    #[serde(rename = "Date")]
+    date: String,
+    #[serde(rename = "Log Name")]
+    log_name: String,
+    #[serde(rename = "Media Type")]
+    media_type: String,
+    #[serde(rename = "Duration")]
+    duration: i64,
+    #[serde(rename = "Language")]
+    language: String,
+    #[serde(rename = "Characters")]
+    characters: i64,
+    #[serde(rename = "Activity Type")]
+    activity_type: String,
+    #[serde(rename = "Notes")]
+    notes: String,
+    #[serde(rename = "Media Variant")]
+    media_variant: String,
+}
+
+impl ActivityCsvRow {
+    const HEADERS: [&str; 9] = [
+        "Date",
+        "Log Name",
+        "Media Type",
+        "Duration",
+        "Language",
+        "Characters",
+        "Activity Type",
+        "Notes",
+        "Media Variant",
+    ];
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MilestoneCsvRow {
     #[serde(rename = "Media Title")]
@@ -255,19 +291,6 @@ pub fn export_logs_csv(
     let mut count = 0;
     let mut wtr = csv::Writer::from_path(file_path).map_err(|e| e.to_string())?;
 
-    wtr.write_record([
-        "Date",
-        "Log Name",
-        "Media Type",
-        "Duration",
-        "Language",
-        "Characters",
-        "Activity Type",
-        "Notes",
-        "Media Variant",
-    ])
-    .map_err(|e| e.to_string())?;
-
     let mut stmt = conn
         .prepare(
             "SELECT a.id, a.date, m.title, m.media_type, a.duration_minutes, m.language,
@@ -317,20 +340,27 @@ pub fn export_logs_csv(
             }
         }
 
-        wtr.write_record([
-            &date,
-            &title,
-            &media_type,
-            &duration.to_string(),
-            &language,
-            &characters.to_string(),
-            &activity_type,
-            &notes,
-            &variant,
-        ])
+        wtr.serialize(ActivityCsvRow {
+            date,
+            log_name: title,
+            media_type,
+            duration,
+            language,
+            characters,
+            activity_type,
+            notes,
+            media_variant: variant,
+        })
         .map_err(|e| e.to_string())?;
 
         count += 1;
+    }
+
+    // Struct serialization writes headers with the first row. Empty exports still
+    // need a valid header-only CSV so they remain importable and self-describing.
+    if count == 0 {
+        wtr.write_record(ActivityCsvRow::HEADERS)
+            .map_err(|e| e.to_string())?;
     }
 
     wtr.flush().map_err(|e| e.to_string())?;
@@ -930,15 +960,47 @@ mod tests {
         .unwrap();
         assert_eq!(count, 1); // Only 2024-02-01 should match
 
-        let content = std::fs::read_to_string(&path).unwrap();
-        assert!(content.contains("2024-02-01"));
-        assert!(content.contains("45"));
-        assert!(content.contains("200")); // Characters
-        assert!(content.contains("Media Variant"));
-        assert!(content.contains("Manga"));
-        assert!(content.contains("Log Test,Reading,45,Japanese,200,Watching"));
-        assert!(!content.contains("2024-01-01"));
-        assert!(!content.contains("2024-03-01"));
+        let mut reader = csv::Reader::from_path(&path).unwrap();
+        let rows = reader
+            .deserialize::<ActivityCsvRow>()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(
+            rows,
+            vec![ActivityCsvRow {
+                date: "2024-02-01".to_string(),
+                log_name: "Log Test".to_string(),
+                media_type: "Reading".to_string(),
+                duration: 45,
+                language: "Japanese".to_string(),
+                characters: 200,
+                activity_type: "Watching".to_string(),
+                notes: String::new(),
+                media_variant: "Manga".to_string(),
+            }]
+        );
+
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn test_export_logs_csv_empty_database_still_writes_headers() {
+        let conn = setup_test_db();
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!(
+            "empty_logs_export_{}_{}.csv",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::SeqCst)
+        ));
+        let path_str = path.to_str().unwrap().to_string();
+
+        let count = export_logs_csv(&conn, &path_str, None, None).unwrap();
+        assert_eq!(count, 0);
+
+        let mut reader = csv::Reader::from_path(&path).unwrap();
+        let headers = reader.headers().unwrap();
+        assert_eq!(headers.iter().collect::<Vec<_>>(), ActivityCsvRow::HEADERS);
+        assert_eq!(reader.records().count(), 0);
 
         std::fs::remove_file(path).ok();
     }

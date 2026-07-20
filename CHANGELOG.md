@@ -15,6 +15,9 @@ The format is based on Keep a Changelog, with one section per released version.
  - Reworked the "Monthly" view to show daily amounts instead of weeks, because weeks were inconsistent and not accurate.
  - Renamed "Weekly", "Monthly", and "Yearly" options to "Week", "Month", and "Year"
 
+## Fixed
+ - Activity CSV now exports Media Type that reflects the media’s default while Activity Type preserves individual log override
+
 ## [0.2.11] - 2026-07-20
 
 ### Added
