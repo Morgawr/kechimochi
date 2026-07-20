@@ -32,7 +32,8 @@ vi.mock('../../src/api', () => ({
     getSyncConflicts: vi.fn(),
     resolveSyncConflict: vi.fn(),
     subscribeSyncProgress: vi.fn(() => Promise.resolve(() => undefined)),
-    getAllMedia: vi.fn(),
+    getAllMedia: vi.fn(() => Promise.resolve([])),
+    getLogs: vi.fn(() => Promise.resolve([])),
     listProfiles: vi.fn(),
     setSetting: vi.fn(),
     switchProfile: vi.fn(),
@@ -60,6 +61,7 @@ const mockServices = {
     isDesktop: vi.fn(() => true),
     supportsLocalHttpApi: vi.fn(() => true),
     supportsWindowControls: vi.fn(() => true),
+    supportsReportCardExport: vi.fn(() => true),
 };
 
 vi.mock('../../src/services', () => ({

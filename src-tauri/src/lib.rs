@@ -828,6 +828,11 @@ fn read_file_bytes(app_handle: tauri::AppHandle, path: String) -> Result<Vec<u8>
 }
 
 #[tauri::command]
+fn save_binary_file(file_path: String, bytes: Vec<u8>) -> Result<(), String> {
+    std::fs::write(&file_path, &bytes).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn fetch_remote_bytes(url: String) -> Result<Vec<u8>, String> {
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
@@ -1540,6 +1545,7 @@ pub fn run() {
             delete_milestones_for_media,
             upload_cover_image,
             read_file_bytes,
+            save_binary_file,
             fetch_remote_bytes,
             fetch_external_json,
             download_and_save_image,

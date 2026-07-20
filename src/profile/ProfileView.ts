@@ -3,6 +3,7 @@ import { Component } from '../component';
 import { html, rawHtml, escapeHTML } from '../html';
 import {
     getAllMedia,
+    getLogs,
     getLogsForMedia,
     clearActivities,
     wipeEverything,
@@ -40,6 +41,8 @@ import { showMediaCsvConflictModal } from '../media/modal';
 import { getServices } from '../services';
 import { formatProductVersionLabel, getAppVersionInfo } from '../app_version';
 import type {
+    ActivitySummary,
+    Media,
     MergeSide,
     LocalHttpApiConfig,
     LocalHttpApiStatus,
@@ -55,6 +58,10 @@ import type {
     UpdateState,
 } from '../types';
 import { getProfileInitials, profilePictureToDataUrl } from './profile_picture';
+import {
+    renderReportCardButtons,
+    wireReportCardButtons,
+} from './reportcard/report_card_controls';
 import { getCharacterCountFromExtraData } from '../extra_data';
 import { STORAGE_KEYS, SETTING_KEYS, DEFAULTS, EVENTS } from '../constants';
 import type { UpdateManager } from '../update/manager';
@@ -112,6 +119,8 @@ interface ProfileState {
         vnCount: string;
         timestamp: string;
     };
+    logs: ActivitySummary[];
+    mediaList: Media[];
     appVersion: string;
     isInitialized: boolean;
     updateState: UpdateState;
@@ -295,6 +304,8 @@ export class ProfileView extends Component<ProfileState> {
                 vnCount: '0',
                 timestamp: ''
             },
+            logs: [],
+            mediaList: [],
             appVersion: '',
             isInitialized: false,
             updateState: updateManager?.getState() ?? {
@@ -349,6 +360,8 @@ export class ProfileView extends Component<ProfileState> {
             weekStartDay,
             syncState,
             localHttpApiStatus,
+            logs,
+            mediaList,
         ] = await Promise.all([
             getSetting(SETTING_KEYS.THEME),
             getSetting(SETTING_KEYS.STATS_NOVEL_SPEED),
@@ -364,6 +377,16 @@ export class ProfileView extends Component<ProfileState> {
             getSetting(SETTING_KEYS.WEEK_START_DAY),
             syncStatePromise,
             localHttpApiStatusPromise,
+            // Report-card data is non-essential to the rest of the profile page, so a
+            // fetch failure just disables the card buttons rather than blanking the view.
+            getLogs().catch((error: unknown) => {
+                Logger.error('[report-card] failed to load logs:', error);
+                return [] as ActivitySummary[];
+            }),
+            getAllMedia().catch((error: unknown) => {
+                Logger.error('[report-card] failed to load media:', error);
+                return [] as Media[];
+            }),
         ]);
 
         const resolvedTheme = theme || DEFAULTS.THEME;
@@ -384,6 +407,8 @@ export class ProfileView extends Component<ProfileState> {
                 vnCount: vnCount || '0',
                 timestamp: timestamp || '',
             },
+            logs,
+            mediaList,
             appVersion,
             isInitialized: true,
             syncSupported,
@@ -476,6 +501,7 @@ export class ProfileView extends Component<ProfileState> {
         applyTheme(themeOverrideEnabled ? themeOverrideValue : theme);
         const profilePictureSrc = profilePictureToDataUrl(profilePicture);
         const initials = getProfileInitials(currentProfile);
+        const hasLoggedTime = this.state.logs.some(log => log.duration_minutes > 0);
 
         const content = html`
             <div id="profile-root" class="animate-fade-in" style="display: flex; flex-direction: column; gap: 2rem; max-width: 600px; margin: 0 auto; padding-top: 1rem; padding-bottom: 2rem;">
@@ -493,10 +519,14 @@ export class ProfileView extends Component<ProfileState> {
                     <p style="color: var(--text-secondary); margin-top: 0.5rem;">Manage your profile and data</p>
                 </div>
 
+                ${getServices().supportsReportCardExport() ? renderReportCardButtons(hasLoggedTime) : ''}
+
                 <div class="card" id="profile-report-card" style="display: flex; flex-direction: column; gap: 1rem;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <h3 style="margin: 0;">Reading Report Card</h3>
-                        <button class="btn btn-primary" id="profile-btn-calculate-report" style="font-size: 0.8rem; padding: 0.3rem 0.6rem;">Calculate Report</button>
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <button class="btn btn-primary" id="profile-btn-calculate-report" style="font-size: 0.8rem; padding: 0.3rem 0.6rem;">Calculate Report</button>
+                        </div>
                     </div>
                     <p style="color: var(--text-secondary); font-size: 0.9rem;">Aggregated reading speed for the last 12 months based on complete entries.</p>
 
@@ -1541,6 +1571,13 @@ export class ProfileView extends Component<ProfileState> {
                 btn.innerText = originalText;
             }
         });
+
+        wireReportCardButtons(root, () => ({
+            profileName: this.state.currentProfile,
+            profilePicture: this.state.profilePicture,
+            logs: this.state.logs,
+            mediaList: this.state.mediaList,
+        }));
     }
 
     private readLocalHttpApiConfig(root: HTMLElement, enabled: boolean): LocalHttpApiConfig | null {

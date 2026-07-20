@@ -126,6 +126,10 @@ export interface AppServices {
     exportMilestonesCsv(filePath: string): Promise<number>;
     importMilestonesCsv(filePath: string): Promise<number>;
 
+    // ── Report card operations ────────────────────────────────────────────────
+    /** Picks a destination or triggers browser download and saves the report card PNG. */
+    saveReportCardImage(imageBlob: Blob, defaultFileName: string): Promise<boolean>;
+
     // ── Profile picture operations ────────────────────────────────────────────
     /** Opens a file picker, validates/uploads the image, and returns the stored profile picture. */
     pickAndUploadProfilePicture(): Promise<ProfilePicture | null>;
@@ -162,4 +166,6 @@ export interface AppServices {
     supportsLocalHttpApi(): boolean;
     /** True when the runtime exposes desktop-style window chrome controls. */
     supportsWindowControls(): boolean;
+    /** True when this runtime can save the report card PNG (unsupported on Android). */
+    supportsReportCardExport(): boolean;
 }

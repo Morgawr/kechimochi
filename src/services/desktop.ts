@@ -224,6 +224,18 @@ export class DesktopServices implements AppServices {
         });
     }
 
+    // ── Report card operations ────────────────────────────────────────────────
+    async saveReportCardImage(imageBlob: Blob, defaultFileName: string): Promise<boolean> {
+        const savePath = this.getMockSavePath() ?? await tauriSave({
+            filters: [{ name: 'PNG', extensions: ['png'] }],
+            defaultPath: defaultFileName,
+        });
+        if (!savePath) return false;
+        const bytes = Array.from(new Uint8Array(await imageBlob.arrayBuffer()));
+        await invoke('save_binary_file', { filePath: savePath, bytes });
+        return true;
+    }
+
     // ── Profile picture operations ────────────────────────────────────────────
     async pickAndUploadProfilePicture(): Promise<ProfilePicture | null> {
         const selected = this.getMockOpenPath() ?? await tauriOpen({
@@ -296,4 +308,5 @@ export class DesktopServices implements AppServices {
     isDesktop(): boolean { return true; }
     supportsLocalHttpApi(): boolean { return !this.isAndroidRuntime(); }
     supportsWindowControls(): boolean { return this.supportsDesktopWindowControls(); }
+    supportsReportCardExport(): boolean { return !this.isAndroidRuntime(); }
 }
