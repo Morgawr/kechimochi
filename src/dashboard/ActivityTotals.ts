@@ -2,7 +2,7 @@ import { Component } from '../component';
 import { ActivitySummary, Media } from '../api';
 import { escapeHTML, html, rawHtml } from '../html';
 import { formatStatsDuration } from '../time';
-import { getActivityRange, getLocalISODate, type ActivityRange } from './activity_ranges';
+import { getActivityRange, getLocalISODate, type ActivityPeriod, type ActivityRange } from './activity_ranges';
 import { MediaCoverLoader } from '../media/cover_loader';
 import { Logger } from '../logger';
 
@@ -103,7 +103,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
         const selectedIndex = this.state.selectedBucketIndex ?? currentIndex;
         const categoryTotals = this.getCategoryTotals(range.validStart, range.validEnd);
         const bucketRows = bucketTotals.map((totals, index) => {
-            const meta = this.getBucketMeta(range.labels[index], index, range.unit, range.validStart, range.validEnd);
+            const meta = this.getBucketMeta(range.labels[index], index, range.unit, range.validStart);
             return {
                 key: String(index),
                 label: meta.label,
@@ -184,8 +184,8 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
         return `
             <section class="card dashboard-totals-card">
                 <div class="dashboard-stats-header">
-                    <h3 class="dashboard-module-title dashboard-totals-title">${this.getTitle(range.unit)} Stats</h3>
-                    <span class="dashboard-stats-range-label">${this.getRangeLabel(range.validStart, range.validEnd, range.unit)}</span>
+                    <h3 class="dashboard-module-title dashboard-totals-title">${this.getTitle(range.period)} Stats</h3>
+                    <span class="dashboard-stats-range-label">${this.getRangeLabel(range.validStart, range.validEnd, range.period)}</span>
                 </div>
                 ${this.renderTotalsTable(this.getUnitHeader(range.unit), bucketRows, true, columns)}
                 ${this.renderSelectedSummary(
@@ -208,7 +208,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
             <section class="card dashboard-totals-card">
                 <div class="dashboard-stats-header">
                     <h3 class="dashboard-module-title dashboard-totals-title">Categories</h3>
-                    <span class="dashboard-stats-range-label">${this.getRangeLabel(range.validStart, range.validEnd, range.unit)}</span>
+                    <span class="dashboard-stats-range-label">${this.getRangeLabel(range.validStart, range.validEnd, range.period)}</span>
                 </div>
                 ${this.renderTotalsTable('Title', categoryRows, false, columns)}
             </section>
@@ -491,12 +491,12 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
         return minutes > 0 ? formatStatsDuration(minutes, true) : '';
     }
 
-    private getTitle(unit: string): string {
-        switch (unit) {
-            case 'day': return 'Weekly';
-            case 'week': return 'Monthly';
-            case 'month': return 'Yearly';
-            case 'year': return 'All Time';
+    private getTitle(period: ActivityPeriod): string {
+        switch (period) {
+            case 'week': return 'Weekly';
+            case 'month': return 'Monthly';
+            case 'year': return 'Yearly';
+            case 'all-time': return 'All Time';
             default: return 'Totals';
         }
     }
@@ -511,22 +511,12 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
         }
     }
 
-    private getBucketMeta(label: string, index: number, unit: string, validStart: string, validEnd: string): { label: string; subject: string } {
+    private getBucketMeta(label: string, index: number, unit: string, validStart: string): { label: string; subject: string } {
         if (unit === 'day') {
             const date = new Date(label + 'T00:00:00');
             return {
                 label: this.formatWeekdayDate(date, false),
                 subject: this.formatWeekdayDate(date, true),
-            };
-        }
-
-        if (unit === 'week') {
-            const range = this.getWeekBucketRange(index, validStart, validEnd);
-            const weekLabel = `Week ${index + 1}`;
-            const interval = `${this.formatShortDate(range.start)} to ${this.formatShortDate(range.end)}`;
-            return {
-                label: `${weekLabel} - ${interval}`,
-                subject: `${weekLabel} (${interval})`,
             };
         }
 
@@ -543,10 +533,10 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
         return { label, subject: label };
     }
 
-    private getRangeLabel(validStart: string, validEnd: string, unit: string): string {
-        if (unit === 'month') return validStart.slice(0, 4);
-        if (unit === 'week') return validStart.slice(0, 7);
-        if (unit === 'year') return 'All Time';
+    private getRangeLabel(validStart: string, validEnd: string, period: ActivityPeriod): string {
+        if (period === 'year') return validStart.slice(0, 4);
+        if (period === 'month') return validStart.slice(0, 7);
+        if (period === 'all-time') return 'All Time';
         return `${validStart.slice(5)} to ${validEnd.slice(5)}`;
     }
 
@@ -589,17 +579,6 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
 
     private formatShortDate(date: Date): string {
         return `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')}`;
-    }
-
-    private getWeekBucketRange(index: number, validStart: string, validEnd: string): { start: Date; end: Date } {
-        const start = new Date(validStart + 'T00:00:00');
-        start.setDate(start.getDate() + (index * 7));
-        const end = new Date(start);
-        end.setDate(start.getDate() + 6);
-
-        const monthEnd = new Date(validEnd + 'T00:00:00');
-        if (end > monthEnd) return { start, end: monthEnd };
-        return { start, end };
     }
 
     private getLongestStreak(dates: string[]): number {

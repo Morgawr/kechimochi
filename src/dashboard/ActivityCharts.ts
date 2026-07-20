@@ -3,9 +3,9 @@ import { html } from '../html';
 import { ActivitySummary } from '../api';
 import Chart from 'chart.js/auto';
 import { formatStatsDuration } from '../time';
-import { ACTIVITY_TIME_RANGES, getActivityRange } from './activity_ranges';
+import { ACTIVITY_TIME_RANGES, getActivityRange, type ActivityRange } from './activity_ranges';
 
-const WEEKLY_LABEL_FORMATTER = new Intl.DateTimeFormat('en-US', {
+const DAILY_LABEL_FORMATTER = new Intl.DateTimeFormat('en-US', {
     month: 'short',
     day: '2-digit',
 });
@@ -72,9 +72,9 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                             <!-- Time Range Select -->
                             <div class="chart-toolbar-select-shell">
                                 <select id="select-time-range" class="chart-toolbar-select">
-                                    <option value="7" ${this.state.timeRangeDays === ACTIVITY_TIME_RANGES.WEEKLY ? 'selected' : ''}>Weekly</option>
-                                    <option value="30" ${this.state.timeRangeDays === ACTIVITY_TIME_RANGES.MONTHLY ? 'selected' : ''}>Monthly</option>
-                                    <option value="365" ${this.state.timeRangeDays === ACTIVITY_TIME_RANGES.YEARLY ? 'selected' : ''}>Yearly</option>
+                                    <option value="7" ${this.state.timeRangeDays === ACTIVITY_TIME_RANGES.WEEKLY ? 'selected' : ''}>Week</option>
+                                    <option value="30" ${this.state.timeRangeDays === ACTIVITY_TIME_RANGES.MONTHLY ? 'selected' : ''}>Month</option>
+                                    <option value="365" ${this.state.timeRangeDays === ACTIVITY_TIME_RANGES.YEARLY ? 'selected' : ''}>Year</option>
                                     <option value="0" ${this.state.timeRangeDays === ACTIVITY_TIME_RANGES.ALL_TIME ? 'selected' : ''}>All Time</option>
                                 </select>
                             </div>
@@ -185,7 +185,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         ];
     }
 
-    private createPieChart(canvas: HTMLCanvasElement, colors: string[], timeRange: { labels: string[], getBucketIndex: (dateStr: string) => number, validStart: string, validEnd: string }) {
+    private createPieChart(canvas: HTMLCanvasElement, colors: string[], timeRange: ActivityRange) {
         const { logs, groupByMode } = this.state;
         const { validStart, validEnd } = timeRange;
         const pieTypeMap = new Map<string, number>();
@@ -232,8 +232,8 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         });
     }
 
-    private createBarChart(canvas: HTMLCanvasElement, colors: string[], timeRange: { labels: string[], getBucketIndex: (dateStr: string) => number, validStart: string, validEnd: string }) {
-        const { chartType, timeRangeDays } = this.state;
+    private createBarChart(canvas: HTMLCanvasElement, colors: string[], timeRange: ActivityRange) {
+        const { chartType } = this.state;
         const { labels } = timeRange;
         const style = getComputedStyle(document.body);
         const secondaryColor = style.getPropertyValue('--text-secondary').trim() || '#a0a0b0'
@@ -243,7 +243,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         this.barChartInstance = new Chart(canvas, {
             type: chartType,
             data: {
-                labels: timeRangeDays === 7 ? labels.map((label: string) => this.formatWeeklyDateLabel(label)) : labels,
+                labels: timeRange.unit === 'day' ? labels.map(label => this.formatDailyDateLabel(label)) : labels,
                 datasets: datasets
             },
             options: {
@@ -283,12 +283,12 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         });
     }
 
-    private formatWeeklyDateLabel(label: string): string {
+    private formatDailyDateLabel(label: string): string {
         const [year, month, day] = label.split('-').map(Number);
-        return WEEKLY_LABEL_FORMATTER.format(new Date(year, month - 1, day));
+        return DAILY_LABEL_FORMATTER.format(new Date(year, month - 1, day));
     }
 
-    private prepareBarChartDatasets(timeRange: { labels: string[], getBucketIndex: (dateStr: string) => number, validStart: string, validEnd: string }, colors: string[]) {
+    private prepareBarChartDatasets(timeRange: ActivityRange, colors: string[]) {
         const { logs, groupByMode, chartType } = this.state;
         const { labels, getBucketIndex } = timeRange;
 

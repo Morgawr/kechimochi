@@ -10,6 +10,7 @@ export const ACTIVITY_TIME_RANGES = {
 } as const;
 
 export type ActivityTimeRangeDays = typeof ACTIVITY_TIME_RANGES[keyof typeof ACTIVITY_TIME_RANGES];
+export type ActivityPeriod = 'week' | 'month' | 'year' | 'all-time';
 
 export interface ActivityRange {
     labels: string[];
@@ -17,6 +18,7 @@ export interface ActivityRange {
     validStart: string;
     validEnd: string;
     unit: 'day' | 'week' | 'month' | 'year';
+    period: ActivityPeriod;
 }
 
 export function getActivityRange(timeRangeDays: number, timeRangeOffset: number, logs: ActivitySummary[] = [], weekStartDay = 1): ActivityRange {
@@ -56,7 +58,7 @@ function getWeeklyRange(timeRangeOffset: number, weekStartDay: number): Activity
         labels.push(getLocalISODate(d));
     }
 
-    return { labels, getBucketIndex: (dateStr: string) => labels.indexOf(dateStr), validStart, validEnd, unit: 'day' };
+    return { labels, getBucketIndex: (dateStr: string) => labels.indexOf(dateStr), validStart, validEnd, unit: 'day', period: 'week' };
 }
 
 function normalizeWeekStartDay(value: number): number {
@@ -76,25 +78,13 @@ function getMonthlyRange(timeRangeOffset: number): ActivityRange {
     const validStart = getLocalISODate(startDay);
     const validEnd = getLocalISODate(endDay);
 
-    const weeksCount = Math.ceil(endDay.getDate() / 7);
-    for (let i = 0; i < weeksCount; i++) {
-        const blockStart = i * 7 + 1;
-        const blockEnd = Math.min(endDay.getDate(), i * 7 + 7);
-        const label = blockStart === blockEnd
-            ? `${MONTH_ABBREVIATIONS[m]} ${blockStart}`
-            : `${MONTH_ABBREVIATIONS[m]} ${blockStart}–${blockEnd}`;
-        labels.push(label);
+    for (let day = 1; day <= endDay.getDate(); day++) {
+        labels.push(getLocalISODate(new Date(y, m, day)));
     }
 
-    const getBucketIndex = (dateStr: string) => {
-        if (dateStr >= validStart && dateStr <= validEnd) {
-            const day = new Date(dateStr + 'T00:00:00').getDate();
-            return Math.floor((day - 1) / 7);
-        }
-        return -1;
-    };
+    const getBucketIndex = (dateStr: string) => labels.indexOf(dateStr);
 
-    return { labels, getBucketIndex, validStart, validEnd, unit: 'week' };
+    return { labels, getBucketIndex, validStart, validEnd, unit: 'day', period: 'month' };
 }
 
 function getYearlyRange(timeRangeOffset: number): ActivityRange {
@@ -110,7 +100,7 @@ function getYearlyRange(timeRangeOffset: number): ActivityRange {
         return -1;
     };
 
-    return { labels, getBucketIndex, validStart, validEnd, unit: 'month' };
+    return { labels, getBucketIndex, validStart, validEnd, unit: 'month', period: 'year' };
 }
 
 function getAllTimeRange(logs: ActivitySummary[]): ActivityRange {
@@ -126,5 +116,6 @@ function getAllTimeRange(logs: ActivitySummary[]): ActivityRange {
         validStart,
         validEnd,
         unit: 'year',
+        period: 'all-time',
     };
 }
