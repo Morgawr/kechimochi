@@ -6,7 +6,8 @@
 export interface MediaCsvRow {
     "Title": string;
     "Variant"?: string;
-    "Media Type": string;
+    "Default Activity Type"?: string;
+    "Media Type"?: string;
     "Status": string;
     "Language": string;
     "Description": string;
@@ -17,7 +18,11 @@ export interface MediaCsvRow {
 
 export interface MediaConflict {
     incoming: MediaCsvRow;
-    existing?: Media;
+    existing?: {
+        title: string;
+        variant: string;
+        status: string;
+    };
 }
 
 export interface Media {
@@ -25,7 +30,7 @@ export interface Media {
     uid?: string;
     title: string;
     variant?: string;
-    media_type: string;
+    default_activity_type: string;
     status: string;
     language: string;
     description: string;
@@ -49,7 +54,7 @@ export interface ActivitySummary {
     id: number;
     media_id: number;
     title: string;
-    media_type: string;
+    activity_type: string;
     duration_minutes: number;
     characters: number;
     date: string;
@@ -75,6 +80,7 @@ export interface TimelineEvent {
     date: string;
     mediaId: number;
     mediaTitle: string;
+    mediaVariant: string;
     coverImage: string;
     activityType: string;
     contentType: string;
@@ -92,7 +98,7 @@ export interface TimelineEvent {
 
 export interface Milestone {
     id?: number;
-    media_uid?: string | null;
+    media_uid: string;
     media_title: string;
     name: string;
     duration: number;
@@ -245,6 +251,19 @@ export interface SyncConflictMediaAggregate {
     cover_blob_sha256: string | null;
     updated_at: string;
     updated_by_device_id: string;
+    activities: Array<{
+        date: string;
+        activity_type: string;
+        duration_minutes: number;
+        characters: number;
+        notes: string;
+    }>;
+    milestones: Array<{
+        name: string;
+        duration: number;
+        characters: number;
+        date: string | null;
+    }>;
 }
 
 export interface SyncSnapshotTombstone {
@@ -270,6 +289,13 @@ export interface MediaFieldConflict {
     base_value: string | null;
     local_value: string | null;
     remote_value: string | null;
+}
+
+export interface DuplicateMediaIdentityConflict {
+    kind: 'duplicate_media_identity';
+    local_media: SyncConflictMediaAggregate;
+    remote_media: SyncConflictMediaAggregate;
+    remote_tombstone: SyncSnapshotTombstone;
 }
 
 export interface ExtraDataEntryConflict {
@@ -299,12 +325,24 @@ export interface ProfilePictureConflict {
 }
 
 export type SyncConflict =
-    | MediaFieldConflict
-    | ExtraDataEntryConflict
-    | DeleteVsUpdateConflict
-    | ProfilePictureConflict;
+    { conflict_token: string } & (
+        | DuplicateMediaIdentityConflict
+        | MediaFieldConflict
+        | ExtraDataEntryConflict
+        | DeleteVsUpdateConflict
+        | ProfilePictureConflict
+    );
 
 export type SyncConflictResolution =
+    | {
+        kind: 'duplicate_media_identity_merge';
+    }
+    | {
+        kind: 'duplicate_media_identity_keep_both';
+        side: MergeSide;
+        title: string;
+        variant: string;
+    }
     | {
         kind: 'media_field';
         side: MergeSide;

@@ -109,8 +109,8 @@ export function runSync(): Promise<SyncActionResult> { return getServices().runS
 export function replaceLocalFromRemote(): Promise<SyncActionResult> { return getServices().replaceLocalFromRemote(); }
 export function forcePublishLocalAsRemote(): Promise<SyncActionResult> { return getServices().forcePublishLocalAsRemote(); }
 export function getSyncConflicts(): Promise<SyncConflict[]> { return getServices().getSyncConflicts(); }
-export function resolveSyncConflict(conflictIndex: number, resolution: SyncConflictResolution): Promise<SyncActionResult> {
-  return getServices().resolveSyncConflict(conflictIndex, resolution);
+export function resolveSyncConflict(conflictIndex: number, conflictToken: string, resolution: SyncConflictResolution): Promise<SyncActionResult> {
+  return getServices().resolveSyncConflict(conflictIndex, conflictToken, resolution);
 }
 export function subscribeSyncProgress(listener: (update: SyncProgressUpdate) => void): Promise<() => void> {
   return getServices().subscribeSyncProgress(listener);
@@ -129,11 +129,11 @@ export function saveLocalHttpApiConfig(config: LocalHttpApiConfig): Promise<Loca
 
 export function applyMediaImport(records: MediaCsvRow[]): Promise<number> { return getServices().applyMediaImport(records); }
 
-export function getMilestones(mediaTitle: string): Promise<Milestone[]> { return getServices().getMilestones(mediaTitle); }
+export function getMilestones(mediaUid: string): Promise<Milestone[]> { return getServices().getMilestones(mediaUid); }
 export function addMilestone(milestone: Milestone): Promise<number> { return getServices().addMilestone(milestone); }
 export function updateMilestone(milestone: Milestone): Promise<void> { return getServices().updateMilestone(milestone); }
 export function deleteMilestone(id: number): Promise<void> { return getServices().deleteMilestone(id); }
-export function clearMilestones(mediaTitle: string): Promise<void> { return getServices().clearMilestones(mediaTitle); }
+export function clearMilestones(mediaUid: string): Promise<void> { return getServices().clearMilestones(mediaUid); }
 export function exportMilestonesCsv(filePath: string): Promise<number> { return getServices().exportMilestonesCsv(filePath); }
 export function importMilestonesCsv(filePath: string): Promise<number> { return getServices().importMilestonesCsv(filePath); }
 

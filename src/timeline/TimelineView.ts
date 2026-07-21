@@ -146,6 +146,7 @@ export class TimelineView extends Component<TimelineState> {
 
             return [
                 event.mediaTitle,
+                event.mediaVariant,
                 event.milestoneName ?? '',
                 event.activityType,
                 event.contentType,
@@ -361,6 +362,7 @@ export class TimelineView extends Component<TimelineState> {
         }
 
         const coverUrl = this.state.coverUrls[event.mediaId];
+        const mediaLabel = this.getMediaDisplayTitle(event);
         return `
             <div
                 class="timeline-cover-shell"
@@ -370,7 +372,7 @@ export class TimelineView extends Component<TimelineState> {
                 ${
                     coverUrl
                         ? `<img class="timeline-cover-image" src="${escapeHTML(coverUrl)}" alt="${escapeHTML(
-                              event.mediaTitle,
+                              mediaLabel,
                           )} cover" loading="lazy" />`
                         : '<span class="timeline-cover-placeholder"></span>'
                 }
@@ -379,9 +381,10 @@ export class TimelineView extends Component<TimelineState> {
     }
 
     private renderEventCopy(event: TimelineEvent): string {
+        const mediaLabel = this.getMediaDisplayTitle(event);
         const mediaButton = `
             <button type="button" class="timeline-media-link" data-media-id="${event.mediaId}">
-                ${escapeHTML(event.mediaTitle)}
+                ${escapeHTML(mediaLabel)}
             </button>
         `;
         const action = this.getActivityAction(event.activityType);
@@ -408,6 +411,20 @@ export class TimelineView extends Component<TimelineState> {
             case 'milestone':
                 return `Reached "${escapeHTML(event.milestoneName ?? 'Milestone')}" in ${mediaButton}`;
         }
+    }
+
+    private getMediaDisplayTitle(event: TimelineEvent): string {
+        const mediaIdsForTitle = new Set(
+            this.state.events
+                .filter(candidate => candidate.mediaTitle === event.mediaTitle)
+                .map(candidate => candidate.mediaId),
+        );
+        if (mediaIdsForTitle.size <= 1) {
+            return event.mediaTitle;
+        }
+
+        const variant = event.mediaVariant.trim();
+        return `${event.mediaTitle} — ${variant || '(no variant)'}`;
     }
 
     private renderMetaItems(event: TimelineEvent): string[] {

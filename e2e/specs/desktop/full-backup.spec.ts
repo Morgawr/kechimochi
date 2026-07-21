@@ -12,8 +12,20 @@ import {
 } from '../../helpers/common.js';
 import { setText, setSelect } from '../../helpers/form-controls.js';
 import { TEST_PROFILE_NAME } from '../../config/test-constants.js';
+import { addMedia, clickMediaItem } from '../../helpers/library.js';
+import {
+  addExtraField,
+  addMilestone,
+  getExtraField,
+  logActivityFromDetail,
+  uploadCoverImage,
+} from '../../helpers/media-detail.js';
+import { uploadProfilePicture } from '../../helpers/profile.js';
 
 const SEEDED_ACTIVITY_TITLES = ['ペルソナ5', '薬屋のひとりごと', '葬送のフリーレン'] as const;
+const FIDELITY_TITLE = 'Full Backup Fidelity Media';
+const FIDELITY_NOTE = 'Exact note restored from the full backup';
+const FIDELITY_MILESTONE = 'Exact milestone restored';
 
 async function expectProfileName(name: string): Promise<void> {
   const headerName = $('#nav-user-name');
@@ -117,11 +129,25 @@ describe('CUJ: Full Backup Import Export', () => {
   it('should export a full backup, factory reset the app, and restore everything from the backup', async () => {
     await expectSeededActivitiesPresent();
 
+    const imageFixture = path.join(
+      process.env.KECHIMOCHI_DATA_DIR || path.resolve(process.cwd(), 'e2e', 'fixtures'),
+      'covers',
+      'profile_placeholder.png',
+    );
+    await navigateTo('media');
+    await addMedia(FIDELITY_TITLE, 'Reading', 'Novel', 'Backup Edition');
+    await uploadCoverImage(imageFixture);
+    await addExtraField('Backup field', 'Backup field value');
+    await logActivityFromDetail(FIDELITY_TITLE, '52', '3100', 'Reading', FIDELITY_NOTE);
+    await addMilestone(FIDELITY_MILESTONE, '0', '52', '3100', true);
+
     await navigateTo('profile');
     expect(await verifyActiveView('profile')).toBe(true);
 
     await expectProfileName(TEST_PROFILE_NAME);
     await expectTheme('pastel-pink');
+
+    await uploadProfilePicture(imageFixture);
 
     await setTheme('molokai');
 
@@ -168,6 +194,9 @@ describe('CUJ: Full Backup Import Export', () => {
     expect(await verifyActiveView('profile')).toBe(true);
     await expectProfileName(TEST_PROFILE_NAME);
     await expectTheme('molokai');
+    const restoredProfilePicture = $('#profile-hero-avatar img');
+    await restoredProfilePicture.waitForDisplayed({ timeout: 10000 });
+    expect(await restoredProfilePicture.getAttribute('src')).toContain('data:image/');
 
     await navigateTo('media');
     expect(await verifyActiveView('media')).toBe(true);
@@ -175,6 +204,14 @@ describe('CUJ: Full Backup Import Export', () => {
       timeout: 10000,
       timeoutMsg: 'Media library did not repopulate after importing the full backup',
     });
+
+    await clickMediaItem(FIDELITY_TITLE);
+    expect(await $('#media-variant').getText()).toBe('Backup Edition');
+    expect(await getExtraField('Backup field')).toBe('Backup field value');
+    expect(await $('#media-logs-container').getText()).toContain(FIDELITY_NOTE);
+    expect(await $('#milestone-list-container').getText()).toContain(FIDELITY_MILESTONE);
+    await $('#media-cover-img').waitForDisplayed({ timeout: 10000 });
+    expect(await $('#media-cover-img').getTagName()).toBe('img');
 
     await expectSeededActivitiesPresent();
   });

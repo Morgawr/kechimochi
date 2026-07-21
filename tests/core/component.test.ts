@@ -30,7 +30,7 @@ describe('core/component.ts', () => {
         const component = new TestComponent(container, { count: 0 });
         // @ts-expect-error - testing protected
         component.clear();
-        expect(container.children.length).toBe(0);
+        expect(container.children).toHaveLength(0);
         expect(container.innerHTML).toBe('');
     });
 });

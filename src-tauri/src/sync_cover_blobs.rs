@@ -268,7 +268,7 @@ mod tests {
                 uid: Some(uid.to_string()),
                 title: title.to_string(),
                 variant: String::new(),
-                media_type: "Reading".to_string(),
+                default_activity_type: "Reading".to_string(),
                 status: "Active".to_string(),
                 language: "Japanese".to_string(),
                 description: String::new(),

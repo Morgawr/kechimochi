@@ -65,6 +65,8 @@ Customizable themes and a profile picture let you personalize the app while keep
 
 Desktop and Android builds support optional Google Drive cloud sync, allowing you to keep your media library, activity logs, milestones, settings, and profile picture in sync across multiple devices or installations.
 
+Media sync uses a private stable identity. If local and cloud independently contain the same exact title and variant under different identities, sync pauses before changing the database and asks you to either combine their histories or rename one entry and keep both.
+
 *   **Sign in with Google**: Authenticate with a Google account directly from the profile tab.
 *   **Conflict Resolution**: Per-field conflict review when changes from different devices cannot be merged automatically.
 *   **Recovery Actions**: Force-publish local state or restore from the remote snapshot when needed.

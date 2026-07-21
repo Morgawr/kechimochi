@@ -4,13 +4,19 @@ import { waitForAppReady } from '../../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../../helpers/navigation.js';
 import { resolveConflicts } from '../../helpers/import.js';
 import { isMediaVisible } from '../../helpers/library.js';
-import { dismissAlert, setDialogMockPath } from '../../helpers/common.js';
+import {
+    dismissAlert,
+    getTopmostVisibleOverlay,
+    setDialogMockPath,
+    waitForOverlayToDisappear,
+} from '../../helpers/common.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = path.resolve(__dirname, '..', '..', 'fixtures');
 const MEDIA_CSV = path.join(FIXTURES_DIR, 'bulk_media.csv');
 const ACTIVITY_CSV = path.join(FIXTURES_DIR, 'bulk_activities.csv');
 const ACTIVITY_CSV_INVALID_DATE = path.join(FIXTURES_DIR, 'bulk_activities_invalid_date.csv');
+const ACTIVITY_CSV_CONFLICTING_TYPES = path.join(FIXTURES_DIR, 'bulk_activities_conflicting_types.csv');
 
 describe('CUJ: Bulk Management (Data Import)', () => {
     before(async () => {
@@ -32,6 +38,34 @@ describe('CUJ: Bulk Management (Data Import)', () => {
         await navigateTo('media');
         expect(await isMediaVisible('Bulk Imported Manga')).toBe(true);
         expect(await isMediaVisible('呪術廻戦')).toBe(true);
+    });
+
+    it('should cancel a conflicting media import without applying new rows', async () => {
+        await navigateTo('profile');
+        await setDialogMockPath(MEDIA_CSV);
+        await $('#profile-btn-import-media').click();
+        const overlay = await getTopmostVisibleOverlay('#conflict-cancel');
+        await $('#conflict-cancel').waitForDisplayed({ timeout: 5000 });
+        await $('#conflict-cancel').click();
+        await waitForOverlayToDisappear(overlay);
+
+        await navigateTo('media');
+        // The title was imported by the previous CUJ. Cancellation must not duplicate it.
+        expect(await $$(`.media-grid-item[data-title="Bulk Imported Manga"]`).length).toBe(1);
+    });
+
+    it('should keep existing media values when resolving a conflict with Keep Existing', async () => {
+        await navigateTo('media');
+        const existing = $(`.media-grid-item[data-title="呪術廻戦"]`);
+        const existingText = await existing.getText();
+
+        await navigateTo('profile');
+        await setDialogMockPath(MEDIA_CSV);
+        await $('#profile-btn-import-media').click();
+        await resolveConflicts('keep', false);
+
+        await navigateTo('media');
+        expect(await $(`.media-grid-item[data-title="呪術廻戦"]`).getText()).toBe(existingText);
     });
 
     it('should import activity logs and reflect on dashboard', async () => {
@@ -70,5 +104,24 @@ describe('CUJ: Bulk Management (Data Import)', () => {
         const invalidRow = $(`.dashboard-activity-item[data-activity-title="Should Not Import - Invalid Date Row"]`);
         expect(await validLookingRow.isExisting()).toBe(false);
         expect(await invalidRow.isExisting()).toBe(false);
+    });
+
+    it('should reject the entire activity CSV when default and legacy media types conflict', async () => {
+        await navigateTo('profile');
+
+        await setDialogMockPath(ACTIVITY_CSV_CONFLICTING_TYPES);
+        const importActivitiesBtn = $('#profile-btn-import-csv');
+        await importActivitiesBtn.waitForClickable({ timeout: 5000 });
+        await importActivitiesBtn.click();
+
+        await dismissAlert("Import failed: Conflicting Default Activity Type ('Reading') and Media Type ('Watching') in activity CSV row 3");
+
+        await navigateTo('dashboard');
+        expect(await verifyActiveView('dashboard')).toBe(true);
+
+        const matchingRow = $(`.dashboard-activity-item[data-activity-title="Should Not Import - Matching Types"]`);
+        const conflictingRow = $(`.dashboard-activity-item[data-activity-title="Should Not Import - Conflicting Types"]`);
+        expect(await matchingRow.isExisting()).toBe(false);
+        expect(await conflictingRow.isExisting()).toBe(false);
     });
 });

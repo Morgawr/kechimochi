@@ -99,7 +99,6 @@ describe('CUJ: Reading Analysis (Report Card)', () => {
     await backToGrid();
 
     await logActivityGlobal('呪術廻戦', 30);
-    await $('#add-activity-form').waitForExist({ reverse: true, timeout: 5000 });
 
     await navigateTo('media');
     await clickMediaItem('呪術廻戦');

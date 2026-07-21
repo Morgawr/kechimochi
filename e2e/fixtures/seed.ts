@@ -69,7 +69,7 @@ const MEDIA_ENTRY_ROWS: SeedMediaEntryRow[] = [
   ['呪術廻戦', 'Reading', 'Active', '呪いをめぐる少年たちの戦いを描いたダークファンタジー。', 'Manga'],
   ['ハイキュー!!', 'Watching', 'Complete', 'バレーボールに青春をかける高校生たちの物語。', 'Anime'],
   ['STEINS;GATE', 'Playing', 'Complete', 'タイムリープをテーマにしたサイエンスフィクション。', 'Visual Novel'],
-  ['ペルソナ5', 'Playing', 'Active', '心の怪盗団として活躍するRPG。', 'Video Game'],
+  ['ペルソナ5', 'Playing', 'Active', '心の怪盗団として活躍するRPG。', 'Videogame'],
   ['本好きの下剋上', 'Reading', 'Active', '本を愛する少女が異世界で本を作るために奮闘する物語。', 'Novel'],
   ['葬送のフリーレン', 'Watching', 'Active', '魔王を倒した後のエルフの魔法使いの旅を描いた作品。', 'Anime'],
   ['WHITE ALBUM 2', 'Playing', 'Paused', '音楽と恋愛をテーマにしたビジュアルノベル。', 'Visual Novel'],
@@ -193,6 +193,8 @@ function main() {
   fs.mkdirSync(COVERS_DIR, { recursive: true });
 
   // --- Shared media DB ---
+  // Keep this fixture on the unversioned legacy schema so every desktop/web
+  // E2E startup exercises the production legacy-to-current migration path.
   const sharedDb = new Database(SHARED_DB_PATH);
   sharedDb.exec(`
     CREATE TABLE IF NOT EXISTS media (

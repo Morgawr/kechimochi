@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use axum::{
     body::Body,
-    extract::{Multipart, Path, Query, State},
+    extract::{rejection::JsonRejection, Multipart, Path, Query, State},
     http::{header, StatusCode},
     response::{IntoResponse, Response},
     routing::{any, get, post, put},
@@ -23,16 +23,68 @@ use serde::Deserialize;
 use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
 
-use kechimochi_lib::{csv_import, db, get_username_logic, models, profile_picture};
+use kechimochi_lib::{
+    csv_import, db, get_username_logic, instance_lock, models, profile_picture, sync_state,
+};
 
 // ── Error handling ────────────────────────────────────────────────────────────
 
 #[derive(Debug)]
-struct AppError(String);
+enum AppError {
+    Internal(String),
+    BadRequest(String),
+    Conflict(String),
+}
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        (StatusCode::INTERNAL_SERVER_ERROR, self.0).into_response()
+        match self {
+            Self::Internal(message) => (StatusCode::INTERNAL_SERVER_ERROR, message).into_response(),
+            Self::BadRequest(message) => (StatusCode::BAD_REQUEST, message).into_response(),
+            Self::Conflict(message) => (StatusCode::CONFLICT, message).into_response(),
+        }
+    }
+}
+
+fn map_media_write_error(error: rusqlite::Error) -> AppError {
+    let message = error.to_string();
+    if message.contains("Another media entry already uses title") {
+        AppError::Conflict(message)
+    } else if message.contains("cannot be blank")
+        || message.contains("requires an id")
+        || message.contains("cannot be changed")
+    {
+        AppError::BadRequest(message)
+    } else {
+        AppError::Internal(message)
+    }
+}
+
+fn map_milestone_write_error(error: rusqlite::Error) -> AppError {
+    let message = error.to_string();
+    if message.contains("Milestone must")
+        || message.contains("Milestone update requires")
+        || message.contains("Media with uid")
+    {
+        AppError::BadRequest(message)
+    } else {
+        AppError::Internal(message)
+    }
+}
+
+fn map_csv_import_error(error: String) -> AppError {
+    if csv_import::is_client_input_error_message(&error) {
+        AppError::BadRequest(error)
+    } else {
+        AppError::Internal(error)
+    }
+}
+
+fn map_sync_operation_error(error: String) -> AppError {
+    if error == sync_state::SYNC_OPERATION_IN_PROGRESS_ERROR {
+        AppError::Conflict(error)
+    } else {
+        AppError::Internal(error)
     }
 }
 
@@ -43,7 +95,7 @@ trait AeExt<T> {
 
 impl<T, E: std::fmt::Display> AeExt<T> for std::result::Result<T, E> {
     fn ae(self) -> HandlerResult<T> {
-        self.map_err(|e| AppError(e.to_string()))
+        self.map_err(|e| AppError::Internal(e.to_string()))
     }
 }
 
@@ -55,6 +107,7 @@ struct AppState {
     conn: Mutex<rusqlite::Connection>,
     data_dir: PathBuf,
     static_dir: PathBuf,
+    startup_error: Option<String>,
 }
 
 type Shared = Arc<AppState>;
@@ -65,13 +118,6 @@ type Shared = Arc<AppState>;
 async fn main() {
     let data_dir = db::get_data_dir(&db::STANDALONE_DATA_DIR_PROVIDER);
     println!("[kechimochi] data dir: {}", data_dir.display());
-
-    let user_db_path = data_dir.join("kechimochi_user.db");
-    let conn = if user_db_path.exists() {
-        db::init_db(data_dir.clone(), None).expect("Failed to open database")
-    } else {
-        rusqlite::Connection::open_in_memory().expect("Failed to open in-memory DB")
-    };
 
     let static_dir = resolve_static_dir();
     let static_index = static_dir.join("index.html");
@@ -84,18 +130,67 @@ async fn main() {
 
     println!("[kechimochi] static dir: {}", static_dir.display());
 
+    let instance_lock =
+        instance_lock::acquire_instance_lock(&data_dir, instance_lock::InstanceKind::Web);
+    let startup_error = instance_lock
+        .as_ref()
+        .err()
+        .map(std::string::ToString::to_string);
+    if let Some(error) = &startup_error {
+        eprintln!("[kechimochi] startup blocked: {error}");
+    }
+
+    let user_db_path = data_dir.join("kechimochi_user.db");
+    let conn = if startup_error.is_some() {
+        rusqlite::Connection::open_in_memory().expect("Failed to open in-memory DB")
+    } else if user_db_path.exists() {
+        db::init_db(data_dir.clone(), None).expect("Failed to open database")
+    } else {
+        rusqlite::Connection::open_in_memory().expect("Failed to open in-memory DB")
+    };
+
+    // Keep the successful guard alive until the server exits. A blocked server
+    // deliberately keeps serving only the startup warning so browser users can
+    // see which process owns the data directory.
+    let _instance_lock = instance_lock.ok();
+
     let state: Shared = Arc::new(AppState {
         conn: Mutex::new(conn),
         data_dir,
         static_dir: static_dir.clone(),
+        startup_error,
     });
 
+    let app = build_app_router(state);
+
+    let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
+    let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
+    let addr = format!("{}:{}", host, port);
+    println!("[kechimochi] listening on http://{}", addr);
+    let listener = tokio::net::TcpListener::bind(&addr)
+        .await
+        .expect("Failed to bind");
+    axum::serve(listener, app).await.expect("Server error");
+}
+
+fn build_app_router(state: Shared) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any);
 
-    let app = Router::new()
+    if state.startup_error.is_some() {
+        return Router::new()
+            .route("/api/startup-error", get(get_startup_error_handler))
+            .route("/api", any(startup_blocked_api))
+            .route("/api/*path", any(startup_blocked_api))
+            .route("/", get(serve_spa_index))
+            .route("/*path", get(serve_static_or_spa))
+            .with_state(state)
+            .layer(cors);
+    }
+
+    Router::new()
         // Media
         .route("/api/media", get(get_all_media).post(add_media))
         .route(
@@ -114,7 +209,7 @@ async fn main() {
         // Milestones
         .route("/api/milestones", post(add_milestone_handler))
         .route(
-            "/api/milestones/media/:title",
+            "/api/media/:media_uid/milestones",
             get(get_milestones_for_media_handler).delete(clear_milestones_for_media_handler),
         )
         .route(
@@ -132,6 +227,7 @@ async fn main() {
         // Settings
         .route("/api/settings/:key", get(get_setting).put(set_setting))
         // Utility
+        .route("/api/startup-error", get(get_startup_error_handler))
         .route("/api/username", get(get_username))
         .route("/api/version", get(get_version))
         .route("/api/activities/clear", post(clear_activities))
@@ -159,16 +255,7 @@ async fn main() {
         .route("/", get(serve_spa_index))
         .route("/*path", get(serve_static_or_spa))
         .with_state(state)
-        .layer(cors);
-
-    let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
-    let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
-    let addr = format!("{}:{}", host, port);
-    println!("[kechimochi] listening on http://{}", addr);
-    let listener = tokio::net::TcpListener::bind(&addr)
-        .await
-        .expect("Failed to bind");
-    axum::serve(listener, app).await.expect("Server error");
+        .layer(cors)
 }
 
 fn resolve_static_dir() -> PathBuf {
@@ -197,6 +284,19 @@ fn resolve_static_dir() -> PathBuf {
 
 async fn api_not_found() -> (StatusCode, &'static str) {
     (StatusCode::NOT_FOUND, "API route not found")
+}
+
+async fn get_startup_error_handler(State(s): State<Shared>) -> Json<Option<String>> {
+    Json(s.startup_error.clone())
+}
+
+async fn startup_blocked_api(State(s): State<Shared>) -> (StatusCode, String) {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        s.startup_error
+            .clone()
+            .unwrap_or_else(|| "Kechimochi startup is blocked".to_string()),
+    )
 }
 
 async fn serve_spa_index(State(s): State<Shared>) -> HandlerResult<Response> {
@@ -257,25 +357,38 @@ async fn serve_static_or_spa(
 
 // ── Media handlers ────────────────────────────────────────────────────────────
 
-async fn get_all_media(State(s): State<Shared>) -> HandlerResult<Json<Vec<models::Media>>> {
+async fn get_all_media(State(s): State<Shared>) -> HandlerResult<Json<Vec<models::HttpMedia>>> {
     let conn = s.conn.lock().await;
-    db::get_all_media(&conn).ae().map(Json)
+    let media = db::get_all_media(&conn)
+        .ae()?
+        .into_iter()
+        .map(models::HttpMedia::from)
+        .collect();
+    Ok(Json(media))
 }
 
 async fn add_media(
     State(s): State<Shared>,
-    Json(media): Json<models::Media>,
+    Json(media): Json<models::HttpMedia>,
 ) -> HandlerResult<Json<i64>> {
+    let media = models::Media::try_from(media).map_err(AppError::BadRequest)?;
     let conn = s.conn.lock().await;
-    db::add_media_with_id(&conn, &media).ae().map(Json)
+    db::add_media_with_id(&conn, &media)
+        .map_err(map_media_write_error)
+        .map(Json)
 }
 
 async fn update_media(
     State(s): State<Shared>,
-    Json(media): Json<models::Media>,
+    Path(id): Path<i64>,
+    Json(media): Json<models::HttpMedia>,
 ) -> HandlerResult<Json<()>> {
+    let mut media = models::Media::try_from(media).map_err(AppError::BadRequest)?;
+    media.id = Some(id);
     let conn = s.conn.lock().await;
-    db::update_media(&conn, &media).ae().map(|_| Json(()))
+    db::update_media(&conn, &media)
+        .map_err(map_media_write_error)
+        .map(|_| Json(()))
 }
 
 async fn delete_media_handler(
@@ -288,9 +401,16 @@ async fn delete_media_handler(
 
 // ── Log handlers ──────────────────────────────────────────────────────────────
 
-async fn get_logs(State(s): State<Shared>) -> HandlerResult<Json<Vec<models::ActivitySummary>>> {
+async fn get_logs(
+    State(s): State<Shared>,
+) -> HandlerResult<Json<Vec<models::HttpActivitySummary>>> {
     let conn = s.conn.lock().await;
-    db::get_logs(&conn).ae().map(Json)
+    let logs = db::get_logs(&conn)
+        .ae()?
+        .into_iter()
+        .map(models::HttpActivitySummary::from)
+        .collect();
+    Ok(Json(logs))
 }
 
 async fn add_log(
@@ -327,9 +447,14 @@ async fn get_heatmap(State(s): State<Shared>) -> HandlerResult<Json<Vec<models::
 async fn get_logs_for_media(
     State(s): State<Shared>,
     Path(id): Path<i64>,
-) -> HandlerResult<Json<Vec<models::ActivitySummary>>> {
+) -> HandlerResult<Json<Vec<models::HttpActivitySummary>>> {
     let conn = s.conn.lock().await;
-    db::get_logs_for_media(&conn, id).ae().map(Json)
+    let logs = db::get_logs_for_media(&conn, id)
+        .ae()?
+        .into_iter()
+        .map(models::HttpActivitySummary::from)
+        .collect();
+    Ok(Json(logs))
 }
 
 async fn get_timeline_events_handler(
@@ -343,10 +468,12 @@ async fn get_timeline_events_handler(
 
 async fn get_milestones_for_media_handler(
     State(s): State<Shared>,
-    Path(title): Path<String>,
+    Path(media_uid): Path<String>,
 ) -> HandlerResult<Json<Vec<models::Milestone>>> {
     let conn = s.conn.lock().await;
-    db::get_milestones_for_media(&conn, &title).ae().map(Json)
+    db::get_milestones_for_media_uid(&conn, &media_uid)
+        .ae()
+        .map(Json)
 }
 
 async fn add_milestone_handler(
@@ -354,7 +481,9 @@ async fn add_milestone_handler(
     Json(milestone): Json<models::Milestone>,
 ) -> HandlerResult<Json<i64>> {
     let conn = s.conn.lock().await;
-    db::add_milestone(&conn, &milestone).ae().map(Json)
+    db::add_milestone(&conn, &milestone)
+        .map_err(map_milestone_write_error)
+        .map(Json)
 }
 
 async fn update_milestone_handler(
@@ -365,7 +494,7 @@ async fn update_milestone_handler(
     milestone.id = Some(id);
     let conn = s.conn.lock().await;
     db::update_milestone(&conn, &milestone)
-        .ae()
+        .map_err(map_milestone_write_error)
         .map(|_| Json(()))
 }
 
@@ -379,10 +508,10 @@ async fn delete_milestone_handler(
 
 async fn clear_milestones_for_media_handler(
     State(s): State<Shared>,
-    Path(title): Path<String>,
+    Path(media_uid): Path<String>,
 ) -> HandlerResult<Json<()>> {
     let conn = s.conn.lock().await;
-    db::delete_milestones_for_media(&conn, &title)
+    db::delete_milestones_for_media_uid(&conn, &media_uid)
         .ae()
         .map(|_| Json(()))
 }
@@ -418,7 +547,7 @@ async fn upload_profile_picture_handler(
         .next_field()
         .await
         .ae()?
-        .ok_or_else(|| AppError("No file field in multipart".into()))?;
+        .ok_or_else(|| AppError::Internal("No file field in multipart".into()))?;
     let bytes = field.bytes().await.ae()?.to_vec();
     let profile_picture = profile_picture::process_profile_picture_bytes(&bytes).ae()?;
     let conn = s.conn.lock().await;
@@ -474,10 +603,13 @@ async fn clear_activities(State(s): State<Shared>) -> HandlerResult<Json<()>> {
 }
 
 async fn wipe_everything_handler(State(s): State<Shared>) -> HandlerResult<Json<()>> {
-    *s.conn.lock().await = rusqlite::Connection::open_in_memory().ae()?;
-    db::wipe_everything(s.data_dir.clone())
-        .ae()
-        .map(|_| Json(()))
+    let _sync_guard =
+        sync_state::acquire_sync_lock(&s.data_dir).map_err(map_sync_operation_error)?;
+    let mut conn = s.conn.lock().await;
+    *conn = rusqlite::Connection::open_in_memory().ae()?;
+    sync_state::clear_sync_runtime_files(&s.data_dir).ae()?;
+    db::wipe_everything(s.data_dir.clone()).ae()?;
+    Ok(Json(()))
 }
 
 // ── CSV import / export ───────────────────────────────────────────────────────
@@ -490,11 +622,11 @@ async fn import_activities(
     let path = tmp
         .path()
         .to_str()
-        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .ok_or_else(|| AppError::Internal("Invalid temp path".into()))?
         .to_owned();
     let count = {
         let mut conn = s.conn.lock().await;
-        csv_import::import_csv(&mut conn, &path).ae()?
+        csv_import::import_csv(&mut conn, &path).map_err(map_csv_import_error)?
     };
     Ok(Json(serde_json::json!({ "count": count })))
 }
@@ -513,7 +645,7 @@ async fn export_activities(
     let path = tmp
         .path()
         .to_str()
-        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .ok_or_else(|| AppError::Internal("Invalid temp path".into()))?
         .to_owned();
     let count = {
         let conn = s.conn.lock().await;
@@ -539,20 +671,23 @@ async fn analyze_media_csv_upload(
     let path = tmp
         .path()
         .to_str()
-        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .ok_or_else(|| AppError::Internal("Invalid temp path".into()))?
         .to_owned();
     let conn = s.conn.lock().await;
-    csv_import::analyze_media_csv(&conn, &path).ae().map(Json)
+    csv_import::analyze_media_csv(&conn, &path)
+        .map_err(map_csv_import_error)
+        .map(Json)
 }
 
 async fn apply_media_import_handler(
     State(s): State<Shared>,
-    Json(records): Json<Vec<csv_import::MediaCsvRow>>,
+    payload: Result<Json<Vec<csv_import::MediaCsvRow>>, JsonRejection>,
 ) -> HandlerResult<Json<usize>> {
+    let Json(records) = payload.map_err(|error| AppError::BadRequest(error.body_text()))?;
     let covers_dir = s.data_dir.join("covers");
     let mut conn = s.conn.lock().await;
     csv_import::apply_media_import(covers_dir, &mut conn, records)
-        .ae()
+        .map_err(map_csv_import_error)
         .map(Json)
 }
 
@@ -561,7 +696,7 @@ async fn export_media_handler(State(s): State<Shared>) -> HandlerResult<Response
     let path = tmp
         .path()
         .to_str()
-        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .ok_or_else(|| AppError::Internal("Invalid temp path".into()))?
         .to_owned();
     let count = {
         let conn = s.conn.lock().await;
@@ -587,11 +722,11 @@ async fn import_milestones(
     let path = tmp
         .path()
         .to_str()
-        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .ok_or_else(|| AppError::Internal("Invalid temp path".into()))?
         .to_owned();
     let count = {
         let mut conn = s.conn.lock().await;
-        csv_import::import_milestones_csv(&mut conn, &path).ae()?
+        csv_import::import_milestones_csv(&mut conn, &path).map_err(map_csv_import_error)?
     };
     Ok(Json(serde_json::json!({ "count": count })))
 }
@@ -601,7 +736,7 @@ async fn export_milestones(State(s): State<Shared>) -> HandlerResult<Response> {
     let path = tmp
         .path()
         .to_str()
-        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .ok_or_else(|| AppError::Internal("Invalid temp path".into()))?
         .to_owned();
     let count = {
         let conn = s.conn.lock().await;
@@ -635,7 +770,7 @@ async fn export_full_backup_handler(
     let path = tmp
         .path()
         .to_str()
-        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .ok_or_else(|| AppError::Internal("Invalid temp path".into()))?
         .to_owned();
 
     {
@@ -669,12 +804,18 @@ async fn import_full_backup_handler(
     let path = tmp
         .path()
         .to_str()
-        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .ok_or_else(|| AppError::Internal("Invalid temp path".into()))?
         .to_owned();
 
     let ls = {
+        let _sync_guard =
+            sync_state::acquire_sync_lock(&s.data_dir).map_err(map_sync_operation_error)?;
         let mut conn = s.conn.lock().await;
-        kechimochi_lib::backup::import_full_backup_internal(&s.data_dir, &mut conn, &path).ae()?
+        let local_storage =
+            kechimochi_lib::backup::import_full_backup_internal(&s.data_dir, &mut conn, &path)
+                .ae()?;
+        sync_state::clear_sync_runtime_files(&s.data_dir).ae()?;
+        local_storage
     };
 
     Ok(Json(serde_json::json!({ "localStorage": ls })))
@@ -694,7 +835,7 @@ async fn upload_cover(
         .next_field()
         .await
         .ae()?
-        .ok_or_else(|| AppError("No file field in multipart".into()))?;
+        .ok_or_else(|| AppError::Internal("No file field in multipart".into()))?;
     let filename = field.file_name().unwrap_or("upload").to_owned();
     let ext = std::path::Path::new(&filename)
         .extension()
@@ -715,11 +856,11 @@ async fn serve_cover(
     let safe_name = std::path::Path::new(&filename)
         .file_name()
         .and_then(|n| n.to_str())
-        .ok_or_else(|| AppError("Invalid filename".into()))?
+        .ok_or_else(|| AppError::Internal("Invalid filename".into()))?
         .to_owned();
     let file_path = s.data_dir.join("covers").join(&safe_name);
     if !file_path.exists() {
-        return Err(AppError("Cover not found".into()));
+        return Err(AppError::Internal("Cover not found".into()));
     }
     let bytes = std::fs::read(&file_path).ae()?;
     let content_type = match file_path
@@ -858,7 +999,7 @@ async fn field_to_tempfile(multipart: &mut Multipart) -> HandlerResult<tempfile:
         .next_field()
         .await
         .ae()?
-        .ok_or_else(|| AppError("No file in multipart".into()))?;
+        .ok_or_else(|| AppError::Internal("No file in multipart".into()))?;
     let bytes = field.bytes().await.ae()?;
     let mut tmp = tempfile::NamedTempFile::new().ae()?;
     tmp.write_all(&bytes).ae()?;
@@ -868,6 +1009,8 @@ async fn field_to_tempfile(multipart: &mut Multipart) -> HandlerResult<tempfile:
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::extract::FromRequest;
+    use tower::ServiceExt;
 
     fn unique_data_dir() -> std::path::PathBuf {
         let ts = std::time::SystemTime::now()
@@ -887,7 +1030,7 @@ mod tests {
             uid: None,
             title: title.to_string(),
             variant: String::new(),
-            media_type: "Reading".to_string(),
+            default_activity_type: "Reading".to_string(),
             status: "Active".to_string(),
             language: "Japanese".to_string(),
             description: String::new(),
@@ -898,16 +1041,26 @@ mod tests {
         }
     }
 
-    fn sample_milestone(media_title: &str, name: &str, duration: i64) -> models::Milestone {
+    fn sample_milestone(media_uid: &str, name: &str, duration: i64) -> models::Milestone {
         models::Milestone {
             id: None,
-            media_uid: None,
-            media_title: media_title.to_string(),
+            media_uid: Some(media_uid.to_string()),
+            media_title: String::new(),
             name: name.to_string(),
             duration,
             characters: 0,
             date: Some("2024-03-01".to_string()),
         }
+    }
+
+    async fn media_uid(state: &Shared, media_id: i64) -> String {
+        let conn = state.conn.lock().await;
+        db::get_all_media(&conn)
+            .unwrap()
+            .into_iter()
+            .find(|media| media.id == Some(media_id))
+            .and_then(|media| media.uid)
+            .unwrap()
     }
 
     fn setup_state() -> Shared {
@@ -923,7 +1076,72 @@ mod tests {
             conn: Mutex::new(conn),
             data_dir,
             static_dir: PathBuf::from("dist"),
+            startup_error: None,
         })
+    }
+
+    fn setup_disk_state() -> Shared {
+        let data_dir = unique_data_dir();
+        std::fs::create_dir_all(&data_dir).unwrap();
+        let conn = db::init_db(data_dir.clone(), None).unwrap();
+        Arc::new(AppState {
+            conn: Mutex::new(conn),
+            data_dir,
+            static_dir: PathBuf::from("dist"),
+            startup_error: None,
+        })
+    }
+
+    async fn file_multipart(file_name: &str, content_type: &str, contents: &[u8]) -> Multipart {
+        let boundary = "kechimochi-web-server-test-boundary";
+        let mut body = format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{file_name}\"\r\nContent-Type: {content_type}\r\n\r\n"
+        )
+        .into_bytes();
+        body.extend_from_slice(contents);
+        body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+        let request = axum::http::Request::builder()
+            .header(
+                header::CONTENT_TYPE,
+                format!("multipart/form-data; boundary={boundary}"),
+            )
+            .body(Body::from(body))
+            .unwrap();
+        Multipart::from_request(request, &()).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn media_apply_route_maps_forbidden_identifier_json_to_bad_request() {
+        let state = setup_state();
+        let state_dir = state.data_dir.clone();
+        let body = serde_json::json!([{
+            "Title": "No private identity",
+            "Default Activity Type": "Reading",
+            "Status": "Active",
+            "Language": "Japanese",
+            "Description": "",
+            "Content Type": "Novel",
+            "Extra Data": "{}",
+            "Cover Image (Base64)": "",
+            "Variant": "",
+            "Media UID": "private-uid"
+        }])
+        .to_string();
+
+        let response = build_app_router(state)
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/api/import/media/apply")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let _ = std::fs::remove_dir_all(state_dir);
     }
 
     #[tokio::test]
@@ -933,21 +1151,77 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn startup_error_route_reports_lock_owner_and_blocks_other_apis() {
+        let mut state = setup_state();
+        let state_dir = state.data_dir.clone();
+        let startup_error = "Unable to obtain unique lock. Some other process is already running Kechimochi (pid=4242).\n\nLock owner details:\npid=4242\nkind=desktop";
+        Arc::get_mut(&mut state).unwrap().startup_error = Some(startup_error.to_string());
+
+        let startup_response = build_app_router(state.clone())
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/api/startup-error")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(startup_response.status(), StatusCode::OK);
+        let startup_body = axum::body::to_bytes(startup_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Option<String>>(&startup_body).unwrap(),
+            Some(startup_error.to_string())
+        );
+
+        let mutation_response = build_app_router(state)
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/api/reset")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(mutation_response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let mutation_body = axum::body::to_bytes(mutation_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert!(String::from_utf8_lossy(&mutation_body).contains("pid=4242"));
+
+        let _ = std::fs::remove_dir_all(state_dir);
+    }
+
+    #[tokio::test]
     async fn test_add_and_get_media_handlers_roundtrip() {
         let state = setup_state();
         let state_dir = state.data_dir.clone();
 
         let media = sample_media("Web Handler Test");
-        let inserted = add_media(State(state.clone()), Json(media))
+        let inserted = add_media(State(state.clone()), Json(media.into()))
             .await
             .unwrap()
             .0;
         assert!(inserted > 0);
 
+        let update_body = models::HttpMedia::from(models::Media {
+            title: "Updated Through Path ID".to_string(),
+            id: None,
+            ..sample_media("ignored")
+        });
+        let _ = update_media(State(state.clone()), Path(inserted), Json(update_body))
+            .await
+            .unwrap();
+
         let all = get_all_media(State(state)).await.unwrap().0;
         assert_eq!(all.len(), 1);
-        assert_eq!(all[0].title, "Web Handler Test");
+        assert_eq!(all[0].title, "Updated Through Path ID");
         assert_eq!(all[0].id, Some(inserted));
+        let response_json = serde_json::to_value(&all[0]).unwrap();
+        assert_eq!(response_json["default_activity_type"], "Reading");
+        assert!(response_json.get("media_type").is_none());
 
         let _ = std::fs::remove_dir_all(state_dir);
     }
@@ -978,11 +1252,11 @@ mod tests {
         let state = setup_state();
         let state_dir = state.data_dir.clone();
 
-        let media_a = add_media(State(state.clone()), Json(sample_media("A")))
+        let media_a = add_media(State(state.clone()), Json(sample_media("A").into()))
             .await
             .unwrap()
             .0;
-        let media_b = add_media(State(state.clone()), Json(sample_media("B")))
+        let media_b = add_media(State(state.clone()), Json(sample_media("B").into()))
             .await
             .unwrap()
             .0;
@@ -1024,6 +1298,9 @@ mod tests {
         assert_eq!(logs_for_a.len(), 1);
         assert_eq!(logs_for_a[0].media_id, media_a);
         assert_eq!(logs_for_a[0].title, "A");
+        let response_json = serde_json::to_value(&logs_for_a[0]).unwrap();
+        assert!(response_json.get("activity_type").is_some());
+        assert!(response_json.get("media_type").is_none());
 
         let _ = std::fs::remove_dir_all(state_dir);
     }
@@ -1035,15 +1312,16 @@ mod tests {
 
         let media_id = add_media(
             State(state.clone()),
-            Json(models::Media {
+            Json(models::HttpMedia::from(models::Media {
                 tracking_status: "Complete".to_string(),
                 content_type: "Novel".to_string(),
                 ..sample_media("Timeline Handler")
-            }),
+            })),
         )
         .await
         .unwrap()
         .0;
+        let timeline_media_uid = media_uid(&state, media_id).await;
 
         {
             let conn = state.conn.lock().await;
@@ -1064,8 +1342,8 @@ mod tests {
                 &conn,
                 &models::Milestone {
                     id: None,
-                    media_uid: None,
-                    media_title: "Timeline Handler".to_string(),
+                    media_uid: Some(timeline_media_uid),
+                    media_title: String::new(),
                     name: "Checkpoint".to_string(),
                     duration: 45,
                     characters: 0,
@@ -1091,22 +1369,24 @@ mod tests {
         let state_dir = state.data_dir.clone();
 
         let media = sample_media("Milestone Media");
-        let _ = add_media(State(state.clone()), Json(media)).await.unwrap();
+        let media_id = add_media(State(state.clone()), Json(media.into()))
+            .await
+            .unwrap()
+            .0;
+        let media_uid = media_uid(&state, media_id).await;
 
-        let milestone = sample_milestone("Milestone Media", "Chapter 1", 120);
+        let milestone = sample_milestone(&media_uid, "Chapter 1", 120);
         let inserted_id = add_milestone_handler(State(state.clone()), Json(milestone))
             .await
             .unwrap()
             .0;
         assert!(inserted_id > 0);
 
-        let milestones = get_milestones_for_media_handler(
-            State(state.clone()),
-            Path("Milestone Media".to_string()),
-        )
-        .await
-        .unwrap()
-        .0;
+        let milestones =
+            get_milestones_for_media_handler(State(state.clone()), Path(media_uid.clone()))
+                .await
+                .unwrap()
+                .0;
         assert_eq!(milestones.len(), 1);
         assert_eq!(milestones[0].name, "Chapter 1");
 
@@ -1115,7 +1395,7 @@ mod tests {
             .unwrap();
 
         let milestones_after_delete =
-            get_milestones_for_media_handler(State(state), Path("Milestone Media".to_string()))
+            get_milestones_for_media_handler(State(state), Path(media_uid))
                 .await
                 .unwrap()
                 .0;
@@ -1129,33 +1409,64 @@ mod tests {
         let state = setup_state();
         let state_dir = state.data_dir.clone();
 
-        let _ = add_media(State(state.clone()), Json(sample_media("A")))
-            .await
-            .unwrap();
-        let _ = add_media(State(state.clone()), Json(sample_media("B")))
-            .await
-            .unwrap();
+        let media_a_id = add_media(
+            State(state.clone()),
+            Json(
+                models::Media {
+                    variant: "Anime".to_string(),
+                    ..sample_media("Same Title")
+                }
+                .into(),
+            ),
+        )
+        .await
+        .unwrap()
+        .0;
+        let media_b_id = add_media(
+            State(state.clone()),
+            Json(
+                models::Media {
+                    variant: "Manga".to_string(),
+                    ..sample_media("Same Title")
+                }
+                .into(),
+            ),
+        )
+        .await
+        .unwrap()
+        .0;
+        let media_a_uid = media_uid(&state, media_a_id).await;
+        let media_b_uid = media_uid(&state, media_b_id).await;
 
-        let _ = add_milestone_handler(State(state.clone()), Json(sample_milestone("A", "A1", 60)))
-            .await
-            .unwrap();
-        let _ = add_milestone_handler(State(state.clone()), Json(sample_milestone("A", "A2", 90)))
-            .await
-            .unwrap();
-        let _ = add_milestone_handler(State(state.clone()), Json(sample_milestone("B", "B1", 45)))
-            .await
-            .unwrap();
+        let _ = add_milestone_handler(
+            State(state.clone()),
+            Json(sample_milestone(&media_a_uid, "A1", 60)),
+        )
+        .await
+        .unwrap();
+        let _ = add_milestone_handler(
+            State(state.clone()),
+            Json(sample_milestone(&media_a_uid, "A2", 90)),
+        )
+        .await
+        .unwrap();
+        let _ = add_milestone_handler(
+            State(state.clone()),
+            Json(sample_milestone(&media_b_uid, "B1", 45)),
+        )
+        .await
+        .unwrap();
 
-        let _ = clear_milestones_for_media_handler(State(state.clone()), Path("A".to_string()))
+        let _ = clear_milestones_for_media_handler(State(state.clone()), Path(media_a_uid.clone()))
             .await
             .unwrap();
 
         let a_milestones =
-            get_milestones_for_media_handler(State(state.clone()), Path("A".to_string()))
+            get_milestones_for_media_handler(State(state.clone()), Path(media_a_uid))
                 .await
                 .unwrap()
                 .0;
-        let b_milestones = get_milestones_for_media_handler(State(state), Path("B".to_string()))
+        let b_milestones = get_milestones_for_media_handler(State(state), Path(media_b_uid))
             .await
             .unwrap()
             .0;
@@ -1172,10 +1483,13 @@ mod tests {
         let state = setup_state();
         let state_dir = state.data_dir.clone();
 
-        let media_id = add_media(State(state.clone()), Json(sample_media("Clear Activities")))
-            .await
-            .unwrap()
-            .0;
+        let media_id = add_media(
+            State(state.clone()),
+            Json(sample_media("Clear Activities").into()),
+        )
+        .await
+        .unwrap()
+        .0;
         {
             let conn = state.conn.lock().await;
             db::add_log(
@@ -1235,14 +1549,128 @@ mod tests {
         std::fs::write(covers_dir.join("x.png"), "img").unwrap();
         std::fs::write(state.data_dir.join("kechimochi_user.db"), "").unwrap();
         std::fs::write(state.data_dir.join("kechimochi_shared_media.db"), "").unwrap();
+        sync_state::ensure_sync_dir(&state.data_dir).unwrap();
+        std::fs::write(sync_state::sync_config_path(&state.data_dir), "config").unwrap();
+        std::fs::write(sync_state::base_snapshot_path(&state.data_dir), "base").unwrap();
+        std::fs::write(
+            sync_state::pending_conflicts_path(&state.data_dir),
+            "pending",
+        )
+        .unwrap();
 
         let _ = wipe_everything_handler(State(state.clone())).await.unwrap();
 
         assert!(!covers_dir.exists());
         assert!(!state.data_dir.join("kechimochi_user.db").exists());
         assert!(!state.data_dir.join("kechimochi_shared_media.db").exists());
+        assert!(!sync_state::sync_config_path(&state.data_dir).exists());
+        assert!(!sync_state::base_snapshot_path(&state.data_dir).exists());
+        assert!(!sync_state::pending_conflicts_path(&state.data_dir).exists());
 
         let _ = std::fs::remove_dir_all(state_dir);
+    }
+
+    #[tokio::test]
+    async fn destructive_routes_return_conflict_without_mutating_database_or_sync_runtime() {
+        let state = setup_disk_state();
+        let state_dir = state.data_dir.clone();
+        let _ = add_media(
+            State(state.clone()),
+            Json(models::HttpMedia::from(sample_media("Keep me"))),
+        )
+        .await
+        .unwrap();
+        sync_state::ensure_sync_dir(&state.data_dir).unwrap();
+        std::fs::write(sync_state::sync_config_path(&state.data_dir), "config").unwrap();
+        std::fs::write(sync_state::base_snapshot_path(&state.data_dir), "base").unwrap();
+        std::fs::write(
+            sync_state::pending_conflicts_path(&state.data_dir),
+            "pending",
+        )
+        .unwrap();
+        let sync_guard = sync_state::acquire_sync_lock(&state.data_dir).unwrap();
+
+        let reset_response = build_app_router(state.clone())
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/api/reset")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(reset_response.status(), StatusCode::CONFLICT);
+
+        let import_error = import_full_backup_handler(
+            State(state.clone()),
+            file_multipart("backup.zip", "application/zip", b"not opened").await,
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(import_error, AppError::Conflict(_)));
+
+        let conn = state.conn.lock().await;
+        assert_eq!(db::get_all_media(&conn).unwrap().len(), 1);
+        drop(conn);
+        assert!(state.data_dir.join("kechimochi_user.db").exists());
+        assert!(sync_state::sync_config_path(&state.data_dir).exists());
+        assert!(sync_state::base_snapshot_path(&state.data_dir).exists());
+        assert!(sync_state::pending_conflicts_path(&state.data_dir).exists());
+
+        drop(sync_guard);
+        drop(state);
+        let _ = std::fs::remove_dir_all(state_dir);
+    }
+
+    #[tokio::test]
+    async fn full_backup_import_clears_the_previous_sync_runtime() {
+        let source_dir = unique_data_dir();
+        std::fs::create_dir_all(&source_dir).unwrap();
+        let source_conn = db::init_db(source_dir.clone(), None).unwrap();
+        db::add_media_with_id(&source_conn, &sample_media("Imported")).unwrap();
+        let backup_path = source_dir.join("full-backup.zip");
+        kechimochi_lib::backup::export_full_backup_internal(
+            &source_dir,
+            &source_conn,
+            backup_path.to_str().unwrap(),
+            r#"{"restored":true}"#,
+            "test",
+        )
+        .unwrap();
+
+        let state = setup_disk_state();
+        let state_dir = state.data_dir.clone();
+        sync_state::ensure_sync_dir(&state.data_dir).unwrap();
+        std::fs::write(sync_state::sync_config_path(&state.data_dir), "config").unwrap();
+        std::fs::write(sync_state::base_snapshot_path(&state.data_dir), "base").unwrap();
+        std::fs::write(
+            sync_state::pending_conflicts_path(&state.data_dir),
+            "pending",
+        )
+        .unwrap();
+        let backup_bytes = std::fs::read(&backup_path).unwrap();
+
+        let Json(result) = import_full_backup_handler(
+            State(state.clone()),
+            file_multipart("backup.zip", "application/zip", &backup_bytes).await,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result["localStorage"], r#"{"restored":true}"#);
+        let conn = state.conn.lock().await;
+        let media = db::get_all_media(&conn).unwrap();
+        drop(conn);
+        assert_eq!(media.len(), 1);
+        assert_eq!(media[0].title, "Imported");
+        assert!(!sync_state::sync_config_path(&state.data_dir).exists());
+        assert!(!sync_state::base_snapshot_path(&state.data_dir).exists());
+        assert!(!sync_state::pending_conflicts_path(&state.data_dir).exists());
+
+        drop(state);
+        let _ = std::fs::remove_dir_all(state_dir);
+        let _ = std::fs::remove_dir_all(source_dir);
     }
 
     #[tokio::test]

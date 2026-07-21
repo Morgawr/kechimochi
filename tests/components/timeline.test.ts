@@ -61,6 +61,7 @@ describe('TimelineView', () => {
         date: '2024-03-15',
         mediaId: 1,
         mediaTitle: 'Novel A',
+        mediaVariant: '',
         coverImage: '',
         activityType: 'Reading',
         contentType: 'Novel',
@@ -197,7 +198,7 @@ describe('TimelineView', () => {
         view.render();
 
         await vi.waitFor(() => expect(container.querySelector('#timeline-root')).not.toBeNull());
-        await vi.waitFor(() => expect(container.querySelectorAll('.timeline-entry').length).toBe(5));
+        await vi.waitFor(() => expect(container.querySelectorAll('.timeline-entry')).toHaveLength(5));
 
         const monthLabels = Array.from(container.querySelectorAll('.timeline-month-label')).map(node => node.textContent?.trim());
         expect(monthLabels).toEqual([
@@ -219,6 +220,31 @@ describe('TimelineView', () => {
         expect(normalizedText()).not.toContain('300 Minutes');
         expect(container.querySelector('.timeline-summary-strip')).not.toBeNull();
         expect(container.querySelector('.timeline-hero-card')).toBeNull();
+    });
+
+    it('disambiguates same-title variants while leaving unique titles concise', async () => {
+        vi.mocked(api.getTimelineEvents).mockResolvedValue([
+            createEvent({ mediaId: 10, mediaTitle: 'Horimiya', mediaVariant: 'Manga' }),
+            createEvent({ mediaId: 11, mediaTitle: 'Horimiya', mediaVariant: 'Anime' }),
+            createEvent({ mediaId: 12, mediaTitle: 'Unique title', mediaVariant: 'Light Novel' }),
+        ]);
+
+        const view = new TimelineView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelectorAll('.timeline-media-link')).toHaveLength(3));
+        const labels = Array.from(container.querySelectorAll('.timeline-media-link')).map(link => link.textContent?.trim());
+        expect(labels).toEqual([
+            'Horimiya — Manga',
+            'Horimiya — Anime',
+            'Unique title',
+        ]);
+
+        const searchInput = container.querySelector('#timeline-search') as HTMLInputElement;
+        searchInput.value = 'anime';
+        searchInput.dispatchEvent(new Event('input'));
+        await vi.waitFor(() => expect(container.querySelectorAll('.timeline-entry')).toHaveLength(1));
+        expect(normalizedText()).toContain('Horimiya — Anime');
     });
 
     it('renders loading, empty, and failed-fetch states', async () => {
@@ -255,17 +281,17 @@ describe('TimelineView', () => {
         const view = new TimelineView(container);
         view.render();
 
-        await vi.waitFor(() => expect(container.querySelectorAll('.timeline-entry').length).toBe(5));
+        await vi.waitFor(() => expect(container.querySelectorAll('.timeline-entry')).toHaveLength(5));
 
         const yearFilter = container.querySelector('#timeline-year-filter') as HTMLSelectElement;
         yearFilter.value = '2024';
         yearFilter.dispatchEvent(new Event('change'));
-        await vi.waitFor(() => expect(container.querySelectorAll('.timeline-entry').length).toBe(5));
+        await vi.waitFor(() => expect(container.querySelectorAll('.timeline-entry')).toHaveLength(5));
 
         const kindFilter = container.querySelector('#timeline-kind-filter') as HTMLSelectElement;
         kindFilter.value = 'paused';
         kindFilter.dispatchEvent(new Event('change'));
-        await vi.waitFor(() => expect(container.querySelectorAll('.timeline-entry').length).toBe(1));
+        await vi.waitFor(() => expect(container.querySelectorAll('.timeline-entry')).toHaveLength(1));
         expect(normalizedText()).toContain('Put Game B on pause');
 
         const searchInput = container.querySelector('#timeline-search') as HTMLInputElement;
@@ -281,6 +307,7 @@ describe('TimelineView', () => {
                 date: '2024-04-01',
                 mediaId: 9,
                 mediaTitle: 'One Day Book',
+                mediaVariant: '',
                 coverImage: '',
                 activityType: 'Reading',
                 contentType: 'Novel',
@@ -299,7 +326,7 @@ describe('TimelineView', () => {
         const view = new TimelineView(container);
         view.render();
 
-        await vi.waitFor(() => expect(container.querySelectorAll('.timeline-entry').length).toBe(1));
+        await vi.waitFor(() => expect(container.querySelectorAll('.timeline-entry')).toHaveLength(1));
         expect(normalizedText()).toContain('Read One Day Book');
         expect(normalizedText()).not.toContain('Finished One Day Book');
         expect(normalizedText()).not.toContain('Started reading One Day Book');
@@ -587,7 +614,7 @@ describe('TimelineView', () => {
         const view = new TimelineView(container);
         view.render();
 
-        await vi.waitFor(() => expect(container.querySelectorAll('.timeline-entry').length).toBe(5));
+        await vi.waitFor(() => expect(container.querySelectorAll('.timeline-entry')).toHaveLength(5));
         const wave = container.querySelector('.timeline-wave') as SVGSVGElement;
         expect(wave.innerHTML).toBe('');
     });

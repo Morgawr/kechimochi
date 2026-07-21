@@ -49,6 +49,21 @@ export class MediaDetail extends Component<MediaDetailState> {
         globalThis.dispatchEvent(new CustomEvent(EVENTS.LOCAL_DATA_CHANGED));
     }
 
+    private requireMediaUid(): string {
+        const mediaUid = this.state.media.uid?.trim();
+        if (!mediaUid) {
+            throw new Error('Media UID is unavailable. Reload the media library and try again.');
+        }
+        return mediaUid;
+    }
+
+    private hasMediaIdentityCollision(title: string, variant: string): boolean {
+        return this.mediaList.some(media =>
+            media.id !== this.state.media.id
+            && media.title === title
+            && (media.variant || '') === variant);
+    }
+
     private async persistMediaChanges() {
         await updateMedia(this.state.media);
         this.notifyLocalDataChanged();
@@ -100,7 +115,7 @@ export class MediaDetail extends Component<MediaDetailState> {
 
     private async loadMilestones() {
         try {
-            const milestones = await getMilestones(this.state.media.title);
+            const milestones = await getMilestones(this.requireMediaUid());
             if (!this.isDestroyed) {
                 this.setState({ milestones });
             }
@@ -259,8 +274,8 @@ export class MediaDetail extends Component<MediaDetailState> {
                         </svg>
                     </button>
                 </div>
-                <select class="badge badge-select media-detail-control" id="media-type" title="Default activity type">
-                    ${ACTIVITY_TYPES.map(opt => `<option value="${opt}" ${opt === media.media_type ? 'selected' : ''}>${opt}</option>`).join('')}
+                <select class="badge badge-select media-detail-control" id="default-activity-type" title="Default activity type">
+                    ${ACTIVITY_TYPES.map(opt => `<option value="${opt}" ${opt === media.default_activity_type ? 'selected' : ''}>${opt}</option>`).join('')}
                 </select>
                 <select class="badge badge-select badge-content media-detail-control" id="media-content-type" title="Content type">
                     ${this.getContentTypeOptions(media)}
@@ -696,10 +711,10 @@ export class MediaDetail extends Component<MediaDetailState> {
         // Determine verb from the most common activity type across logs
         const typeCounts = new Map<string, number>();
         for (const log of logs) {
-            const t = log.media_type || media.media_type;
+            const t = log.activity_type || media.default_activity_type;
             typeCounts.set(t, (typeCounts.get(t) || 0) + 1);
         }
-        let dominantType = media.media_type;
+        let dominantType = media.default_activity_type;
         let maxCount = 0;
         for (const [t, c] of typeCounts) {
             if (c > maxCount) { dominantType = t; maxCount = c; }
@@ -715,7 +730,7 @@ export class MediaDetail extends Component<MediaDetailState> {
         const isReadingType = ["Novel", "Visual Novel", "Manga", "WebNovel", "NonFiction"].includes(media.content_type || "");
         // For reading speed, only use time from logs tagged as Reading
         const readingMin = isReadingType
-            ? logs.filter(l => (l.media_type || media.media_type) === 'Reading').reduce((acc, l) => acc + l.duration_minutes, 0)
+            ? logs.filter(l => (l.activity_type || media.default_activity_type) === 'Reading').reduce((acc, l) => acc + l.duration_minutes, 0)
             : 0;
         const readingSpeedHtml = isReadingType && readingMin > 0 ? await this.computeReadingSpeedHtml(media, readingMin) : "";
 
@@ -744,13 +759,42 @@ export class MediaDetail extends Component<MediaDetailState> {
         });
 
         const onSave = async (field: string, value: string, isExtra: boolean = false) => {
+            const previousMedia = { ...this.state.media };
+            if (field === 'title' && !value) {
+                this.render();
+                await customAlert('Unable to Rename Media', 'Media title cannot be empty.');
+                return;
+            }
+
+            const nextTitle = field === 'title' ? value : this.state.media.title;
+            const nextVariant = field === 'variant' ? value : (this.state.media.variant || '');
+            if (!isExtra && (field === 'title' || field === 'variant') && this.hasMediaIdentityCollision(nextTitle, nextVariant)) {
+                this.render();
+                const variantDescription = nextVariant ? ` with variant "${nextVariant}"` : ' with no variant';
+                await customAlert(
+                    'Media Already Exists',
+                    `Another media entry already uses "${nextTitle}"${variantDescription}. Choose a different title or variant.`
+                );
+                return;
+            }
+
             if (isExtra) {
                 const extraData = normalizeExtraData(JSON.parse(this.state.media.extra_data || "{}"));
                 this.state.media.extra_data = JSON.stringify(upsertExtraDataValue(extraData, field, value));
             } else {
                 (this.state.media as unknown as Record<string, unknown>)[field] = value;
             }
-            await this.persistMediaChanges();
+            try {
+                await this.persistMediaChanges();
+            } catch (error) {
+                // The detail state and media-list entry normally share the same object.
+                // Restore that object in place so a rejected database update cannot leave
+                // stale identity data behind in library navigation.
+                Object.assign(this.state.media, previousMedia);
+                this.render();
+                Logger.error('Failed to update media', error);
+                await customAlert('Unable to Save Media', `The media entry was not changed: ${error}`);
+            }
         };
 
         const onRenameKey = async (oldKey: string, newKey: string) => {
@@ -846,8 +890,8 @@ export class MediaDetail extends Component<MediaDetailState> {
             await this.persistMediaChanges();
         });
 
-        root.querySelector('#media-type')?.addEventListener('change', async (e) => {
-            this.state.media.media_type = (e.target as HTMLSelectElement).value;
+        root.querySelector('#default-activity-type')?.addEventListener('change', async (e) => {
+            this.state.media.default_activity_type = (e.target as HTMLSelectElement).value;
             await this.persistMediaChanges();
         });
 
@@ -927,18 +971,18 @@ export class MediaDetail extends Component<MediaDetailState> {
         root.querySelector('#btn-add-milestone')?.addEventListener('click', async () => {
             const currentDuration = this.state.logs.reduce((acc, log) => acc + log.duration_minutes, 0);
             const currentCharacters = this.state.logs.reduce((acc, log) => acc + log.characters, 0);
-            const milestone = await showAddMilestoneModal(this.state.media.title, {
-                duration: currentDuration,
-                characters: currentCharacters
-            });
-            if (milestone) {
-                try {
+            try {
+                const milestone = await showAddMilestoneModal(this.state.media.title, this.requireMediaUid(), {
+                    duration: currentDuration,
+                    characters: currentCharacters
+                });
+                if (milestone) {
                     await addMilestone(milestone);
                     await this.loadMilestones();
                     this.render();
-                } catch (e) {
-                    await customAlert("Error", "Failed to add milestone: " + e);
                 }
+            } catch (e) {
+                await customAlert("Error", "Failed to add milestone: " + e);
             }
         });
 
@@ -948,9 +992,9 @@ export class MediaDetail extends Component<MediaDetailState> {
                 const existingMilestone = this.state.milestones.find(m => m.id === id);
                 if (!existingMilestone) return;
 
-                const updatedMilestone = await showAddMilestoneModal(this.state.media.title, existingMilestone);
-                if (!updatedMilestone) return;
                 try {
+                    const updatedMilestone = await showAddMilestoneModal(this.state.media.title, this.requireMediaUid(), existingMilestone);
+                    if (!updatedMilestone) return;
                     await updateMilestone(updatedMilestone);
                     await this.loadMilestones();
                     this.render();
@@ -965,7 +1009,7 @@ export class MediaDetail extends Component<MediaDetailState> {
             const ok = await customConfirm("Delete all milestones", `Are you sure you want to permanently delete all milestones for "${this.state.media.title}"?`, "btn-danger", "Delete All");
             if (ok) {
                 try {
-                    await clearMilestones(this.state.media.title);
+                    await clearMilestones(this.requireMediaUid());
                     await this.loadMilestones();
                     this.render();
                 } catch (e) {
@@ -990,7 +1034,7 @@ export class MediaDetail extends Component<MediaDetailState> {
         });
 
         root.querySelector('#btn-new-media-entry')?.addEventListener('click', async () => {
-            const success = await showLogActivityModal(this.state.media.title);
+            const success = await showLogActivityModal(this.state.media.id);
             if (success) {
                 const logs = await getLogsForMedia(this.state.media.id!);
                 this.setState({ logs });
@@ -1057,7 +1101,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                 this.state.media.content_type = meta.contentType;
                 const activityType = CONTENT_TYPE_TO_ACTIVITY_TYPE[meta.contentType];
                 if (activityType) {
-                    this.state.media.media_type = activityType;
+                    this.state.media.default_activity_type = activityType;
                 }
             }
 

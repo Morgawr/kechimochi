@@ -286,6 +286,57 @@ describe('Responsive Styling CUJ', () => {
     expect(await gridToggle.getAttribute('aria-pressed')).toBe('true');
   });
 
+  it('should show more library covers when the grid is zoomed out', async () => {
+    await browser.setWindowSize(1280, 1200);
+    await navigateTo('media');
+    expect(await verifyActiveView('media')).toBe(true);
+    await setLibraryLayout('grid');
+
+    const resetZoom = $('#btn-grid-zoom-reset');
+    await resetZoom.waitForDisplayed({ timeout: 10000 });
+    await resetZoom.click();
+    await waitForSelectorDisplayed('.media-grid-item', 10000);
+
+    const readGridMetrics = async () => browser.execute(() => {
+      const grid = document.getElementById('media-grid-container');
+      const firstItem = document.querySelector<HTMLElement>('.media-grid-item');
+      const zoomValue = document.getElementById('btn-grid-zoom-reset');
+      if (!grid || !firstItem || !zoomValue) {
+        return { cardWidth: 0, columnCount: 0, zoomValue: null };
+      }
+
+      return {
+        cardWidth: firstItem.getBoundingClientRect().width,
+        columnCount: getComputedStyle(grid).gridTemplateColumns.split(' ').filter(Boolean).length,
+        zoomValue: zoomValue.textContent,
+      };
+    });
+
+    await browser.waitUntil(async () => (await readGridMetrics()).zoomValue === '100%', {
+      timeout: 3000,
+      timeoutMsg: 'Library grid zoom did not reset to 100%',
+    });
+    const normalGrid = await readGridMetrics();
+
+    for (const expectedZoom of ['90%', '80%', '70%']) {
+      await $('#btn-grid-zoom-out').click();
+      await browser.waitUntil(async () => (await readGridMetrics()).zoomValue === expectedZoom, {
+        timeout: 3000,
+        timeoutMsg: `Library grid zoom did not reach ${expectedZoom}`,
+      });
+    }
+
+    const compactGrid = await readGridMetrics();
+    expect(compactGrid.cardWidth).toBeLessThan(normalGrid.cardWidth);
+    expect(compactGrid.columnCount).toBeGreaterThan(normalGrid.columnCount);
+
+    await $('#btn-grid-zoom-reset').click();
+    await browser.waitUntil(async () => (await readGridMetrics()).zoomValue === '100%', {
+      timeout: 3000,
+      timeoutMsg: 'Library grid zoom did not return to 100%',
+    });
+  });
+
   it('should apply mobile media-detail layout structure and style hooks', async () => {
     await navigateTo('media');
     expect(await verifyActiveView('media')).toBe(true);

@@ -38,7 +38,7 @@ describe('MediaLog', () => {
             id: 1,
             title: 'Test Media',
             media_id: 1,
-            media_type: 'Reading',
+            activity_type: 'Reading',
             language: 'Japanese',
             date: '2024-03-01',
             duration_minutes: 30,
@@ -57,7 +57,7 @@ describe('MediaLog', () => {
         (container.querySelector('.edit-log-btn') as HTMLButtonElement).click();
 
         await vi.waitFor(() => {
-            expect(showLogActivityModal).toHaveBeenCalledWith('Test Media', logs[0]);
+            expect(showLogActivityModal).toHaveBeenCalledWith(logs[0].media_id, logs[0]);
             expect(dispatchSpy).toHaveBeenCalled();
         });
     });
@@ -71,7 +71,7 @@ describe('MediaLog', () => {
             id: 5,
             title: 'Delete Me',
             media_id: 1,
-            media_type: 'Reading',
+            activity_type: 'Reading',
             language: 'Japanese',
             date: '2024-03-01',
             duration_minutes: 0,
@@ -95,7 +95,7 @@ describe('MediaLog', () => {
             id: 7,
             title: 'Keep Me',
             media_id: 1,
-            media_type: 'Reading',
+            activity_type: 'Reading',
             language: 'Japanese',
             date: '2024-03-01',
             duration_minutes: 12,

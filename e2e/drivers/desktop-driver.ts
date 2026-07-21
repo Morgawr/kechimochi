@@ -19,6 +19,7 @@ export const TAURI_DRIVER_BASE_PORT = 4444;
 
 /** Base port for the native WebDriver (WebKit/Edge) instances.  Worker N uses 5555+N. */
 export const NATIVE_DRIVER_BASE_PORT = 5555;
+const WINDOW_STATE_SPEC = 'desktop-restart-persistence';
 
 // ── Internal process state ─────────────────────────────────────────────────
 // Each desktop-driver instance owns one child process.
@@ -97,9 +98,10 @@ export const desktopDriver: PlatformDriver = {
       tauriDriverArgs.push('--native-driver', nativeDriverPath);
     }
 
+    const windowManagementEnabled = specName === WINDOW_STATE_SPEC;
     const driverEnv = {
       ...process.env,
-      KECHIMOCHI_DISABLE_WINDOW_MANAGEMENT: '1',
+      ...(windowManagementEnabled ? {} : { KECHIMOCHI_DISABLE_WINDOW_MANAGEMENT: '1' }),
       RUST_LOG: 'debug',
       TAURI_DEBUG: '1',
     };
@@ -109,6 +111,10 @@ export const desktopDriver: PlatformDriver = {
       // capability environment is applied. Set these on tauri-driver so the
       // native driver, app, and WebKit child processes all inherit them.
       driverEnv.XDG_DATA_HOME = path.join(testDirectory, 'xdg-data');
+      driverEnv.XDG_CONFIG_HOME = path.join(testDirectory, 'xdg-config');
+    } else if (process.platform === 'win32' && testDirectory) {
+      driverEnv.APPDATA = path.join(testDirectory, 'appdata');
+      driverEnv.LOCALAPPDATA = path.join(testDirectory, 'local-appdata');
     }
 
     tauriDriverProcess = spawn(
@@ -171,9 +177,10 @@ export const desktopDriver: PlatformDriver = {
     const tauriOptions = caps['tauri:options'] as Record<string, unknown> | undefined;
     if (tauriOptions) {
       const existing = (tauriOptions['envs'] as Record<string, string> | undefined) ?? {};
+      const windowManagementEnabled = process.env.SPEC_NAME === WINDOW_STATE_SPEC;
       const isolatedDesktopEnv = {
         ...env,
-        KECHIMOCHI_DISABLE_WINDOW_MANAGEMENT: '1',
+        ...(windowManagementEnabled ? {} : { KECHIMOCHI_DISABLE_WINDOW_MANAGEMENT: '1' }),
       };
 
       // WebKitGTK stores localStorage below XDG_DATA_HOME, independently from
@@ -182,6 +189,10 @@ export const desktopDriver: PlatformDriver = {
       // race even though their SQLite databases are isolated.
       if (process.platform === 'linux' && env.KECHIMOCHI_DATA_DIR) {
         isolatedDesktopEnv.XDG_DATA_HOME = path.join(env.KECHIMOCHI_DATA_DIR, 'xdg-data');
+        isolatedDesktopEnv.XDG_CONFIG_HOME = path.join(env.KECHIMOCHI_DATA_DIR, 'xdg-config');
+      } else if (process.platform === 'win32' && env.KECHIMOCHI_DATA_DIR) {
+        isolatedDesktopEnv.APPDATA = path.join(env.KECHIMOCHI_DATA_DIR, 'appdata');
+        isolatedDesktopEnv.LOCALAPPDATA = path.join(env.KECHIMOCHI_DATA_DIR, 'local-appdata');
       }
 
       tauriOptions['envs'] = { ...existing, ...isolatedDesktopEnv };

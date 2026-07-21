@@ -49,7 +49,10 @@ jobs:
           cache: 'npm'
 
       - name: install node dependencies
-        run: npm ci
+        run: |
+          npm ci --ignore-scripts
+          # better-sqlite3 is the only install script required by this job.
+          npm rebuild better-sqlite3
 
       - name: install rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
@@ -70,6 +73,8 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             xvfb \
+            openbox \
+            wmctrl \
             webkit2gtk-driver \
             fonts-noto-cjk
 
@@ -80,7 +85,7 @@ jobs:
           fi
 
       - name: typescript check
-        run: npx tsc --noEmit
+        run: npm run typecheck
 
       - name: frontend lint check
         run: npm run lint
@@ -131,7 +136,19 @@ jobs:
       - name: run desktop e2e tests
         env:
           E2E_MAX_INSTANCES: 2
-        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" npm run e2e:test:desktop
+        run: |
+          # Xvfb provides a display server, but native maximize/restore needs a window manager.
+          xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" bash -c '
+            openbox >/tmp/openbox.log 2>&1 &
+            for _ in {1..50}; do
+              if wmctrl -m >/dev/null 2>&1; then
+                exec npm run e2e:test:desktop
+              fi
+              sleep 0.1
+            done
+            cat /tmp/openbox.log
+            exit 1
+          '
 
       - name: upload e2e logs
         if: failure()
@@ -153,7 +170,10 @@ jobs:
           cache: 'npm'
 
       - name: install node dependencies
-        run: npm ci
+        run: |
+          npm ci --ignore-scripts
+          # The fixture seeder imports better-sqlite3.
+          npm rebuild better-sqlite3
 
       - name: install rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
@@ -182,7 +202,7 @@ jobs:
         run: npm run web:build
 
       - name: build web_server binary
-        run: cargo build --manifest-path src-tauri/Cargo.toml --bin web_server
+        run: cargo build --locked --manifest-path src-tauri/Cargo.toml --bin web_server
 
       - name: run web e2e tests
         run: npm run e2e:test:web

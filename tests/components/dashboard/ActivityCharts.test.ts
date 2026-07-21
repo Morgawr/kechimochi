@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ActivityCharts } from '../../../src/dashboard/ActivityCharts';
-import { ActivitySummary } from '../../../src/api';
+import { ActivitySummary, Media } from '../../../src/api';
 import Chart from 'chart.js/auto';
 
 vi.mock('chart.js/auto', () => ({
@@ -23,7 +23,7 @@ describe('ActivityCharts', () => {
     it('should render chart canvases and UI controls', () => {
         const component = new ActivityCharts(
             container,
-            { logs: [], timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'media_type', chartType: 'bar', metric: 'minutes' },
+            { logs: [], timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'activity_type', chartType: 'bar', metric: 'minutes' },
             onParamChange
         );
         component.render();
@@ -45,7 +45,7 @@ describe('ActivityCharts', () => {
     it('should trigger param change on UI interaction', () => {
         const component = new ActivityCharts(
             container,
-            { logs: [], timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'media_type', chartType: 'bar', metric: 'minutes' },
+            { logs: [], timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'activity_type', chartType: 'bar', metric: 'minutes' },
             onParamChange
         );
         component.render();
@@ -60,7 +60,7 @@ describe('ActivityCharts', () => {
     it('should handle navigation buttons', () => {
         const component = new ActivityCharts(
             container,
-            { logs: [], timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'media_type', chartType: 'bar', metric: 'minutes' },
+            { logs: [], timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'activity_type', chartType: 'bar', metric: 'minutes' },
             onParamChange
         );
         component.render();
@@ -72,7 +72,7 @@ describe('ActivityCharts', () => {
     it('should destroy chart instances on destroy', () => {
         const component = new ActivityCharts(
             container,
-            { logs: [], timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'media_type', chartType: 'bar', metric: 'minutes' },
+            { logs: [], timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'activity_type', chartType: 'bar', metric: 'minutes' },
             onParamChange
         );
         component.render();
@@ -87,7 +87,7 @@ describe('ActivityCharts', () => {
         // 30 days
         let component = new ActivityCharts(
             container,
-            { logs: [{ date: '2024-01-01', duration_minutes: 10, title: 'T', media_id: 1, media_type: 'M', language: 'Japanese' } as unknown as ActivitySummary], timeRangeDays: 30, timeRangeOffset: 0, groupByMode: 'media_type', chartType: 'bar', metric: 'minutes' },
+            { logs: [{ date: '2024-01-01', duration_minutes: 10, title: 'T', media_id: 1, activity_type: 'M', language: 'Japanese' } as unknown as ActivitySummary], timeRangeDays: 30, timeRangeOffset: 0, groupByMode: 'activity_type', chartType: 'bar', metric: 'minutes' },
             onParamChange
         );
         component.render();
@@ -97,7 +97,7 @@ describe('ActivityCharts', () => {
         vi.clearAllMocks();
         component = new ActivityCharts(
             container,
-            { logs: [{ date: '2024-01-01', duration_minutes: 10, title: 'T', media_id: 1, media_type: 'M', language: 'Japanese' } as unknown as ActivitySummary], timeRangeDays: 365, timeRangeOffset: 0, groupByMode: 'media_type', chartType: 'bar', metric: 'minutes' },
+            { logs: [{ date: '2024-01-01', duration_minutes: 10, title: 'T', media_id: 1, activity_type: 'M', language: 'Japanese' } as unknown as ActivitySummary], timeRangeDays: 365, timeRangeOffset: 0, groupByMode: 'activity_type', chartType: 'bar', metric: 'minutes' },
             onParamChange
         );
         component.render();
@@ -110,7 +110,7 @@ describe('ActivityCharts', () => {
 
         const component = new ActivityCharts(
             container,
-            { logs: [], timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'media_type', chartType: 'bar', metric: 'minutes' },
+            { logs: [], timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'activity_type', chartType: 'bar', metric: 'minutes' },
             onParamChange
         );
         component.render();
@@ -136,13 +136,13 @@ describe('ActivityCharts', () => {
             container,
             {
                 logs: [
-                    { date: '2026-06-01', duration_minutes: 15, title: 'Novel', media_id: 1, media_type: 'Reading', language: 'Japanese' } as unknown as ActivitySummary,
-                    { date: '2026-06-08', duration_minutes: 30, title: 'Novel', media_id: 1, media_type: 'Reading', language: 'Japanese' } as unknown as ActivitySummary,
-                    { date: '2026-06-30', duration_minutes: 45, title: 'Novel', media_id: 1, media_type: 'Reading', language: 'Japanese' } as unknown as ActivitySummary,
+                    { date: '2026-06-01', duration_minutes: 15, title: 'Novel', media_id: 1, activity_type: 'Reading', language: 'Japanese' } as unknown as ActivitySummary,
+                    { date: '2026-06-08', duration_minutes: 30, title: 'Novel', media_id: 1, activity_type: 'Reading', language: 'Japanese' } as unknown as ActivitySummary,
+                    { date: '2026-06-30', duration_minutes: 45, title: 'Novel', media_id: 1, activity_type: 'Reading', language: 'Japanese' } as unknown as ActivitySummary,
                 ],
                 timeRangeDays: 30,
                 timeRangeOffset: 0,
-                groupByMode: 'media_type',
+                groupByMode: 'activity_type',
                 chartType: 'bar',
                 metric: 'minutes',
             },
@@ -169,12 +169,12 @@ describe('ActivityCharts', () => {
             container,
             {
                 logs: [
-                    { date: '2026-04-28', duration_minutes: 1200, title: 'Week 1', media_id: 1, media_type: 'Reading', language: 'Japanese' } as unknown as ActivitySummary,
-                    { date: '2026-05-05', duration_minutes: 1800, title: 'Week 2', media_id: 2, media_type: 'Reading', language: 'Japanese' } as unknown as ActivitySummary
+                    { date: '2026-04-28', duration_minutes: 1200, title: 'Week 1', media_id: 1, activity_type: 'Reading', language: 'Japanese' } as unknown as ActivitySummary,
+                    { date: '2026-05-05', duration_minutes: 1800, title: 'Week 2', media_id: 2, activity_type: 'Reading', language: 'Japanese' } as unknown as ActivitySummary
                 ],
                 timeRangeDays: 7,
                 timeRangeOffset: 1,
-                groupByMode: 'media_type',
+                groupByMode: 'activity_type',
                 chartType: 'bar',
                 metric: 'minutes'
             },
@@ -193,17 +193,55 @@ describe('ActivityCharts', () => {
     it('should handle alternative grouping modes', () => {
         const component = new ActivityCharts(
             container,
-            { logs: [{ date: '2024-01-01', duration_minutes: 10, title: 'T', media_id: 1, media_type: 'M', language: 'Japanese' } as unknown as ActivitySummary], timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'log_name', chartType: 'line', metric: 'minutes' },
+            { logs: [{ date: '2024-01-01', duration_minutes: 10, title: 'T', media_id: 1, activity_type: 'M', language: 'Japanese' } as unknown as ActivitySummary], timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'log_name', chartType: 'line', metric: 'minutes' },
             onParamChange
         );
         component.render();
         expect(Chart).toHaveBeenCalled();
     });
 
+    it('keeps same-title media variants separate when grouping by name', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-06-10T12:00:00'));
+
+        const logs = [
+            { date: '2026-06-08', duration_minutes: 10, title: 'Horimiya', media_id: 1, activity_type: 'Reading', language: 'Japanese' },
+            { date: '2026-06-09', duration_minutes: 20, title: 'Horimiya', media_id: 2, activity_type: 'Watching', language: 'Japanese' },
+            { date: '2026-06-10', duration_minutes: 5, title: 'Unique title', media_id: 3, activity_type: 'Reading', language: 'Japanese' },
+        ] as ActivitySummary[];
+        const mediaList = [
+            { id: 1, title: 'Horimiya', variant: 'Manga' },
+            { id: 2, title: 'Horimiya', variant: 'Anime' },
+            { id: 3, title: 'Unique title', variant: 'Novel' },
+        ] as Media[];
+        const component = new ActivityCharts(
+            container,
+            { logs, mediaList, timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'log_name', chartType: 'bar', metric: 'minutes' },
+            onParamChange,
+        );
+
+        component.render();
+
+        const pieChartConfig = vi.mocked(Chart).mock.calls[0][1];
+        const barChartConfig = vi.mocked(Chart).mock.calls[1][1];
+        expect(pieChartConfig.data.labels).toEqual([
+            'Horimiya — Anime',
+            'Horimiya — Manga',
+            'Unique title',
+        ]);
+        expect(pieChartConfig.data.datasets[0].data).toEqual([20, 10, 5]);
+        expect(barChartConfig.data.datasets.map(dataset => dataset.label)).toEqual([
+            'Horimiya — Anime',
+            'Horimiya — Manga',
+            'Unique title',
+        ]);
+        expect(barChartConfig.data.datasets.map(dataset => dataset.data.reduce((sum, value) => sum + value, 0))).toEqual([20, 10, 5]);
+    });
+
     it('should trigger param change on metric toggle', () => {
         const component = new ActivityCharts(
             container,
-            { logs: [], timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'media_type', chartType: 'bar', metric: 'minutes' },
+            { logs: [], timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'activity_type', chartType: 'bar', metric: 'minutes' },
             onParamChange
         );
         component.render();

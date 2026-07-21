@@ -68,7 +68,7 @@ describe('WebServices', () => {
     const sampleMedia: Media = {
         id: 42,
         title: 'Example',
-        media_type: 'Book',
+        default_activity_type: 'Book',
         status: 'reading',
         language: 'Japanese',
         description: '',
@@ -88,6 +88,7 @@ describe('WebServices', () => {
 
     const sampleMilestone: Milestone = {
         id: 5,
+        media_uid: 'uid-example',
         media_title: 'Example',
         name: 'Chapter 1',
         duration: 30,
@@ -196,8 +197,15 @@ describe('WebServices', () => {
         globals.__APP_BUILD_CHANNEL__ = 'release';
 
         await expect(services.getAppVersion()).resolves.toBe('1.2.3');
-        await expect(services.getStartupError()).resolves.toBeNull();
         expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('loads startup lock failures from the web server', async () => {
+        const startupError = 'Unable to obtain unique lock. Some other process is already running Kechimochi (pid=4242).';
+        fetchMock.mockResolvedValue(okJson(startupError));
+
+        await expect(services.getStartupError()).resolves.toBe(startupError);
+        expect(fetchMock).toHaveBeenCalledWith('/api/startup-error');
     });
 
     it('exports activities with query params and triggers a download', async () => {
@@ -244,7 +252,7 @@ describe('WebServices', () => {
         const records: MediaCsvRow[] = [{
             Title: 'Example',
             Variant: 'Manga',
-            'Media Type': 'Book',
+            'Default Activity Type': 'Book',
             Status: 'reading',
             Language: 'Japanese',
             Description: '',
@@ -357,16 +365,16 @@ describe('WebServices', () => {
         expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/profile-picture', { method: 'DELETE' });
     });
 
-    it('manages milestones through media-title endpoints', async () => {
+    it('manages milestones through canonical media-UID endpoints', async () => {
         fetchMock.mockResolvedValue(okJson(null));
 
-        await services.getMilestones('Example Title');
+        await services.getMilestones('uid/example');
         await services.addMilestone(sampleMilestone);
         await services.updateMilestone(sampleMilestone);
         await services.deleteMilestone(5);
-        await services.clearMilestones('Example Title');
+        await services.clearMilestones('uid/example');
 
-        expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/milestones/media/Example%20Title');
+        expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/media/uid%2Fexample/milestones');
         expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/milestones', expect.objectContaining({
             method: 'POST',
             body: JSON.stringify(sampleMilestone),
@@ -376,7 +384,7 @@ describe('WebServices', () => {
             body: JSON.stringify(sampleMilestone),
         }));
         expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/milestones/5', { method: 'DELETE' });
-        expect(fetchMock).toHaveBeenNthCalledWith(5, '/api/milestones/media/Example%20Title', { method: 'DELETE' });
+        expect(fetchMock).toHaveBeenNthCalledWith(5, '/api/media/uid%2Fexample/milestones', { method: 'DELETE' });
     });
 
     it('uploads and downloads cover images through the API', async () => {
@@ -445,7 +453,7 @@ describe('WebServices', () => {
             services.replaceLocalFromRemote(),
             services.forcePublishLocalAsRemote(),
             services.getSyncConflicts(),
-            services.resolveSyncConflict(0, { kind: 'media_field', side: 'local' }),
+            services.resolveSyncConflict(0, 'conflict_0', { kind: 'media_field', side: 'local' }),
             services.clearSyncBackups(),
         ];
 

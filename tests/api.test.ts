@@ -112,8 +112,8 @@ describe('api.ts', () => {
 
   describe('milestone functions', () => {
     it('getMilestones should call invoke', async () => {
-      await api.getMilestones('T');
-      expect(invoke).toHaveBeenCalledWith('get_milestones', { mediaTitle: 'T' });
+      await api.getMilestones('uid-t');
+      expect(invoke).toHaveBeenCalledWith('get_milestones', { mediaUid: 'uid-t' });
     });
 
     it('addMilestone should call invoke', async () => {
@@ -134,8 +134,8 @@ describe('api.ts', () => {
     });
 
     it('clearMilestones should call invoke', async () => {
-      await api.clearMilestones('T');
-      expect(invoke).toHaveBeenCalledWith('delete_milestones_for_media', { mediaTitle: 'T' });
+      await api.clearMilestones('uid-t');
+      expect(invoke).toHaveBeenCalledWith('delete_milestones_for_media', { mediaUid: 'uid-t' });
     });
 
     it('exportMilestonesCsv should call invoke', async () => {
@@ -217,9 +217,10 @@ describe('api.ts', () => {
     });
 
     it('resolveSyncConflict should call invoke', async () => {
-      await api.resolveSyncConflict(2, { kind: 'media_field', side: 'remote' });
+      await api.resolveSyncConflict(2, 'conflict_2', { kind: 'media_field', side: 'remote' });
       expect(invoke).toHaveBeenCalledWith('resolve_sync_conflict', {
         conflictIndex: 2,
+        conflictToken: 'conflict_2',
         resolution: { kind: 'media_field', side: 'remote' },
       });
     });

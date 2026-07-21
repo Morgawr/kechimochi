@@ -116,6 +116,7 @@ describe('MediaView', () => {
         vi.mocked(api.getSetting).mockImplementation(async (key: string) => {
             if (key === SETTING_KEYS.GRID_HIDE_ARCHIVED) return 'true';
             if (key === SETTING_KEYS.LIBRARY_LAYOUT_MODE) return 'list';
+            if (key === SETTING_KEYS.LIBRARY_GRID_ZOOM) return '80';
             return null;
         });
 
@@ -128,8 +129,23 @@ describe('MediaView', () => {
             typeFilters: [],
             hideArchived: true,
             preferredLayout: 'list',
+            gridZoom: 80,
             isGridSupported: true,
         }));
+    });
+
+    it('uses the default grid zoom when the persisted value is malformed', async () => {
+        vi.mocked(api.getAllMedia).mockResolvedValue([]);
+        vi.mocked(api.getSetting).mockImplementation(async (key: string) => {
+            if (key === SETTING_KEYS.LIBRARY_GRID_ZOOM) return 'not-a-number';
+            return null;
+        });
+
+        const component = new MediaView(container);
+        await renderAndWaitForBrowser(component);
+
+        const browserProps = vi.mocked(MediaLibraryBrowser).mock.calls[0][1];
+        expect(browserProps).toEqual(expect.objectContaining({ gridZoom: 100 }));
     });
 
     it('supports missing matchMedia by treating grid as available', async () => {
@@ -341,7 +357,7 @@ describe('MediaView', () => {
             id: 1,
             media_id: 10,
             title: 'Old',
-            media_type: 'Reading',
+            activity_type: 'Reading',
             duration_minutes: 30,
             characters: 1000,
             date: '2026-01-01',
@@ -351,7 +367,7 @@ describe('MediaView', () => {
             id: 2,
             media_id: 20,
             title: 'New',
-            media_type: 'Reading',
+            activity_type: 'Reading',
             duration_minutes: 45,
             characters: 2000,
             date: '2026-01-02',
@@ -478,6 +494,19 @@ describe('MediaView', () => {
         expect(component.state.preferredLayout).toBe('list');
     });
 
+    it('stores the grid zoom when the user changes the cover size', async () => {
+        vi.mocked(api.getAllMedia).mockResolvedValue([]);
+        const component = new MediaView(container);
+        await renderAndWaitForBrowser(component);
+
+        const onGridZoomChange = vi.mocked(MediaLibraryBrowser).mock.calls[0][6];
+        onGridZoomChange(70);
+
+        expect(api.setSetting).toHaveBeenCalledWith(SETTING_KEYS.LIBRARY_GRID_ZOOM, '70');
+        // @ts-expect-error - accessing private state for assertions
+        expect(component.state.gridZoom).toBe(70);
+    });
+
     it('loads list metrics after switching from grid to list and aggregates first/last dates', async () => {
         vi.mocked(api.getAllMedia).mockResolvedValue([{ id: 7, title: 'Switched Item' }] as unknown as Media[]);
         vi.mocked(api.getLogs).mockResolvedValue([
@@ -485,7 +514,7 @@ describe('MediaView', () => {
                 id: 10,
                 media_id: 7,
                 title: 'Switched Item',
-                media_type: 'Playing',
+                activity_type: 'Playing',
                 duration_minutes: 95,
                 characters: 0,
                 date: '2026-03-18',
@@ -495,7 +524,7 @@ describe('MediaView', () => {
                 id: 11,
                 media_id: 7,
                 title: 'Switched Item',
-                media_type: 'Playing',
+                activity_type: 'Playing',
                 duration_minutes: 5,
                 characters: 0,
                 date: '2026-03-01',
@@ -505,7 +534,7 @@ describe('MediaView', () => {
                 id: 12,
                 media_id: 7,
                 title: 'Switched Item',
-                media_type: 'Playing',
+                activity_type: 'Playing',
                 duration_minutes: 15,
                 characters: 0,
                 date: '2026-03-05',
@@ -566,7 +595,7 @@ describe('MediaView', () => {
             id: 1,
             media_id: 1,
             title: 'Compact',
-            media_type: 'Watching',
+            activity_type: 'Watching',
             duration_minutes: 30,
             characters: 0,
             date: '2026-03-01',

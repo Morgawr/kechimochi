@@ -188,7 +188,7 @@ describe('DesktopServices', () => {
                 safety_backup_path: SAFE_BACKUP_PATH,
                 published_snapshot_id: 'snap_4',
             }))
-            .mockResolvedValueOnce([{ kind: 'media_field_conflict', media_uid: 'uid_1', field_name: 'title', base_value: null, local_value: 'A', remote_value: 'B' }])
+            .mockResolvedValueOnce([{ kind: 'media_field_conflict', conflict_token: 'conflict_0', media_uid: 'uid_1', field_name: 'title', base_value: null, local_value: 'A', remote_value: 'B' }])
             .mockResolvedValueOnce(buildSyncActionResult({
                 sync_status: { state: 'dirty', conflict_count: 0 },
             }));
@@ -203,8 +203,10 @@ describe('DesktopServices', () => {
         await expect(services.runSync()).resolves.toMatchObject({ published_snapshot_id: 'snap_3' });
         await expect(services.replaceLocalFromRemote()).resolves.toMatchObject({ safety_backup_path: SAFE_BACKUP_PATH });
         await expect(services.forcePublishLocalAsRemote()).resolves.toMatchObject({ published_snapshot_id: 'snap_4' });
-        await expect(services.getSyncConflicts()).resolves.toHaveLength(1);
-        await expect(services.resolveSyncConflict(0, { kind: 'media_field', side: 'local' })).resolves.toMatchObject({
+        await expect(services.getSyncConflicts()).resolves.toEqual([
+            expect.objectContaining({ conflict_token: 'conflict_0' }),
+        ]);
+        await expect(services.resolveSyncConflict(0, 'conflict_0', { kind: 'media_field', side: 'local' })).resolves.toMatchObject({
             sync_status: buildConnectedSyncStatus({ state: 'dirty', conflict_count: 0 }),
         });
 
@@ -221,6 +223,7 @@ describe('DesktopServices', () => {
         expect(invoke).toHaveBeenNthCalledWith(11, 'get_sync_conflicts');
         expect(invoke).toHaveBeenNthCalledWith(12, 'resolve_sync_conflict', {
             conflictIndex: 0,
+            conflictToken: 'conflict_0',
             resolution: { kind: 'media_field', side: 'local' },
         });
     });
@@ -236,15 +239,16 @@ describe('DesktopServices', () => {
         expect(result).toBe(unlisten);
     });
 
-    it('caches the current window for window control methods', () => {
+    it('caches the current window and saves state before closing it', async () => {
         services.minimizeWindow();
         services.maximizeWindow();
         services.closeWindow();
 
+        await vi.waitFor(() => expect(close).toHaveBeenCalled());
         expect(getCurrentWindow).toHaveBeenCalledTimes(1);
         expect(minimize).toHaveBeenCalled();
         expect(toggleMaximize).toHaveBeenCalled();
-        expect(close).toHaveBeenCalled();
+        expect(invoke).toHaveBeenCalledWith('plugin:window-state|save_window_state', { flags: null });
     });
 
     it('minimizes the app when closing on Android', () => {

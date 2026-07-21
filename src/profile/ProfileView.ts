@@ -1134,7 +1134,7 @@ export class ProfileView extends Component<ProfileState> {
             <div id="profile-sync-conflicts" style="display: flex; flex-direction: column; gap: 0.9rem; margin-top: 0.25rem;">
                 <div style="display: flex; flex-direction: column; gap: 0.25rem;">
                     <strong style="color: var(--text-primary);">Resolve pending conflicts</strong>
-                    <span style="color: var(--text-secondary); font-size: 0.85rem;">Choose the winning value for each conflict. Once the queue is empty, run Sync Now to publish the merged result.</span>
+                    <span style="color: var(--text-secondary); font-size: 0.85rem;">Resolve each conflict explicitly. Once the queue is empty, run Sync Now to publish the merged result.</span>
                 </div>
                 ${this.state.syncConflicts.map((conflict, index) => this.renderSyncConflictCard(conflict, index))}
             </div>
@@ -1143,6 +1143,8 @@ export class ProfileView extends Component<ProfileState> {
 
     private renderSyncConflictCard(conflict: SyncConflict, index: number) {
         switch (conflict.kind) {
+            case 'duplicate_media_identity':
+                return this.renderDuplicateMediaIdentityConflict(conflict, index);
             case 'media_field_conflict':
                 return this.renderMediaFieldConflict(conflict, index);
             case 'extra_data_entry_conflict':
@@ -1152,6 +1154,54 @@ export class ProfileView extends Component<ProfileState> {
             case 'profile_picture_conflict':
                 return this.renderProfilePictureConflict(conflict, index);
         }
+    }
+
+    private renderDuplicateMediaIdentityConflict(conflict: Extract<SyncConflict, { kind: 'duplicate_media_identity' }>, index: number) {
+        const renderMediaSummary = (label: string, media: typeof conflict.local_media) => html`
+            <div style="display: flex; flex-direction: column; gap: 0.35rem; padding: 0.9rem 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: rgba(255,255,255,0.02);">
+                <span style="font-size: 0.8rem; color: var(--text-secondary);">${label}</span>
+                <strong style="color: var(--text-primary);">${media.title}</strong>
+                <span style="font-size: 0.82rem; color: var(--text-secondary);">Variant: ${media.variant || '(none)'}</span>
+                <span style="font-size: 0.82rem; color: var(--text-secondary);">${media.activities.length} activit${media.activities.length === 1 ? 'y' : 'ies'} · ${media.milestones.length} milestone${media.milestones.length === 1 ? '' : 's'}</span>
+            </div>
+        `;
+
+        const renderKeepBothFields = (side: MergeSide, media: typeof conflict.local_media) => {
+            const sideLabel = side === 'local' ? 'Local' : 'Cloud';
+            return html`
+                <div style="display: grid; grid-template-columns: minmax(150px, 1fr) minmax(130px, 0.8fr) auto; gap: 0.55rem; align-items: end;">
+                    <label style="display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.78rem; color: var(--text-secondary);">
+                        ${sideLabel} replacement title
+                        <input class="sync-duplicate-replacement-title" data-sync-duplicate-side="${side}" value="${media.title}" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm);" />
+                    </label>
+                    <label style="display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.78rem; color: var(--text-secondary);">
+                        ${sideLabel} replacement variant
+                        <input class="sync-duplicate-replacement-variant" data-sync-duplicate-side="${side}" value="${media.variant}" placeholder="Optional" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm);" />
+                    </label>
+                    <button class="btn btn-secondary" data-sync-conflict-index="${index}" data-sync-resolution-kind="duplicate_media_identity_keep_both" data-sync-resolution-side="${side}">Rename ${sideLabel} &amp; Keep Both</button>
+                </div>
+            `;
+        };
+
+        return html`
+            <div class="sync-duplicate-media-conflict" data-sync-duplicate-conflict-index="${index}" style="display: flex; flex-direction: column; gap: 0.8rem; padding: 1rem; border: 1px solid rgba(255, 127, 80, 0.24); border-radius: var(--radius-md); background: rgba(255, 127, 80, 0.05);">
+                <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                    <strong>Duplicate media identity conflict</strong>
+                    <span style="color: var(--text-secondary); font-size: 0.85rem;">Local and Cloud contain separate media entries with the same title and variant. Combine them, or rename one side before keeping both.</span>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem;">
+                    ${renderMediaSummary('Local', conflict.local_media)}
+                    ${renderMediaSummary('Cloud', conflict.remote_media)}
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 0.65rem;">
+                    ${renderKeepBothFields('local', conflict.local_media)}
+                    ${renderKeepBothFields('remote', conflict.remote_media)}
+                </div>
+                <div style="display: flex; justify-content: flex-end;">
+                    <button class="btn btn-primary" data-sync-conflict-index="${index}" data-sync-resolution-kind="duplicate_media_identity_merge">Combine as One Media</button>
+                </div>
+            </div>
+        `;
     }
 
     private renderMediaFieldConflict(conflict: Extract<SyncConflict, { kind: 'media_field_conflict' }>, index: number) {
@@ -1976,17 +2026,37 @@ export class ProfileView extends Component<ProfileState> {
         if (Number.isNaN(conflictIndex)) {
             return;
         }
+        const expectedConflict = this.state.syncConflicts[conflictIndex];
+        if (!expectedConflict) {
+            return;
+        }
 
         const resolution = this.buildConflictResolution(target);
         if (!resolution) {
+            if (target.dataset.syncResolutionKind === 'duplicate_media_identity_keep_both') {
+                await customAlert(
+                    'Keep Both Media',
+                    'Enter a non-empty replacement title or variant that makes the selected media different from the other entry.'
+                );
+            }
             return;
+        }
+
+        if (resolution.kind === 'duplicate_media_identity_merge') {
+            const confirmed = await customConfirm(
+                'Combine Media Entries',
+                'Combine the Local and Cloud entries into one media item? Their activities and milestones will be merged.',
+                'btn-primary',
+                'Combine'
+            );
+            if (!confirmed) return;
         }
 
         try {
             const result = await this.withBlockingStatus(
                 'Resolving Conflict',
                 'Applying your choice to the local merged snapshot...',
-                () => resolveSyncConflict(conflictIndex, resolution)
+                () => resolveSyncConflict(conflictIndex, expectedConflict.conflict_token, resolution)
             );
             const remaining = result.sync_status.conflict_count;
             await this.refreshSyncData(remaining > 0);
@@ -2015,6 +2085,14 @@ export class ProfileView extends Component<ProfileState> {
             return null;
         }
 
+        if (kind === 'duplicate_media_identity_merge') {
+            return { kind };
+        }
+
+        if (kind === 'duplicate_media_identity_keep_both') {
+            return this.buildKeepBothMediaResolution(target);
+        }
+
         if (kind === 'delete_vs_update') {
             const choice = target.dataset.syncResolutionChoice;
             if (choice === 'respect_delete' || choice === 'restore') {
@@ -2039,6 +2117,30 @@ export class ProfileView extends Component<ProfileState> {
         }
 
         return null;
+    }
+
+    private buildKeepBothMediaResolution(target: HTMLButtonElement): SyncConflictResolution | null {
+        const side = target.dataset.syncResolutionSide;
+        if (side !== 'local' && side !== 'remote') return null;
+        const card = target.closest<HTMLElement>('.sync-duplicate-media-conflict');
+        const titleInput = card?.querySelector<HTMLInputElement>(`.sync-duplicate-replacement-title[data-sync-duplicate-side="${side}"]`);
+        const variantInput = card?.querySelector<HTMLInputElement>(`.sync-duplicate-replacement-variant[data-sync-duplicate-side="${side}"]`);
+        const title = titleInput?.value.trim() || '';
+        const variant = variantInput?.value.trim() || '';
+        if (!title) return null;
+
+        const conflictIndex = Number.parseInt(target.dataset.syncConflictIndex || '', 10);
+        const conflict = this.state.syncConflicts[conflictIndex];
+        if (conflict?.kind !== 'duplicate_media_identity') return null;
+        const selectedMedia = side === 'local' ? conflict.local_media : conflict.remote_media;
+        if (title === selectedMedia.title && variant === selectedMedia.variant) return null;
+
+        return {
+            kind: 'duplicate_media_identity_keep_both',
+            side,
+            title,
+            variant,
+        };
     }
 
     private async refreshSyncData(showConflictsOverride?: boolean) {

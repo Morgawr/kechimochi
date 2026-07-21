@@ -148,7 +148,7 @@ export class WebServices implements AppServices {
 
     getUsername():                           Promise<string>            { return get('/username'); }
     getAppVersion():                         Promise<string>            { return Promise.resolve(getBuildVersion()); }
-    getStartupError():                       Promise<string | null>     { return Promise.resolve(null); }
+    getStartupError():                       Promise<string | null>     { return get('/startup-error'); }
     shouldSkipLegacyLocalProfileMigration(): Promise<boolean>          { return Promise.resolve(false); }
     getProfilePicture():                     Promise<ProfilePicture | null> { return get('/profile-picture'); }
     deleteProfilePicture():                  Promise<void>              { return del('/profile-picture'); }
@@ -163,7 +163,7 @@ export class WebServices implements AppServices {
     replaceLocalFromRemote():               Promise<SyncActionResult>  { return Promise.reject(syncUnavailableError()); }
     forcePublishLocalAsRemote():            Promise<SyncActionResult>  { return Promise.reject(syncUnavailableError()); }
     getSyncConflicts():                      Promise<SyncConflict[]>    { return Promise.reject(syncUnavailableError()); }
-    resolveSyncConflict(_conflictIndex: number, _resolution: SyncConflictResolution): Promise<SyncActionResult> {
+    resolveSyncConflict(_conflictIndex: number, _conflictToken: string, _resolution: SyncConflictResolution): Promise<SyncActionResult> {
         return Promise.reject(syncUnavailableError());
     }
     subscribeSyncProgress(_listener: (update: SyncProgressUpdate) => void): Promise<() => void> {
@@ -260,8 +260,8 @@ export class WebServices implements AppServices {
     }
 
     // ── Milestone operations ─────────────────────────────────────────────────
-    getMilestones(mediaTitle: string): Promise<Milestone[]> {
-        return get(`/milestones/media/${encodeURIComponent(mediaTitle)}`);
+    getMilestones(mediaUid: string): Promise<Milestone[]> {
+        return get(`/media/${encodeURIComponent(mediaUid)}/milestones`);
     }
 
     addMilestone(milestone: Milestone): Promise<number> {
@@ -276,8 +276,8 @@ export class WebServices implements AppServices {
         return del(`/milestones/${id}`);
     }
 
-    clearMilestones(mediaTitle: string): Promise<void> {
-        return del(`/milestones/media/${encodeURIComponent(mediaTitle)}`);
+    clearMilestones(mediaUid: string): Promise<void> {
+        return del(`/media/${encodeURIComponent(mediaUid)}/milestones`);
     }
 
     async exportMilestonesCsv(_filePath: string): Promise<number> {

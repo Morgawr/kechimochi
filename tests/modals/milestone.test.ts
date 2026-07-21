@@ -13,7 +13,7 @@ describe('modals/milestone.ts', () => {
     });
 
     it('should resolve milestone data on confirm', async () => {
-        const promise = showAddMilestoneModal('Test Media');
+        const promise = showAddMilestoneModal('Test Media', 'uid-test-media');
         await vi.waitFor(() => document.querySelector('#milestone-confirm'));
 
         const nameInput = document.querySelector('#milestone-name') as HTMLInputElement;
@@ -28,6 +28,7 @@ describe('modals/milestone.ts', () => {
 
         const result = await promise;
         expect(result).toEqual({
+            media_uid: 'uid-test-media',
             media_title: 'Test Media',
             name: 'Finish Chapter 1',
             duration: 150,
@@ -37,7 +38,7 @@ describe('modals/milestone.ts', () => {
     });
 
     it('should handle date recording', async () => {
-        const promise = showAddMilestoneModal('Test Media');
+        const promise = showAddMilestoneModal('Test Media', 'uid-test-media');
         await vi.waitFor(() => document.querySelector('#milestone-record-date'));
 
         const checkbox = document.querySelector('#milestone-record-date') as HTMLInputElement;
@@ -55,7 +56,7 @@ describe('modals/milestone.ts', () => {
     });
 
     it('should resolve null on cancel', async () => {
-        const promise = showAddMilestoneModal('Test Media');
+        const promise = showAddMilestoneModal('Test Media', 'uid-test-media');
         await vi.waitFor(() => document.querySelector('#milestone-cancel'));
 
         (document.querySelector('#milestone-cancel') as HTMLElement).click();
@@ -65,7 +66,7 @@ describe('modals/milestone.ts', () => {
     });
 
     it('should prefill duration and characters from defaults', async () => {
-        showAddMilestoneModal('Test Media', { duration: 125, characters: 3210 });
+        showAddMilestoneModal('Test Media', 'uid-test-media', { duration: 125, characters: 3210 });
         await vi.waitFor(() => document.querySelector('#milestone-hours'));
 
         const hoursInput = document.querySelector('#milestone-hours') as HTMLInputElement;
@@ -87,7 +88,7 @@ describe('modals/milestone.ts', () => {
             characters: 900,
             date: '2025-05-14'
         };
-        const promise = showAddMilestoneModal('Test Media', existing);
+        const promise = showAddMilestoneModal('Test Media', 'uid-test-media', existing);
         await vi.waitFor(() => document.querySelector('#milestone-confirm'));
 
         expect((document.querySelector('h3') as HTMLElement).textContent).toContain('Edit Milestone');
@@ -103,7 +104,7 @@ describe('modals/milestone.ts', () => {
         const result = await promise;
         expect(result).toEqual({
             id: 7,
-            media_uid: 'abc-123',
+            media_uid: 'uid-test-media',
             media_title: 'Test Media',
             name: 'Updated milestone',
             duration: 125,
