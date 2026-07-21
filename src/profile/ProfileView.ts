@@ -2131,7 +2131,7 @@ export class ProfileView extends Component<ProfileState> {
 
         const conflictIndex = Number.parseInt(target.dataset.syncConflictIndex || '', 10);
         const conflict = this.state.syncConflicts[conflictIndex];
-        if (!conflict || conflict.kind !== 'duplicate_media_identity') return null;
+        if (conflict?.kind !== 'duplicate_media_identity') return null;
         const selectedMedia = side === 'local' ? conflict.local_media : conflict.remote_media;
         if (title === selectedMedia.title && variant === selectedMedia.variant) return null;
 
