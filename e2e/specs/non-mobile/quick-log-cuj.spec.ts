@@ -2,7 +2,11 @@ import { waitForAppReady } from '../../helpers/setup.js';
 import { navigateTo } from '../../helpers/navigation.js';
 import { addMedia } from '../../helpers/library.js';
 import { logActivityFromDetail } from '../../helpers/media-detail.js';
-import { getTopmostVisibleOverlay, waitForOverlayToDisappear } from '../../helpers/common.js';
+import {
+  getTopmostVisibleOverlay,
+  waitForOverlayToDisappear,
+  waitForSelectorDisplayed,
+} from '../../helpers/common.js';
 import { setText } from '../../helpers/form-controls.js';
 import { MOCK_DATE } from '../../config/test-constants.js';
 
@@ -40,12 +44,12 @@ describe('Desktop/Web CUJ: Quick Log', () => {
     await overlay.$('#add-activity-form button[type="submit"]').click();
     await waitForOverlayToDisappear(overlay);
 
-    const entries = $$(`.dashboard-activity-item[data-activity-title="${title}"]`);
-    await browser.waitUntil(async () => (await entries.length) === 2, {
+    const activitySelector = `.dashboard-activity-item[data-activity-title="${title}"]`;
+    await browser.waitUntil(async () => (await $$(activitySelector).length) === 2, {
       timeout: 5000,
       timeoutMsg: 'Quick Log submission did not refresh Recent Activity',
     });
-    const entryTexts = await entries.map(entry => entry.getText());
+    const entryTexts = await $$(activitySelector).map(entry => entry.getText());
     expect(entryTexts.some(text => text.includes('19 Minutes') && text.includes('of Watching'))).toBe(true);
 
     const refreshedQuickItem = $(`.quick-log-item[data-quick-log-title="${title}"]`);
@@ -54,7 +58,7 @@ describe('Desktop/Web CUJ: Quick Log', () => {
     });
     expect(firstQuickTitle).toBe(title);
     await refreshedQuickItem.$('.quick-log-shortcut-btn').click();
-    await $('#media-detail-header').waitForDisplayed({ timeout: 5000 });
+    await waitForSelectorDisplayed('#media-detail-header', 5000);
     expect(await $('#media-title').getText()).toBe(title);
     expect(await $('#media-logs-container').getText()).toContain('Submitted from Quick Log');
   });

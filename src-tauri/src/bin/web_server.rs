@@ -973,6 +973,9 @@ mod tests {
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].title, "Web Handler Test");
         assert_eq!(all[0].id, Some(inserted));
+        let response_json = serde_json::to_value(&all[0]).unwrap();
+        assert_eq!(response_json["default_activity_type"], "Reading");
+        assert!(response_json.get("media_type").is_none());
 
         let _ = std::fs::remove_dir_all(state_dir);
     }
@@ -1049,6 +1052,9 @@ mod tests {
         assert_eq!(logs_for_a.len(), 1);
         assert_eq!(logs_for_a[0].media_id, media_a);
         assert_eq!(logs_for_a[0].title, "A");
+        let response_json = serde_json::to_value(&logs_for_a[0]).unwrap();
+        assert!(response_json.get("activity_type").is_some());
+        assert!(response_json.get("media_type").is_none());
 
         let _ = std::fs::remove_dir_all(state_dir);
     }

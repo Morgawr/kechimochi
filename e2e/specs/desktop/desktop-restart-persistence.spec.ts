@@ -42,7 +42,11 @@ describe('CUJ: Desktop Restart Persistence', () => {
     await waitForAppReady();
   });
 
-  it('persists profile customization and native window state through real close and relaunch', async () => {
+  it('persists profile customization and native window state through real close and relaunch', async function () {
+    // This CUJ deliberately launches the native application three times. CI
+    // startup can exceed the suite's normal 60-second per-test budget.
+    this.timeout(120_000);
+
     await navigateTo('profile');
     await renameProfile(profileName);
     await uploadProfilePicture(imageFixture);
