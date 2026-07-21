@@ -42,11 +42,7 @@ describe('CUJ: Desktop Restart Persistence', () => {
     await waitForAppReady();
   });
 
-  it('persists profile customization and native window state through real close and relaunch', async function () {
-    // This CUJ deliberately launches the native application three times. CI
-    // startup can exceed the suite's normal 60-second per-test budget.
-    this.timeout(120_000);
-
+  it('persists profile customization and native window state through real close and relaunch', async () => {
     await navigateTo('profile');
     await renameProfile(profileName);
     await uploadProfilePicture(imageFixture);
@@ -79,5 +75,7 @@ describe('CUJ: Desktop Restart Persistence', () => {
     await closeAppAndRelaunch();
     await waitForAppReady(30000, { normalizeWindow: false });
     expect(readSavedWindowState().main.maximized).toBe(true);
-  });
+  // This CUJ deliberately launches the native application three times. Set the
+  // timeout on the test definition so WebdriverIO captures it before execution.
+  }).timeout(120_000);
 });

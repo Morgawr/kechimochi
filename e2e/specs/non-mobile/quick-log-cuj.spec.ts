@@ -36,7 +36,9 @@ describe('Desktop/Web CUJ: Quick Log', () => {
 
     const overlay = await getTopmostVisibleOverlay('#add-activity-form');
     expect(await overlay.$('#activity-media').getValue()).toBe(title);
-    expect(await overlay.$('#activity-media-variant').getText()).toBe('Blu-ray');
+    const modalVariant = overlay.$('#activity-media-variant');
+    await modalVariant.waitForDisplayed({ timeout: 5000 });
+    expect(await modalVariant.getText()).toBe('Blu-ray');
     expect(await overlay.$('#activity-type').getValue()).toBe('Watching');
     await setText('#activity-duration', '19');
     await setText('#activity-notes', 'Submitted from Quick Log');
