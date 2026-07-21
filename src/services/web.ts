@@ -12,6 +12,7 @@ import type {
     ActivityLog,
     ActivitySummary,
     DailyHeatmap,
+    LibraryActivityMetricsRow,
     TimelineEvent,
     MediaCsvRow,
     MediaConflict,
@@ -117,6 +118,7 @@ export class WebServices implements AppServices {
     deleteLog(id: number):                  Promise<void>             { return del(`/logs/${id}`); }
     getLogs():                              Promise<ActivitySummary[]> { return get('/logs'); }
     getHeatmap():                           Promise<DailyHeatmap[]>   { return get('/logs/heatmap'); }
+    getLibraryActivityMetrics():            Promise<LibraryActivityMetricsRow[]> { return get('/logs/library-metrics'); }
     getLogsForMedia(mediaId: number):       Promise<ActivitySummary[]> { return get(`/logs/media/${mediaId}`); }
     getTimelineEvents():                    Promise<TimelineEvent[]>  { return get('/timeline'); }
 

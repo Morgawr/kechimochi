@@ -183,6 +183,15 @@ describe('WebServices', () => {
         expect(fetchMock).toHaveBeenNthCalledWith(18, '/api/profile-picture', { method: 'DELETE' });
     });
 
+    it('loads library activity metrics from the library-metrics endpoint', async () => {
+        fetchMock.mockResolvedValue(okJson([{ media_id: 1, first_activity_date: '2026-01-01', last_activity_date: '2026-01-02', total_minutes: 30 }]));
+
+        await expect(services.getLibraryActivityMetrics()).resolves.toEqual([
+            { media_id: 1, first_activity_date: '2026-01-01', last_activity_date: '2026-01-02', total_minutes: 30 },
+        ]);
+        expect(fetchMock).toHaveBeenCalledWith('/api/logs/library-metrics');
+    });
+
     it('loads timeline events from the timeline endpoint', async () => {
         fetchMock.mockResolvedValue(okJson([{ kind: 'started', mediaId: 1 }]));
 

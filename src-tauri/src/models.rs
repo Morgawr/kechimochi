@@ -43,6 +43,15 @@ pub struct ActivitySummary {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LibraryActivityMetricsRow {
+    pub media_id: i64,
+    pub first_activity_date: String,
+    pub last_activity_date: String,
+    pub total_minutes: i64,
+    pub total_characters: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DailyHeatmap {
     pub date: String,
     pub total_minutes: i64,

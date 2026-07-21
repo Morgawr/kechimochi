@@ -25,7 +25,8 @@ use tauri::{Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 use models::{
-    ActivityLog, ActivitySummary, DailyHeatmap, Media, Milestone, ProfilePicture, TimelineEvent,
+    ActivityLog, ActivitySummary, DailyHeatmap, LibraryActivityMetricsRow, Media, Milestone,
+    ProfilePicture, TimelineEvent,
 };
 
 // Database state
@@ -705,6 +706,15 @@ fn get_logs(state: State<DbState>) -> Result<Vec<ActivitySummary>, String> {
 fn get_heatmap(state: State<DbState>) -> Result<Vec<DailyHeatmap>, String> {
     with_conn(&state, |conn| {
         db::get_heatmap(conn).map_err(|e| e.to_string())
+    })
+}
+
+#[tauri::command]
+fn get_library_activity_metrics(
+    state: State<DbState>,
+) -> Result<Vec<LibraryActivityMetricsRow>, String> {
+    with_conn(&state, |conn| {
+        db::get_library_activity_metrics(conn).map_err(|e| e.to_string())
     })
 }
 
@@ -1521,6 +1531,7 @@ pub fn run() {
             update_log,
             get_logs,
             get_heatmap,
+            get_library_activity_metrics,
             import_csv,
             export_csv,
             export_media_csv,

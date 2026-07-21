@@ -4,6 +4,7 @@ import type {
     ActivitySummary,
     GoogleDriveAuthSession,
     DailyHeatmap,
+    LibraryActivityMetricsRow,
     TimelineEvent,
     MediaCsvRow,
     MediaConflict,
@@ -26,6 +27,7 @@ export type {
     ActivitySummary,
     GoogleDriveAuthSession,
     DailyHeatmap,
+    LibraryActivityMetricsRow,
     TimelineEvent,
     MediaCsvRow,
     MediaConflict,
@@ -64,6 +66,7 @@ export interface AppServices {
     deleteLog(id: number): Promise<void>;
     getLogs(): Promise<ActivitySummary[]>;
     getHeatmap(): Promise<DailyHeatmap[]>;
+    getLibraryActivityMetrics(): Promise<LibraryActivityMetricsRow[]>;
     getLogsForMedia(mediaId: number): Promise<ActivitySummary[]>;
     getTimelineEvents(): Promise<TimelineEvent[]>;
 

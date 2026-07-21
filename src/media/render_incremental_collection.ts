@@ -27,6 +27,23 @@ export function createAnimatedCollectionItemWrapper(
     return itemWrapper;
 }
 
+export function createLibrarySectionHeaderWrapper(
+    label: string,
+    animationDelaySeconds: number,
+    spanFullWidth: boolean,
+): HTMLDivElement {
+    const headerWrapper = createAnimatedCollectionItemWrapper(
+        'media-library-section-header',
+        animationDelaySeconds,
+        'auto 48px',
+    );
+    if (spanFullWidth) {
+        headerWrapper.style.gridColumn = '1 / -1';
+    }
+    headerWrapper.textContent = label;
+    return headerWrapper;
+}
+
 export function renderIncrementalMediaCollection<T>({
     host,
     items,

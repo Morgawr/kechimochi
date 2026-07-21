@@ -133,7 +133,51 @@ describe('MediaItem', () => {
         const component = new MediaItem(container, media as unknown as Media, vi.fn());
         component.render();
 
-        expect(container.style.opacity).toBe('0.6');
+        expect(container.querySelector('.is-archived')).not.toBeNull();
         expect(container.querySelector('.grid-item-type-badge')).toBeNull();
+    });
+
+    it('should dim archived items on an inner element instead of the animated container so the fade-in animation cannot override it', () => {
+        container.style.animation = 'fadeIn 0.25s ease-out 0s forwards';
+        const media = { title: 'Archived Item', status: 'Archived', content_type: 'Anime', tracking_status: 'Complete' };
+        const component = new MediaItem(container, media as unknown as Media, vi.fn());
+        component.render();
+
+        expect(container.style.opacity).toBe('');
+        expect(container.style.animation).not.toBe('');
+
+        const archivedElement = container.querySelector('.is-archived') as HTMLElement | null;
+        expect(archivedElement).not.toBeNull();
+        expect(archivedElement?.style.animation).toBe('');
+        expect(archivedElement?.querySelector('.grid-item-type-badge')).not.toBeNull();
+        expect(archivedElement?.querySelector('.status-led')).not.toBeNull();
+    });
+
+    it('should not dim non-archived items', () => {
+        const media = { title: 'Active Item', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' };
+        const component = new MediaItem(container, media as unknown as Media, vi.fn());
+        component.render();
+
+        expect(container.querySelector('.is-archived')).toBeNull();
+    });
+
+    it('should not set an inline height so the wrapper stylesheet rule controls item height', () => {
+        const media = { title: 'Test Media', status: 'Active', content_type: 'Anime', tracking_status: 'Untracked' };
+        const component = new MediaItem(container, media as unknown as Media, vi.fn());
+        component.render();
+
+        expect(container.style.height).toBe('');
+    });
+
+    it('should preserve contentVisibility and containIntrinsicSize set on the container before rendering', () => {
+        container.style.contentVisibility = 'auto';
+        container.style.containIntrinsicSize = '180px 320px';
+
+        const media = { title: 'Test Media', status: 'Active', content_type: 'Anime', tracking_status: 'Untracked' };
+        const component = new MediaItem(container, media as unknown as Media, vi.fn());
+        component.render();
+
+        expect(container.style.contentVisibility).toBe('auto');
+        expect(container.style.containIntrinsicSize).toBe('180px 320px');
     });
 });

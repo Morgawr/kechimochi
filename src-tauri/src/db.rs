@@ -8,8 +8,8 @@ use tauri::Manager;
 use uuid::Uuid;
 
 use crate::models::{
-    ActivityLog, ActivitySummary, DailyHeatmap, Media, Milestone, ProfilePicture, TimelineEvent,
-    TimelineEventKind,
+    ActivityLog, ActivitySummary, DailyHeatmap, LibraryActivityMetricsRow, Media, Milestone,
+    ProfilePicture, TimelineEvent, TimelineEventKind,
 };
 
 pub const CURRENT_SCHEMA_VERSION: i64 = 3;
@@ -1167,12 +1167,7 @@ pub fn get_all_media(conn: &Connection) -> Result<Vec<Media>> {
     let mut stmt = conn.prepare(
         "SELECT id, uid, title, media_type, status, language, description, cover_image, extra_data, content_type, tracking_status 
          FROM shared.media m
-         ORDER BY 
-            CASE 
-                WHEN m.status != 'Archived' AND m.tracking_status = 'Ongoing' THEN 0
-                WHEN m.status != 'Archived' THEN 1
-                ELSE 2
-            END,
+         ORDER BY
             (SELECT MAX(date) FROM main.activity_logs WHERE media_id = m.id) DESC,
             m.id DESC"
     )?;
@@ -1353,6 +1348,30 @@ pub fn get_logs(conn: &Connection) -> Result<Vec<ActivitySummary>> {
         log_list.push(log?);
     }
     Ok(log_list)
+}
+
+pub fn get_library_activity_metrics(conn: &Connection) -> Result<Vec<LibraryActivityMetricsRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT a.media_id, MIN(a.date), MAX(a.date), COALESCE(SUM(a.duration_minutes), 0), COALESCE(SUM(a.characters), 0)
+         FROM main.activity_logs a
+         JOIN shared.media m ON a.media_id = m.id
+         GROUP BY a.media_id",
+    )?;
+    let rows_iter = stmt.query_map([], |row| {
+        Ok(LibraryActivityMetricsRow {
+            media_id: row.get(0)?,
+            first_activity_date: row.get(1)?,
+            last_activity_date: row.get(2)?,
+            total_minutes: row.get(3)?,
+            total_characters: row.get(4)?,
+        })
+    })?;
+
+    let mut rows = Vec::new();
+    for row in rows_iter {
+        rows.push(row?);
+    }
+    Ok(rows)
 }
 
 pub fn get_logs_for_media(conn: &Connection, media_id: i64) -> Result<Vec<ActivitySummary>> {
@@ -2368,6 +2387,164 @@ mod tests {
         assert_eq!(logs[0].date, "2024-03-01");
     }
 
+    fn add_test_log(conn: &Connection, media_id: i64, date: &str, duration_minutes: i64) {
+        add_log(
+            conn,
+            &ActivityLog {
+                id: None,
+                media_id,
+                duration_minutes,
+                characters: 0,
+                date: date.to_string(),
+                activity_type: String::new(),
+                notes: String::new(),
+            },
+        )
+        .unwrap();
+    }
+
+    fn add_test_log_with_characters(
+        conn: &Connection,
+        media_id: i64,
+        date: &str,
+        duration_minutes: i64,
+        characters: i64,
+    ) {
+        add_log(
+            conn,
+            &ActivityLog {
+                id: None,
+                media_id,
+                duration_minutes,
+                characters,
+                date: date.to_string(),
+                activity_type: String::new(),
+                notes: String::new(),
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn test_get_library_activity_metrics_matches_hand_computed_fixture() {
+        let conn = setup_test_db();
+        let media_a = add_media_with_id(&conn, &sample_media("Media A")).unwrap();
+        let media_b = add_media_with_id(&conn, &sample_media("Media B")).unwrap();
+
+        add_test_log(&conn, media_a, "2024-03-01", 10);
+        add_test_log(&conn, media_a, "2024-03-05", 20);
+        add_test_log(&conn, media_a, "2024-02-20", 5);
+        add_test_log(&conn, media_b, "2024-01-01", 30);
+
+        let mut metrics = get_library_activity_metrics(&conn).unwrap();
+        metrics.sort_by_key(|row| row.media_id);
+
+        assert_eq!(metrics.len(), 2);
+        assert_eq!(metrics[0].media_id, media_a);
+        assert_eq!(metrics[0].first_activity_date, "2024-02-20");
+        assert_eq!(metrics[0].last_activity_date, "2024-03-05");
+        assert_eq!(metrics[0].total_minutes, 35);
+        assert_eq!(metrics[0].total_characters, 0);
+        assert_eq!(metrics[1].media_id, media_b);
+        assert_eq!(metrics[1].first_activity_date, "2024-01-01");
+        assert_eq!(metrics[1].last_activity_date, "2024-01-01");
+        assert_eq!(metrics[1].total_minutes, 30);
+        assert_eq!(metrics[1].total_characters, 0);
+    }
+
+    #[test]
+    fn test_get_library_activity_metrics_excludes_media_with_no_logs() {
+        let conn = setup_test_db();
+        let logged_media = add_media_with_id(&conn, &sample_media("Logged")).unwrap();
+        add_media_with_id(&conn, &sample_media("Never Logged")).unwrap();
+        add_test_log(&conn, logged_media, "2024-03-01", 10);
+
+        let metrics = get_library_activity_metrics(&conn).unwrap();
+
+        assert_eq!(metrics.len(), 1);
+        assert_eq!(metrics[0].media_id, logged_media);
+    }
+
+    #[test]
+    fn test_get_library_activity_metrics_total_characters_sums_across_multiple_logs() {
+        let conn = setup_test_db();
+        let media_id = add_media_with_id(&conn, &sample_media("Reader")).unwrap();
+        add_test_log_with_characters(&conn, media_id, "2024-01-01", 10, 500);
+        add_test_log_with_characters(&conn, media_id, "2024-01-02", 20, 1500);
+
+        let metrics = get_library_activity_metrics(&conn).unwrap();
+
+        assert_eq!(metrics.len(), 1);
+        assert_eq!(metrics[0].total_characters, 2000);
+    }
+
+    #[test]
+    fn test_get_library_activity_metrics_total_characters_is_real_zero_for_time_only_logs() {
+        let conn = setup_test_db();
+        let media_id = add_media_with_id(&conn, &sample_media("Time Only")).unwrap();
+        add_test_log_with_characters(&conn, media_id, "2024-01-01", 30, 0);
+
+        let metrics = get_library_activity_metrics(&conn).unwrap();
+
+        assert_eq!(metrics.len(), 1);
+        assert_eq!(metrics[0].total_minutes, 30);
+        assert_eq!(metrics[0].total_characters, 0);
+    }
+
+    #[test]
+    fn test_get_library_activity_metrics_excludes_orphaned_logs() {
+        let conn = setup_test_db();
+        let media_id = add_media_with_id(&conn, &sample_media("Has Media")).unwrap();
+        add_test_log(&conn, media_id, "2024-03-01", 10);
+        conn.execute(
+            "INSERT INTO main.activity_logs (media_id, duration_minutes, characters, date, activity_type, notes) VALUES (?1, 15, 0, '2024-03-02', '', '')",
+            params![media_id + 999],
+        )
+        .unwrap();
+
+        let metrics = get_library_activity_metrics(&conn).unwrap();
+
+        assert_eq!(metrics.len(), 1);
+        assert_eq!(metrics[0].media_id, media_id);
+    }
+
+    #[test]
+    fn test_get_library_activity_metrics_single_log_media() {
+        let conn = setup_test_db();
+        let media_id = add_media_with_id(&conn, &sample_media("Solo")).unwrap();
+        add_test_log(&conn, media_id, "2024-05-10", 42);
+
+        let metrics = get_library_activity_metrics(&conn).unwrap();
+
+        assert_eq!(metrics.len(), 1);
+        assert_eq!(metrics[0].first_activity_date, "2024-05-10");
+        assert_eq!(metrics[0].last_activity_date, "2024-05-10");
+        assert_eq!(metrics[0].total_minutes, 42);
+    }
+
+    #[test]
+    fn test_get_library_activity_metrics_sums_across_multiple_logs() {
+        let conn = setup_test_db();
+        let media_id = add_media_with_id(&conn, &sample_media("Multi")).unwrap();
+        add_test_log(&conn, media_id, "2024-01-01", 10);
+        add_test_log(&conn, media_id, "2024-01-02", 20);
+        add_test_log(&conn, media_id, "2024-01-03", 30);
+
+        let metrics = get_library_activity_metrics(&conn).unwrap();
+
+        assert_eq!(metrics.len(), 1);
+        assert_eq!(metrics[0].total_minutes, 60);
+    }
+
+    #[test]
+    fn test_get_library_activity_metrics_returns_empty_for_empty_database() {
+        let conn = setup_test_db();
+
+        let metrics = get_library_activity_metrics(&conn).unwrap();
+
+        assert!(metrics.is_empty());
+    }
+
     #[test]
     fn test_add_log_validation() {
         let conn = setup_test_db();
@@ -2921,7 +3098,7 @@ mod tests {
     fn test_media_ordering() {
         let conn = setup_test_db();
 
-        // 1. Archived media with recent activity (should be last: Tier 2)
+        // 1. Archived media with the second-most-recent activity
         let m1_id = add_media_with_id(
             &conn,
             &Media {
@@ -2944,7 +3121,7 @@ mod tests {
         )
         .unwrap();
 
-        // 2. Active entry but NOT ongoing (should be middle: Tier 1)
+        // 2. Non-ongoing media with the most recent activity
         let m2_id = add_media_with_id(
             &conn,
             &Media {
@@ -2968,7 +3145,7 @@ mod tests {
         )
         .unwrap();
 
-        // 3. Ongoing media with older activity (should be first: Tier 0)
+        // 3. Ongoing media with the oldest activity
         let m3_id = add_media_with_id(
             &conn,
             &Media {
@@ -2992,7 +3169,7 @@ mod tests {
         )
         .unwrap();
 
-        // 4. Ongoing media with NO activity (should be after Tier 0 with activity)
+        // 4. Ongoing media with no activity logs at all
         let _m4_id = add_media_with_id(
             &conn,
             &Media {
@@ -3003,17 +3180,18 @@ mod tests {
         )
         .unwrap();
 
-        // Expectation:
-        // 1. Ongoing Old (Tier 0, has activity)
-        // 2. Ongoing No Activity (Tier 0, no activity)
-        // 3. Active Complete (Tier 1)
-        // 4. Archived Recent (Tier 2)
+        // Expectation: pure recency DESC (status/tracking_status no longer matter),
+        // with media that has no activity logs (NULL recency) sorting last.
+        // 1. Active Complete (2024-03-02)
+        // 2. Archived Recent (2024-03-01)
+        // 3. Ongoing Old (2024-01-01)
+        // 4. Ongoing No Activity (NULL, sorts last)
 
         let all = get_all_media(&conn).unwrap();
-        assert_eq!(all[0].title, "Ongoing Old");
-        assert_eq!(all[1].title, "Ongoing No Activity");
-        assert_eq!(all[2].title, "Active Complete");
-        assert_eq!(all[3].title, "Archived Recent");
+        assert_eq!(all[0].title, "Active Complete");
+        assert_eq!(all[1].title, "Archived Recent");
+        assert_eq!(all[2].title, "Ongoing Old");
+        assert_eq!(all[3].title, "Ongoing No Activity");
     }
 
     #[test]

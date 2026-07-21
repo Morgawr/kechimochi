@@ -36,6 +36,7 @@ export function createMainApiMock() {
         setSetting: vi.fn(() => Promise.resolve()),
         getProfilePicture: vi.fn(() => Promise.resolve(null)),
         getLogs: vi.fn(() => Promise.resolve([defaultActivitySummary])),
+        getLibraryActivityMetrics: vi.fn(() => Promise.resolve([])),
         getLogsForMedia: vi.fn(() => Promise.resolve([])),
         getAllMedia: vi.fn(() => Promise.resolve([])),
         getTimelineEvents: vi.fn(() => Promise.resolve([])),
@@ -161,6 +162,7 @@ export function resetMainApiMocks(mockedApi: ApiModule) {
     vi.mocked(mockedApi.setSetting).mockResolvedValue();
     vi.mocked(mockedApi.getProfilePicture).mockResolvedValue(null);
     vi.mocked(mockedApi.getLogs).mockResolvedValue([defaultActivitySummary]);
+    vi.mocked(mockedApi.getLibraryActivityMetrics).mockResolvedValue([]);
     vi.mocked(mockedApi.getLogsForMedia).mockResolvedValue([]);
     vi.mocked(mockedApi.getAllMedia).mockResolvedValue([]);
     vi.mocked(mockedApi.getTimelineEvents).mockResolvedValue([]);

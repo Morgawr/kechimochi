@@ -5,6 +5,7 @@ import { Media } from '../api';
 import { formatHhMm } from '../time';
 import { MediaCoverLoader } from './cover_loader';
 import type { LibraryActivityMetrics } from './library_types';
+import { resolveDisplayContentType } from './content_type';
 
 interface MediaListItemState {
     media: Media;
@@ -73,7 +74,7 @@ export class MediaListItem extends Component<MediaListItemState> {
 
     render() {
         const { media, metrics, imgSrc } = this.state;
-        const contentType = (media.content_type || 'Unknown').trim() || 'Unknown';
+        const contentType = resolveDisplayContentType(media);
         const description = media.description?.trim() || 'No description yet.';
         const isArchived = media.status === 'Archived';
         const firstActivity = this.getMetricValue(metrics?.firstActivityDate ?? null, '--');

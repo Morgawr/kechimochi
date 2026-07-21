@@ -1,11 +1,28 @@
 import { Component } from '../component';
-import { html, escapeHTML, rawHtml } from '../html';
+import { html, escapeHTML, escapeAttribute, rawHtml } from '../html';
 import { Media, addMedia } from '../api';
 import { showAddMediaModal } from './modal';
-import { EVENTS, FILTERS, TRACKING_STATUSES, MEDIA_STATUS } from '../constants';
+import { CONTENT_TYPES, EVENTS, FILTERS, TRACKING_STATUSES, MEDIA_STATUS } from '../constants';
 import { MediaGrid } from './MediaGrid';
 import { MediaList } from './MediaList';
 import type { LibraryActivityMetrics, LibraryLayoutMode } from './library_types';
+import { resolveDisplayContentType } from './content_type';
+import {
+    applyLibrarySort,
+    buildExtraDataIndex,
+    flattenLibraryRows,
+    fromSortFieldOptionValue,
+    getUniqueExtraFieldNames,
+    groupMediaByType,
+    toLibraryItemRows,
+    toSortFieldOptionValue,
+    LIBRARY_BUILTIN_SORT_KEYS,
+    type LibraryBuiltinSortKey,
+    type LibraryRow,
+    type LibrarySortDirection,
+    type LibrarySortField,
+    type LibrarySortStage,
+} from './sorting';
 
 interface MediaLibraryBrowserState {
     mediaList: Media[];
@@ -18,16 +35,58 @@ interface MediaLibraryBrowserState {
     listMetricsByMediaId: Record<number, LibraryActivityMetrics>;
     isListMetricsLoading: boolean;
     filtersExpanded: boolean;
+    sortStages: LibrarySortStage[];
+    groupByType: boolean;
+    keepOngoingFirst: boolean;
+    keepArchivedLast: boolean;
+    sortExpanded: boolean;
+    contentTypeOrder: string[];
+    trackingStatusOrder: string[];
 }
 
-type MediaLibraryBrowserInitialState = Omit<MediaLibraryBrowserState, 'filtersExpanded'>;
+type MediaLibraryBrowserInitialState = Omit<
+    MediaLibraryBrowserState,
+    'filtersExpanded' | 'sortStages' | 'groupByType' | 'keepOngoingFirst' | 'keepArchivedLast' | 'sortExpanded' | 'contentTypeOrder' | 'trackingStatusOrder'
+> & {
+    sortStages?: LibrarySortStage[];
+    groupByType?: boolean;
+    keepOngoingFirst?: boolean;
+    keepArchivedLast?: boolean;
+    contentTypeOrder?: string[];
+    trackingStatusOrder?: string[];
+};
 
 export interface MediaLibraryFilters {
     searchQuery?: string;
     typeFilters?: string[];
     statusFilters?: string[];
     hideArchived?: boolean;
+    sortStages?: LibrarySortStage[];
+    groupByType?: boolean;
+    keepOngoingFirst?: boolean;
+    keepArchivedLast?: boolean;
 }
+
+const LIBRARY_SORT_GROUP_LIBRARY_KEYS: readonly LibraryBuiltinSortKey[] = [
+    'default', 'title', 'contentType', 'trackingStatus', 'dateAdded',
+];
+const LIBRARY_SORT_GROUP_ACTIVITY_KEYS: readonly LibraryBuiltinSortKey[] = [
+    'lastActivity', 'firstActivity', 'timeLogged', 'totalCharacters',
+];
+
+const LIBRARY_BUILTIN_SORT_LABELS: Record<LibraryBuiltinSortKey, string> = {
+    default: 'Default',
+    title: 'Title',
+    contentType: 'Content Type',
+    trackingStatus: 'Tracking Status',
+    dateAdded: 'Date Added',
+    lastActivity: 'Last Activity',
+    firstActivity: 'First Activity',
+    timeLogged: 'Time Logged',
+    totalCharacters: 'Total Characters',
+};
+
+const LIBRARY_SORT_TIEBREAKER_NOTE = 'Ties broken by last activity (newest first)';
 
 export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
     private readonly onMediaClick: (mediaId: number) => void;
@@ -36,6 +95,9 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
     private readonly onLayoutChange?: (layout: LibraryLayoutMode) => void;
     private activeLayoutComponent: Component | null = null;
     private shellRendered = false;
+    private memoizedExtraDataMediaList: Media[] | null = null;
+    private memoizedExtraDataIndex: Map<number, Record<string, string>> = new Map();
+    private memoizedExtraFieldNames: string[] = [];
 
     constructor(
         container: HTMLElement,
@@ -50,6 +112,13 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
             typeFilters: [...new Set(initialState.typeFilters)],
             statusFilters: [...new Set(initialState.statusFilters)],
             filtersExpanded: false,
+            sortStages: initialState.sortStages ?? [],
+            groupByType: initialState.groupByType ?? false,
+            keepOngoingFirst: initialState.keepOngoingFirst ?? true,
+            keepArchivedLast: initialState.keepArchivedLast ?? true,
+            sortExpanded: false,
+            contentTypeOrder: initialState.contentTypeOrder ?? [...CONTENT_TYPES],
+            trackingStatusOrder: initialState.trackingStatusOrder ?? [...TRACKING_STATUSES],
         });
         this.onMediaClick = onMediaClick;
         this.onDataChange = onDataChange;
@@ -94,25 +163,57 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
 
     private getUniqueTypes(): string[] {
         return Array.from(
-            new Set(this.state.mediaList.map((media) => (media.content_type || 'Unknown').trim() || 'Unknown'))
+            new Set(this.state.mediaList.map((media) => resolveDisplayContentType(media)))
         ).sort((a, b) => a.localeCompare(b));
     }
 
     private getFilteredMediaList(): Media[] {
         const { mediaList, searchQuery, typeFilters, statusFilters, hideArchived } = this.state;
-        return mediaList.filter((media) => {
+        const filteredList = mediaList.filter((media) => {
             const matchesQuery = media.title.toLowerCase().includes(searchQuery.toLowerCase());
-            const mediaType = (media.content_type || 'Unknown').trim() || 'Unknown';
+            const mediaType = resolveDisplayContentType(media);
             const typeMatch = typeFilters.length === 0 || typeFilters.includes(mediaType);
             const statusMatch = statusFilters.length === 0 || statusFilters.includes(media.tracking_status);
             const isArchived = media.status === MEDIA_STATUS.ARCHIVED;
             const archiveMatch = !hideArchived || !isArchived;
             return matchesQuery && typeMatch && statusMatch && archiveMatch;
         });
+
+        return applyLibrarySort(filteredList, {
+            stages: this.state.sortStages,
+            keepOngoingFirst: this.state.keepOngoingFirst,
+            keepArchivedLast: this.state.keepArchivedLast,
+            metricsByMediaId: this.state.listMetricsByMediaId,
+            extraDataIndex: this.getExtraDataIndex(),
+            contentTypeOrder: this.state.contentTypeOrder,
+            trackingStatusOrder: this.state.trackingStatusOrder,
+        });
+    }
+
+    private getExtraDataIndex(): Map<number, Record<string, string>> {
+        this.refreshExtraDataMemo();
+        return this.memoizedExtraDataIndex;
+    }
+
+    private getExtraFieldNames(): string[] {
+        this.refreshExtraDataMemo();
+        return this.memoizedExtraFieldNames;
+    }
+
+    private refreshExtraDataMemo() {
+        if (this.memoizedExtraDataMediaList === this.state.mediaList) return;
+
+        this.memoizedExtraDataIndex = buildExtraDataIndex(this.state.mediaList);
+        this.memoizedExtraFieldNames = getUniqueExtraFieldNames(this.memoizedExtraDataIndex);
+        this.memoizedExtraDataMediaList = this.state.mediaList;
     }
 
     private getActiveFilterCount(): number {
         return this.state.statusFilters.length + this.state.typeFilters.length;
+    }
+
+    private getSortLevelCount(): number {
+        return this.state.sortStages.length;
     }
 
     private renderFilterChipGroup(
@@ -126,7 +227,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
             ...values.map((value) => {
                 const isActive = selectedValues.includes(value);
                 const escapedValue = escapeHTML(value);
-                return `<button type="button" class="media-filter-chip ${isActive ? 'is-active' : ''}" data-filter-group="${group}" data-filter-value="${escapedValue}" aria-pressed="${isActive}">${escapedValue}</button>`;
+                return `<button type="button" class="media-filter-chip ${isActive ? 'is-active' : ''}" data-filter-group="${group}" data-filter-value="${escapeAttribute(value)}" aria-pressed="${isActive}">${escapedValue}</button>`;
             }),
         ].join('');
 
@@ -136,6 +237,107 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
                 <div class="media-grid-chip-list" role="group" aria-label="${label} filters">
                     ${chips}
                 </div>
+            </div>
+        `;
+    }
+
+    private renderSortSwitches(): string {
+        const archivedDisabled = this.state.hideArchived;
+
+        return `
+            <div class="media-sort-switch-group" role="group" aria-label="Library grouping and ordering switches">
+                <label class="media-sort-switch" id="sort-group-by-type-switch">
+                    <span>Group by type</span>
+                    <span class="switch">
+                        <input type="checkbox" id="sort-group-by-type" ${this.state.groupByType ? 'checked' : ''}>
+                        <span class="slider round"></span>
+                    </span>
+                </label>
+                <label class="media-sort-switch" id="sort-keep-ongoing-first-switch">
+                    <span>Keep ongoing first</span>
+                    <span class="switch">
+                        <input type="checkbox" id="sort-keep-ongoing-first" ${this.state.keepOngoingFirst ? 'checked' : ''}>
+                        <span class="slider round"></span>
+                    </span>
+                </label>
+                <label class="media-sort-switch ${archivedDisabled ? 'is-disabled' : ''}" id="sort-keep-archived-last-switch">
+                    <span>Keep archived last</span>
+                    <span class="switch">
+                        <input type="checkbox" id="sort-keep-archived-last" ${this.state.keepArchivedLast ? 'checked' : ''} ${archivedDisabled ? 'disabled' : ''}>
+                        <span class="slider round"></span>
+                    </span>
+                </label>
+            </div>
+        `;
+    }
+
+    private renderSortFieldOptions(stageIndex: number, extraFieldNames: string[]): string {
+        const usedFieldKeys = new Set(
+            this.state.sortStages
+                .filter((_, index) => index !== stageIndex)
+                .map((stage) => toSortFieldOptionValue(stage.field)),
+        );
+        const currentFieldKey = toSortFieldOptionValue(this.state.sortStages[stageIndex].field);
+
+        const renderBuiltinOption = (key: LibraryBuiltinSortKey): string => {
+            const fieldKey = toSortFieldOptionValue({ kind: 'builtin', key });
+            if (usedFieldKeys.has(fieldKey)) return '';
+            const isSelected = fieldKey === currentFieldKey;
+            return `<option value="${fieldKey}" ${isSelected ? 'selected' : ''}>${LIBRARY_BUILTIN_SORT_LABELS[key]}</option>`;
+        };
+
+        const libraryOptions = LIBRARY_SORT_GROUP_LIBRARY_KEYS.map(renderBuiltinOption).join('');
+        const activityOptions = LIBRARY_SORT_GROUP_ACTIVITY_KEYS.map(renderBuiltinOption).join('');
+
+        const fieldOptions = extraFieldNames.map((fieldName) => {
+            const fieldKey = toSortFieldOptionValue({ kind: 'extra', fieldName });
+            if (usedFieldKeys.has(fieldKey)) return '';
+            const isSelected = fieldKey === currentFieldKey;
+            const escapedFieldName = escapeHTML(fieldName);
+            return `<option value="${escapeAttribute(fieldKey)}" ${isSelected ? 'selected' : ''}>${escapedFieldName}</option>`;
+        }).join('');
+
+        return `
+            <optgroup label="Library">${libraryOptions}</optgroup>
+            <optgroup label="Activity">${activityOptions}</optgroup>
+            ${fieldOptions ? `<optgroup label="Fields">${fieldOptions}</optgroup>` : ''}
+        `;
+    }
+
+    private renderSortLevelRow(stage: LibrarySortStage, stageIndex: number, extraFieldNames: string[]): string {
+        const levelLabel = stageIndex === 0 ? 'Sort by' : 'Then by';
+        const isDefaultField = stage.field.kind === 'builtin' && stage.field.key === 'default';
+
+        return `
+            <div class="media-sort-level-row">
+                <div class="media-sort-level-label">${levelLabel}</div>
+                <select class="media-sort-level-select" data-level-index="${stageIndex}" aria-label="${levelLabel} field">
+                    ${this.renderSortFieldOptions(stageIndex, extraFieldNames)}
+                </select>
+                <div class="media-sort-direction-toggle" role="group" aria-label="${levelLabel} direction">
+                    <button type="button" class="media-sort-direction-option ${stage.direction === 'ascending' ? 'is-active' : ''}" data-level-index="${stageIndex}" data-direction="ascending" ${isDefaultField ? 'disabled' : ''}>Ascending</button>
+                    <button type="button" class="media-sort-direction-option ${stage.direction === 'descending' ? 'is-active' : ''}" data-level-index="${stageIndex}" data-direction="descending" ${isDefaultField ? 'disabled' : ''}>Descending</button>
+                </div>
+                <button type="button" class="media-sort-level-remove" data-level-index="${stageIndex}" aria-label="Remove ${levelLabel.toLowerCase()} level">×</button>
+            </div>
+        `;
+    }
+
+    private renderSortPanelBody(): string {
+        const extraFieldNames = this.getExtraFieldNames();
+        const levelsMarkup = this.state.sortStages
+            .map((stage, stageIndex) => this.renderSortLevelRow(stage, stageIndex, extraFieldNames))
+            .join('');
+
+        return `
+            <div class="media-sort-tray">
+                ${this.renderSortSwitches()}
+                <div class="media-sort-levels" id="media-sort-levels" aria-describedby="media-sort-tiebreaker-note">
+                    ${levelsMarkup}
+                </div>
+                <button type="button" class="media-sort-add-level" id="btn-add-sort-level">+ Add sort</button>
+                <div class="media-sort-tiebreaker-divider"></div>
+                <p class="media-sort-tiebreaker-note" id="media-sort-tiebreaker-note">${LIBRARY_SORT_TIEBREAKER_NOTE}</p>
             </div>
         `;
     }
@@ -155,6 +357,13 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         const compactHint = this.state.isGridSupported
             ? ''
             : '<span class="media-layout-hint">Grid re-enables when the window is wider.</span>';
+        const sortLevelCount = this.getSortLevelCount();
+        const sortCountBadge = sortLevelCount > 0
+            ? `<span class="media-grid-filter-count" aria-label="${sortLevelCount} active sort levels">${sortLevelCount}</span>`
+            : '';
+        const sortPanelStyle = this.state.sortExpanded
+            ? 'style="height: auto; opacity: 1; transform: translateY(0); pointer-events: auto;"'
+            : 'style="height: 0; opacity: 0; transform: translateY(-8px); pointer-events: none;"';
 
         const header = html`
             <div class="media-grid-toolbar-shell">
@@ -204,6 +413,14 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
                                 <path d="M2.5 4.5L6 7.5L9.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
                             </svg>
                         </button>
+
+                        <button class="media-grid-filters-toggle" id="btn-toggle-sort" aria-expanded="${this.state.sortExpanded}" aria-controls="media-sort-panel">
+                            <span>Sort</span>
+                            ${rawHtml(sortCountBadge)}
+                            <svg class="media-grid-filters-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                                <path d="M2.5 4.5L6 7.5L9.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
+                            </svg>
+                        </button>
                     </div>
                 </div>
 
@@ -225,6 +442,12 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
                         </div>
                     </div>
                 </div>
+
+                <div id="media-sort-panel" class="media-grid-filter-panel ${this.state.sortExpanded ? 'is-expanded' : 'is-collapsed'}" aria-hidden="${this.state.sortExpanded ? 'false' : 'true'}" ${rawHtml(sortPanelStyle)}>
+                    <div class="media-grid-filter-panel-body">
+                        ${rawHtml(this.renderSortPanelBody())}
+                    </div>
+                </div>
             </div>
         `;
 
@@ -244,14 +467,18 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         layoutRoot.style.cssText = 'display: flex; flex: 1; min-height: 0; min-width: 0;';
         container.appendChild(layoutRoot);
 
-        const filteredList = this.getFilteredMediaList();
+        const sortedList = this.getFilteredMediaList();
+        const rows: LibraryRow[] = this.state.groupByType
+            ? flattenLibraryRows(groupMediaByType(sortedList, this.state.contentTypeOrder))
+            : toLibraryItemRows(sortedList);
+
         if (this.getActiveLayout() === 'grid') {
-            this.activeLayoutComponent = new MediaGrid(layoutRoot, { mediaList: filteredList }, this.onMediaClick);
+            this.activeLayoutComponent = new MediaGrid(layoutRoot, { rows }, this.onMediaClick);
         } else {
             this.activeLayoutComponent = new MediaList(
                 layoutRoot,
                 {
-                    mediaList: filteredList,
+                    rows,
                     metricsByMediaId: this.state.listMetricsByMediaId,
                     isMetricsLoading: this.state.isListMetricsLoading,
                 },
@@ -303,6 +530,10 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
             this.toggleFiltersPanel();
         });
 
+        header.querySelector('#btn-toggle-sort')?.addEventListener('click', () => {
+            this.toggleSortPanel();
+        });
+
         header.querySelectorAll<HTMLButtonElement>('.media-filter-chip').forEach((chip) => {
             chip.addEventListener('click', () => {
                 const group = chip.dataset.filterGroup;
@@ -323,6 +554,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         const hideArchived = header.querySelector<HTMLInputElement>('#grid-hide-archived');
         hideArchived?.addEventListener('change', () => {
             this.state.hideArchived = hideArchived.checked;
+            this.renderHeader(header);
             this.renderContent(this.container.querySelector<HTMLElement>('#media-library-content')!);
             this.notifyFilterChange();
         });
@@ -334,6 +566,88 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         header.querySelector('#btn-layout-list')?.addEventListener('click', () => {
             this.setLayout('list');
         });
+
+        const groupByType = header.querySelector<HTMLInputElement>('#sort-group-by-type');
+        groupByType?.addEventListener('change', () => {
+            this.state.groupByType = groupByType.checked;
+            this.applySortStateChange();
+        });
+
+        const keepOngoingFirst = header.querySelector<HTMLInputElement>('#sort-keep-ongoing-first');
+        keepOngoingFirst?.addEventListener('change', () => {
+            this.state.keepOngoingFirst = keepOngoingFirst.checked;
+            this.applySortStateChange();
+        });
+
+        const keepArchivedLast = header.querySelector<HTMLInputElement>('#sort-keep-archived-last');
+        keepArchivedLast?.addEventListener('change', () => {
+            this.state.keepArchivedLast = keepArchivedLast.checked;
+            this.applySortStateChange();
+        });
+
+        header.querySelectorAll<HTMLSelectElement>('.media-sort-level-select').forEach((select) => {
+            select.addEventListener('change', () => {
+                const stageIndex = Number(select.dataset.levelIndex);
+                const stage = this.state.sortStages[stageIndex];
+                if (!stage) return;
+
+                const extraFieldNames = this.getExtraFieldNames();
+                const parsedField = fromSortFieldOptionValue(select.value, extraFieldNames);
+                if (!parsedField) return;
+
+                stage.field = parsedField;
+                this.applySortStateChange();
+            });
+        });
+
+        header.querySelectorAll<HTMLButtonElement>('.media-sort-direction-option').forEach((button) => {
+            button.addEventListener('click', () => {
+                const stageIndex = Number(button.dataset.levelIndex);
+                const direction = button.dataset.direction as LibrarySortDirection | undefined;
+                const stage = this.state.sortStages[stageIndex];
+                if (!stage || !direction) return;
+
+                stage.direction = direction;
+                this.applySortStateChange();
+            });
+        });
+
+        header.querySelectorAll<HTMLButtonElement>('.media-sort-level-remove').forEach((button) => {
+            button.addEventListener('click', () => {
+                const stageIndex = Number(button.dataset.levelIndex);
+                this.state.sortStages = this.state.sortStages.filter((_, index) => index !== stageIndex);
+                this.applySortStateChange();
+            });
+        });
+
+        header.querySelector('#btn-add-sort-level')?.addEventListener('click', () => {
+            const extraFieldNames = this.getExtraFieldNames();
+            const usedFieldKeys = new Set(this.state.sortStages.map((stage) => toSortFieldOptionValue(stage.field)));
+            const nextField = this.pickNextAvailableSortField(usedFieldKeys, extraFieldNames);
+            this.state.sortStages = [...this.state.sortStages, { field: nextField, direction: 'ascending' }];
+            this.applySortStateChange();
+        });
+    }
+
+    private pickNextAvailableSortField(usedFieldKeys: Set<string>, extraFieldNames: string[]): LibrarySortField {
+        const candidateBuiltinKeys = LIBRARY_BUILTIN_SORT_KEYS.filter((key) => key !== 'default');
+        for (const key of candidateBuiltinKeys) {
+            const field: LibrarySortField = { kind: 'builtin', key };
+            if (!usedFieldKeys.has(toSortFieldOptionValue(field))) return field;
+        }
+
+        for (const fieldName of extraFieldNames) {
+            const field: LibrarySortField = { kind: 'extra', fieldName };
+            if (!usedFieldKeys.has(toSortFieldOptionValue(field))) return field;
+        }
+
+        return { kind: 'builtin', key: 'default' };
+    }
+
+    private applySortStateChange() {
+        this.renderHeader(this.container.querySelector<HTMLElement>('#media-library-header')!);
+        this.renderContent(this.container.querySelector<HTMLElement>('#media-library-content')!);
+        this.notifyFilterChange();
     }
 
     private setLayout(layout: LibraryLayoutMode) {
@@ -352,13 +666,25 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
     }
 
     private toggleFiltersPanel() {
+        this.togglePanel('media-grid-filter-panel', 'btn-toggle-filters', this.state.filtersExpanded, (nextExpanded) => {
+            this.state.filtersExpanded = nextExpanded;
+        });
+    }
+
+    private toggleSortPanel() {
+        this.togglePanel('media-sort-panel', 'btn-toggle-sort', this.state.sortExpanded, (nextExpanded) => {
+            this.state.sortExpanded = nextExpanded;
+        });
+    }
+
+    private togglePanel(panelId: string, buttonId: string, isExpanded: boolean, setExpanded: (nextExpanded: boolean) => void) {
         const header = this.container.querySelector<HTMLElement>('#media-library-header');
-        const panel = header?.querySelector<HTMLElement>('#media-grid-filter-panel');
-        const button = header?.querySelector<HTMLButtonElement>('#btn-toggle-filters');
+        const panel = header?.querySelector<HTMLElement>(`#${panelId}`);
+        const button = header?.querySelector<HTMLButtonElement>(`#${buttonId}`);
         if (!panel || !button) return;
 
-        const nextExpanded = !this.state.filtersExpanded;
-        this.state.filtersExpanded = nextExpanded;
+        const nextExpanded = !isExpanded;
+        setExpanded(nextExpanded);
         button.setAttribute('aria-expanded', String(nextExpanded));
         panel.setAttribute('aria-hidden', String(!nextExpanded));
         panel.classList.toggle('is-expanded', nextExpanded);
@@ -446,6 +772,10 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
             typeFilters: [...this.state.typeFilters],
             statusFilters: [...this.state.statusFilters],
             hideArchived: this.state.hideArchived,
+            sortStages: this.state.sortStages.map((stage) => ({ ...stage })),
+            groupByType: this.state.groupByType,
+            keepOngoingFirst: this.state.keepOngoingFirst,
+            keepArchivedLast: this.state.keepArchivedLast,
         });
     }
 }

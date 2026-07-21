@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { Media } from '../../../src/api';
 import { MediaList } from '../../../src/media/MediaList';
 import { MediaListItem } from '../../../src/media/MediaListItem';
+import type { LibraryRow } from '../../../src/media/sorting';
+import { toLibraryItemRows } from '../../../src/media/sorting';
 import { createCollectionMediaList, useCollectionRenderTestEnv } from './collection_test_utils';
 
 vi.mock('../../../src/media/MediaListItem', () => ({
@@ -16,7 +18,7 @@ describe('MediaList', () => {
     it('shows an empty state when no list items match', () => {
         const component = new MediaList(
             env.container,
-            { mediaList: [], metricsByMediaId: {}, isMetricsLoading: false },
+            { rows: [], metricsByMediaId: {}, isMetricsLoading: false },
             vi.fn(),
         );
 
@@ -37,12 +39,13 @@ describe('MediaList', () => {
                 firstActivityDate: '2026-03-01',
                 lastActivityDate: '2026-03-10',
                 totalMinutes: 150,
+                totalCharacters: 3000,
             },
         };
 
         const component = new MediaList(
             env.container,
-            { mediaList: mediaList as Media[], metricsByMediaId: metrics, isMetricsLoading: true },
+            { rows: toLibraryItemRows(mediaList as Media[]), metricsByMediaId: metrics, isMetricsLoading: true },
             onMediaClick,
         );
 
@@ -80,7 +83,7 @@ describe('MediaList', () => {
 
         const component = new MediaList(
             env.container,
-            { mediaList, metricsByMediaId: {}, isMetricsLoading: false },
+            { rows: toLibraryItemRows(mediaList), metricsByMediaId: {}, isMetricsLoading: false },
             vi.fn(),
         );
 
@@ -98,7 +101,7 @@ describe('MediaList', () => {
 
         const component = new MediaList(
             env.container,
-            { mediaList, metricsByMediaId: {}, isMetricsLoading: false },
+            { rows: toLibraryItemRows(mediaList), metricsByMediaId: {}, isMetricsLoading: false },
             vi.fn(),
         );
 
@@ -107,5 +110,28 @@ describe('MediaList', () => {
         vi.runAllTimers();
 
         expect(MediaListItem).toHaveBeenCalledTimes(18);
+    });
+
+    it('renders a full-width header row without instantiating a list item', () => {
+        const mediaList = [
+            { id: 1, title: 'Item 1', status: 'Active', content_type: 'Manga', tracking_status: 'Ongoing' },
+        ];
+        const rows: LibraryRow[] = [
+            { kind: 'header', contentType: 'Manga', label: 'Manga' },
+            ...toLibraryItemRows(mediaList as Media[]),
+        ];
+        const component = new MediaList(
+            env.container,
+            { rows, metricsByMediaId: {}, isMetricsLoading: false },
+            vi.fn(),
+        );
+
+        component.render();
+        vi.runAllTimers();
+
+        expect(MediaListItem).toHaveBeenCalledTimes(1);
+        const headerElement = env.container.querySelector('.media-library-section-header') as HTMLElement;
+        expect(headerElement).not.toBeNull();
+        expect(headerElement.textContent).toBe('Manga');
     });
 });

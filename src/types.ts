@@ -61,6 +61,14 @@ export interface DailyHeatmap {
     total_characters: number;
 }
 
+export interface LibraryActivityMetricsRow {
+    media_id: number;
+    first_activity_date: string;
+    last_activity_date: string;
+    total_minutes: number;
+    total_characters: number;
+}
+
 export type TimelineEventKind =
     | 'started'
     | 'finished'

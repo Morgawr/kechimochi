@@ -39,12 +39,12 @@ describe('CUJ: Content Lifecycle (Manual Archiving)', () => {
         await setHideArchived(false);
         expect(await isMediaVisible('呪術廻戦')).toBe(true);
 
-        // Verify archived visual indicator: grid uses opacity 0.6 on the item shell,
-        // mobile list uses opacity 0.7 on the inner .media-list-item. Assert "dimmed"
-        // (< 1) rather than a hardcoded value so either layout passes.
+        // Verify archived visual indicator: both layouts dim an inner element rather than
+        // the animated shell, so the fade-in animation cannot outrank the dimming.
+        // Assert "dimmed" (< 1) rather than a hardcoded value so either layout passes.
         const layout = await getActiveLibraryLayout();
         const dimmedItem = layout === 'grid'
-            ? $(`.media-grid-item[data-title="呪術廻戦"]`)
+            ? $(`.media-grid-item[data-title="呪術廻戦"] .media-grid-item-body`)
             : $(`.media-list-item-shell[data-title="呪術廻戦"] .media-list-item`);
         const archivedOpacity = Number((await dimmedItem.getCSSProperty('opacity')).value);
         expect(archivedOpacity).toBeLessThan(1);

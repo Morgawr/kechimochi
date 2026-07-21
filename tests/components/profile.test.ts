@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { ProfileView } from '../../src/profile/ProfileView';
 import * as api from '../../src/api';
 import { Media } from '../../src/api';
-import { STORAGE_KEYS, SETTING_KEYS } from '../../src/constants';
+import { STORAGE_KEYS, SETTING_KEYS, CONTENT_TYPES, TRACKING_STATUSES } from '../../src/constants';
 import { Logger } from '../../src/logger';
 import {
     buildConnectedSyncStatus,
@@ -117,6 +117,22 @@ function mockStandardProfileLoad(options?: {
         return '0';
     });
     vi.mocked(api.getAppVersion).mockResolvedValue(appVersion);
+}
+
+function mockLibraryOrderSettings(options?: { contentTypeOrder?: string[] | null; trackingStatusOrder?: string[] | null }) {
+    const { contentTypeOrder = null, trackingStatusOrder = null } = options ?? {};
+    vi.mocked(api.getSetting).mockImplementation(async (key) => {
+        if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
+        if (key === SETTING_KEYS.THEME) return 'pastel-pink';
+        if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
+        if (key === SETTING_KEYS.CONTENT_TYPE_ORDER) return contentTypeOrder ? JSON.stringify(contentTypeOrder) : null;
+        if (key === SETTING_KEYS.TRACKING_STATUS_ORDER) return trackingStatusOrder ? JSON.stringify(trackingStatusOrder) : null;
+        return '0';
+    });
+}
+
+function getOrderRowLabels(container: HTMLElement, listId: string): (string | null)[] {
+    return Array.from(container.querySelectorAll(`#${listId} .profile-order-row-label`)).map(el => el.textContent);
 }
 
 async function renderAndClickEnableSync(container: HTMLElement) {
@@ -1759,5 +1775,106 @@ describe('ProfileView', () => {
         view.destroy();
 
         expect(unsubscribe).toHaveBeenCalled();
+    });
+
+    describe('Library Ordering card', () => {
+        it('should resolve content type and tracking status order to declaration order when unset', async () => {
+            mockLibraryOrderSettings();
+
+            const view = new ProfileView(container);
+            view.render();
+
+            await vi.waitFor(() => expect(container.querySelector('#profile-content-type-order-list')).not.toBeNull());
+
+            expect(getOrderRowLabels(container, 'profile-content-type-order-list')).toEqual([...CONTENT_TYPES]);
+            expect(getOrderRowLabels(container, 'profile-tracking-status-order-list')).toEqual([...TRACKING_STATUSES]);
+
+            const firstUpButton = container.querySelector('#profile-content-type-order-list [data-order-direction="up"]') as HTMLButtonElement;
+            const lastDownButton = container.querySelectorAll('#profile-content-type-order-list [data-order-direction="down"]');
+            expect(firstUpButton.disabled).toBe(true);
+            expect((lastDownButton[lastDownButton.length - 1] as HTMLButtonElement).disabled).toBe(true);
+        });
+
+        it('should append a saved content type order missing a value in declaration order', async () => {
+            const savedOrderMissingLast = CONTENT_TYPES.slice(0, -1);
+            mockLibraryOrderSettings({ contentTypeOrder: [...savedOrderMissingLast] });
+
+            const view = new ProfileView(container);
+            view.render();
+
+            await vi.waitFor(() => expect(container.querySelector('#profile-content-type-order-list')).not.toBeNull());
+
+            expect(getOrderRowLabels(container, 'profile-content-type-order-list')).toEqual([
+                ...savedOrderMissingLast,
+                CONTENT_TYPES[CONTENT_TYPES.length - 1],
+            ]);
+        });
+
+        it('should move a content type up via the arrow button and persist the new order', async () => {
+            mockLibraryOrderSettings();
+
+            const view = new ProfileView(container);
+            view.render();
+
+            await vi.waitFor(() => expect(container.querySelector('#profile-content-type-order-list')).not.toBeNull());
+
+            const upButtons = container.querySelectorAll('#profile-content-type-order-list [data-order-direction="up"]');
+            (upButtons[1] as HTMLButtonElement).click();
+
+            const expectedOrder = [...CONTENT_TYPES];
+            [expectedOrder[0], expectedOrder[1]] = [expectedOrder[1], expectedOrder[0]];
+
+            await vi.waitFor(() => expect(api.setSetting).toHaveBeenCalledWith(
+                SETTING_KEYS.CONTENT_TYPE_ORDER,
+                JSON.stringify(expectedOrder)
+            ));
+            expect(getOrderRowLabels(container, 'profile-content-type-order-list')).toEqual(expectedOrder);
+        });
+
+        it('should keep an expanded section open across a re-render', async () => {
+            mockLibraryOrderSettings();
+
+            const view = new ProfileView(container);
+            view.render();
+
+            await vi.waitFor(() => expect(container.querySelector('#profile-content-type-order-list')).not.toBeNull());
+
+            const details = container.querySelector('#profile-content-type-order-details') as HTMLDetailsElement;
+            details.open = true;
+            details.dispatchEvent(new Event('toggle'));
+
+            const upButtons = container.querySelectorAll('#profile-content-type-order-list [data-order-direction="up"]');
+            (upButtons[1] as HTMLButtonElement).click();
+
+            await vi.waitFor(() => expect(api.setSetting).toHaveBeenCalledWith(
+                SETTING_KEYS.CONTENT_TYPE_ORDER,
+                expect.any(String)
+            ));
+
+            const reRenderedDetails = container.querySelector('#profile-content-type-order-details') as HTMLDetailsElement;
+            expect(reRenderedDetails.open).toBe(true);
+            expect((container.querySelector('#profile-tracking-status-order-details') as HTMLDetailsElement).open).toBe(false);
+        });
+
+        it('should move a tracking status down via the arrow button and persist the new order', async () => {
+            mockLibraryOrderSettings();
+
+            const view = new ProfileView(container);
+            view.render();
+
+            await vi.waitFor(() => expect(container.querySelector('#profile-tracking-status-order-list')).not.toBeNull());
+
+            const firstDownButton = container.querySelector('#profile-tracking-status-order-list [data-order-direction="down"]') as HTMLButtonElement;
+            firstDownButton.click();
+
+            const expectedOrder = [...TRACKING_STATUSES];
+            [expectedOrder[0], expectedOrder[1]] = [expectedOrder[1], expectedOrder[0]];
+
+            await vi.waitFor(() => expect(api.setSetting).toHaveBeenCalledWith(
+                SETTING_KEYS.TRACKING_STATUS_ORDER,
+                JSON.stringify(expectedOrder)
+            ));
+            expect(getOrderRowLabels(container, 'profile-tracking-status-order-list')).toEqual(expectedOrder);
+        });
     });
 });

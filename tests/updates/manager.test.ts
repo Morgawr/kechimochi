@@ -39,6 +39,7 @@ function createServices(): TestServices {
         deleteLog: vi.fn(),
         getLogs: vi.fn(),
         getHeatmap: vi.fn(),
+        getLibraryActivityMetrics: vi.fn(),
         getLogsForMedia: vi.fn(),
         initializeUserDb: vi.fn(),
         clearActivities: vi.fn(),

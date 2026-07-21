@@ -13,6 +13,7 @@ export const EVENTS = {
     APP_NAVIGATE: 'app-navigate',
     LOCAL_DATA_CHANGED: 'local-data-changed',
     PROFILE_UPDATED: 'profile-updated',
+    LIBRARY_PREFERENCES_CHANGED: 'library-preferences-changed',
 } as const;
 
 export const STORAGE_KEYS = {
@@ -35,6 +36,12 @@ export const SETTING_KEYS = {
     STATS_REPORT_TIMESTAMP: 'stats_report_timestamp',
     GRID_HIDE_ARCHIVED: 'grid_hide_archived',
     LIBRARY_LAYOUT_MODE: 'library_layout_mode',
+    LIBRARY_SORT_STAGES: 'library_sort_stages',
+    LIBRARY_GROUP_BY_TYPE: 'library_group_by_type',
+    LIBRARY_KEEP_ONGOING_FIRST: 'library_keep_ongoing_first',
+    LIBRARY_KEEP_ARCHIVED_LAST: 'library_keep_archived_last',
+    CONTENT_TYPE_ORDER: 'content_type_order',
+    TRACKING_STATUS_ORDER: 'tracking_status_order',
     DASHBOARD_CHART_TYPE: 'dashboard_chart_type',
     DASHBOARD_GROUP_BY: 'dashboard_group_by',
     WEEK_START_DAY: 'week_start_day',

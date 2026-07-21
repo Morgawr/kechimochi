@@ -104,6 +104,10 @@ async fn main() {
         )
         // Logs — specific routes before the parameterised :id route
         .route("/api/logs/heatmap", get(get_heatmap))
+        .route(
+            "/api/logs/library-metrics",
+            get(get_library_activity_metrics),
+        )
         .route("/api/logs/media/:id", get(get_logs_for_media))
         .route("/api/logs", get(get_logs).post(add_log))
         .route(
@@ -272,8 +276,10 @@ async fn add_media(
 
 async fn update_media(
     State(s): State<Shared>,
-    Json(media): Json<models::Media>,
+    Path(id): Path<i64>,
+    Json(mut media): Json<models::Media>,
 ) -> HandlerResult<Json<()>> {
+    media.id = Some(id);
     let conn = s.conn.lock().await;
     db::update_media(&conn, &media).ae().map(|_| Json(()))
 }
@@ -322,6 +328,13 @@ async fn delete_log_handler(
 async fn get_heatmap(State(s): State<Shared>) -> HandlerResult<Json<Vec<models::DailyHeatmap>>> {
     let conn = s.conn.lock().await;
     db::get_heatmap(&conn).ae().map(Json)
+}
+
+async fn get_library_activity_metrics(
+    State(s): State<Shared>,
+) -> HandlerResult<Json<Vec<models::LibraryActivityMetricsRow>>> {
+    let conn = s.conn.lock().await;
+    db::get_library_activity_metrics(&conn).ae().map(Json)
 }
 
 async fn get_logs_for_media(
@@ -947,6 +960,35 @@ mod tests {
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].title, "Web Handler Test");
         assert_eq!(all[0].id, Some(inserted));
+
+        let _ = std::fs::remove_dir_all(state_dir);
+    }
+
+    #[tokio::test]
+    async fn test_update_media_handler_uses_path_id_over_mismatched_body_id() {
+        let state = setup_state();
+        let state_dir = state.data_dir.clone();
+
+        let media_a_id = add_media(State(state.clone()), Json(sample_media("Media A")))
+            .await
+            .unwrap()
+            .0;
+        let media_b_id = add_media(State(state.clone()), Json(sample_media("Media B")))
+            .await
+            .unwrap()
+            .0;
+
+        let mut update_body = sample_media("Updated Title");
+        update_body.id = Some(media_b_id);
+        let _ = update_media(State(state.clone()), Path(media_a_id), Json(update_body))
+            .await
+            .unwrap();
+
+        let all = get_all_media(State(state)).await.unwrap().0;
+        let updated_a = all.iter().find(|m| m.id == Some(media_a_id)).unwrap();
+        let untouched_b = all.iter().find(|m| m.id == Some(media_b_id)).unwrap();
+        assert_eq!(updated_a.title, "Updated Title");
+        assert_eq!(untouched_b.title, "Media B");
 
         let _ = std::fs::remove_dir_all(state_dir);
     }

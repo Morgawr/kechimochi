@@ -9,11 +9,18 @@ The format is based on Keep a Changelog, with one section per released version.
 ### Added
  - Added a Notes field to activity log entries (editable in the log modal, shown on the media detail page, included in sync and CSV export).
  - The desktop app now remembers its window size, position, and maximized state between launches.
+ - Library sorting. A new Sort panel lets you order both by premade data and your custom tags at multiple levels of sorting.
+ - Optional grouping of the library into sections by media type, with a section heading per type.
+ - Your sortand group settings are remembered between launches.
+ - New "Library Ordering" settings card to put content types and tracking statuses in whatever order you prefer.
 
 ### Changed
  - UI aggregate metrics now report hours with proper breakdown of minutes rather than confusing decimals
+ - Opening the library is faster on large collections: activity totals are now summarised by the database instead of loading every activity log into the app.
 
 ### Fixed
+ - Improbe stability of rows in list view, less jumping and resizing as data finished loading.
+ - Expandable settings sections, such as the HTTP API's "Advanced settings", no longer snap shut when you change an unrelated setting.
  - The tracking heatmap now colors days that have characters logged but no time tracked, in addition to days with time tracked. Cell intensity reflects whichever of the two is higher, so days tracked with both time and characters are not artificially brighter.
  - Milestones on the same media and same date now appear in creation order (oldest at the bottom, newest at the top) instead of alphabetically by name.
  - Default window no longer opens larger than the screen / under the taskbar, which could hide the update dialog's close button.

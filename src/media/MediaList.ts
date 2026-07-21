@@ -1,11 +1,11 @@
 import { Component } from '../component';
-import { Media } from '../api';
 import { MediaListItem } from './MediaListItem';
 import type { LibraryActivityMetrics } from './library_types';
-import { createAnimatedCollectionItemWrapper, renderIncrementalMediaCollection } from './render_incremental_collection';
+import type { LibraryRow } from './sorting';
+import { createAnimatedCollectionItemWrapper, createLibrarySectionHeaderWrapper, renderIncrementalMediaCollection } from './render_incremental_collection';
 
 interface MediaListState {
-    mediaList: Media[];
+    rows: LibraryRow[];
     metricsByMediaId: Record<number, LibraryActivityMetrics>;
     isMetricsLoading: boolean;
 }
@@ -32,7 +32,7 @@ export class MediaList extends Component<MediaListState> {
 
         renderIncrementalMediaCollection({
             host: this.container,
-            items: this.state.mediaList,
+            items: this.state.rows,
             containerId: 'media-list-container',
             containerClassName: 'media-list-scroll-container',
             // min-width:0 is required for flex children to shrink instead of overflowing horizontally.
@@ -43,7 +43,12 @@ export class MediaList extends Component<MediaListState> {
             firstBatchDelayMs: 40,
             subsequentBatchDelayMs: 20,
             shouldContinue: () => !this.isDestroyed && renderId === this.currentRenderId,
-            createItemWrapper: (media, index, isFirstBatch) => {
+            createItemWrapper: (row, index, isFirstBatch) => {
+                if (row.kind === 'header') {
+                    return createLibrarySectionHeaderWrapper(row.label, isFirstBatch ? index * 0.02 : 0, false);
+                }
+
+                const media = row.media;
                 const itemWrapper = createAnimatedCollectionItemWrapper(
                     'media-list-item-wrapper',
                     isFirstBatch ? index * 0.02 : 0,

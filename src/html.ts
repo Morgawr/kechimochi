@@ -71,3 +71,12 @@ export function escapeHTML(str: string): string {
     div.textContent = str;
     return div.innerHTML;
 }
+
+/**
+ * Escapes a value for use inside a quoted HTML attribute. `escapeHTML` alone is not enough:
+ * it serializes a text node, and the HTML serializer leaves quotes untouched because they are
+ * only significant in attribute values.
+ */
+export function escapeAttribute(str: string): string {
+    return escapeHTML(str).replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+}

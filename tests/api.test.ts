@@ -67,6 +67,11 @@ describe('api.ts', () => {
       expect(invoke).toHaveBeenCalledWith('get_heatmap');
     });
 
+    it('getLibraryActivityMetrics should call invoke', async () => {
+      await api.getLibraryActivityMetrics();
+      expect(invoke).toHaveBeenCalledWith('get_library_activity_metrics');
+    });
+
     it('getLogsForMedia should call invoke', async () => {
       await api.getLogsForMedia(1);
       expect(invoke).toHaveBeenCalledWith('get_logs_for_media', { mediaId: 1 });

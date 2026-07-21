@@ -1,23 +1,49 @@
 import { Component } from '../component';
 import { html } from '../html';
-import { Media, ActivitySummary, getAllMedia, getLogs, getLogsForMedia, getSetting, setSetting } from '../api';
+import { Media, ActivitySummary, LibraryActivityMetricsRow, getAllMedia, getLibraryActivityMetrics, getLogsForMedia, getSetting, setSetting } from '../api';
 import { MediaLibraryBrowser } from './MediaLibraryBrowser';
 import { MediaDetail } from './MediaDetail';
 import { Logger } from '../logger';
-import { SETTING_KEYS, EVENTS, VIEW_NAMES } from '../constants';
+import { SETTING_KEYS, EVENTS, VIEW_NAMES, CONTENT_TYPES, TRACKING_STATUSES } from '../constants';
 import { GRID_LAYOUT_MEDIA_QUERY, type LibraryActivityMetrics, type LibraryLayoutMode } from './library_types';
+import { resolveDisplayContentType } from './content_type';
+import {
+    buildExtraDataIndex,
+    getUniqueExtraFieldNames,
+    parseLibrarySortStages,
+    serializeLibrarySortStages,
+    reconcileEnumOrder,
+    type LibraryBuiltinSortKey,
+    type LibrarySortStage,
+} from './sorting';
+
+const METRICS_DEPENDENT_SORT_KEYS: ReadonlySet<LibraryBuiltinSortKey> = new Set([
+    'lastActivity', 'firstActivity', 'timeLogged', 'totalCharacters',
+]);
+
+function sortStagesNeedMetrics(stages: LibrarySortStage[]): boolean {
+    return stages.some((stage) => stage.field.kind === 'builtin' && METRICS_DEPENDENT_SORT_KEYS.has(stage.field.key));
+}
+
+interface MediaViewLibraryFilters {
+    searchQuery: string;
+    typeFilters: string[];
+    statusFilters: string[];
+    hideArchived: boolean;
+    sortStages: LibrarySortStage[];
+    groupByType: boolean;
+    keepOngoingFirst: boolean;
+    keepArchivedLast: boolean;
+}
 
 interface MediaViewState {
     viewMode: 'grid' | 'detail';
     currentMediaList: Media[];
     currentLogs: ActivitySummary[];
     currentIndex: number;
-    libraryFilters: {
-        searchQuery: string;
-        typeFilters: string[];
-        statusFilters: string[];
-        hideArchived: boolean;
-    };
+    libraryFilters: MediaViewLibraryFilters;
+    contentTypeOrder: string[];
+    trackingStatusOrder: string[];
     preferredLayout: LibraryLayoutMode;
     isGridSupported: boolean;
     listMetricsByMediaId: Record<number, LibraryActivityMetrics>;
@@ -51,7 +77,13 @@ export class MediaView extends Component<MediaViewState> {
                 typeFilters: [],
                 statusFilters: [],
                 hideArchived: false,
+                sortStages: [],
+                groupByType: false,
+                keepOngoingFirst: true,
+                keepArchivedLast: true,
             },
+            contentTypeOrder: [...CONTENT_TYPES],
+            trackingStatusOrder: [...TRACKING_STATUSES],
             preferredLayout: 'grid',
             isGridSupported: MediaView.isGridLayoutSupported(),
             listMetricsByMediaId: {},
@@ -65,6 +97,7 @@ export class MediaView extends Component<MediaViewState> {
     protected onMount() {
         globalThis.addEventListener('keydown', this.keyboardHandler);
         globalThis.addEventListener('mouseup', this.mouseHandler);
+        globalThis.addEventListener(EVENTS.LIBRARY_PREFERENCES_CHANGED, this.libraryPreferencesHandler);
         this.bindGridSupportListener();
     }
 
@@ -72,8 +105,22 @@ export class MediaView extends Component<MediaViewState> {
         this.isDestroyed = true;
         globalThis.removeEventListener('keydown', this.keyboardHandler);
         globalThis.removeEventListener('mouseup', this.mouseHandler);
+        globalThis.removeEventListener(EVENTS.LIBRARY_PREFERENCES_CHANGED, this.libraryPreferencesHandler);
         this.unbindGridSupportListener();
         super.destroy();
+    }
+
+    private async reloadLibraryEnumOrders() {
+        const [contentTypeOrderStr, trackingStatusOrderStr] = await Promise.all([
+            getSetting(SETTING_KEYS.CONTENT_TYPE_ORDER),
+            getSetting(SETTING_KEYS.TRACKING_STATUS_ORDER),
+        ]);
+        if (this.isDestroyed) return;
+
+        this.setState({
+            contentTypeOrder: reconcileEnumOrder(contentTypeOrderStr, CONTENT_TYPES),
+            trackingStatusOrder: reconcileEnumOrder(trackingStatusOrderStr, TRACKING_STATUSES),
+        });
     }
 
     private static isGridLayoutSupported(): boolean {
@@ -119,6 +166,11 @@ export class MediaView extends Component<MediaViewState> {
 
     private readonly onGridSupportChange = (event: MediaQueryListEvent) => {
         this.updateGridSupport(event.matches);
+    };
+
+    private readonly libraryPreferencesHandler = () => {
+        if (!this.state.isInitialized) return;
+        this.runAsync(this.reloadLibraryEnumOrders(), 'Failed to reload library ordering preferences');
     };
 
     private updateGridSupport(isGridSupported: boolean) {
@@ -228,83 +280,91 @@ private async handleBack() {
         await this.loadData(mediaId);
     }
 
+    private mapMetricsRows(rows: LibraryActivityMetricsRow[]): Record<number, LibraryActivityMetrics> {
+        return rows.reduce<Record<number, LibraryActivityMetrics>>((acc, row) => {
+            acc[row.media_id] = {
+                firstActivityDate: row.first_activity_date,
+                lastActivityDate: row.last_activity_date,
+                totalMinutes: row.total_minutes,
+                totalCharacters: row.total_characters,
+            };
+            return acc;
+        }, {});
+    }
+
+    private async resolveMetricsRows(): Promise<Record<number, LibraryActivityMetrics>> {
+        try {
+            return this.mapMetricsRows(await getLibraryActivityMetrics());
+        } catch (e) {
+            Logger.error('Failed to load list activity metrics', e);
+            return {};
+        }
+    }
+
     private async ensureListMetricsLoaded() {
         if (this.state.viewMode !== 'grid') return;
         if (this.getEffectiveLayout() !== 'list') return;
         if (this.state.isListMetricsLoaded || this.state.isListMetricsLoading) return;
 
         this.setState({ isListMetricsLoading: true });
-        try {
-            const logs = await getLogs();
-            const metricsByMediaId = this.aggregateListMetrics(logs);
-            if (this.isDestroyed) return;
+        const listMetricsByMediaId = await this.resolveMetricsRows();
+        if (this.isDestroyed) return;
 
-            this.setState({
-                listMetricsByMediaId: metricsByMediaId,
-                isListMetricsLoaded: true,
-                isListMetricsLoading: false,
-            });
-        } catch (e) {
-            Logger.error('Failed to load list activity metrics', e);
-            if (!this.isDestroyed) {
-                this.setState({
-                    listMetricsByMediaId: {},
-                    isListMetricsLoaded: true,
-                    isListMetricsLoading: false,
-                });
-            }
-        }
-    }
-
-    private aggregateListMetrics(logs: ActivitySummary[]): Record<number, LibraryActivityMetrics> {
-        return logs.reduce<Record<number, LibraryActivityMetrics>>((acc, log) => {
-            const current = acc[log.media_id] ?? {
-                firstActivityDate: null,
-                lastActivityDate: null,
-                totalMinutes: 0,
-            };
-
-            const firstActivityDate = current.firstActivityDate === null || log.date < current.firstActivityDate
-                ? log.date
-                : current.firstActivityDate;
-            const lastActivityDate = current.lastActivityDate === null || log.date > current.lastActivityDate
-                ? log.date
-                : current.lastActivityDate;
-
-            acc[log.media_id] = {
-                firstActivityDate,
-                lastActivityDate,
-                totalMinutes: current.totalMinutes + log.duration_minutes,
-            };
-            return acc;
-        }, {});
+        this.setState({
+            listMetricsByMediaId,
+            isListMetricsLoaded: true,
+            isListMetricsLoading: false,
+        });
     }
 
     private async loadInitialPreferences() {
         let nextFilters = this.state.libraryFilters;
         let nextPreferredLayout = this.state.preferredLayout;
+        let nextContentTypeOrder = this.state.contentTypeOrder;
+        let nextTrackingStatusOrder = this.state.trackingStatusOrder;
 
         if (this.state.isInitialized) {
-            return { nextFilters, nextPreferredLayout };
+            return { nextFilters, nextPreferredLayout, nextContentTypeOrder, nextTrackingStatusOrder };
         }
 
-        const [hideArchivedStr, storedLayout] = await Promise.all([
+        const [
+            hideArchivedStr,
+            storedLayout,
+            sortStagesStr,
+            groupByTypeStr,
+            keepOngoingFirstStr,
+            keepArchivedLastStr,
+            contentTypeOrderStr,
+            trackingStatusOrderStr,
+        ] = await Promise.all([
             getSetting(SETTING_KEYS.GRID_HIDE_ARCHIVED),
             getSetting(SETTING_KEYS.LIBRARY_LAYOUT_MODE),
+            getSetting(SETTING_KEYS.LIBRARY_SORT_STAGES),
+            getSetting(SETTING_KEYS.LIBRARY_GROUP_BY_TYPE),
+            getSetting(SETTING_KEYS.LIBRARY_KEEP_ONGOING_FIRST),
+            getSetting(SETTING_KEYS.LIBRARY_KEEP_ARCHIVED_LAST),
+            getSetting(SETTING_KEYS.CONTENT_TYPE_ORDER),
+            getSetting(SETTING_KEYS.TRACKING_STATUS_ORDER),
         ]);
-
-        if (hideArchivedStr != null) {
-            nextFilters = {
-                ...nextFilters,
-                hideArchived: hideArchivedStr === 'true',
-            };
-        }
 
         if (storedLayout === 'grid' || storedLayout === 'list') {
             nextPreferredLayout = storedLayout;
         }
 
-        return { nextFilters, nextPreferredLayout };
+        nextFilters = {
+            ...nextFilters,
+            hideArchived: hideArchivedStr != null ? hideArchivedStr === 'true' : nextFilters.hideArchived,
+            // Validated with the real extra-field names once the media list is available (loadData).
+            sortStages: parseLibrarySortStages(sortStagesStr ?? '[]', []),
+            groupByType: groupByTypeStr != null ? groupByTypeStr === 'true' : nextFilters.groupByType,
+            keepOngoingFirst: keepOngoingFirstStr != null ? keepOngoingFirstStr === 'true' : nextFilters.keepOngoingFirst,
+            keepArchivedLast: keepArchivedLastStr != null ? keepArchivedLastStr === 'true' : nextFilters.keepArchivedLast,
+        };
+
+        nextContentTypeOrder = reconcileEnumOrder(contentTypeOrderStr, CONTENT_TYPES);
+        nextTrackingStatusOrder = reconcileEnumOrder(trackingStatusOrderStr, TRACKING_STATUSES);
+
+        return { nextFilters, nextPreferredLayout, nextContentTypeOrder, nextTrackingStatusOrder };
     }
 
     private resolveSelectedMedia(mediaList: Media[], jumpToId?: number) {
@@ -330,12 +390,22 @@ private async handleBack() {
             const initialPreferences = await this.loadInitialPreferences();
             let nextFilters = initialPreferences.nextFilters;
             const nextPreferredLayout = initialPreferences.nextPreferredLayout;
+            const nextContentTypeOrder = initialPreferences.nextContentTypeOrder;
+            const nextTrackingStatusOrder = initialPreferences.nextTrackingStatusOrder;
 
-            const mediaList = await getAllMedia();
-            const availableTypes = new Set(mediaList.map((media) => (media.content_type || 'Unknown').trim() || 'Unknown'));
+            // Metrics are bounded by logged-media count (post step-5), so firing them alongside
+            // getAllMedia costs ~0 wall clock; only await below when the active sort needs them.
+            const sortNeedsMetrics = sortStagesNeedMetrics(nextFilters.sortStages);
+            const mediaListPromise = getAllMedia();
+            const metricsPromise = this.resolveMetricsRows();
+
+            const mediaList = await mediaListPromise;
+            const availableTypes = new Set(mediaList.map((media) => resolveDisplayContentType(media)));
+            const extraFieldNames = getUniqueExtraFieldNames(buildExtraDataIndex(mediaList));
             nextFilters = {
                 ...nextFilters,
                 typeFilters: nextFilters.typeFilters.filter((type) => availableTypes.has(type)),
+                sortStages: parseLibrarySortStages(serializeLibrarySortStages(nextFilters.sortStages), extraFieldNames),
             };
 
             let currentLogs: ActivitySummary[] = [];
@@ -346,16 +416,39 @@ private async handleBack() {
                 currentLogs = await getLogsForMedia(mediaList[finalNextIndex].id!);
             }
 
+            // Seeded from current state so a reload keeps showing the metrics it already has
+            // until the fresh ones land, instead of flashing stat-less rows for a microtask.
+            let listMetricsByMediaId = this.state.listMetricsByMediaId;
+            let isListMetricsLoaded = this.state.isListMetricsLoaded;
+            if (sortNeedsMetrics) {
+                listMetricsByMediaId = await metricsPromise;
+                isListMetricsLoaded = true;
+            } else {
+                this.runAsync(
+                    metricsPromise.then((backgroundMetricsByMediaId) => {
+                        if (this.isDestroyed) return;
+                        this.setState({
+                            listMetricsByMediaId: backgroundMetricsByMediaId,
+                            isListMetricsLoaded: true,
+                            isListMetricsLoading: false,
+                        });
+                    }),
+                    'Failed to load list activity metrics',
+                );
+            }
+
             this.setState({
                 currentMediaList: mediaList,
                 currentLogs,
                 currentIndex: finalNextIndex,
                 libraryFilters: nextFilters,
+                contentTypeOrder: nextContentTypeOrder,
+                trackingStatusOrder: nextTrackingStatusOrder,
                 preferredLayout: nextPreferredLayout,
                 isGridSupported: MediaView.isGridLayoutSupported(),
-                listMetricsByMediaId: {},
-                isListMetricsLoaded: false,
-                isListMetricsLoading: false,
+                listMetricsByMediaId,
+                isListMetricsLoaded,
+                isListMetricsLoading: !sortNeedsMetrics,
                 isLoading: false,
                 isInitialized: true,
                 viewMode,
@@ -411,6 +504,8 @@ private async handleBack() {
             {
                 mediaList: this.state.currentMediaList,
                 ...this.state.libraryFilters,
+                contentTypeOrder: this.state.contentTypeOrder,
+                trackingStatusOrder: this.state.trackingStatusOrder,
                 preferredLayout: this.state.preferredLayout,
                 isGridSupported: this.state.isGridSupported,
                 listMetricsByMediaId: this.state.listMetricsByMediaId,
@@ -423,12 +518,44 @@ private async handleBack() {
                 await this.loadData(jumpToId).catch((err) => Logger.error('Failed to jump to media', err));
             },
             (filters) => {
-                const oldHideArchived = this.state.libraryFilters.hideArchived;
-                this.state.libraryFilters = { ...this.state.libraryFilters, ...filters };
-                if (filters.hideArchived !== undefined && oldHideArchived !== filters.hideArchived) {
+                const oldFilters = this.state.libraryFilters;
+                this.state.libraryFilters = { ...oldFilters, ...filters };
+
+                if (filters.hideArchived !== undefined && oldFilters.hideArchived !== filters.hideArchived) {
                     this.runAsync(
                         setSetting(SETTING_KEYS.GRID_HIDE_ARCHIVED, filters.hideArchived.toString()),
                         'Failed to persist hide archived preference',
+                    );
+                }
+
+                if (filters.sortStages !== undefined) {
+                    const serializedSortStages = serializeLibrarySortStages(filters.sortStages);
+                    if (serializedSortStages !== serializeLibrarySortStages(oldFilters.sortStages)) {
+                        this.runAsync(
+                            setSetting(SETTING_KEYS.LIBRARY_SORT_STAGES, serializedSortStages),
+                            'Failed to persist library sort stages preference',
+                        );
+                    }
+                }
+
+                if (filters.groupByType !== undefined && oldFilters.groupByType !== filters.groupByType) {
+                    this.runAsync(
+                        setSetting(SETTING_KEYS.LIBRARY_GROUP_BY_TYPE, filters.groupByType.toString()),
+                        'Failed to persist group by type preference',
+                    );
+                }
+
+                if (filters.keepOngoingFirst !== undefined && oldFilters.keepOngoingFirst !== filters.keepOngoingFirst) {
+                    this.runAsync(
+                        setSetting(SETTING_KEYS.LIBRARY_KEEP_ONGOING_FIRST, filters.keepOngoingFirst.toString()),
+                        'Failed to persist keep ongoing first preference',
+                    );
+                }
+
+                if (filters.keepArchivedLast !== undefined && oldFilters.keepArchivedLast !== filters.keepArchivedLast) {
+                    this.runAsync(
+                        setSetting(SETTING_KEYS.LIBRARY_KEEP_ARCHIVED_LAST, filters.keepArchivedLast.toString()),
+                        'Failed to persist keep archived last preference',
                     );
                 }
             },

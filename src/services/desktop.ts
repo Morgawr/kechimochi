@@ -14,6 +14,7 @@ import type {
     ActivityLog,
     ActivitySummary,
     DailyHeatmap,
+    LibraryActivityMetricsRow,
     TimelineEvent,
     MediaCsvRow,
     MediaConflict,
@@ -75,6 +76,7 @@ export class DesktopServices implements AppServices {
     deleteLog(id: number):                  Promise<void>            { return invoke('delete_log', { id }); }
     getLogs():                              Promise<ActivitySummary[]>{ return invoke('get_logs'); }
     getHeatmap():                           Promise<DailyHeatmap[]>  { return invoke('get_heatmap'); }
+    getLibraryActivityMetrics():            Promise<LibraryActivityMetricsRow[]>{ return invoke('get_library_activity_metrics'); }
     getLogsForMedia(mediaId: number):       Promise<ActivitySummary[]>{ return invoke('get_logs_for_media', { mediaId }); }
     getTimelineEvents():                    Promise<TimelineEvent[]> { return invoke('get_timeline_events'); }
 

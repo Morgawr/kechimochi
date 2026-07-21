@@ -3,6 +3,7 @@ import { Media } from '../../../src/api';
 import * as api from '../../../src/api';
 import { MediaLibraryBrowser } from '../../../src/media/MediaLibraryBrowser';
 import type { LibraryLayoutMode } from '../../../src/media/library_types';
+import type { LibraryRow } from '../../../src/media/sorting';
 import { showAddMediaModal } from '../../../src/media/modal';
 import { MediaGrid } from '../../../src/media/MediaGrid';
 import { MediaList } from '../../../src/media/MediaList';
@@ -45,7 +46,7 @@ const createState = (overrides: Partial<{
     hideArchived: boolean;
     preferredLayout: LibraryLayoutMode;
     isGridSupported: boolean;
-    listMetricsByMediaId: Record<number, { firstActivityDate: string | null; lastActivityDate: string | null; totalMinutes: number }>;
+    listMetricsByMediaId: Record<number, { firstActivityDate: string | null; lastActivityDate: string | null; totalMinutes: number; totalCharacters: number }>;
     isListMetricsLoading: boolean;
 }> = {}) => ({
     mediaList: [],
@@ -64,6 +65,16 @@ function triggerTransitionEnd(target: HTMLElement, propertyName: string) {
     const event = new Event('transitionend');
     Object.defineProperty(event, 'propertyName', { value: propertyName });
     target.dispatchEvent(event);
+}
+
+function latestGridRows(): LibraryRow[] {
+    const calls = vi.mocked(MediaGrid).mock.calls;
+    return (calls[calls.length - 1][1] as { rows: LibraryRow[] }).rows;
+}
+
+function latestListRows(): LibraryRow[] {
+    const calls = vi.mocked(MediaList).mock.calls;
+    return (calls[calls.length - 1][1] as { rows: LibraryRow[] }).rows;
 }
 
 describe('MediaLibraryBrowser', () => {
@@ -106,13 +117,9 @@ describe('MediaLibraryBrowser', () => {
         expect(layoutRoot?.style.minWidth).toBe('0');
 
         const expectedTitles = ['Alpha', 'Gamma'];
-        expect(vi.mocked(MediaGrid).mock.calls[0][1]).toEqual({
-            mediaList: expect.arrayContaining([
-                expect.objectContaining({ title: 'Alpha' }),
-                expect.objectContaining({ title: 'Gamma' }),
-            ]),
-        });
-        expect((vi.mocked(MediaGrid).mock.calls[0][1] as { mediaList: Media[] }).mediaList.map((media) => media.title)).toEqual(expectedTitles);
+        const gridRows = latestGridRows();
+        expect(gridRows.every((row) => row.kind === 'item')).toBe(true);
+        expect(gridRows.map((row) => (row as { media: Media }).media.title)).toEqual(expectedTitles);
 
         vi.clearAllMocks();
         listInstances.length = 0;
@@ -131,7 +138,84 @@ describe('MediaLibraryBrowser', () => {
         );
         listComponent.render();
 
-        expect((vi.mocked(MediaList).mock.calls[0][1] as { mediaList: Media[] }).mediaList.map((media) => media.title)).toEqual(expectedTitles);
+        const listRows = latestListRows();
+        expect(listRows.map((row) => (row as { media: Media }).media.title)).toEqual(expectedTitles);
+    });
+
+    it('sorts by the passed-in content type and tracking status order instead of the declaration order', () => {
+        const mediaList = [
+            { id: 1, title: 'A', status: 'Active', content_type: 'Manga', tracking_status: 'Complete' },
+            { id: 2, title: 'B', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' },
+        ];
+
+        const component = new MediaLibraryBrowser(
+            container,
+            {
+                ...createState({ mediaList: mediaList as Media[] }),
+                sortStages: [{ field: { kind: 'builtin', key: 'trackingStatus' }, direction: 'ascending' }],
+                trackingStatusOrder: ['Complete', 'Ongoing'],
+                // The "keep ongoing first" tier stage runs before every sort stage, so it would
+                // pin Ongoing to the top and make the custom order unobservable.
+                keepOngoingFirst: false,
+            },
+            vi.fn(),
+            vi.fn(),
+        );
+        component.render();
+
+        const rows = latestGridRows();
+        expect(rows.map((row) => (row as { media: Media }).media.title)).toEqual(['A', 'B']);
+    });
+
+    it('escapes quotes in extra field names used as sort option values', () => {
+        const injectedFieldName = 'Author" onfocus="globalThis.injected = true';
+        const mediaList = [
+            {
+                id: 1, title: 'A', status: 'Active', content_type: 'Manga', tracking_status: 'Ongoing',
+                extra_data: JSON.stringify({ [injectedFieldName]: '5' }),
+            },
+        ];
+
+        const component = new MediaLibraryBrowser(
+            container,
+            {
+                ...createState({ mediaList: mediaList as Media[] }),
+                sortStages: [{ field: { kind: 'builtin', key: 'title' }, direction: 'ascending' }],
+            },
+            vi.fn(),
+            vi.fn(),
+        );
+        component.render();
+
+        const option = Array.from(container.querySelectorAll('option'))
+            .find((candidate) => candidate.textContent === injectedFieldName);
+
+        expect(option).toBeDefined();
+        expect(option!.getAttribute('onfocus')).toBeNull();
+        expect(option!.value).toBe(`extra:${injectedFieldName}`);
+    });
+
+    it('keeps ongoing first even when the custom tracking status order ranks it last', () => {
+        const mediaList = [
+            { id: 1, title: 'A', status: 'Active', content_type: 'Manga', tracking_status: 'Complete' },
+            { id: 2, title: 'B', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' },
+        ];
+
+        const component = new MediaLibraryBrowser(
+            container,
+            {
+                ...createState({ mediaList: mediaList as Media[] }),
+                sortStages: [{ field: { kind: 'builtin', key: 'trackingStatus' }, direction: 'ascending' }],
+                trackingStatusOrder: ['Complete', 'Ongoing'],
+                keepOngoingFirst: true,
+            },
+            vi.fn(),
+            vi.fn(),
+        );
+        component.render();
+
+        const rows = latestGridRows();
+        expect(rows.map((row) => (row as { media: Media }).media.title)).toEqual(['B', 'A']);
     });
 
     it('reuses shared add and refresh actions from the browser toolbar', async () => {
@@ -292,6 +376,10 @@ describe('MediaLibraryBrowser', () => {
             statusFilters: ['Ongoing'],
             typeFilters: [],
             hideArchived: false,
+            sortStages: [],
+            groupByType: false,
+            keepOngoingFirst: true,
+            keepArchivedLast: true,
         });
         expect(container.querySelector('.media-grid-filter-count')?.textContent).toBe('1');
 
@@ -301,6 +389,10 @@ describe('MediaLibraryBrowser', () => {
             statusFilters: [],
             typeFilters: [],
             hideArchived: false,
+            sortStages: [],
+            groupByType: false,
+            keepOngoingFirst: true,
+            keepArchivedLast: true,
         });
 
         (container.querySelector('[data-filter-group="type"][data-filter-value="Anime"]') as HTMLButtonElement).click();
@@ -309,6 +401,10 @@ describe('MediaLibraryBrowser', () => {
             statusFilters: [],
             typeFilters: ['Anime'],
             hideArchived: false,
+            sortStages: [],
+            groupByType: false,
+            keepOngoingFirst: true,
+            keepArchivedLast: true,
         });
 
         (container.querySelector('[data-filter-group="type"][data-filter-value="All"]') as HTMLButtonElement).click();
@@ -317,6 +413,10 @@ describe('MediaLibraryBrowser', () => {
             statusFilters: [],
             typeFilters: [],
             hideArchived: false,
+            sortStages: [],
+            groupByType: false,
+            keepOngoingFirst: true,
+            keepArchivedLast: true,
         });
     });
 
@@ -345,6 +445,10 @@ describe('MediaLibraryBrowser', () => {
             statusFilters: [],
             typeFilters: [],
             hideArchived: false,
+            sortStages: [],
+            groupByType: false,
+            keepOngoingFirst: true,
+            keepArchivedLast: true,
         });
 
         const hideArchived = container.querySelector('#grid-hide-archived') as HTMLInputElement;
@@ -356,6 +460,244 @@ describe('MediaLibraryBrowser', () => {
             statusFilters: [],
             typeFilters: [],
             hideArchived: true,
+            sortStages: [],
+            groupByType: false,
+            keepOngoingFirst: true,
+            keepArchivedLast: true,
+        });
+    });
+
+    describe('sort pane', () => {
+        const buildComponent = (overrides: Partial<{ mediaList: Media[]; onFilterChange: (filters: unknown) => void }> = {}) => {
+            const onFilterChange = overrides.onFilterChange ?? vi.fn();
+            const component = new MediaLibraryBrowser(
+                container,
+                createState({
+                    mediaList: overrides.mediaList ?? [
+                        { id: 1, title: 'Alpha', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' },
+                        { id: 2, title: 'Beta', status: 'Active', content_type: 'Manga', tracking_status: 'Complete' },
+                    ] as Media[],
+                }),
+                vi.fn(),
+                vi.fn(),
+                onFilterChange,
+            );
+            component.render();
+            return { component, onFilterChange };
+        };
+
+        it('toggles the sort panel open and closed independently of the filters panel', () => {
+            buildComponent();
+
+            const filtersToggle = container.querySelector('#btn-toggle-filters') as HTMLButtonElement;
+            const sortToggle = container.querySelector('#btn-toggle-sort') as HTMLButtonElement;
+            const filtersPanel = container.querySelector('#media-grid-filter-panel') as HTMLElement;
+            const sortPanel = container.querySelector('#media-sort-panel') as HTMLElement;
+
+            sortToggle.click();
+
+            expect(sortToggle.getAttribute('aria-expanded')).toBe('true');
+            expect(sortPanel.classList.contains('is-expanded')).toBe(true);
+            expect(filtersToggle.getAttribute('aria-expanded')).toBe('false');
+            expect(filtersPanel.classList.contains('is-collapsed')).toBe(true);
+
+            filtersToggle.click();
+            expect(filtersToggle.getAttribute('aria-expanded')).toBe('true');
+            expect(sortToggle.getAttribute('aria-expanded')).toBe('true');
+        });
+
+        it('shows no sort count badge with zero levels and adds a level on demand', () => {
+            buildComponent();
+
+            expect(container.querySelector('#btn-toggle-sort .media-grid-filter-count')).toBeNull();
+
+            (container.querySelector('#btn-add-sort-level') as HTMLButtonElement).click();
+
+            expect(container.querySelector('#btn-toggle-sort .media-grid-filter-count')?.textContent).toBe('1');
+            expect(container.querySelectorAll('.media-sort-level-row').length).toBe(1);
+        });
+
+        it('adds multiple levels and removes one, updating the badge count', () => {
+            buildComponent();
+
+            (container.querySelector('#btn-add-sort-level') as HTMLButtonElement).click();
+            (container.querySelector('#btn-add-sort-level') as HTMLButtonElement).click();
+
+            expect(container.querySelector('#btn-toggle-sort .media-grid-filter-count')?.textContent).toBe('2');
+            expect(container.querySelectorAll('.media-sort-level-row').length).toBe(2);
+
+            (container.querySelector('.media-sort-level-remove[data-level-index="0"]') as HTMLButtonElement).click();
+
+            expect(container.querySelector('#btn-toggle-sort .media-grid-filter-count')?.textContent).toBe('1');
+            expect(container.querySelectorAll('.media-sort-level-row').length).toBe(1);
+        });
+
+        it('shows the tiebreaker footnote with zero sort levels', () => {
+            buildComponent();
+
+            const note = container.querySelector('.media-sort-tiebreaker-note');
+            expect(note?.textContent).toBe('Ties broken by last activity (newest first)');
+        });
+
+        it('still shows the tiebreaker footnote with two sort levels', () => {
+            buildComponent();
+
+            (container.querySelector('#btn-add-sort-level') as HTMLButtonElement).click();
+            (container.querySelector('#btn-add-sort-level') as HTMLButtonElement).click();
+
+            const note = container.querySelector('.media-sort-tiebreaker-note');
+            expect(note?.textContent).toBe('Ties broken by last activity (newest first)');
+        });
+
+        it('renders the tiebreaker footnote as non-interactive text with no remove control', () => {
+            buildComponent();
+
+            const note = container.querySelector('.media-sort-tiebreaker-note') as HTMLElement;
+            expect(note.tagName).not.toBe('BUTTON');
+            expect(note.querySelector('button')).toBeNull();
+            expect(note.closest('.media-sort-level-row')).toBeNull();
+        });
+
+        it('does not count the tiebreaker footnote toward the sort level count badge', () => {
+            buildComponent();
+
+            expect(container.querySelector('#btn-toggle-sort .media-grid-filter-count')).toBeNull();
+
+            (container.querySelector('#btn-add-sort-level') as HTMLButtonElement).click();
+
+            expect(container.querySelector('#btn-toggle-sort .media-grid-filter-count')?.textContent).toBe('1');
+        });
+
+        it('excludes a field used at an earlier level from a lower level select', () => {
+            buildComponent();
+
+            (container.querySelector('#btn-add-sort-level') as HTMLButtonElement).click();
+            (container.querySelector('#btn-add-sort-level') as HTMLButtonElement).click();
+
+            const firstSelect = container.querySelector('.media-sort-level-select[data-level-index="0"]') as HTMLSelectElement;
+            const secondSelect = container.querySelector('.media-sort-level-select[data-level-index="1"]') as HTMLSelectElement;
+
+            expect(firstSelect.value).toBe('builtin:title');
+
+            const secondSelectValues = Array.from(secondSelect.querySelectorAll('option')).map((option) => option.value);
+            expect(secondSelectValues).not.toContain('builtin:title');
+        });
+
+        it('disables the direction toggle when the level field is default', () => {
+            buildComponent();
+
+            (container.querySelector('#btn-add-sort-level') as HTMLButtonElement).click();
+
+            const select = container.querySelector('.media-sort-level-select[data-level-index="0"]') as HTMLSelectElement;
+            select.value = 'builtin:default';
+            select.dispatchEvent(new Event('change'));
+
+            const ascendingButton = container.querySelector('.media-sort-direction-option[data-level-index="0"][data-direction="ascending"]') as HTMLButtonElement;
+            const descendingButton = container.querySelector('.media-sort-direction-option[data-level-index="0"][data-direction="descending"]') as HTMLButtonElement;
+
+            expect(ascendingButton.disabled).toBe(true);
+            expect(descendingButton.disabled).toBe(true);
+        });
+
+        it('flips the direction of a sort level when its toggle button is clicked', () => {
+            buildComponent();
+
+            (container.querySelector('#btn-add-sort-level') as HTMLButtonElement).click();
+            (container.querySelector('.media-sort-direction-option[data-level-index="0"][data-direction="descending"]') as HTMLButtonElement).click();
+
+            const descendingButton = container.querySelector('.media-sort-direction-option[data-level-index="0"][data-direction="descending"]') as HTMLButtonElement;
+            const ascendingButton = container.querySelector('.media-sort-direction-option[data-level-index="0"][data-direction="ascending"]') as HTMLButtonElement;
+            expect(descendingButton.classList.contains('is-active')).toBe(true);
+            expect(ascendingButton.classList.contains('is-active')).toBe(false);
+        });
+
+        it('toggles the grouping and ordering switches and notifies the parent', () => {
+            const { onFilterChange } = buildComponent();
+
+            const groupByType = container.querySelector('#sort-group-by-type') as HTMLInputElement;
+            groupByType.checked = true;
+            groupByType.dispatchEvent(new Event('change'));
+            expect(onFilterChange).toHaveBeenLastCalledWith(expect.objectContaining({ groupByType: true }));
+
+            const keepOngoingFirst = container.querySelector('#sort-keep-ongoing-first') as HTMLInputElement;
+            keepOngoingFirst.checked = false;
+            keepOngoingFirst.dispatchEvent(new Event('change'));
+            expect(onFilterChange).toHaveBeenLastCalledWith(expect.objectContaining({ keepOngoingFirst: false }));
+
+            const keepArchivedLast = container.querySelector('#sort-keep-archived-last') as HTMLInputElement;
+            keepArchivedLast.checked = false;
+            keepArchivedLast.dispatchEvent(new Event('change'));
+            expect(onFilterChange).toHaveBeenLastCalledWith(expect.objectContaining({ keepArchivedLast: false }));
+        });
+
+        it('disables the keep archived last switch while hide archived is on', () => {
+            buildComponent();
+
+            expect((container.querySelector('#sort-keep-archived-last') as HTMLInputElement).disabled).toBe(false);
+
+            const hideArchived = container.querySelector('#grid-hide-archived') as HTMLInputElement;
+            hideArchived.checked = true;
+            hideArchived.dispatchEvent(new Event('change'));
+
+            expect((container.querySelector('#sort-keep-archived-last') as HTMLInputElement).disabled).toBe(true);
+        });
+
+        it('groups rows into per-type headers in settings order, omitting headers for empty types', () => {
+            buildComponent({
+                mediaList: [
+                    { id: 1, title: 'Manga Item', status: 'Active', content_type: 'Manga', tracking_status: 'Ongoing' },
+                    { id: 2, title: 'Anime Item', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' },
+                ] as Media[],
+            });
+
+            const groupByType = container.querySelector('#sort-group-by-type') as HTMLInputElement;
+            groupByType.checked = true;
+            groupByType.dispatchEvent(new Event('change'));
+
+            const rows = latestGridRows();
+            const headerRows = rows.filter((row) => row.kind === 'header') as Array<{ kind: 'header'; contentType: string; label: string }>;
+
+            expect(headerRows.map((row) => row.contentType)).toEqual(['Anime', 'Manga']);
+            expect(rows.map((row) => (row.kind === 'header' ? `header:${row.label}` : (row as { media: Media }).media.title))).toEqual([
+                'header:Anime',
+                'Anime Item',
+                'header:Manga',
+                'Manga Item',
+            ]);
+        });
+
+        it('groups media with an unrecognized content type under the same Unknown label offered as a filter chip', () => {
+            buildComponent({
+                mediaList: [
+                    { id: 1, title: 'Manga Item', status: 'Active', content_type: 'Manga', tracking_status: 'Ongoing' },
+                    { id: 2, title: 'Legacy Item', status: 'Active', content_type: '', tracking_status: 'Ongoing' },
+                ] as Media[],
+            });
+
+            expect(container.querySelector('[data-filter-group="type"][data-filter-value="Unknown"]')).not.toBeNull();
+
+            const groupByType = container.querySelector('#sort-group-by-type') as HTMLInputElement;
+            groupByType.checked = true;
+            groupByType.dispatchEvent(new Event('change'));
+
+            const rows = latestGridRows();
+            const headerRows = rows.filter((row) => row.kind === 'header') as Array<{ kind: 'header'; contentType: string; label: string }>;
+
+            expect(headerRows.map((row) => row.contentType)).toContain('Unknown');
+            expect(rows.map((row) => (row.kind === 'header' ? `header:${row.label}` : (row as { media: Media }).media.title))).toContain('Legacy Item');
+        });
+
+        it('produces zero header rows and preserves order when grouping is off', () => {
+            const mediaList = [
+                { id: 1, title: 'Manga Item', status: 'Active', content_type: 'Manga', tracking_status: 'Ongoing' },
+                { id: 2, title: 'Anime Item', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' },
+            ] as Media[];
+            buildComponent({ mediaList });
+
+            const rows = latestGridRows();
+
+            expect(rows.every((row) => row.kind === 'item')).toBe(true);
+            expect(rows.map((row) => (row as { media: Media }).media.title)).toEqual(['Manga Item', 'Anime Item']);
         });
     });
 });

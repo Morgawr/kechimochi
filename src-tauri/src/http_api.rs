@@ -112,6 +112,10 @@ pub fn build_api_router(state: SharedApiState, config: HttpApiRouterConfig) -> R
             put(update_media).delete(delete_media_handler),
         )
         .route("/api/logs/heatmap", get(get_heatmap))
+        .route(
+            "/api/logs/library-metrics",
+            get(get_library_activity_metrics),
+        )
         .route("/api/logs/media/:id", get(get_logs_for_media))
         .route("/api/logs", get(get_logs).post(add_log))
         .route(
@@ -361,6 +365,13 @@ async fn get_heatmap(
 ) -> HandlerResult<Json<Vec<models::DailyHeatmap>>> {
     let conn = s.conn.lock().ae()?;
     db::get_heatmap(&conn).ae().map(Json)
+}
+
+async fn get_library_activity_metrics(
+    State(s): State<SharedApiState>,
+) -> HandlerResult<Json<Vec<models::LibraryActivityMetricsRow>>> {
+    let conn = s.conn.lock().ae()?;
+    db::get_library_activity_metrics(&conn).ae().map(Json)
 }
 
 async fn get_logs_for_media(

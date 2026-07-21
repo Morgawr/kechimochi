@@ -11,6 +11,7 @@ export type {
   ActivityLog,
   ActivitySummary,
   DailyHeatmap,
+  LibraryActivityMetricsRow,
   GoogleDriveAuthSession,
   TimelineEventKind,
   TimelineEvent,
@@ -34,6 +35,7 @@ import type {
   ActivityLog,
   ActivitySummary,
   DailyHeatmap,
+  LibraryActivityMetricsRow,
   GoogleDriveAuthSession,
   TimelineEvent,
   MediaCsvRow,
@@ -75,6 +77,7 @@ export function updateLog(log: ActivityLog): Promise<void> { return getServices(
 export function deleteLog(id: number): Promise<void> { return getServices().deleteLog(id); }
 export function getLogs(): Promise<ActivitySummary[]> { return getServices().getLogs(); }
 export function getHeatmap(): Promise<DailyHeatmap[]> { return getServices().getHeatmap(); }
+export function getLibraryActivityMetrics(): Promise<LibraryActivityMetricsRow[]> { return getServices().getLibraryActivityMetrics(); }
 export function getLogsForMedia(mediaId: number): Promise<ActivitySummary[]> { return getServices().getLogsForMedia(mediaId); }
 export function getTimelineEvents(): Promise<TimelineEvent[]> { return getServices().getTimelineEvents(); }
 

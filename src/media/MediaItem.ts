@@ -74,13 +74,14 @@ export class MediaItem extends Component<MediaItemState> {
         this.container.classList.add('media-grid-item');
         this.container.title = media.title;
         this.container.dataset.title = media.title;
-        
+
         const isArchived = media.status === 'Archived';
-        const opacity = isArchived ? '0.6' : '1';
-        
-        this.container.style.cssText = `cursor: pointer; border-radius: var(--radius-md); overflow: hidden; background: var(--bg-dark); border: 1px solid var(--border-color); display: flex; flex-direction: column; height: 100%; position: relative; opacity: ${opacity};`;
-        this.container.appendChild(content);
-        if (badgeHtml) this.container.insertAdjacentHTML('beforeend', badgeHtml);
-        if (ledHtml) this.container.insertAdjacentHTML('beforeend', ledHtml);
+        const cardBody = document.createElement('div');
+        cardBody.className = `media-grid-item-body${isArchived ? ' is-archived' : ''}`;
+
+        cardBody.appendChild(content);
+        if (badgeHtml) cardBody.insertAdjacentHTML('beforeend', badgeHtml);
+        if (ledHtml) cardBody.insertAdjacentHTML('beforeend', ledHtml);
+        this.container.appendChild(cardBody);
     }
 }

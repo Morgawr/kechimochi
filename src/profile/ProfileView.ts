@@ -56,7 +56,8 @@ import type {
 } from '../types';
 import { getProfileInitials, profilePictureToDataUrl } from './profile_picture';
 import { getCharacterCountFromExtraData } from '../extra_data';
-import { STORAGE_KEYS, SETTING_KEYS, DEFAULTS, EVENTS } from '../constants';
+import { STORAGE_KEYS, SETTING_KEYS, DEFAULTS, EVENTS, CONTENT_TYPES, TRACKING_STATUSES } from '../constants';
+import { reconcileEnumOrder } from '../media/sorting';
 import type { UpdateManager } from '../update/manager';
 import {
     attachSelectedRemoteProfile,
@@ -99,6 +100,8 @@ const WEEK_START_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
     { value: '6', label: 'Saturday' },
 ];
 
+type LibraryOrderKind = 'contentType' | 'trackingStatus';
+
 interface ProfileState {
     currentProfile: string;
     theme: string;
@@ -125,6 +128,8 @@ interface ProfileState {
     themeOverrideEnabled: boolean;
     themeOverrideValue: string;
     weekStartDay: string;
+    contentTypeOrder: string[];
+    trackingStatusOrder: string[];
 }
 
 function stringifyError(error: unknown): string {
@@ -280,6 +285,7 @@ function defaultLocalHttpApiStatus(): LocalHttpApiStatus {
 export class ProfileView extends Component<ProfileState> {
     private isRefreshing = false;
     private removeUpdateListener: (() => void) | null = null;
+    private readonly openCollapsibleSectionIds = new Set<string>();
 
     constructor(container: HTMLElement, private readonly updateManager?: UpdateManager) {
         super(container, {
@@ -314,6 +320,8 @@ export class ProfileView extends Component<ProfileState> {
             themeOverrideEnabled: isThemeOverrideEnabled(),
             themeOverrideValue: getThemeOverrideValue(),
             weekStartDay: '1',
+            contentTypeOrder: [...CONTENT_TYPES],
+            trackingStatusOrder: [...TRACKING_STATUSES],
         });
     }
 
@@ -347,6 +355,8 @@ export class ProfileView extends Component<ProfileState> {
             profilePicture,
             currentProfile,
             weekStartDay,
+            contentTypeOrderStr,
+            trackingStatusOrderStr,
             syncState,
             localHttpApiStatus,
         ] = await Promise.all([
@@ -362,6 +372,8 @@ export class ProfileView extends Component<ProfileState> {
             this.loadProfilePicture(),
             getSetting(SETTING_KEYS.PROFILE_NAME),
             getSetting(SETTING_KEYS.WEEK_START_DAY),
+            getSetting(SETTING_KEYS.CONTENT_TYPE_ORDER),
+            getSetting(SETTING_KEYS.TRACKING_STATUS_ORDER),
             syncStatePromise,
             localHttpApiStatusPromise,
         ]);
@@ -374,6 +386,8 @@ export class ProfileView extends Component<ProfileState> {
             currentProfile: resolvedProfileName,
             theme: resolvedTheme,
             weekStartDay: this.normalizeWeekStartDay(weekStartDay),
+            contentTypeOrder: reconcileEnumOrder(contentTypeOrderStr, CONTENT_TYPES),
+            trackingStatusOrder: reconcileEnumOrder(trackingStatusOrderStr, TRACKING_STATUSES),
             profilePicture,
             report: {
                 novelSpeed: novelSpeed || '0',
@@ -553,6 +567,8 @@ export class ProfileView extends Component<ProfileState> {
                     </div>
                 </div>
 
+                ${this.renderLibraryOrderingCard()}
+
                 <div class="card" style="display: flex; flex-direction: column; gap: 1rem;">
                     <h3>Activity Logs</h3>
                     <p style="color: var(--text-secondary); font-size: 0.9rem;">Import or export chronological activity logs for the current user in CSV format.</p>
@@ -689,6 +705,68 @@ export class ProfileView extends Component<ProfileState> {
 
     private normalizeWeekStartDay(value: string | null): string {
         return value && WEEK_START_OPTIONS.some(option => option.value === value) ? value : '1';
+    }
+
+    private renderLibraryOrderingCard() {
+        const { contentTypeOrder, trackingStatusOrder } = this.state;
+        return html`
+            <div class="card" style="display: flex; flex-direction: column; gap: 1rem;">
+                <h3>Library Ordering</h3>
+                <p style="color: var(--text-secondary); font-size: 0.9rem;">Set a custom order for content types and tracking statuses. Applies when sorting the library by these fields, and content type order also controls section order when grouping the library by media type.</p>
+
+                <details id="profile-content-type-order-details" style="border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 0.75rem 0.9rem;">
+                    <summary style="cursor: pointer; color: var(--text-primary); font-weight: 600;">Content type order</summary>
+                    <ol class="profile-order-list" id="profile-content-type-order-list" style="margin-top: 1rem;">
+                        ${this.renderLibraryOrderRows('contentType', contentTypeOrder)}
+                    </ol>
+                </details>
+
+                <details id="profile-tracking-status-order-details" style="border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 0.75rem 0.9rem;">
+                    <summary style="cursor: pointer; color: var(--text-primary); font-weight: 600;">Tracking status order</summary>
+                    <ol class="profile-order-list" id="profile-tracking-status-order-list" style="margin-top: 1rem;">
+                        ${this.renderLibraryOrderRows('trackingStatus', trackingStatusOrder)}
+                    </ol>
+                </details>
+            </div>
+        `;
+    }
+
+    private renderLibraryOrderRows(kind: LibraryOrderKind, order: string[]) {
+        const rowsHtml = order.map((value, index) => {
+            const escapedValue = escapeHTML(value);
+            const upDisabled = index === 0 ? 'disabled' : '';
+            const downDisabled = index === order.length - 1 ? 'disabled' : '';
+            return `
+                <li class="profile-order-row">
+                    <span class="profile-order-row-label">${escapedValue}</span>
+                    <div class="profile-order-row-buttons">
+                        <button type="button" class="profile-order-move-button" data-order-kind="${kind}" data-order-index="${index}" data-order-direction="up" aria-label="Move ${escapedValue} up" ${upDisabled}>&#9650;</button>
+                        <button type="button" class="profile-order-move-button" data-order-kind="${kind}" data-order-index="${index}" data-order-direction="down" aria-label="Move ${escapedValue} down" ${downDisabled}>&#9660;</button>
+                    </div>
+                </li>
+            `;
+        }).join('');
+        return rawHtml(rowsHtml);
+    }
+
+    private async handleReorderLibraryOrder(kind: LibraryOrderKind, index: number, direction: 'up' | 'down') {
+        const currentOrder = kind === 'contentType' ? this.state.contentTypeOrder : this.state.trackingStatusOrder;
+        const targetIndex = direction === 'up' ? index - 1 : index + 1;
+        if (targetIndex < 0 || targetIndex >= currentOrder.length) return;
+
+        const nextOrder = [...currentOrder];
+        [nextOrder[index], nextOrder[targetIndex]] = [nextOrder[targetIndex], nextOrder[index]];
+
+        const settingKey = kind === 'contentType' ? SETTING_KEYS.CONTENT_TYPE_ORDER : SETTING_KEYS.TRACKING_STATUS_ORDER;
+        await setSetting(settingKey, JSON.stringify(nextOrder));
+
+        if (kind === 'contentType') {
+            this.setState({ contentTypeOrder: nextOrder });
+        } else {
+            this.setState({ trackingStatusOrder: nextOrder });
+        }
+
+        globalThis.dispatchEvent(new CustomEvent(EVENTS.LIBRARY_PREFERENCES_CHANGED));
     }
 
     private renderReportTimestamp() {
@@ -1246,7 +1324,24 @@ export class ProfileView extends Component<ProfileState> {
         `;
     }
 
+    // render() rebuilds the whole view, so <details open> — being DOM-only state — would be lost on
+    // every setState. Re-applying it here keeps each collapsible open across unrelated re-renders.
+    private bindCollapsibleSections(root: HTMLElement) {
+        root.querySelectorAll<HTMLDetailsElement>('details[id]').forEach((section) => {
+            section.open = this.openCollapsibleSectionIds.has(section.id);
+            section.addEventListener('toggle', () => {
+                if (section.open) {
+                    this.openCollapsibleSectionIds.add(section.id);
+                } else {
+                    this.openCollapsibleSectionIds.delete(section.id);
+                }
+            });
+        });
+    }
+
     private setupListeners(root: HTMLElement) {
+        this.bindCollapsibleSections(root);
+
         const nameEl = root.querySelector('#profile-name') as HTMLElement;
         if (nameEl) {
             nameEl.addEventListener('dblclick', () => {
@@ -1288,6 +1383,19 @@ export class ProfileView extends Component<ProfileState> {
             await setSetting(SETTING_KEYS.WEEK_START_DAY, weekStartDay);
             this.setState({ weekStartDay });
             globalThis.dispatchEvent(new CustomEvent(EVENTS.LOCAL_DATA_CHANGED));
+        });
+
+        root.querySelectorAll<HTMLButtonElement>('.profile-order-move-button').forEach((button) => {
+            button.addEventListener('click', () => {
+                const kind = button.dataset.orderKind as LibraryOrderKind | undefined;
+                const index = Number(button.dataset.orderIndex);
+                const direction = button.dataset.orderDirection as 'up' | 'down' | undefined;
+                if (!kind || !direction || Number.isNaN(index)) return;
+
+                this.handleReorderLibraryOrder(kind, index, direction).catch(error => {
+                    Logger.error('Failed to reorder library ordering setting', error);
+                });
+            });
         });
 
         root.querySelector('#profile-updates-auto-check')?.addEventListener('change', async (e) => {
