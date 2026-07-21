@@ -50,7 +50,7 @@ describe('Milestone CUJ Test', () => {
         tempExportPath = path.join(exportBaseDir, `milestones_export_${Date.now()}.csv`);
 
         // Setup initial state
-        await addMedia(mediaTitle, 'Playing');
+        await addMedia(mediaTitle, 'Playing', 'Videogame', 'Milestone Edition');
     });
 
     beforeEach(async () => {
@@ -168,6 +168,19 @@ describe('Milestone CUJ Test', () => {
         await setDialogMockPath(tempExportPath);
         await exportMilestones();
         expect(fs.existsSync(tempExportPath)).toBe(true);
+        const exportedRows = fs.readFileSync(tempExportPath, 'utf8')
+            .trimEnd()
+            .split(/\r?\n/);
+        expect(exportedRows[0].split(',')).toEqual([
+            'Media Title',
+            'Name',
+            'Duration',
+            'Characters',
+            'Date',
+            'Media Variant',
+        ]);
+        expect(exportedRows[0]).not.toMatch(/\b(?:id|uid|uuid)\b/i);
+        expect(exportedRows.some(row => row.endsWith(',Milestone Edition'))).toBe(true);
 
         // Clear state before import
         await navigateTo('media');

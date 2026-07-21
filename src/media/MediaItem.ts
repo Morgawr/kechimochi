@@ -80,6 +80,7 @@ export class MediaItem extends Component<MediaItemState> {
         this.container.classList.add('media-grid-item');
         this.container.title = media.variant ? `${media.title} — ${media.variant}` : media.title;
         this.container.dataset.title = media.title;
+        this.container.dataset.variant = media.variant || '';
         
         const isArchived = media.status === 'Archived';
         const opacity = isArchived ? '0.6' : '1';

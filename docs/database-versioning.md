@@ -22,7 +22,7 @@ An app release may keep the same database schema version, and a new backup forma
 
 ## Current Baseline
 
-- Current database schema version: `5`
+- Current database schema version: `6`
 - Current backup format version: `1`
 - First stable release schema: the current latest schema in `src-tauri`
 
@@ -35,6 +35,28 @@ Schema version `5` distinguishes the default chosen on a media entry from the va
 - `main.activity_logs.activity_type` is the historical value stored for that individual log.
 
 The `v4` to `v5` migration renames the old media-level `media_type` column. It also materializes blank activity-log values from the media default that existed at migration time. Blank media defaults and activity logs whose media no longer exists are normalized to `None`; existing non-blank activity types are preserved.
+
+Schema version `6` changes media uniqueness from `title` alone to the exact
+`(title, variant)` pair. The `v5` to `v6` migration rebuilds `shared.media`
+with `UNIQUE(title, variant)` while preserving every media ID, sync UID,
+activity-log relationship, milestone relationship, and metadata field. A title
+may therefore be shared by multiple media entries, but an exact title/variant
+pair may occur only once.
+
+The migration trims surrounding whitespace from every legacy variant before
+installing the new uniqueness constraint. If normalization would make two rows
+share the same exact `(title, variant)` pair, the migration aborts atomically
+and reports the collision instead of merging or dropping either entry. A blank
+or whitespace-only legacy title likewise aborts before any row is rebuilt or
+the schema is stamped as version `6`; latest-schema validation enforces the same
+non-blank-title invariant.
+
+Before title uniqueness is relaxed, the migration also repairs legacy
+milestones that are missing a media UID when their title has exactly one media
+match. It then rebuilds `main.milestones` with a required `media_uid` and derives
+the stored display title from that linked media. An orphan or otherwise
+unresolvable milestone aborts the migration atomically instead of being guessed,
+dropped, or attached to an arbitrary same-title variant.
 
 ## Storage Model
 
@@ -52,20 +74,56 @@ The schema version is stored in both database files with the same integer value.
 
 On database initialization:
 
-1. Open `kechimochi_user.db`
-2. Attach `kechimochi_shared_media.db` as `shared`
-3. Apply SQLite pragmas
-4. Detect schema state
-5. Migrate to the latest supported schema if needed
-6. Validate the final schema before the app continues
+1. Inspect every existing canonical database file read-only, plus a legacy
+   fallback profile if it would be copied.
+2. Reject any inspected schema version that is newer than this app supports.
+3. Copy the accepted fallback when needed, then open or create
+   `kechimochi_user.db` and attach or create `kechimochi_shared_media.db` as
+   `shared`.
+4. Recheck the attached bundle's schema versions.
+5. Apply SQLite connection pragmas.
+6. Detect the remaining schema state and migrate sequentially to the latest
+   supported schema when needed.
+7. Validate the final schema before the app continues.
 
 The app must behave as follows:
 
 - If the schema version is lower than the current supported version, run migrations sequentially until current.
 - If the schema version matches the current supported version, continue normally.
 - If both DB files are unversioned but contain tables, treat them as legacy pre-release data, normalize them, and apply all required schema migrations in order. Stamp them with the current schema version only after the complete upgrade succeeds.
-- If the database schema version is newer than the app supports, fail clearly and do not modify the files.
+- If the database schema version is newer than the app supports, fail clearly
+  without running migrations, downgrading schema/data, creating or copying a
+  missing database companion, or applying persistent journal-mode changes.
 - If the two DB files disagree on version, treat that as an inconsistent state and only auto-repair it when the actual schema structure is clearly recoverable.
+
+There is no special "two versions behind" shortcut. A current app opening a
+schema-`3` database applies `v3` to `v4`, `v4` to `v5`, and `v5` to `v6` in
+order, within the normal migration workflow. Database files are never
+downgraded implicitly.
+
+The startup guard in the current code also rejects a database newer than the
+running binary before applying persistent pragmas or creating a missing bundle
+companion. This is a guarantee for releases containing that guard, not a claim
+about binaries that were already shipped: historical schema-`3` through
+schema-`5` builds checked the version only after applying their connection
+pragmas. Such an older binary still refuses to migrate or downgrade a newer
+schema, but it may switch journal mode or create SQLite sidecar files before it
+reports the incompatibility. Upgrade the app before opening newer data.
+
+Cloud sync follows the same forward-compatibility rule. A client rejects a
+remote manifest or snapshot whose database schema version is newer than the
+client supports. Upgrade that client before syncing; do not try to translate a
+newer snapshot through an older app.
+
+The current newer-schema check first inspects every existing database file
+read-only, including a legacy fallback profile when one would be copied. It then
+checks the attached bundle again before persistent connection settings such as
+WAL journal mode are applied. This preserves the future database schema version,
+tables, data, and journal mode when a guarded client refuses to open it, and it
+does not create or copy a missing `.db` companion. SQLite may still create a
+transient `-shm` sidecar while opening an existing WAL database read-only so it
+can inspect an uncheckpointed schema version; that is not a schema or data
+mutation.
 
 ## Migration Rules
 

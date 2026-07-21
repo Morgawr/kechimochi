@@ -9,12 +9,14 @@ async function getBackendCounts(title: string): Promise<{ logs: number; mileston
     const invoke = (globalThis as unknown as {
       __TAURI_INTERNALS__: { invoke: <T>(command: string, args?: Record<string, unknown>) => Promise<T> };
     }).__TAURI_INTERNALS__.invoke;
-    const media = await invoke<Array<{ id: number; title: string }>>('get_all_media');
+    const media = await invoke<Array<{ id: number; uid: string; title: string }>>('get_all_media');
     const target = media.find(entry => entry.title === mediaTitle);
     const logs = target
       ? await invoke<unknown[]>('get_logs_for_media', { mediaId: target.id })
       : [];
-    const milestones = await invoke<unknown[]>('get_milestones', { mediaTitle });
+    const milestones = target
+      ? await invoke<unknown[]>('get_milestones', { mediaUid: target.uid })
+      : [];
     return { logs: logs.length, milestones: milestones.length };
   }, title);
 }

@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { ProfileView } from '../../src/profile/ProfileView';
 import * as api from '../../src/api';
 import { Media } from '../../src/api';
+import type { SyncConflictMediaAggregate } from '../../src/types';
 import { STORAGE_KEYS, SETTING_KEYS } from '../../src/constants';
 import { Logger } from '../../src/logger';
 import {
@@ -136,6 +137,43 @@ async function expectLatestAlert(title: string, message: string) {
         title,
         expect.stringContaining(message)
     ));
+}
+
+function buildConflictMedia(
+    uid: string,
+    title: string,
+    variant: string,
+    activityCount: number,
+    milestoneCount: number,
+): SyncConflictMediaAggregate {
+    return {
+        uid,
+        title,
+        variant,
+        media_type: variant === 'Anime' ? 'Watching' : 'Reading',
+        status: 'Active',
+        language: 'Japanese',
+        description: '',
+        content_type: variant,
+        tracking_status: 'Ongoing',
+        extra_data: '{}',
+        cover_blob_sha256: null,
+        updated_at: '2026-07-21T00:00:00Z',
+        updated_by_device_id: 'device-test',
+        activities: Array.from({ length: activityCount }, (_, index) => ({
+            date: `2026-07-${String(index + 1).padStart(2, '0')}`,
+            activity_type: variant === 'Anime' ? 'Watching' : 'Reading',
+            duration_minutes: 10,
+            characters: 0,
+            notes: '',
+        })),
+        milestones: Array.from({ length: milestoneCount }, (_, index) => ({
+            name: `Milestone ${index + 1}`,
+            duration: 10,
+            characters: 0,
+            date: null,
+        })),
+    };
 }
 
 describe('ProfileView', () => {
@@ -567,6 +605,7 @@ describe('ProfileView', () => {
                 conflict_count: 0,
             }));
         vi.mocked(api.getSyncConflicts).mockResolvedValue([{
+            conflict_token: 'conflict-title',
             kind: 'media_field_conflict',
             media_uid: 'uid_1',
             field_name: 'title',
@@ -585,11 +624,105 @@ describe('ProfileView', () => {
         await vi.waitFor(() => expect(container.querySelector('[data-sync-resolution-kind="media_field"]')).not.toBeNull());
         (container.querySelector('[data-sync-resolution-kind="media_field"][data-sync-resolution-side="remote"]') as HTMLButtonElement).click();
 
-        await vi.waitFor(() => expect(api.resolveSyncConflict).toHaveBeenCalledWith(0, { kind: 'media_field', side: 'remote' }));
+        await vi.waitFor(() => expect(api.resolveSyncConflict).toHaveBeenCalledWith(0, 'conflict-title', { kind: 'media_field', side: 'remote' }));
         await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
             'All Conflicts Resolved',
             expect.stringContaining('Run Sync Now')
         ));
+    });
+
+    it('renders duplicate media identity details without exposing UIDs and combines only after confirmation', async () => {
+        vi.mocked(api.getSyncStatus)
+            .mockResolvedValueOnce(buildConnectedSyncStatus({ state: 'conflict_pending', conflict_count: 1 }))
+            .mockResolvedValueOnce(buildConnectedSyncStatus({ state: 'dirty', conflict_count: 0 }));
+        vi.mocked(api.getSyncConflicts).mockResolvedValue([{
+            conflict_token: 'conflict-duplicate-merge',
+            kind: 'duplicate_media_identity',
+            local_media: buildConflictMedia('uid-local-secret', 'Horimiya', 'Anime', 2, 1),
+            remote_media: buildConflictMedia('uid-remote-secret', 'Horimiya', 'Anime', 1, 3),
+            remote_tombstone: {
+                media_uid: 'uid-remote-secret',
+                deleted_at: '2026-07-21T00:00:00Z',
+                deleted_by_device_id: 'device-local',
+            },
+        }]);
+        vi.mocked(modals.customConfirm).mockResolvedValue(true);
+        vi.mocked(api.resolveSyncConflict).mockResolvedValue(buildSyncActionResult({
+            sync_status: { state: 'dirty', conflict_count: 0 },
+        }));
+
+        const view = new ProfileView(container);
+        await view.loadData();
+        view.setState({ showSyncConflicts: true });
+
+        await vi.waitFor(() => expect(container.textContent).toContain('Duplicate media identity conflict'));
+        expect(container.textContent).toContain('Local');
+        expect(container.textContent).toContain('Cloud');
+        expect(container.textContent).toContain('Variant: Anime');
+        expect(container.textContent).toContain('2 activities · 1 milestone');
+        expect(container.textContent).toContain('1 activity · 3 milestones');
+        expect(container.textContent).not.toContain('uid-local-secret');
+        expect(container.textContent).not.toContain('uid-remote-secret');
+
+        (container.querySelector('[data-sync-resolution-kind="duplicate_media_identity_merge"]') as HTMLButtonElement).click();
+
+        await vi.waitFor(() => expect(modals.customConfirm).toHaveBeenCalledWith(
+            'Combine Media Entries',
+            expect.stringContaining('activities and milestones will be merged'),
+            'btn-primary',
+            'Combine',
+        ));
+        await vi.waitFor(() => expect(api.resolveSyncConflict).toHaveBeenCalledWith(0, 'conflict-duplicate-merge', {
+            kind: 'duplicate_media_identity_merge',
+        }));
+    });
+
+    it('requires a changed human-readable identity before keeping both duplicate media entries', async () => {
+        vi.mocked(api.getSyncStatus)
+            .mockResolvedValueOnce(buildConnectedSyncStatus({ state: 'conflict_pending', conflict_count: 1 }))
+            .mockResolvedValueOnce(buildConnectedSyncStatus({ state: 'dirty', conflict_count: 0 }));
+        vi.mocked(api.getSyncConflicts).mockResolvedValue([{
+            conflict_token: 'conflict-duplicate-keep-both',
+            kind: 'duplicate_media_identity',
+            local_media: buildConflictMedia('uid-local', 'Horimiya', 'Anime', 1, 0),
+            remote_media: buildConflictMedia('uid-remote', 'Horimiya', 'Anime', 0, 1),
+            remote_tombstone: {
+                media_uid: 'uid-remote',
+                deleted_at: '2026-07-21T00:00:00Z',
+                deleted_by_device_id: 'device-local',
+            },
+        }]);
+        vi.mocked(api.resolveSyncConflict).mockResolvedValue(buildSyncActionResult({
+            sync_status: { state: 'dirty', conflict_count: 0 },
+        }));
+
+        const view = new ProfileView(container);
+        await view.loadData();
+        view.setState({ showSyncConflicts: true });
+        await vi.waitFor(() => expect(container.querySelector('.sync-duplicate-media-conflict')).not.toBeNull());
+
+        const keepLocalButton = container.querySelector<HTMLButtonElement>(
+            '[data-sync-resolution-kind="duplicate_media_identity_keep_both"][data-sync-resolution-side="local"]'
+        )!;
+        keepLocalButton.click();
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
+            'Keep Both Media',
+            expect.stringContaining('replacement title or variant'),
+        ));
+        expect(api.resolveSyncConflict).not.toHaveBeenCalled();
+
+        const localVariantInput = container.querySelector<HTMLInputElement>(
+            '.sync-duplicate-replacement-variant[data-sync-duplicate-side="local"]'
+        )!;
+        localVariantInput.value = 'Anime (Local)';
+        keepLocalButton.click();
+
+        await vi.waitFor(() => expect(api.resolveSyncConflict).toHaveBeenCalledWith(0, 'conflict-duplicate-keep-both', {
+            kind: 'duplicate_media_identity_keep_both',
+            side: 'local',
+            title: 'Horimiya',
+            variant: 'Anime (Local)',
+        }));
     });
 
     it('should warn before renaming a synced profile', async () => {
@@ -1048,6 +1181,7 @@ describe('ProfileView', () => {
             }));
         vi.mocked(api.getSyncConflicts).mockResolvedValue([
             {
+                conflict_token: 'conflict-extra-data',
                 kind: 'extra_data_entry_conflict',
                 media_uid: 'uid_extra',
                 entry_key: 'Author',
@@ -1055,6 +1189,7 @@ describe('ProfileView', () => {
                 remote_value: null,
             },
             {
+                conflict_token: 'conflict-delete-update',
                 kind: 'delete_vs_update',
                 media_uid: 'uid_delete',
                 deleted_side: 'local',
@@ -1063,6 +1198,7 @@ describe('ProfileView', () => {
                 tombstone: { deleted_at: '2026-04-02T00:00:00Z' },
             },
             {
+                conflict_token: 'conflict-profile-picture',
                 kind: 'profile_picture_conflict',
                 local_picture: null,
                 remote_picture: {
@@ -1092,7 +1228,7 @@ describe('ProfileView', () => {
 
         (container.querySelector('[data-sync-resolution-kind="extra_data_entry"][data-sync-resolution-side="remote"]') as HTMLButtonElement).click();
 
-        await vi.waitFor(() => expect(api.resolveSyncConflict).toHaveBeenCalledWith(0, {
+        await vi.waitFor(() => expect(api.resolveSyncConflict).toHaveBeenCalledWith(0, 'conflict-extra-data', {
             kind: 'extra_data_entry',
             side: 'remote',
         }));
@@ -1108,6 +1244,7 @@ describe('ProfileView', () => {
             conflict_count: 1,
         }));
         vi.mocked(api.getSyncConflicts).mockResolvedValue([{
+            conflict_token: 'conflict-invalid-button',
             kind: 'media_field_conflict',
             media_uid: 'uid_1',
             field_name: 'title',
@@ -1630,6 +1767,7 @@ describe('ProfileView', () => {
             }))
             .mockResolvedValueOnce(buildConnectedSyncStatus());
         vi.mocked(api.getSyncConflicts).mockResolvedValue([{
+            conflict_token: 'conflict-restore',
             kind: 'delete_vs_update',
             media_uid: 'uid_restore',
             deleted_side: 'remote',
@@ -1648,7 +1786,7 @@ describe('ProfileView', () => {
         await vi.waitFor(() => expect(container.textContent).toContain('Local Restored Title'));
         (container.querySelector('[data-sync-resolution-kind="delete_vs_update"][data-sync-resolution-choice="restore"]') as HTMLButtonElement).click();
 
-        await vi.waitFor(() => expect(api.resolveSyncConflict).toHaveBeenCalledWith(0, {
+        await vi.waitFor(() => expect(api.resolveSyncConflict).toHaveBeenCalledWith(0, 'conflict-restore', {
             kind: 'delete_vs_update',
             choice: 'restore',
         }));
@@ -1661,6 +1799,7 @@ describe('ProfileView', () => {
         }));
         vi.mocked(api.getSyncConflicts).mockResolvedValue([
             {
+                conflict_token: 'conflict-progress',
                 kind: 'media_field_conflict',
                 media_uid: 'uid_progress',
                 field_name: 'progress',
@@ -1669,6 +1808,7 @@ describe('ProfileView', () => {
                 remote_value: { chapter: 5 },
             },
             {
+                conflict_token: 'conflict-remote-delete',
                 kind: 'delete_vs_update',
                 media_uid: 'uid_remote_delete',
                 deleted_side: 'remote',
@@ -1677,6 +1817,7 @@ describe('ProfileView', () => {
                 tombstone: { deleted_at: '2026-04-02T00:00:00Z' },
             },
             {
+                conflict_token: 'conflict-picture-remaining',
                 kind: 'profile_picture_conflict',
                 local_picture: {
                     mime_type: 'image/png',

@@ -40,6 +40,11 @@ BASE=http://192.168.1.50:3031
 
 JSON requests use `Content-Type: application/json`. CLI clients such as `curl` do not need CORS configuration. Browser scripts must list their exact origin in **Allowed Browser Origins**.
 
+The HTTP API is an internal automation boundary, not a CSV boundary. Media
+objects therefore expose database IDs and sync UIDs where a stable,
+unambiguous reference is required. CSV imports and exports never expose or
+accept those identifiers; see [CSV Data Formats](csv-formats.md).
+
 ## Automation Scope Endpoints
 
 These endpoints are available in both `automation` and `full` scope.
@@ -53,8 +58,8 @@ These endpoints are available in both `automation` and `full` scope.
 | `POST /api/profiles/initialize` | Initialize the user database when no profile database exists. | `curl -s -X POST "$BASE/api/profiles/initialize" -H 'Content-Type: application/json' -d '{"fallback_username":"$USER"}'` |
 | `GET /api/profile-picture` | Read the stored profile picture metadata and base64 data. | `curl -s "$BASE/api/profile-picture"` |
 | `GET /api/media` | List all media. | `curl -s "$BASE/api/media"` |
-| `POST /api/media` | Add media. Returns the new ID. | `curl -s -X POST "$BASE/api/media" -H 'Content-Type: application/json' -d '{"id":null,"title":"Example Book","default_activity_type":"Reading","status":"Active","language":"Japanese","description":"","cover_image":"","extra_data":"{}","content_type":"Novel","tracking_status":"Ongoing"}'` |
-| `PUT /api/media/:id` | Replace media by ID. The URL ID is authoritative. | `curl -s -X PUT "$BASE/api/media/1" -H 'Content-Type: application/json' -d '{"id":1,"title":"Example Book","default_activity_type":"Reading","status":"Active","language":"Japanese","description":"Updated","cover_image":"","extra_data":"{}","content_type":"Novel","tracking_status":"Ongoing"}'` |
+| `POST /api/media` | Add media. Returns the new numeric ID. The title must not be blank; surrounding variant whitespace is removed; and the resulting exact `(title, variant)` pair must be unique. | `curl -s -X POST "$BASE/api/media" -H 'Content-Type: application/json' -d '{"id":null,"uid":null,"title":"Example Book","variant":"Light Novel","default_activity_type":"Reading","status":"Active","language":"Japanese","description":"","cover_image":"","extra_data":"{}","content_type":"Novel","tracking_status":"Ongoing"}'` |
+| `PUT /api/media/:id` | Replace media by numeric ID. The URL ID is authoritative. A blank title returns `400 Bad Request`; an exact normalized `(title, variant)` collision returns `409 Conflict`. | `curl -s -X PUT "$BASE/api/media/1" -H 'Content-Type: application/json' -d '{"id":1,"uid":null,"title":"Example Book","variant":"Light Novel","default_activity_type":"Reading","status":"Active","language":"Japanese","description":"Updated","cover_image":"","extra_data":"{}","content_type":"Novel","tracking_status":"Ongoing"}'` |
 | `DELETE /api/media/:id` | Delete media by ID. | `curl -s -X DELETE "$BASE/api/media/1"` |
 | `GET /api/logs` | List activity logs. | `curl -s "$BASE/api/logs"` |
 | `POST /api/logs` | Add an activity log. Returns the new ID. | `curl -s -X POST "$BASE/api/logs" -H 'Content-Type: application/json' -d '{"id":null,"media_id":1,"duration_minutes":30,"characters":0,"date":"2026-05-07","activity_type":"Reading"}'` |
@@ -62,11 +67,11 @@ These endpoints are available in both `automation` and `full` scope.
 | `DELETE /api/logs/:id` | Delete an activity log by ID. | `curl -s -X DELETE "$BASE/api/logs/1"` |
 | `GET /api/logs/heatmap` | Return daily aggregate activity totals. | `curl -s "$BASE/api/logs/heatmap"` |
 | `GET /api/logs/media/:id` | List activity summaries for one media item. | `curl -s "$BASE/api/logs/media/1"` |
-| `GET /api/timeline` | Return timeline events. | `curl -s "$BASE/api/timeline"` |
-| `POST /api/milestones` | Add a milestone. Returns the new ID. | `curl -s -X POST "$BASE/api/milestones" -H 'Content-Type: application/json' -d '{"id":null,"media_uid":null,"media_title":"Example Book","name":"Volume 1","duration":120,"characters":5000,"date":"2026-05-07"}'` |
-| `GET /api/milestones/media/:title` | List milestones for a media title. URL-encode the title. | `curl -s "$BASE/api/milestones/media/Example%20Book"` |
-| `DELETE /api/milestones/media/:title` | Delete all milestones for a media title. | `curl -s -X DELETE "$BASE/api/milestones/media/Example%20Book"` |
-| `PUT /api/milestones/:id` | Replace a milestone by ID. The URL ID is authoritative. | `curl -s -X PUT "$BASE/api/milestones/1" -H 'Content-Type: application/json' -d '{"id":1,"media_uid":null,"media_title":"Example Book","name":"Volume 2","duration":240,"characters":10000,"date":"2026-05-08"}'` |
+| `GET /api/timeline` | Return timeline events. Each event includes `mediaId`, `mediaTitle`, and `mediaVariant`, so same-title variants remain distinguishable. | `curl -s "$BASE/api/timeline"` |
+| `POST /api/milestones` | Add a milestone. Returns the new ID. `media_uid` is required; the server derives `media_title`. | `curl -s -X POST "$BASE/api/milestones" -H 'Content-Type: application/json' -d '{"id":null,"media_uid":"media-uid-from-get-media","name":"Volume 1","duration":120,"characters":5000,"date":"2026-05-07"}'` |
+| `GET /api/media/:media_uid/milestones` | List milestones for one exact media entry. URL-encode the UID. | `curl -s "$BASE/api/media/media-uid-from-get-media/milestones"` |
+| `DELETE /api/media/:media_uid/milestones` | Delete all milestones for one exact media entry. | `curl -s -X DELETE "$BASE/api/media/media-uid-from-get-media/milestones"` |
+| `PUT /api/milestones/:id` | Replace a milestone by ID. The URL ID is authoritative and `media_uid` is required. | `curl -s -X PUT "$BASE/api/milestones/1" -H 'Content-Type: application/json' -d '{"id":1,"media_uid":"media-uid-from-get-media","name":"Volume 2","duration":240,"characters":10000,"date":"2026-05-08"}'` |
 | `DELETE /api/milestones/:id` | Delete one milestone. | `curl -s -X DELETE "$BASE/api/milestones/1"` |
 
 ## Full Scope Endpoints
@@ -101,9 +106,10 @@ Media payloads use these fields:
 ```json
 {
   "id": null,
+  "uid": null,
   "title": "Example Book",
+  "variant": "Light Novel",
   "default_activity_type": "Reading",
-  "media_type": "Reading",
   "status": "Active",
   "language": "Japanese",
   "description": "",
@@ -114,7 +120,11 @@ Media payloads use these fields:
 }
 ```
 
-`default_activity_type` is the canonical media field. For compatibility, media responses also include the deprecated `media_type` alias, and requests may still provide that alias. If a request supplies both fields with different non-blank values, it is rejected with `400 Bad Request`.
+`default_activity_type` is the only activity-default field emitted in media
+responses. Old requests using `media_type` are still accepted for backwards
+compatibility, but new clients must use `default_activity_type`. If a request
+supplies both fields with different non-blank values, it is rejected with `400
+Bad Request`.
 
 Activity log payloads use these fields:
 
@@ -125,18 +135,20 @@ Activity log payloads use these fields:
   "duration_minutes": 30,
   "characters": 0,
   "date": "2026-05-07",
-  "activity_type": "Reading"
+  "activity_type": "Reading",
+  "notes": "Chapter 1"
 }
 ```
 
-Activity-summary responses use `activity_type` for the value recorded on the individual log. They also include a deprecated `media_type` alias with the same value for older HTTP clients.
+Activity-summary responses use only `activity_type` for the value recorded on
+the individual log.
 
 Milestone payloads use these fields:
 
 ```json
 {
   "id": null,
-  "media_uid": null,
+  "media_uid": "media-uid-from-get-media",
   "media_title": "Example Book",
   "name": "Volume 1",
   "duration": 120,
@@ -145,9 +157,32 @@ Milestone payloads use these fields:
 }
 ```
 
+For milestone writes, `media_uid` must name an existing media entry.
+`media_title` is display data derived by the server and any client-supplied
+value is ignored. This prevents same-title variants from sharing or clearing
+each other's milestones.
+
 ## Error Behavior
 
-Unmatched `/api` routes return `404` with `API route not found`.
+Unmatched `/api` routes—including the removed title-based milestone route—return
+`404` with `API route not found`. Exact media identity collisions return `409
+Conflict`; blank media titles, other application-level media validation, and
+milestone writes using an unknown UID return `400 Bad Request`. JSON extraction
+errors use Axum's standard client-error response. Reading or clearing milestones
+for an unknown UID is idempotent and returns an empty list or success,
+respectively.
+
+CSV upload and media-import apply endpoints return `400 Bad Request` for
+malformed rows, forbidden identifier columns, ambiguous title-only identity,
+invalid base64, and other semantic input failures. Filesystem, database, and
+other server-side failures remain `500 Internal Server Error`.
+
+`POST /api/reset` and `POST /api/import/full-backup` return `409 Conflict` if a
+cloud sync operation is active. They do not modify the database or sync state
+in that case. After either operation succeeds, the previous cloud-profile
+association, base snapshot, pending conflicts, and interrupted-sync journal are
+cleared. In particular, a restored backup is not marked dirty against the
+profile that was configured before the restore.
 
 Invalid media activity-type aliases return `400` with a plain-text error message. Other handler failures return `500`. Host-header validation failures return `403`.
 

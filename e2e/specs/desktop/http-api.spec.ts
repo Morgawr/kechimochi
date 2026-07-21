@@ -181,25 +181,93 @@ describe('HTTP API CUJ', () => {
   it('creates and deletes user data through automation endpoints and reflects it in the app', async () => {
     const title = 'HTTP API Automation Journey';
     const jsonHeaders = { 'content-type': 'application/json' };
+    const mediaPayload = {
+      id: null,
+      uid: null,
+      title,
+      variant: 'API Edition',
+      default_activity_type: 'Reading',
+      status: 'Active',
+      language: 'Japanese',
+      description: 'Created through the local API',
+      cover_image: '',
+      extra_data: '{}',
+      content_type: 'Novel',
+      tracking_status: 'Ongoing',
+    };
     const mediaResponse = await fetchWithTimeout(`${baseUrl}/api/media`, {
       method: 'POST',
       headers: jsonHeaders,
-      body: JSON.stringify({
-        id: null,
-        title,
-        variant: 'API Edition',
-        default_activity_type: 'Reading',
-        status: 'Active',
-        language: 'Japanese',
-        description: 'Created through the local API',
-        cover_image: '',
-        extra_data: '{}',
-        content_type: 'Novel',
-        tracking_status: 'Ongoing',
-      }),
+      body: JSON.stringify(mediaPayload),
     });
     expect(mediaResponse.status).toBe(200);
     const mediaId = await mediaResponse.json() as number;
+
+    const secondMediaResponse = await fetchWithTimeout(`${baseUrl}/api/media`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ ...mediaPayload, variant: 'Other Edition' }),
+    });
+    expect(secondMediaResponse.status).toBe(200);
+    const secondMediaId = await secondMediaResponse.json() as number;
+    const exactDuplicateResponse = await fetchWithTimeout(`${baseUrl}/api/media`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify(mediaPayload),
+    });
+    expect(exactDuplicateResponse.status).toBe(409);
+
+    const mediaListResponse = await fetchWithTimeout(`${baseUrl}/api/media`);
+    expect(mediaListResponse.status).toBe(200);
+    const mediaList = await mediaListResponse.json() as Array<{
+      id: number;
+      uid: string;
+      title: string;
+      variant: string;
+    }>;
+    const apiEdition = mediaList.find(media => media.id === mediaId);
+    const otherEdition = mediaList.find(media => media.id === secondMediaId);
+    expect(apiEdition).toMatchObject({ title, variant: 'API Edition' });
+    expect(otherEdition).toMatchObject({ title, variant: 'Other Edition' });
+    const mediaUid = apiEdition?.uid;
+    const secondMediaUid = otherEdition?.uid;
+    expect(mediaUid).toBeTruthy();
+    expect(secondMediaUid).toBeTruthy();
+
+    const blankTitleCreateResponse = await fetchWithTimeout(`${baseUrl}/api/media`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ ...mediaPayload, title: ' \t ' }),
+    });
+    expect(blankTitleCreateResponse.status).toBe(400);
+
+    const blankTitleRenameResponse = await fetchWithTimeout(`${baseUrl}/api/media/${mediaId}`, {
+      method: 'PUT',
+      headers: jsonHeaders,
+      body: JSON.stringify({ ...mediaPayload, id: mediaId, uid: mediaUid, title: ' \t ' }),
+    });
+    expect(blankTitleRenameResponse.status).toBe(400);
+    const mediaAfterBlankRename = await (await fetchWithTimeout(`${baseUrl}/api/media`)).json() as Array<{
+      id: number;
+      title: string;
+      variant: string;
+    }>;
+    expect(mediaAfterBlankRename.find(media => media.id === mediaId)).toMatchObject({
+      title,
+      variant: 'API Edition',
+    });
+
+    const collidingRenameResponse = await fetchWithTimeout(`${baseUrl}/api/media/${mediaId}`, {
+      method: 'PUT',
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        ...mediaPayload,
+        id: mediaId,
+        uid: mediaUid,
+        variant: 'Other Edition',
+      }),
+    });
+    expect(collidingRenameResponse.status).toBe(409);
 
     const logResponse = await fetchWithTimeout(`${baseUrl}/api/logs`, {
       method: 'POST',
@@ -222,8 +290,8 @@ describe('HTTP API CUJ', () => {
       headers: jsonHeaders,
       body: JSON.stringify({
         id: null,
-        media_uid: null,
-        media_title: title,
+        media_uid: mediaUid,
+        media_title: 'Ignored client display title',
         name: 'API milestone',
         duration: 29,
         characters: 1800,
@@ -232,6 +300,21 @@ describe('HTTP API CUJ', () => {
     });
     expect(milestoneResponse.status).toBe(200);
     const milestoneId = await milestoneResponse.json() as number;
+    const firstMilestonesResponse = await fetchWithTimeout(
+      `${baseUrl}/api/media/${encodeURIComponent(mediaUid!)}/milestones`,
+    );
+    expect(firstMilestonesResponse.status).toBe(200);
+    expect(await firstMilestonesResponse.json()).toEqual([
+      expect.objectContaining({ media_uid: mediaUid, media_title: title, name: 'API milestone' }),
+    ]);
+    const secondMilestonesResponse = await fetchWithTimeout(
+      `${baseUrl}/api/media/${encodeURIComponent(secondMediaUid!)}/milestones`,
+    );
+    expect(secondMilestonesResponse.status).toBe(200);
+    expect(await secondMilestonesResponse.json()).toEqual([]);
+    expect((await fetchWithTimeout(
+      `${baseUrl}/api/milestones/media/${encodeURIComponent(title)}`,
+    )).status).toBe(404);
 
     const settingResponse = await fetchWithTimeout(`${baseUrl}/api/settings/theme`, {
       method: 'PUT',
@@ -244,7 +327,7 @@ describe('HTTP API CUJ', () => {
     await waitForAppReady();
     await navigateTo('media');
     expect(await isMediaVisible(title)).toBe(true);
-    await clickMediaItem(title);
+    await clickMediaItem(title, 'API Edition');
     expect(await $('#media-description').getText()).toContain('Created through the local API');
     expect(await $('#media-logs-container').getText()).toContain('29 Minutes');
     expect(await $('#media-logs-container').getText()).toContain('Written through API');
@@ -254,6 +337,7 @@ describe('HTTP API CUJ', () => {
     expect((await fetchWithTimeout(`${baseUrl}/api/logs/${logId}`, { method: 'DELETE' })).status).toBe(200);
     expect((await fetchWithTimeout(`${baseUrl}/api/milestones/${milestoneId}`, { method: 'DELETE' })).status).toBe(200);
     expect((await fetchWithTimeout(`${baseUrl}/api/media/${mediaId}`, { method: 'DELETE' })).status).toBe(200);
+    expect((await fetchWithTimeout(`${baseUrl}/api/media/${secondMediaId}`, { method: 'DELETE' })).status).toBe(200);
 
     await browser.refresh();
     await waitForAppReady();
@@ -266,7 +350,7 @@ describe('HTTP API CUJ', () => {
     expect(defaultFullScopeResponse.status).toBe(404);
   });
 
-  it('enables full scope and verifies milestone export now works after restart', async () => {
+  it('enables full scope and keeps CSV export and validation at the human-readable boundary', async () => {
     await navigateTo('profile');
     await selectFullScopeAndSave();
     await waitForHttpApiUp(baseUrl);
@@ -275,7 +359,48 @@ describe('HTTP API CUJ', () => {
     expect(fullScopeResponse.status).toBe(200);
     expect(fullScopeResponse.headers.get('content-type') ?? '').toContain('text/csv');
     const milestoneCsv = await fullScopeResponse.text();
-    expect(milestoneCsv).toContain('Media Title,Name,Duration,Characters,Date');
+    expect(milestoneCsv.trimEnd().split(/\r?\n/)[0]).toBe(
+      'Media Title,Name,Duration,Characters,Date,Media Variant',
+    );
+    expect(milestoneCsv.split(/\r?\n/, 1)[0]).not.toMatch(/\b(?:id|uid|uuid)\b/i);
+
+    const forbiddenTitle = 'HTTP CSV Forbidden Identifier';
+    const form = new FormData();
+    form.append('file', new Blob([
+      [
+        'Date,Log Name,Default Activity Type,Duration,Language,Activity Type,Media UID',
+        `2026-07-21,${forbiddenTitle},Reading,20,Japanese,Reading,private-uid`,
+      ].join('\n'),
+    ], { type: 'text/csv' }), 'activities.csv');
+    const invalidImport = await fetchWithTimeout(`${baseUrl}/api/import/activities`, {
+      method: 'POST',
+      body: form,
+    }, 5_000);
+    expect(invalidImport.status).toBe(400);
+    expect(await invalidImport.text()).toContain("Unsupported 'Media UID' column");
+
+    const invalidApply = await fetchWithTimeout(`${baseUrl}/api/import/media/apply`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify([{
+        Title: forbiddenTitle,
+        'Default Activity Type': 'Reading',
+        Status: 'Active',
+        Language: 'Japanese',
+        Description: '',
+        'Content Type': 'Novel',
+        'Extra Data': '{}',
+        'Cover Image (Base64)': '',
+        Variant: '',
+        'Media UID': 'private-uid',
+      }]),
+    }, 5_000);
+    expect(invalidApply.status).toBe(400);
+    expect(await invalidApply.text()).toContain('Media UID');
+
+    const mediaAfterRejectedImport = await (await fetchWithTimeout(`${baseUrl}/api/media`)).json() as
+      Array<{ title: string }>;
+    expect(mediaAfterRejectedImport.some(media => media.title === forbiddenTitle)).toBe(false);
   });
 
   it('disables the HTTP API', async () => {

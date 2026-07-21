@@ -105,8 +105,8 @@ export class DesktopServices implements AppServices {
     replaceLocalFromRemote():               Promise<SyncActionResult> { return invoke('replace_local_from_remote'); }
     forcePublishLocalAsRemote():            Promise<SyncActionResult> { return invoke('force_publish_local_as_remote'); }
     getSyncConflicts():                      Promise<SyncConflict[]>   { return invoke('get_sync_conflicts'); }
-    resolveSyncConflict(conflictIndex: number, resolution: SyncConflictResolution): Promise<SyncActionResult> {
-        return invoke('resolve_sync_conflict', { conflictIndex, resolution });
+    resolveSyncConflict(conflictIndex: number, conflictToken: string, resolution: SyncConflictResolution): Promise<SyncActionResult> {
+        return invoke('resolve_sync_conflict', { conflictIndex, conflictToken, resolution });
     }
     subscribeSyncProgress(listener: (update: SyncProgressUpdate) => void): Promise<() => void> {
         return listen<SyncProgressUpdate>('sync-progress', (event) => {
@@ -175,8 +175,8 @@ export class DesktopServices implements AppServices {
     }
 
     // ── Milestone operations ─────────────────────────────────────────────────
-    getMilestones(mediaTitle: string): Promise<Milestone[]> {
-        return invoke('get_milestones', { mediaTitle });
+    getMilestones(mediaUid: string): Promise<Milestone[]> {
+        return invoke('get_milestones', { mediaUid });
     }
 
     addMilestone(milestone: Milestone): Promise<number> {
@@ -191,8 +191,8 @@ export class DesktopServices implements AppServices {
         return invoke('delete_milestone', { id });
     }
 
-    clearMilestones(mediaTitle: string): Promise<void> {
-        return invoke('delete_milestones_for_media', { mediaTitle });
+    clearMilestones(mediaUid: string): Promise<void> {
+        return invoke('delete_milestones_for_media', { mediaUid });
     }
 
     exportMilestonesCsv(filePath: string): Promise<number> {

@@ -140,6 +140,7 @@ export class MediaListItem extends Component<MediaListItemState> {
         this.container.classList.add('media-list-item-shell');
         this.container.title = media.variant ? `${media.title} — ${media.variant}` : media.title;
         this.container.dataset.title = media.title;
+        this.container.dataset.variant = media.variant || '';
         this.container.style.cursor = 'pointer';
         this.container.appendChild(root);
     }

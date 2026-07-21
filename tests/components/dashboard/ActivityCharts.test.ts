@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ActivityCharts } from '../../../src/dashboard/ActivityCharts';
-import { ActivitySummary } from '../../../src/api';
+import { ActivitySummary, Media } from '../../../src/api';
 import Chart from 'chart.js/auto';
 
 vi.mock('chart.js/auto', () => ({
@@ -198,6 +198,44 @@ describe('ActivityCharts', () => {
         );
         component.render();
         expect(Chart).toHaveBeenCalled();
+    });
+
+    it('keeps same-title media variants separate when grouping by name', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-06-10T12:00:00'));
+
+        const logs = [
+            { date: '2026-06-08', duration_minutes: 10, title: 'Horimiya', media_id: 1, activity_type: 'Reading', language: 'Japanese' },
+            { date: '2026-06-09', duration_minutes: 20, title: 'Horimiya', media_id: 2, activity_type: 'Watching', language: 'Japanese' },
+            { date: '2026-06-10', duration_minutes: 5, title: 'Unique title', media_id: 3, activity_type: 'Reading', language: 'Japanese' },
+        ] as ActivitySummary[];
+        const mediaList = [
+            { id: 1, title: 'Horimiya', variant: 'Manga' },
+            { id: 2, title: 'Horimiya', variant: 'Anime' },
+            { id: 3, title: 'Unique title', variant: 'Novel' },
+        ] as Media[];
+        const component = new ActivityCharts(
+            container,
+            { logs, mediaList, timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'log_name', chartType: 'bar', metric: 'minutes' },
+            onParamChange,
+        );
+
+        component.render();
+
+        const pieChartConfig = vi.mocked(Chart).mock.calls[0][1];
+        const barChartConfig = vi.mocked(Chart).mock.calls[1][1];
+        expect(pieChartConfig.data.labels).toEqual([
+            'Horimiya — Anime',
+            'Horimiya — Manga',
+            'Unique title',
+        ]);
+        expect(pieChartConfig.data.datasets[0].data).toEqual([20, 10, 5]);
+        expect(barChartConfig.data.datasets.map(dataset => dataset.label)).toEqual([
+            'Horimiya — Anime',
+            'Horimiya — Manga',
+            'Unique title',
+        ]);
+        expect(barChartConfig.data.datasets.map(dataset => dataset.data.reduce((sum, value) => sum + value, 0))).toEqual([20, 10, 5]);
     });
 
     it('should trigger param change on metric toggle', () => {

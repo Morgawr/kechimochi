@@ -34,6 +34,21 @@ struct CsvRow {
     media_variant: String,
 }
 
+impl CsvRow {
+    const HEADERS: [&str; 10] = [
+        "Date",
+        "Log Name",
+        "Default Activity Type",
+        "Media Type",
+        "Duration",
+        "Language",
+        "Characters",
+        "Activity Type",
+        "Notes",
+        "Media Variant",
+    ];
+}
+
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 struct ActivityCsvRow {
     #[serde(rename = "Date")]
@@ -86,7 +101,19 @@ pub struct MilestoneCsvRow {
     pub media_variant: String,
 }
 
+impl MilestoneCsvRow {
+    const HEADERS: [&str; 6] = [
+        "Media Title",
+        "Name",
+        "Duration",
+        "Characters",
+        "Date",
+        "Media Variant",
+    ];
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct MediaCsvRow {
     #[serde(rename = "Title")]
     pub title: String,
@@ -106,7 +133,7 @@ pub struct MediaCsvRow {
     pub status: String,
     #[serde(rename = "Language")]
     pub language: String,
-    #[serde(rename = "Description")]
+    #[serde(rename = "Description", default)]
     pub description: String,
     #[serde(rename = "Content Type")]
     pub content_type: String,
@@ -138,6 +165,191 @@ struct MediaCsvExportRow {
     cover_image_b64: String,
     #[serde(rename = "Variant")]
     variant: String,
+}
+
+impl MediaCsvExportRow {
+    const HEADERS: [&str; 9] = [
+        "Title",
+        "Default Activity Type",
+        "Status",
+        "Language",
+        "Description",
+        "Content Type",
+        "Extra Data",
+        "Cover Image (Base64)",
+        "Variant",
+    ];
+}
+
+impl MediaCsvRow {
+    const HEADERS: [&str; 10] = [
+        "Title",
+        "Default Activity Type",
+        "Media Type",
+        "Status",
+        "Language",
+        "Description",
+        "Content Type",
+        "Extra Data",
+        "Cover Image (Base64)",
+        "Variant",
+    ];
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct CsvMediaKey {
+    title: String,
+    variant: String,
+}
+
+impl CsvMediaKey {
+    fn new(title: &str, variant: &str) -> Result<Self, String> {
+        if title.trim().is_empty() {
+            return Err("Media title cannot be blank".to_string());
+        }
+        Ok(Self {
+            title: title.to_string(),
+            variant: variant.trim().to_string(),
+        })
+    }
+
+    fn description(&self) -> String {
+        format!(
+            "title '{}' and variant {}",
+            self.title,
+            display_variant(&self.variant)
+        )
+    }
+}
+
+#[derive(Debug)]
+struct MediaCatalog {
+    by_title: HashMap<String, Vec<Media>>,
+}
+
+impl MediaCatalog {
+    fn load(conn: &Connection) -> Result<Self, String> {
+        let mut by_title: HashMap<String, Vec<Media>> = HashMap::new();
+        for media in db::get_all_media(conn).map_err(|e| e.to_string())? {
+            by_title.entry(media.title.clone()).or_default().push(media);
+        }
+        Ok(Self { by_title })
+    }
+
+    fn resolve(
+        &self,
+        title: &str,
+        variant: Option<&str>,
+        context: &str,
+        variant_header: &str,
+    ) -> Result<Option<&Media>, String> {
+        let matches = self.by_title.get(title).map(Vec::as_slice).unwrap_or(&[]);
+        if let Some(variant) = variant {
+            let normalized_variant = variant.trim();
+            let exact = matches
+                .iter()
+                .filter(|media| media.variant == normalized_variant)
+                .collect::<Vec<_>>();
+            return match exact.as_slice() {
+                [] => Ok(None),
+                [media] => Ok(Some(*media)),
+                _ => Err(format!(
+                    "{context} matches multiple media entries with title '{}' and variant {}",
+                    title,
+                    display_variant(normalized_variant)
+                )),
+            };
+        }
+
+        match matches {
+            [] => Ok(None),
+            [media] => Ok(Some(media)),
+            _ => {
+                let mut variants = matches
+                    .iter()
+                    .map(|media| display_variant(&media.variant))
+                    .collect::<Vec<_>>();
+                variants.sort();
+                variants.dedup();
+                Err(format!(
+                    "Ambiguous {context}: title '{}' matches multiple media variants: {}. Add the '{}' column and choose the intended variant.",
+                    title,
+                    variants.join(", "),
+                    variant_header
+                ))
+            }
+        }
+    }
+}
+
+fn display_variant(variant: &str) -> String {
+    if variant.is_empty() {
+        "'(blank)'".to_string()
+    } else {
+        format!("'{variant}'")
+    }
+}
+
+/// Classifies errors returned by CSV import/analyze/apply operations at the HTTP
+/// boundary. Parsing, header, identity-resolution, and row-validation failures
+/// are caused by the submitted payload; filesystem and database failures remain
+/// internal errors.
+pub fn is_client_input_error_message(message: &str) -> bool {
+    let lowercase = message.to_ascii_lowercase();
+    message.contains("CSV")
+        || lowercase.contains("media import request")
+        || message.contains("Media title cannot be blank")
+        || message.contains("Default activity type cannot be blank")
+        || message.contains("Activity must have either duration or characters")
+        || message.contains("Milestone must have either duration or characters")
+}
+
+fn validate_csv_headers(
+    headers: &csv::StringRecord,
+    allowed: &[&str],
+    context: &str,
+) -> Result<(), String> {
+    let mut seen = HashSet::new();
+    for header in headers {
+        if !seen.insert(header) {
+            return Err(format!("Duplicate '{header}' column in {context}"));
+        }
+        if !allowed.contains(&header) {
+            return Err(format!(
+                "Unsupported '{header}' column in {context}. Internal IDs, UIDs, UUIDs, and other opaque identity columns are not accepted."
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn has_header(headers: &csv::StringRecord, expected: &str) -> bool {
+    headers.iter().any(|header| header == expected)
+}
+
+fn require_csv_headers(
+    headers: &csv::StringRecord,
+    required: &[&str],
+    context: &str,
+) -> Result<(), String> {
+    for required_header in required {
+        if !has_header(headers, required_header) {
+            return Err(format!(
+                "Missing required '{required_header}' column in {context}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn require_activity_type_header(headers: &csv::StringRecord, context: &str) -> Result<(), String> {
+    if has_header(headers, "Default Activity Type") || has_header(headers, "Media Type") {
+        Ok(())
+    } else {
+        Err(format!(
+            "Missing required 'Default Activity Type' (or legacy 'Media Type') column in {context}"
+        ))
+    }
 }
 
 fn resolve_default_activity_type(
@@ -185,7 +397,27 @@ impl MediaCsvRow {
 #[derive(Debug, Serialize)]
 pub struct MediaConflict {
     pub incoming: MediaCsvRow,
-    pub existing: Option<Media>,
+    pub existing: Option<ExistingMediaCsvMatch>,
+}
+
+/// Human-readable context for the media-import confirmation UI. Keep this
+/// deliberately separate from `Media`: IDs and UIDs must not cross the CSV
+/// import boundary, even in the analysis response surrounding parsed rows.
+#[derive(Debug, Serialize)]
+pub struct ExistingMediaCsvMatch {
+    pub title: String,
+    pub variant: String,
+    pub status: String,
+}
+
+impl From<&Media> for ExistingMediaCsvMatch {
+    fn from(media: &Media) -> Self {
+        Self {
+            title: media.title.clone(),
+            variant: media.variant.clone(),
+            status: media.status.clone(),
+        }
+    }
 }
 
 pub fn import_csv(conn: &mut Connection, file_path: &str) -> Result<usize, String> {
@@ -203,80 +435,99 @@ pub fn import_csv_from_reader<R: Read>(conn: &mut Connection, reader: R) -> Resu
         .has_headers(true)
         .from_reader(reader);
 
+    let headers = rdr.headers().map_err(|e| e.to_string())?.clone();
+    validate_csv_headers(&headers, &CsvRow::HEADERS, "activity CSV")?;
+    require_csv_headers(
+        &headers,
+        &["Date", "Log Name", "Duration", "Language"],
+        "activity CSV",
+    )?;
+    require_activity_type_header(&headers, "activity CSV")?;
+    let has_variant = has_header(&headers, "Media Variant");
+    let catalog = MediaCatalog::load(conn)?;
     let mut records = Vec::new();
-    let mut variants_by_title: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut new_media_defaults: HashMap<CsvMediaKey, (String, usize)> = HashMap::new();
 
     for (index, result) in rdr.deserialize::<CsvRow>().enumerate() {
-        let record: CsvRow = match result {
-            Ok(r) => r,
-            Err(e) => {
-                println!("Error parsing row: {:?}", e);
-                continue;
-            }
-        };
+        let record: CsvRow =
+            result.map_err(|e| format!("Failed to parse activity CSV row {}: {e}", index + 2))?;
         let row_number = index + 2;
         let default_activity_type = resolve_default_activity_type(
             record.default_activity_type.as_deref(),
             record.legacy_media_type.as_deref(),
             &format!("activity CSV row {row_number}"),
         )?;
-        let variant = record.media_variant.trim();
-        if !variant.is_empty() {
-            variants_by_title
-                .entry(record.log_name.clone())
-                .or_default()
-                .insert(variant.to_string());
+        let formatted_date = normalize_activity_date(&record.date, row_number)?;
+        let requested_variant = has_variant.then_some(record.media_variant.as_str());
+        let existing = catalog.resolve(
+            &record.log_name,
+            requested_variant,
+            &format!("activity CSV row {row_number}"),
+            "Media Variant",
+        )?;
+        let key = CsvMediaKey::new(
+            &record.log_name,
+            existing
+                .map(|media| media.variant.as_str())
+                .or(requested_variant)
+                .unwrap_or(""),
+        )
+        .map_err(|e| format!("{e} on activity CSV row {row_number}"))?;
+
+        if existing.is_none() {
+            if let Some((first_default, first_row)) = new_media_defaults.get(&key) {
+                if first_default != &default_activity_type {
+                    return Err(format!(
+                        "Conflicting Default Activity Type values for new media with {}: '{}' on activity CSV row {} and '{}' on row {}. Per-log Activity Type values may differ, but a new media entry must have one default.",
+                        key.description(),
+                        first_default,
+                        first_row,
+                        default_activity_type,
+                        row_number
+                    ));
+                }
+            } else {
+                new_media_defaults.insert(key.clone(), (default_activity_type.clone(), row_number));
+            }
         }
-        records.push((row_number, record, default_activity_type));
+
+        records.push((
+            row_number,
+            record,
+            default_activity_type,
+            formatted_date,
+            key,
+            existing.and_then(|media| media.id),
+        ));
     }
 
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     let mut imported_count = 0;
+    let mut created_media_ids: HashMap<CsvMediaKey, i64> = HashMap::new();
 
-    for (row_number, record, default_activity_type) in records {
-        let formatted_date = normalize_activity_date(&record.date, row_number)?;
-
-        // Check if media exists
-        let media_id: i64 = match tx.query_row(
-            "SELECT id FROM shared.media WHERE title = ?1",
-            [&record.log_name],
-            |row| row.get(0),
-        ) {
-            Ok(id) => id,
-            Err(rusqlite::Error::QueryReturnedNoRows) => {
-                // Create new media
-                let new_media = Media {
-                    id: None,
-                    uid: None,
-                    title: record.log_name.clone(),
-                    variant: variants_by_title
-                        .get(&record.log_name)
-                        .filter(|variants| variants.len() == 1)
-                        .and_then(|variants| variants.iter().next())
-                        .cloned()
-                        .unwrap_or_default(),
-                    default_activity_type: default_activity_type.clone(),
-                    status: "Complete".into(), // Default to Complete for historical data
-                    language: record.language.clone(),
-                    description: "".to_string(),
-                    cover_image: "".to_string(),
-                    extra_data: "{}".to_string(),
-                    content_type: "Unknown".to_string(),
-                    tracking_status: "Untracked".to_string(),
-                };
-
-                match db::add_media_with_id(&tx, &new_media) {
-                    Ok(id) => id,
-                    Err(e) => {
-                        println!("Error creating media {}: {}", record.log_name, e);
-                        continue;
-                    }
-                }
-            }
-            Err(e) => {
-                println!("Database error finding media: {}", e);
-                continue;
-            }
+    for (_row_number, record, default_activity_type, formatted_date, key, existing_id) in records {
+        let media_id = if let Some(id) = existing_id {
+            id
+        } else if let Some(id) = created_media_ids.get(&key) {
+            *id
+        } else {
+            let new_media = Media {
+                id: None,
+                uid: None,
+                title: key.title.clone(),
+                variant: key.variant.clone(),
+                default_activity_type: default_activity_type.clone(),
+                status: "Complete".into(), // Default to Complete for historical data
+                language: record.language.clone(),
+                description: "".to_string(),
+                cover_image: "".to_string(),
+                extra_data: "{}".to_string(),
+                content_type: "Unknown".to_string(),
+                tracking_status: "Untracked".to_string(),
+            };
+            let id = db::add_media_with_id(&tx, &new_media).map_err(|e| e.to_string())?;
+            created_media_ids.insert(key, id);
+            id
         };
 
         let new_log = ActivityLog {
@@ -293,10 +544,8 @@ pub fn import_csv_from_reader<R: Read>(conn: &mut Connection, reader: R) -> Resu
             notes: record.notes.unwrap_or_default(),
         };
 
-        match db::add_log(&tx, &new_log) {
-            Ok(_) => imported_count += 1,
-            Err(e) => println!("Error adding log: {}", e),
-        }
+        db::add_log(&tx, &new_log).map_err(|e| e.to_string())?;
+        imported_count += 1;
     }
 
     tx.commit().map_err(|e| e.to_string())?;
@@ -361,6 +610,11 @@ pub fn export_media_csv(conn: &Connection, file_path: &str) -> Result<usize, Str
 
         wtr.serialize(row).map_err(|e| e.to_string())?;
         count += 1;
+    }
+
+    if count == 0 {
+        wtr.write_record(MediaCsvExportRow::HEADERS)
+            .map_err(|e| e.to_string())?;
     }
 
     wtr.flush().map_err(|e| e.to_string())?;
@@ -453,14 +707,32 @@ pub fn export_logs_csv(
 }
 
 pub fn export_milestones_csv(conn: &Connection, file_path: &str) -> Result<usize, String> {
-    let mut stmt = conn.prepare(
-        "SELECT ms.id, ms.media_title, ms.name, ms.duration, ms.characters, ms.date,
-                COALESCE(mu.variant, mt.variant, '')
+    let unresolved: Option<(String, String)> = conn
+        .query_row(
+            "SELECT ms.media_title, ms.name
+             FROM main.milestones ms
+             LEFT JOIN shared.media m ON m.uid = ms.media_uid
+             WHERE m.uid IS NULL
+             ORDER BY ms.id ASC
+             LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+    if let Some((title, name)) = unresolved {
+        return Err(format!(
+            "Cannot export milestone '{name}' for media '{title}' because it is not linked to an existing media entry"
+        ));
+    }
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT ms.id, m.title, ms.name, ms.duration, ms.characters, ms.date, m.variant
          FROM main.milestones ms
-         LEFT JOIN shared.media mu ON mu.uid = ms.media_uid
-         LEFT JOIN shared.media mt ON (ms.media_uid IS NULL OR ms.media_uid = '') AND mt.title = ms.media_title
-         ORDER BY ms.id ASC"
-    )
+         JOIN shared.media m ON m.uid = ms.media_uid
+         ORDER BY ms.id ASC",
+        )
         .map_err(|e| e.to_string())?;
 
     let milestone_iter = stmt
@@ -485,6 +757,11 @@ pub fn export_milestones_csv(conn: &Connection, file_path: &str) -> Result<usize
         count += 1;
     }
 
+    if count == 0 {
+        wtr.write_record(MilestoneCsvRow::HEADERS)
+            .map_err(|e| e.to_string())?;
+    }
+
     wtr.flush().map_err(|e| e.to_string())?;
     Ok(count)
 }
@@ -507,32 +784,71 @@ pub fn import_milestones_csv_from_reader<R: Read>(
         .has_headers(true)
         .from_reader(reader);
 
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
-    let mut imported_count = 0;
+    let headers = rdr.headers().map_err(|e| e.to_string())?.clone();
+    validate_csv_headers(&headers, &MilestoneCsvRow::HEADERS, "milestone CSV")?;
+    require_csv_headers(
+        &headers,
+        &["Media Title", "Name", "Duration", "Characters"],
+        "milestone CSV",
+    )?;
+    let has_variant = has_header(&headers, "Media Variant");
+    let catalog = MediaCatalog::load(conn)?;
+    let mut milestones = Vec::new();
 
-    for result in rdr.deserialize() {
-        let record: MilestoneCsvRow = match result {
-            Ok(r) => r,
-            Err(e) => {
-                println!("Error parsing milestone row: {:?}", e);
-                continue;
-            }
-        };
+    for (index, result) in rdr.deserialize::<MilestoneCsvRow>().enumerate() {
+        let row_number = index + 2;
+        let record =
+            result.map_err(|e| format!("Failed to parse milestone CSV row {row_number}: {e}"))?;
+        let requested_variant = has_variant.then_some(record.media_variant.as_str());
+        let requested_key =
+            CsvMediaKey::new(&record.media_title, requested_variant.unwrap_or_default())
+                .map_err(|e| format!("{e} on milestone CSV row {row_number}"))?;
+        if record.duration == 0 && record.characters == 0 {
+            return Err(format!(
+                "Milestone CSV row {row_number} must have a non-zero Duration or Characters value"
+            ));
+        }
+        let media = catalog
+            .resolve(
+                &record.media_title,
+                requested_variant,
+                &format!("milestone CSV row {row_number}"),
+                "Media Variant",
+            )?
+            .ok_or_else(|| {
+                format!(
+                    "Milestone CSV row {row_number} cannot be imported because no media entry matches {}. Import or create the media entry first.",
+                    requested_key.description()
+                )
+            })?;
+        let media_uid = media
+            .uid
+            .as_deref()
+            .filter(|uid| !uid.trim().is_empty())
+            .ok_or_else(|| {
+                format!(
+                    "Milestone CSV row {row_number} resolved to media '{}' without a valid internal identity",
+                    media.title
+                )
+            })?
+            .to_string();
 
-        let milestone = Milestone {
+        milestones.push(Milestone {
             id: None,
-            media_uid: None,
-            media_title: record.media_title,
+            media_uid: Some(media_uid),
+            media_title: media.title.clone(),
             name: record.name,
             duration: record.duration,
             characters: record.characters,
             date: record.date,
-        };
+        });
+    }
 
-        match db::add_milestone(&tx, &milestone) {
-            Ok(_) => imported_count += 1,
-            Err(e) => println!("Error adding milestone log: {}", e),
-        }
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let mut imported_count = 0;
+    for milestone in milestones {
+        db::add_milestone(&tx, &milestone).map_err(|e| e.to_string())?;
+        imported_count += 1;
     }
 
     tx.commit().map_err(|e| e.to_string())?;
@@ -558,40 +874,61 @@ pub fn analyze_media_csv_from_reader<R: Read>(
     let mut rdr = csv::ReaderBuilder::new()
         .has_headers(true)
         .from_reader(reader);
+    let headers = rdr.headers().map_err(|e| e.to_string())?.clone();
+    validate_csv_headers(&headers, &MediaCsvRow::HEADERS, "media CSV")?;
+    require_csv_headers(
+        &headers,
+        &[
+            "Title",
+            "Status",
+            "Language",
+            "Content Type",
+            "Extra Data",
+            "Cover Image (Base64)",
+        ],
+        "media CSV",
+    )?;
+    require_activity_type_header(&headers, "media CSV")?;
+    let has_variant = has_header(&headers, "Variant");
+    let catalog = MediaCatalog::load(conn)?;
     let mut conflicts = Vec::new();
+    let mut seen_identities: HashMap<CsvMediaKey, usize> = HashMap::new();
 
     for (index, result) in rdr.deserialize::<MediaCsvRow>().enumerate() {
-        let record: MediaCsvRow = match result {
-            Ok(r) => r,
-            Err(e) => {
-                println!("Error parsing media row: {:?}", e);
-                continue;
-            }
-        }
-        .normalize_default_activity_type(&format!("media CSV row {}", index + 2))?;
+        let row_number = index + 2;
+        let mut record: MediaCsvRow = result
+            .map_err(|e| format!("Failed to parse media CSV row {row_number}: {e}"))?
+            .normalize_default_activity_type(&format!("media CSV row {row_number}"))?;
+        let requested_variant = has_variant.then_some(record.variant.as_str());
+        let existing = catalog
+            .resolve(
+                &record.title,
+                requested_variant,
+                &format!("media CSV row {row_number}"),
+                "Variant",
+            )?
+            .cloned();
 
-        let existing: Option<Media> = conn.query_row(
-            "SELECT id, uid, title, default_activity_type, status, language, description, cover_image, extra_data, content_type, tracking_status, variant FROM shared.media WHERE title = ?1",
-            [&record.title],
-            |row| Ok(Media {
-                id: row.get(0)?,
-                uid: row.get(1)?,
-                title: row.get(2)?,
-                default_activity_type: row.get(3)?,
-                status: row.get(4)?,
-                language: row.get(5)?,
-                description: row.get(6).unwrap_or_default(),
-                cover_image: row.get(7).unwrap_or_default(),
-                extra_data: row.get(8).unwrap_or_else(|_| "{}".to_string()),
-                content_type: row.get(9).unwrap_or_else(|_| "Unknown".to_string()),
-                tracking_status: row.get(10).unwrap_or_else(|_| "Untracked".to_string()),
-                variant: row.get(11).unwrap_or_default(),
-            })
-        ).optional().map_err(|e| e.to_string())?;
+        // Analysis resolves a legacy title-only row to one exact human-readable
+        // title/variant pair before it crosses into the apply API. No internal ID
+        // is exposed or accepted at the CSV boundary.
+        record.variant = existing
+            .as_ref()
+            .map(|media| media.variant.clone())
+            .or_else(|| requested_variant.map(|variant| variant.trim().to_string()))
+            .unwrap_or_default();
+        let key = CsvMediaKey::new(&record.title, &record.variant)
+            .map_err(|e| format!("{e} on media CSV row {row_number}"))?;
+        if let Some(first_row) = seen_identities.insert(key.clone(), row_number) {
+            return Err(format!(
+                "Media CSV rows {first_row} and {row_number} both target {}. Each media identity may appear only once per import.",
+                key.description()
+            ));
+        }
 
         conflicts.push(MediaConflict {
             incoming: record,
-            existing,
+            existing: existing.as_ref().map(ExistingMediaCsvMatch::from),
         });
     }
 
@@ -603,92 +940,131 @@ pub fn apply_media_import(
     conn: &mut Connection,
     records: Vec<MediaCsvRow>,
 ) -> Result<usize, String> {
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
-    let mut imported = 0;
-
-    std::fs::create_dir_all(&covers_dir).map_err(|e| e.to_string())?;
-
-    for (index, req) in records.into_iter().enumerate() {
-        let req = req
-            .normalize_default_activity_type(&format!("media import request row {}", index + 1))?;
-        let default_activity_type = req.resolved_default_activity_type()?.to_string();
-        // Find existing to possibly delete old cover
-        let existing: Option<(i64, String)> = tx
-            .query_row(
-                "SELECT id, variant FROM shared.media WHERE title = ?1",
-                [&req.title],
-                |row| Ok((row.get(0)?, row.get(1).unwrap_or_default())),
-            )
-            .ok();
-
-        let mut final_cover_path = String::new();
-
-        if !req.cover_image_b64.is_empty() {
-            if let Ok(bytes) = BASE64.decode(&req.cover_image_b64) {
-                // Generate a generic name using the title hash or timestamp to avoid collisions
-                let stamp = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis();
-                let dest_file = format!("import_{}.png", stamp);
-                let dest = covers_dir.join(&dest_file);
-                if std::fs::write(&dest, bytes).is_ok() {
-                    final_cover_path = dest.to_string_lossy().to_string();
-                }
-            }
-        }
-
-        if let Some((id, existing_variant)) = existing {
-            // Delete old cover
-            let old_cover: String = tx
-                .query_row(
-                    "SELECT cover_image FROM shared.media WHERE id = ?1",
-                    [&id],
-                    |row| row.get(0),
-                )
-                .unwrap_or_default();
-
-            if !old_cover.is_empty() {
-                let _ = std::fs::remove_file(&old_cover);
-            }
-
-            let m = Media {
-                id: Some(id),
-                uid: None,
-                title: req.title,
-                variant: existing_variant,
-                default_activity_type: default_activity_type.clone(),
-                status: req.status,
-                language: req.language,
-                description: req.description,
-                cover_image: final_cover_path,
-                extra_data: req.extra_data,
-                content_type: req.content_type,
-                tracking_status: "Untracked".to_string(),
-            };
-            db::update_media(&tx, &m).map_err(|e| e.to_string())?;
-        } else {
-            let m = Media {
-                id: None,
-                uid: None,
-                title: req.title,
-                variant: req.variant.trim().to_string(),
-                default_activity_type,
-                status: req.status,
-                language: req.language,
-                description: req.description,
-                cover_image: final_cover_path,
-                extra_data: req.extra_data,
-                content_type: req.content_type,
-                tracking_status: "Untracked".to_string(),
-            };
-            db::add_media_with_id(&tx, &m).map_err(|e| e.to_string())?;
-        }
-        imported += 1;
+    struct PreparedMediaImport {
+        req: MediaCsvRow,
+        key: CsvMediaKey,
+        existing_id: Option<i64>,
+        old_cover: String,
+        cover_bytes: Option<Vec<u8>>,
     }
 
-    tx.commit().map_err(|e| e.to_string())?;
-    Ok(imported)
+    // The apply endpoint is intentionally exact-pair-only. Legacy title-only
+    // compatibility is resolved by analyze_media_csv, which returns a concrete
+    // human-readable variant without exposing an internal identifier.
+    let catalog = MediaCatalog::load(conn)?;
+    let mut prepared = Vec::with_capacity(records.len());
+    let mut seen_identities: HashMap<CsvMediaKey, usize> = HashMap::new();
+    for (index, req) in records.into_iter().enumerate() {
+        let request_row = index + 1;
+        let mut req = req
+            .normalize_default_activity_type(&format!("media import request row {request_row}"))?;
+        req.variant = req.variant.trim().to_string();
+        let key = CsvMediaKey::new(&req.title, &req.variant)
+            .map_err(|e| format!("{e} in media import request row {request_row}"))?;
+        if let Some(first_row) = seen_identities.insert(key.clone(), request_row) {
+            return Err(format!(
+                "Media import request rows {first_row} and {request_row} both target {}. Each media identity may appear only once per import.",
+                key.description()
+            ));
+        }
+        let existing = catalog.resolve(
+            &key.title,
+            Some(&key.variant),
+            &format!("media import request row {request_row}"),
+            "Variant",
+        )?;
+        let cover_bytes = if req.cover_image_b64.is_empty() {
+            None
+        } else {
+            Some(BASE64.decode(&req.cover_image_b64).map_err(|e| {
+                format!(
+                    "Invalid Cover Image (Base64) in media import request row {request_row}: {e}"
+                )
+            })?)
+        };
+        prepared.push(PreparedMediaImport {
+            req,
+            key,
+            existing_id: existing.and_then(|media| media.id),
+            old_cover: existing
+                .map(|media| media.cover_image.clone())
+                .unwrap_or_default(),
+            cover_bytes,
+        });
+    }
+
+    // All semantic checks, identity resolution, and Base64 decoding have
+    // completed before the first database or cover-file write.
+    std::fs::create_dir_all(&covers_dir).map_err(|e| e.to_string())?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let import_stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_nanos();
+    let mut created_cover_paths = Vec::new();
+    let mut old_cover_paths = Vec::new();
+
+    let apply_result = (|| -> Result<usize, String> {
+        for (index, prepared) in prepared.into_iter().enumerate() {
+            let default_activity_type = prepared.req.resolved_default_activity_type()?.to_string();
+            let final_cover_path = if let Some(bytes) = prepared.cover_bytes {
+                let dest = covers_dir.join(format!("import_{import_stamp}_{index}.png"));
+                std::fs::write(&dest, bytes).map_err(|e| e.to_string())?;
+                created_cover_paths.push(dest.clone());
+                dest.to_string_lossy().to_string()
+            } else {
+                String::new()
+            };
+
+            let media = Media {
+                id: prepared.existing_id,
+                uid: None,
+                title: prepared.key.title,
+                variant: prepared.key.variant,
+                default_activity_type,
+                status: prepared.req.status,
+                language: prepared.req.language,
+                description: prepared.req.description,
+                cover_image: final_cover_path,
+                extra_data: prepared.req.extra_data,
+                content_type: prepared.req.content_type,
+                tracking_status: "Untracked".to_string(),
+            };
+            if media.id.is_some() {
+                db::update_media(&tx, &media).map_err(|e| e.to_string())?;
+                if !prepared.old_cover.is_empty() && prepared.old_cover != media.cover_image {
+                    old_cover_paths.push(prepared.old_cover);
+                }
+            } else {
+                db::add_media_with_id(&tx, &media).map_err(|e| e.to_string())?;
+            }
+        }
+
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(seen_identities.len())
+    })();
+
+    if apply_result.is_err() {
+        for path in created_cover_paths {
+            let _ = std::fs::remove_file(path);
+        }
+        return apply_result;
+    }
+
+    for old_cover in old_cover_paths {
+        let still_referenced: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM shared.media WHERE cover_image = ?1",
+                [&old_cover],
+                |row| row.get(0),
+            )
+            .unwrap_or(1);
+        if still_referenced == 0 {
+            let _ = std::fs::remove_file(old_cover);
+        }
+    }
+
+    apply_result
 }
 
 #[cfg(test)]
@@ -748,6 +1124,99 @@ mod tests {
             extra_data: "{}".to_string(),
             cover_image_b64: String::new(),
             variant: variant.to_string(),
+        }
+    }
+
+    #[test]
+    fn media_apply_payload_rejects_identifier_fields_instead_of_ignoring_them() {
+        for identifier in [
+            "id",
+            "uid",
+            "uuid",
+            "ID",
+            "UID",
+            "UUID",
+            "media_id",
+            "mediaId",
+            "Media ID",
+            "Media UID",
+            "activity_id",
+            "activityId",
+            "milestone_id",
+            "milestoneId",
+            "sync_uid",
+            "profile_id",
+            "device_id",
+            "snapshot_id",
+        ] {
+            let mut payload = serde_json::to_value(sample_media_csv_row("No IDs", "Manga"))
+                .unwrap()
+                .as_object()
+                .unwrap()
+                .clone();
+            payload.insert(identifier.to_string(), serde_json::json!("opaque"));
+
+            let error = serde_json::from_value::<MediaCsvRow>(serde_json::Value::Object(payload))
+                .unwrap_err();
+            assert!(error.to_string().contains("unknown field"));
+        }
+    }
+
+    #[test]
+    fn all_csv_import_formats_reject_identifier_columns() {
+        for identifier in [
+            "id",
+            "uid",
+            "uuid",
+            "ID",
+            "UID",
+            "UUID",
+            "media_id",
+            "mediaId",
+            "Media ID",
+            "Media UID",
+            "activity_id",
+            "activityId",
+            "milestone_id",
+            "milestoneId",
+            "sync_uid",
+            "profile_id",
+            "device_id",
+            "snapshot_id",
+        ] {
+            let mut conn = setup_test_db();
+            let activity_csv = format!(
+                "Date,Log Name,Default Activity Type,Duration,Language,{identifier}\n\
+                 2026-07-21,No IDs,Reading,30,Japanese,opaque\n"
+            );
+            let activity_error =
+                import_csv_from_reader(&mut conn, activity_csv.as_bytes()).unwrap_err();
+            assert!(
+                activity_error.contains(&format!("Unsupported '{identifier}' column")),
+                "unexpected activity CSV error for {identifier}: {activity_error}"
+            );
+
+            let media_csv = format!(
+                "Title,Default Activity Type,Status,Language,Description,Content Type,Extra Data,Cover Image (Base64),{identifier}\n\
+                 No IDs,Reading,Active,Japanese,,Novel,{{}},,opaque\n"
+            );
+            let media_error =
+                analyze_media_csv_from_reader(&conn, media_csv.as_bytes()).unwrap_err();
+            assert!(
+                media_error.contains(&format!("Unsupported '{identifier}' column")),
+                "unexpected media CSV error for {identifier}: {media_error}"
+            );
+
+            let milestone_csv = format!(
+                "Media Title,Name,Duration,Characters,{identifier}\n\
+                 No IDs,Checkpoint,30,0,opaque\n"
+            );
+            let milestone_error =
+                import_milestones_csv_from_reader(&mut conn, milestone_csv.as_bytes()).unwrap_err();
+            assert!(
+                milestone_error.contains(&format!("Unsupported '{identifier}' column")),
+                "unexpected milestone CSV error for {identifier}: {milestone_error}"
+            );
         }
     }
 
@@ -834,7 +1303,7 @@ mod tests {
     }
 
     #[test]
-    fn test_activity_import_preserves_existing_variant_when_csv_variant_is_missing_or_different() {
+    fn test_activity_import_with_variant_header_uses_exact_pair_including_blank() {
         let mut conn = setup_test_db();
         let mut existing = sample_media("Horimiya");
         existing.variant = "Manga".to_string();
@@ -849,50 +1318,159 @@ mod tests {
         );
 
         let media = db::get_all_media(&conn).unwrap();
-        assert_eq!(media.len(), 1);
-        assert_eq!(media[0].id, Some(existing_id));
-        assert_eq!(media[0].variant, "Manga");
-        assert_eq!(db::get_logs_for_media(&conn, existing_id).unwrap().len(), 2);
+        assert_eq!(media.len(), 3);
+        assert_eq!(db::get_logs_for_media(&conn, existing_id).unwrap().len(), 0);
+        for variant in ["", "Anime"] {
+            let imported = media
+                .iter()
+                .find(|entry| entry.title == "Horimiya" && entry.variant == variant)
+                .unwrap();
+            assert_eq!(
+                db::get_logs_for_media(&conn, imported.id.unwrap())
+                    .unwrap()
+                    .len(),
+                1
+            );
+        }
     }
 
     #[test]
-    fn test_activity_import_uses_consensus_variant_only_for_new_media() {
+    fn test_activity_import_mixed_variants_create_distinct_media_without_inferring_from_activity_type(
+    ) {
         let mut conn = setup_test_db();
         let csv = "Date,Log Name,Media Type,Duration,Language,Characters,Activity Type,Notes,Media Variant\n\
                    2024-01-15,Horimiya,Reading,25,Japanese,0,Reading,,Manga\n\
                    2024-01-16,Horimiya,Reading,25,Japanese,0,Reading,,Manga\n\
                    2024-01-15,Mixed,Reading,25,Japanese,0,Reading,,Manga\n\
-                   2024-01-16,Mixed,Watching,25,Japanese,0,Watching,,Anime\n";
+                   2024-01-16,Mixed,Reading,25,Japanese,0,Watching,,Anime\n";
         assert_eq!(
             import_csv_from_reader(&mut conn, csv.as_bytes()).unwrap(),
             4
         );
 
         let media = db::get_all_media(&conn).unwrap();
+        assert_eq!(media.len(), 3);
+        let mixed = media
+            .iter()
+            .filter(|entry| entry.title == "Mixed")
+            .collect::<Vec<_>>();
+        assert_eq!(mixed.len(), 2);
+        assert!(mixed.iter().any(|entry| entry.variant == "Manga"));
+        assert!(mixed.iter().any(|entry| entry.variant == "Anime"));
+        let anime = mixed.iter().find(|entry| entry.variant == "Anime").unwrap();
+        let anime_logs = db::get_logs_for_media(&conn, anime.id.unwrap()).unwrap();
+        assert_eq!(anime_logs[0].activity_type, "Watching");
+        assert_eq!(anime.default_activity_type, "Reading");
+    }
+
+    #[test]
+    fn test_activity_import_legacy_title_only_uses_one_existing_variant() {
+        let mut conn = setup_test_db();
+        let mut existing = sample_media("Horimiya");
+        existing.variant = "Manga".to_string();
+        let existing_id = db::add_media_with_id(&conn, &existing).unwrap();
+        let csv =
+            "Date,Log Name,Default Activity Type,Duration,Language,Characters,Activity Type\n\
+                   2024-01-15,Horimiya,Reading,25,Japanese,0,Watching\n";
+
         assert_eq!(
-            media
-                .iter()
-                .find(|entry| entry.title == "Horimiya")
-                .unwrap()
-                .variant,
-            "Manga"
+            import_csv_from_reader(&mut conn, csv.as_bytes()).unwrap(),
+            1
         );
+        assert_eq!(db::get_all_media(&conn).unwrap().len(), 1);
+        let logs = db::get_logs_for_media(&conn, existing_id).unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].activity_type, "Watching");
+    }
+
+    #[test]
+    fn test_activity_import_legacy_ambiguity_aborts_before_any_writes() {
+        let mut conn = setup_test_db();
+        for variant in ["", "Manga"] {
+            let mut media = sample_media("Horimiya");
+            media.variant = variant.to_string();
+            db::add_media_with_id(&conn, &media).unwrap();
+        }
+        let csv =
+            "Date,Log Name,Default Activity Type,Duration,Language,Characters,Activity Type\n\
+                   2024-01-15,Would Be New,Reading,25,Japanese,0,Reading\n\
+                   2024-01-16,Horimiya,Reading,25,Japanese,0,Reading\n";
+
+        let error = import_csv_from_reader(&mut conn, csv.as_bytes()).unwrap_err();
+        assert!(error.contains("Ambiguous activity CSV row 3"));
+        assert!(error.contains("'(blank)'"));
+        assert!(error.contains("'Manga'"));
+        assert!(error.contains("Media Variant"));
+        assert_eq!(db::get_all_media(&conn).unwrap().len(), 2);
+        assert!(db::get_logs(&conn).unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_activity_import_rejects_conflicting_defaults_for_new_pair_but_allows_log_types_to_differ(
+    ) {
+        let mut conn = setup_test_db();
+        let conflicting = "Date,Log Name,Default Activity Type,Duration,Language,Characters,Activity Type,Media Variant\n\
+                           2024-01-15,One Entry,Reading,25,Japanese,0,Reading,Manga\n\
+                           2024-01-16,One Entry,Watching,25,Japanese,0,Watching,Manga\n";
+        let error = import_csv_from_reader(&mut conn, conflicting.as_bytes()).unwrap_err();
+        assert!(error.contains("Conflicting Default Activity Type values"));
+        assert!(db::get_all_media(&conn).unwrap().is_empty());
+        assert!(db::get_logs(&conn).unwrap().is_empty());
+
+        let valid = "Date,Log Name,Default Activity Type,Duration,Language,Characters,Activity Type,Media Variant\n\
+                     2024-01-15,One Entry,Reading,25,Japanese,0,Reading,Manga\n\
+                     2024-01-16,One Entry,Reading,25,Japanese,0,Watching,Manga\n";
         assert_eq!(
-            media
-                .iter()
-                .find(|entry| entry.title == "Mixed")
-                .unwrap()
-                .variant,
-            ""
+            import_csv_from_reader(&mut conn, valid.as_bytes()).unwrap(),
+            2
+        );
+        let media = db::get_all_media(&conn).unwrap();
+        assert_eq!(media.len(), 1);
+        assert_eq!(media[0].default_activity_type, "Reading");
+        let logs = db::get_logs_for_media(&conn, media[0].id.unwrap()).unwrap();
+        assert_eq!(
+            logs.iter()
+                .map(|log| log.activity_type.as_str())
+                .collect::<HashSet<_>>(),
+            HashSet::from(["Reading", "Watching"])
         );
     }
 
     #[test]
-    fn test_media_import_preserves_existing_variant_and_sets_it_only_for_new_titles() {
+    fn test_activity_import_does_not_change_existing_default_when_csv_rows_disagree() {
+        let mut conn = setup_test_db();
+        let mut media = sample_media("Existing");
+        media.variant = "Manga".to_string();
+        let media_id = db::add_media_with_id(&conn, &media).unwrap();
+        let csv = "Date,Log Name,Default Activity Type,Duration,Language,Characters,Activity Type,Media Variant\n\
+                   2024-01-15,Existing,Watching,25,Japanese,0,Watching,Manga\n\
+                   2024-01-16,Existing,Listening,25,Japanese,0,Listening,Manga\n";
+
+        assert_eq!(
+            import_csv_from_reader(&mut conn, csv.as_bytes()).unwrap(),
+            2
+        );
+        let imported = db::get_all_media(&conn).unwrap();
+        assert_eq!(imported[0].default_activity_type, "Reading");
+        assert_eq!(db::get_logs_for_media(&conn, media_id).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn test_activity_import_rejects_identity_columns() {
+        let mut conn = setup_test_db();
+        let csv = "Date,Log Name,Default Activity Type,Duration,Language,Media UID\n\
+                   2024-01-15,No IDs,Reading,25,Japanese,opaque-id\n";
+        let error = import_csv_from_reader(&mut conn, csv.as_bytes()).unwrap_err();
+        assert!(error.contains("Unsupported 'Media UID' column"));
+        assert!(db::get_all_media(&conn).unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_media_import_updates_exact_pair_and_creates_same_title_blank_variant() {
         let mut conn = setup_test_db();
         let mut existing = sample_media("Horimiya");
         existing.variant = "Manga".to_string();
-        db::add_media_with_id(&conn, &existing).unwrap();
+        let existing_id = db::add_media_with_id(&conn, &existing).unwrap();
 
         let covers_dir = std::env::temp_dir().join(format!(
             "variant_media_import_{}_{}",
@@ -903,6 +1481,7 @@ mod tests {
             covers_dir.clone(),
             &mut conn,
             vec![
+                sample_media_csv_row("Horimiya", "Manga"),
                 sample_media_csv_row("Horimiya", ""),
                 sample_media_csv_row("New Title", "Light Novel"),
             ],
@@ -910,14 +1489,18 @@ mod tests {
         .unwrap();
 
         let media = db::get_all_media(&conn).unwrap();
+        assert_eq!(media.len(), 3);
         assert_eq!(
             media
                 .iter()
-                .find(|entry| entry.title == "Horimiya")
+                .find(|entry| entry.title == "Horimiya" && entry.variant == "Manga")
                 .unwrap()
-                .variant,
-            "Manga"
+                .id,
+            Some(existing_id)
         );
+        assert!(media
+            .iter()
+            .any(|entry| entry.title == "Horimiya" && entry.variant.is_empty()));
         assert_eq!(
             media
                 .iter()
@@ -927,6 +1510,28 @@ mod tests {
             "Light Novel"
         );
         std::fs::remove_dir_all(covers_dir).ok();
+    }
+
+    #[test]
+    fn test_apply_media_import_semantic_error_preflights_before_database_or_cover_writes() {
+        let mut conn = setup_test_db();
+        let covers_dir = std::env::temp_dir().join(format!(
+            "media_import_preflight_{}_{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::SeqCst)
+        ));
+        let mut conflicting = sample_media_csv_row("Conflict", "Manga");
+        conflicting.legacy_media_type = Some("Watching".to_string());
+
+        let error = apply_media_import(
+            covers_dir.clone(),
+            &mut conn,
+            vec![sample_media_csv_row("Would Be New", "Anime"), conflicting],
+        )
+        .unwrap_err();
+        assert!(error.contains("Conflicting Default Activity Type"));
+        assert!(db::get_all_media(&conn).unwrap().is_empty());
+        assert!(!covers_dir.exists());
     }
 
     #[test]
@@ -975,10 +1580,14 @@ mod tests {
         let content = std::fs::read_to_string(&path).unwrap();
         let mut reader = csv::Reader::from_reader(content.as_bytes());
         let headers = reader.headers().unwrap();
-        assert!(headers
-            .iter()
-            .any(|header| header == "Default Activity Type"));
-        assert!(!headers.iter().any(|header| header == "Media Type"));
+        assert_eq!(
+            headers.iter().collect::<Vec<_>>(),
+            MediaCsvExportRow::HEADERS
+        );
+        assert!(headers.iter().all(|header| !matches!(
+            header.to_ascii_lowercase().as_str(),
+            "id" | "uid" | "uuid" | "media id" | "media uid"
+        )));
         assert!(content.contains("Export Test"));
         assert!(content.contains("Novel"));
         assert!(content.contains("Light Novel"));
@@ -1025,6 +1634,11 @@ mod tests {
         assert_eq!(conflicts[0].incoming.title, "Existing");
         assert!(conflicts[0].existing.is_some());
         assert_eq!(conflicts[0].existing.as_ref().unwrap().title, "Existing");
+        assert_eq!(conflicts[0].incoming.variant, "Manga");
+        let analysis_json = serde_json::to_value(&conflicts[0]).unwrap();
+        let existing_json = analysis_json["existing"].as_object().unwrap();
+        assert!(!existing_json.contains_key("id"));
+        assert!(!existing_json.contains_key("uid"));
 
         // Second one should be new
         assert_eq!(conflicts[1].incoming.title, "New Media");
@@ -1051,6 +1665,69 @@ mod tests {
                            Conflict,Watching,Reading,Active,Japanese,,Anime,{},\n";
         let error = analyze_media_csv_from_reader(&conn, conflicting.as_bytes()).unwrap_err();
         assert!(error.contains("Conflicting Default Activity Type"));
+    }
+
+    #[test]
+    fn test_analyze_media_csv_accepts_optional_description_header_being_absent() {
+        let conn = setup_test_db();
+        let without_description = "Title,Default Activity Type,Status,Language,Content Type,Extra Data,Cover Image (Base64)\n\
+                                   No Description,Reading,Active,Japanese,Novel,{},\n";
+
+        let analyzed =
+            analyze_media_csv_from_reader(&conn, without_description.as_bytes()).unwrap();
+        assert_eq!(analyzed.len(), 1);
+        assert_eq!(analyzed[0].incoming.description, "");
+    }
+
+    #[test]
+    fn test_analyze_media_csv_variant_header_matches_exact_pair_and_blank() {
+        let conn = setup_test_db();
+        for variant in ["", "Manga"] {
+            let mut media = sample_media("Horimiya");
+            media.variant = variant.to_string();
+            db::add_media_with_id(&conn, &media).unwrap();
+        }
+        let csv = "Title,Default Activity Type,Status,Language,Description,Content Type,Extra Data,Cover Image (Base64),Variant\n\
+                   Horimiya,Reading,Active,Japanese,,Manga,{},,\n\
+                   Horimiya,Reading,Active,Japanese,,Manga,{},,Manga\n\
+                   Horimiya,Reading,Active,Japanese,,Anime,{},,Anime\n";
+
+        let conflicts = analyze_media_csv_from_reader(&conn, csv.as_bytes()).unwrap();
+        assert_eq!(conflicts.len(), 3);
+        assert_eq!(conflicts[0].incoming.variant, "");
+        assert_eq!(conflicts[0].existing.as_ref().unwrap().variant, "");
+        assert_eq!(conflicts[1].incoming.variant, "Manga");
+        assert_eq!(conflicts[1].existing.as_ref().unwrap().variant, "Manga");
+        assert_eq!(conflicts[2].incoming.variant, "Anime");
+        assert!(conflicts[2].existing.is_none());
+    }
+
+    #[test]
+    fn test_analyze_media_csv_legacy_ambiguous_title_is_rejected() {
+        let conn = setup_test_db();
+        for variant in ["Anime", "Manga"] {
+            let mut media = sample_media("Horimiya");
+            media.variant = variant.to_string();
+            db::add_media_with_id(&conn, &media).unwrap();
+        }
+        let csv = "Title,Default Activity Type,Status,Language,Description,Content Type,Extra Data,Cover Image (Base64)\n\
+                   Horimiya,Reading,Active,Japanese,,Manga,{},\n";
+
+        let error = analyze_media_csv_from_reader(&conn, csv.as_bytes()).unwrap_err();
+        assert!(error.contains("Ambiguous media CSV row 2"));
+        assert!(error.contains("Variant"));
+    }
+
+    #[test]
+    fn test_analyze_media_csv_rejects_duplicate_exact_identity() {
+        let conn = setup_test_db();
+        let csv = "Title,Default Activity Type,Status,Language,Description,Content Type,Extra Data,Cover Image (Base64),Variant\n\
+                   Duplicate,Reading,Active,Japanese,,Manga,{},,Manga\n\
+                   Duplicate,Reading,Archived,Japanese,,Manga,{},,Manga\n";
+
+        let error = analyze_media_csv_from_reader(&conn, csv.as_bytes()).unwrap_err();
+        assert!(error.contains("rows 2 and 3"));
+        assert!(error.contains("Each media identity may appear only once"));
     }
 
     #[test]
@@ -1115,6 +1792,10 @@ mod tests {
         assert_eq!(count, 1); // Only 2024-02-01 should match
 
         let mut reader = csv::Reader::from_path(&path).unwrap();
+        assert_eq!(
+            reader.headers().unwrap().iter().collect::<Vec<_>>(),
+            ActivityCsvRow::HEADERS
+        );
         let rows = reader
             .deserialize::<ActivityCsvRow>()
             .collect::<Result<Vec<_>, _>>()
@@ -1145,6 +1826,55 @@ mod tests {
     }
 
     #[test]
+    fn test_activity_csv_round_trip_keeps_same_title_variants_and_per_log_types() {
+        let source = setup_test_db();
+        for (variant, activity_type) in [("Anime", "Watching"), ("Manga", "Reading")] {
+            let mut media = sample_media("Horimiya");
+            media.variant = variant.to_string();
+            let media_id = db::add_media_with_id(&source, &media).unwrap();
+            db::add_log(
+                &source,
+                &ActivityLog {
+                    id: None,
+                    media_id,
+                    duration_minutes: 25,
+                    characters: 0,
+                    date: "2024-01-01".to_string(),
+                    activity_type: activity_type.to_string(),
+                    notes: variant.to_string(),
+                },
+            )
+            .unwrap();
+        }
+        let path = std::env::temp_dir().join(format!(
+            "activity_pair_roundtrip_{}_{}.csv",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::SeqCst)
+        ));
+        export_logs_csv(&source, path.to_str().unwrap(), None, None).unwrap();
+
+        let mut destination = setup_test_db();
+        assert_eq!(
+            import_csv(&mut destination, path.to_str().unwrap()).unwrap(),
+            2
+        );
+        let media = db::get_all_media(&destination).unwrap();
+        assert_eq!(media.len(), 2);
+        for (variant, activity_type) in [("Anime", "Watching"), ("Manga", "Reading")] {
+            let imported = media
+                .iter()
+                .find(|entry| entry.title == "Horimiya" && entry.variant == variant)
+                .unwrap();
+            let logs = db::get_logs_for_media(&destination, imported.id.unwrap()).unwrap();
+            assert_eq!(logs.len(), 1);
+            assert_eq!(logs[0].activity_type, activity_type);
+            assert_eq!(logs[0].notes, variant);
+        }
+
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
     fn test_export_logs_csv_empty_database_still_writes_headers() {
         let conn = setup_test_db();
         let dir = std::env::temp_dir();
@@ -1167,7 +1897,147 @@ mod tests {
     }
 
     #[test]
-    fn test_import_csv_malformed_skips() {
+    fn test_all_empty_exports_write_exact_human_readable_header_allowlists() {
+        let conn = setup_test_db();
+        let base = std::env::temp_dir().join(format!(
+            "empty_csv_exports_{}_{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::SeqCst)
+        ));
+        std::fs::create_dir_all(&base).unwrap();
+        let media_path = base.join("media.csv");
+        let activity_path = base.join("activity.csv");
+        let milestone_path = base.join("milestones.csv");
+
+        export_media_csv(&conn, media_path.to_str().unwrap()).unwrap();
+        export_logs_csv(&conn, activity_path.to_str().unwrap(), None, None).unwrap();
+        export_milestones_csv(&conn, milestone_path.to_str().unwrap()).unwrap();
+
+        for (path, expected) in [
+            (media_path, MediaCsvExportRow::HEADERS.as_slice()),
+            (activity_path, ActivityCsvRow::HEADERS.as_slice()),
+            (milestone_path, MilestoneCsvRow::HEADERS.as_slice()),
+        ] {
+            let mut reader = csv::Reader::from_path(path).unwrap();
+            let headers = reader.headers().unwrap();
+            assert_eq!(headers.iter().collect::<Vec<_>>(), expected);
+            for header in headers {
+                let normalized = header.to_ascii_lowercase();
+                assert!(!matches!(
+                    normalized.as_str(),
+                    "id" | "uid" | "uuid" | "media id" | "media uid"
+                ));
+            }
+        }
+
+        std::fs::remove_dir_all(base).ok();
+    }
+
+    #[test]
+    fn csv_exports_and_media_analysis_never_serialize_internal_ids() {
+        const MEDIA_ID: i64 = 7_654_321_098_765_401;
+        const ACTIVITY_ID: i64 = 7_654_321_098_765_402;
+        const MILESTONE_ID: i64 = 7_654_321_098_765_403;
+        const MEDIA_UID: &str = "11111111-2222-4333-8444-555555555555";
+
+        let conn = setup_test_db();
+        conn.execute(
+            "INSERT INTO shared.media (
+                 id, uid, title, default_activity_type, status, language, description,
+                 cover_image, extra_data, content_type, tracking_status, variant
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            rusqlite::params![
+                MEDIA_ID,
+                MEDIA_UID,
+                "Boundary Sentinel",
+                "Reading",
+                "Active",
+                "Japanese",
+                "Human-readable description",
+                "",
+                r#"{"Developer":"Sentinel Studio"}"#,
+                "Novel",
+                "Ongoing",
+                "Collector Edition",
+            ],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO main.activity_logs (
+                 id, media_id, duration_minutes, characters, date, activity_type, notes
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![
+                ACTIVITY_ID,
+                MEDIA_ID,
+                31_i64,
+                271_i64,
+                "2026-07-21",
+                "Reading",
+                "Human-readable note",
+            ],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO main.milestones (
+                 id, media_uid, media_title, name, duration, characters, date
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![
+                MILESTONE_ID,
+                MEDIA_UID,
+                "Boundary Sentinel",
+                "Human-readable checkpoint",
+                31_i64,
+                271_i64,
+                "2026-07-21",
+            ],
+        )
+        .unwrap();
+
+        let base = tempfile::tempdir().unwrap();
+        let media_path = base.path().join("media.csv");
+        let activity_path = base.path().join("activities.csv");
+        let milestone_path = base.path().join("milestones.csv");
+        export_media_csv(&conn, media_path.to_str().unwrap()).unwrap();
+        export_logs_csv(&conn, activity_path.to_str().unwrap(), None, None).unwrap();
+        export_milestones_csv(&conn, milestone_path.to_str().unwrap()).unwrap();
+
+        let analysis = analyze_media_csv(&conn, media_path.to_str().unwrap()).unwrap();
+        assert_eq!(analysis.len(), 1);
+        assert!(analysis[0].existing.is_some());
+
+        let boundary_payloads = [
+            ("media CSV", std::fs::read_to_string(&media_path).unwrap()),
+            (
+                "activity CSV",
+                std::fs::read_to_string(&activity_path).unwrap(),
+            ),
+            (
+                "milestone CSV",
+                std::fs::read_to_string(&milestone_path).unwrap(),
+            ),
+            (
+                "media analysis response",
+                serde_json::to_string(&analysis).unwrap(),
+            ),
+        ];
+        let forbidden_identifiers = [
+            MEDIA_ID.to_string(),
+            ACTIVITY_ID.to_string(),
+            MILESTONE_ID.to_string(),
+            MEDIA_UID.to_string(),
+        ];
+        for (boundary, payload) in boundary_payloads {
+            for identifier in &forbidden_identifiers {
+                assert!(
+                    !payload.contains(identifier),
+                    "{boundary} leaked internal identifier {identifier}: {payload}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_import_csv_malformed_row_aborts_before_writes() {
         let mut conn = setup_test_db();
         // Row 2 is missing a column (Duration)
         let csv_path = write_csv(
@@ -1176,12 +2046,10 @@ mod tests {
              2024-01-16,Bad Row,Reading,MissingCol\n",
         );
 
-        let count = import_csv(&mut conn, &csv_path).unwrap();
-        assert_eq!(count, 1); // Only the good row should be imported
-
-        let logs = db::get_logs(&conn).unwrap();
-        assert_eq!(logs.len(), 1);
-        assert_eq!(logs[0].title, "Good Row");
+        let error = import_csv(&mut conn, &csv_path).unwrap_err();
+        assert!(error.contains("Failed to parse activity CSV row 3"));
+        assert!(db::get_logs(&conn).unwrap().is_empty());
+        assert!(db::get_all_media(&conn).unwrap().is_empty());
 
         std::fs::remove_file(csv_path).ok();
     }
@@ -1241,16 +2109,61 @@ mod tests {
     }
 
     #[test]
+    fn test_media_csv_round_trip_preserves_same_title_variants_without_ids() {
+        let source = setup_test_db();
+        for variant in ["Anime", "Manga"] {
+            let mut media = sample_media("Horimiya");
+            media.variant = variant.to_string();
+            media.content_type = variant.to_string();
+            db::add_media_with_id(&source, &media).unwrap();
+        }
+        let temp_dir = std::env::temp_dir().join(format!(
+            "media_pair_roundtrip_{}_{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::SeqCst)
+        ));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let csv_path = temp_dir.join("media.csv");
+        export_media_csv(&source, csv_path.to_str().unwrap()).unwrap();
+
+        let mut destination = setup_test_db();
+        let conflicts = analyze_media_csv(&destination, csv_path.to_str().unwrap()).unwrap();
+        assert_eq!(conflicts.len(), 2);
+        assert!(conflicts.iter().all(|conflict| conflict.existing.is_none()));
+        apply_media_import(
+            temp_dir.join("covers"),
+            &mut destination,
+            conflicts
+                .into_iter()
+                .map(|conflict| conflict.incoming)
+                .collect(),
+        )
+        .unwrap();
+
+        let imported = db::get_all_media(&destination).unwrap();
+        assert_eq!(imported.len(), 2);
+        assert!(imported
+            .iter()
+            .any(|media| media.title == "Horimiya" && media.variant == "Anime"));
+        assert!(imported
+            .iter()
+            .any(|media| media.title == "Horimiya" && media.variant == "Manga"));
+
+        std::fs::remove_dir_all(temp_dir).ok();
+    }
+
+    #[test]
     fn test_export_milestones_csv() {
         let conn = setup_test_db();
         let mut media = sample_media("Export M");
         media.variant = "Manga".to_string();
         db::add_media_with_id(&conn, &media).unwrap();
+        let media_uid = db::get_all_media(&conn).unwrap()[0].uid.clone().unwrap();
         db::add_milestone(
             &conn,
             &Milestone {
                 id: None,
-                media_uid: None,
+                media_uid: Some(media_uid),
                 media_title: "Export M".into(),
                 name: "M1".into(),
                 duration: 120,
@@ -1268,6 +2181,11 @@ mod tests {
         assert_eq!(count, 1);
 
         let content = std::fs::read_to_string(&path).unwrap();
+        let mut reader = csv::Reader::from_reader(content.as_bytes());
+        assert_eq!(
+            reader.headers().unwrap().iter().collect::<Vec<_>>(),
+            MilestoneCsvRow::HEADERS
+        );
         assert!(content.contains("Export M"));
         assert!(content.contains("M1"));
         assert!(content.contains("120"));
@@ -1280,8 +2198,38 @@ mod tests {
     }
 
     #[test]
+    fn test_milestone_export_error_does_not_expose_internal_identifiers() {
+        let conn = setup_test_db();
+        conn.execute(
+            "INSERT INTO main.milestones (
+                 id, media_uid, media_title, name, duration, characters, date
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![
+                424242_i64,
+                "uid-private-value",
+                "Missing Media",
+                "Broken checkpoint",
+                30_i64,
+                0_i64,
+                "2026-07-21"
+            ],
+        )
+        .unwrap();
+        let path =
+            std::env::temp_dir().join(format!("milestone_export_error_{}.csv", std::process::id()));
+
+        let error = export_milestones_csv(&conn, path.to_str().unwrap()).unwrap_err();
+        assert!(error.contains("Broken checkpoint"));
+        assert!(error.contains("Missing Media"));
+        assert!(!error.contains("424242"));
+        assert!(!error.contains("uid-private-value"));
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
     fn test_import_milestones_csv() {
         let mut conn = setup_test_db();
+        db::add_media_with_id(&conn, &sample_media("Imported Media")).unwrap();
         let csv_path = write_csv(
             "Media Title,Name,Duration,Characters,Date\n\
              Imported Media,First Quest,60,100,2024-01-01\n\
@@ -1291,8 +2239,12 @@ mod tests {
         let count = import_milestones_csv(&mut conn, &csv_path).unwrap();
         assert_eq!(count, 2);
 
-        let milestones = db::get_milestones_for_media(&conn, "Imported Media").unwrap();
+        let media_uid = db::get_all_media(&conn).unwrap()[0].uid.clone().unwrap();
+        let milestones = db::get_milestones_for_media_uid(&conn, &media_uid).unwrap();
         assert_eq!(milestones.len(), 2);
+        assert!(milestones
+            .iter()
+            .all(|milestone| milestone.media_uid.as_deref() == Some(media_uid.as_str())));
         assert_eq!(milestones[0].name, "First Quest");
         assert_eq!(milestones[0].characters, 100);
         assert_eq!(milestones[1].name, "Second Quest");
@@ -1300,6 +2252,133 @@ mod tests {
         assert_eq!(milestones[1].date, None);
 
         std::fs::remove_file(csv_path).ok();
+    }
+
+    #[test]
+    fn test_import_milestones_variant_header_resolves_exact_pair_and_blank() {
+        let mut conn = setup_test_db();
+        for variant in ["", "Manga"] {
+            let mut media = sample_media("Horimiya");
+            media.variant = variant.to_string();
+            db::add_media_with_id(&conn, &media).unwrap();
+        }
+        let media = db::get_all_media(&conn).unwrap();
+        let blank_uid = media
+            .iter()
+            .find(|entry| entry.variant.is_empty())
+            .unwrap()
+            .uid
+            .clone()
+            .unwrap();
+        let manga_uid = media
+            .iter()
+            .find(|entry| entry.variant == "Manga")
+            .unwrap()
+            .uid
+            .clone()
+            .unwrap();
+        let csv = "Media Title,Name,Duration,Characters,Date,Media Variant\n\
+                   Horimiya,Blank milestone,60,0,2024-01-01,\n\
+                   Horimiya,Manga milestone,0,100,2024-01-02,Manga\n";
+
+        assert_eq!(
+            import_milestones_csv_from_reader(&mut conn, csv.as_bytes()).unwrap(),
+            2
+        );
+        assert_eq!(
+            db::get_milestones_for_media_uid(&conn, &blank_uid).unwrap()[0].name,
+            "Blank milestone"
+        );
+        assert_eq!(
+            db::get_milestones_for_media_uid(&conn, &manga_uid).unwrap()[0].name,
+            "Manga milestone"
+        );
+    }
+
+    #[test]
+    fn test_milestone_csv_round_trip_relinks_same_title_variants_without_exporting_ids() {
+        let source = setup_test_db();
+        for (variant, name) in [("Anime", "Episode 12"), ("Manga", "Volume 4")] {
+            let mut media = sample_media("Horimiya");
+            media.variant = variant.to_string();
+            db::add_media_with_id(&source, &media).unwrap();
+            let media_uid = db::get_all_media(&source)
+                .unwrap()
+                .into_iter()
+                .find(|entry| entry.title == "Horimiya" && entry.variant == variant)
+                .unwrap()
+                .uid
+                .unwrap();
+            db::add_milestone(
+                &source,
+                &Milestone {
+                    id: None,
+                    media_uid: Some(media_uid),
+                    media_title: "ignored display value".to_string(),
+                    name: name.to_string(),
+                    duration: 60,
+                    characters: 0,
+                    date: Some("2024-01-01".to_string()),
+                },
+            )
+            .unwrap();
+        }
+        let path = std::env::temp_dir().join(format!(
+            "milestone_pair_roundtrip_{}_{}.csv",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::SeqCst)
+        ));
+        export_milestones_csv(&source, path.to_str().unwrap()).unwrap();
+
+        let mut destination = setup_test_db();
+        for variant in ["Anime", "Manga"] {
+            let mut media = sample_media("Horimiya");
+            media.variant = variant.to_string();
+            db::add_media_with_id(&destination, &media).unwrap();
+        }
+        assert_eq!(
+            import_milestones_csv(&mut destination, path.to_str().unwrap()).unwrap(),
+            2
+        );
+        let imported_media = db::get_all_media(&destination).unwrap();
+        for (variant, name) in [("Anime", "Episode 12"), ("Manga", "Volume 4")] {
+            let uid = imported_media
+                .iter()
+                .find(|entry| entry.title == "Horimiya" && entry.variant == variant)
+                .unwrap()
+                .uid
+                .as_deref()
+                .unwrap();
+            let milestones = db::get_milestones_for_media_uid(&destination, uid).unwrap();
+            assert_eq!(milestones.len(), 1);
+            assert_eq!(milestones[0].name, name);
+        }
+
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn test_import_milestones_legacy_ambiguity_and_missing_media_are_atomic_errors() {
+        let mut conn = setup_test_db();
+        for variant in ["Anime", "Manga"] {
+            let mut media = sample_media("Horimiya");
+            media.variant = variant.to_string();
+            db::add_media_with_id(&conn, &media).unwrap();
+        }
+        let ambiguous = "Media Title,Name,Duration,Characters,Date\n\
+                         Horimiya,Ambiguous,60,0,2024-01-01\n";
+        let error = import_milestones_csv_from_reader(&mut conn, ambiguous.as_bytes()).unwrap_err();
+        assert!(error.contains("Ambiguous milestone CSV row 2"));
+        assert!(db::get_all_milestones(&conn).unwrap().is_empty());
+
+        let missing_after_valid = "Media Title,Name,Duration,Characters,Date,Media Variant\n\
+                                   Horimiya,Would import,60,0,2024-01-01,Manga\n\
+                                   Missing,Must abort,60,0,2024-01-02,Manga\n";
+        let error = import_milestones_csv_from_reader(&mut conn, missing_after_valid.as_bytes())
+            .unwrap_err();
+        assert!(error.contains("no media entry matches"));
+        assert!(error.contains("row 3"));
+        assert!(db::get_all_milestones(&conn).unwrap().is_empty());
     }
 
     #[test]

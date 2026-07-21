@@ -738,6 +738,33 @@ export function setRemoteExtraDataEntry(
     });
 }
 
+export function addRemoteMediaWithIndependentUid(
+    profileId: string,
+    entry: SeedRemoteMedia,
+): string {
+    const mediaUid = `uid_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    commitRemoteProfileMutation(profileId, (snapshot) => {
+        snapshot.library[mediaUid] = {
+            uid: mediaUid,
+            title: entry.title,
+            variant: entry.variant ?? '',
+            media_type: entry.mediaType ?? 'Reading',
+            status: entry.status ?? 'Active',
+            language: entry.language ?? 'Japanese',
+            description: entry.description ?? '',
+            content_type: entry.contentType ?? 'Novel',
+            tracking_status: entry.trackingStatus ?? 'Ongoing',
+            extra_data: JSON.stringify(entry.extraData ?? {}),
+            cover_blob_sha256: null,
+            updated_at: snapshot.created_at,
+            updated_by_device_id: REMOTE_DEVICE_ID,
+            activities: [],
+            milestones: [],
+        };
+    });
+    return mediaUid;
+}
+
 export function getRemoteMedia(profileId: string, title: string): SnapshotMedia {
     const { snapshot } = readRemoteProfile(profileId);
     return structuredClone(findMediaEntry(snapshot, title));

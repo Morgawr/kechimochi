@@ -140,7 +140,7 @@ describe('QuickLog', () => {
         (container.querySelector('.quick-log-item') as HTMLElement).click();
 
         await vi.waitFor(() => {
-            expect(showLogActivityModal).toHaveBeenCalledWith('Blue Box');
+            expect(showLogActivityModal).toHaveBeenCalledWith(7);
             expect(onLogged).toHaveBeenCalled();
         });
     });
@@ -306,7 +306,7 @@ describe('QuickLog', () => {
 
         (container.querySelector('.quick-log-item') as HTMLElement).click();
 
-        await vi.waitFor(() => expect(showLogActivityModal).toHaveBeenCalledWith('Test Media'));
+        await vi.waitFor(() => expect(showLogActivityModal).toHaveBeenCalledWith(1));
         expect(onLogged).not.toHaveBeenCalled();
         expect(dispatchSpy).not.toHaveBeenCalledWith(expect.objectContaining({ type: EVENTS.LOCAL_DATA_CHANGED }));
     });

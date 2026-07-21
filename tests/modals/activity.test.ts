@@ -80,7 +80,7 @@ describe('modals/activity.ts', () => {
             const mockMedia = [{ id: 10, title: 'Item 1', status: 'Active', tracking_status: 'Ongoing' }];
             vi.mocked(api.getAllMedia).mockResolvedValue(mockMedia as unknown as Media[]);
             
-            const promise = showLogActivityModal();
+            const promise = showLogActivityModal(10);
             
             // Wait for DOM
             await vi.waitFor(() => document.querySelector('.modal-overlay'));
@@ -89,7 +89,7 @@ describe('modals/activity.ts', () => {
             const titleInput = document.querySelector('#activity-media') as HTMLInputElement;
             const durationInput = document.querySelector('#activity-duration') as HTMLInputElement;
             
-            titleInput.value = 'Item 1';
+            expect(titleInput.value).toBe('Item 1');
             durationInput.value = '45';
             
             form.dispatchEvent(new Event('submit'));
@@ -106,7 +106,7 @@ describe('modals/activity.ts', () => {
             });
         });
 
-        it('should default activity type from the selected existing media title', async () => {
+        it('should default activity type from the selected existing media ID', async () => {
             const mockMedia = [
                 {
                     id: 10,
@@ -123,17 +123,14 @@ describe('modals/activity.ts', () => {
             ];
             vi.mocked(api.getAllMedia).mockResolvedValue(mockMedia);
 
-            const promise = showLogActivityModal();
+            const promise = showLogActivityModal(10);
             await vi.waitFor(() => document.querySelector('#add-activity-form'));
 
             const titleInput = document.querySelector('#activity-media') as HTMLInputElement;
             const typeSelect = document.querySelector('#activity-type') as HTMLSelectElement;
             const durationInput = document.querySelector('#activity-duration') as HTMLInputElement;
 
-            expect(typeSelect.value).toBe('Reading');
-
-            titleInput.value = 'Anime Item';
-            titleInput.dispatchEvent(new Event('change', { bubbles: true }));
+            expect(titleInput.value).toBe('Anime Item');
             durationInput.value = '45';
 
             expect(typeSelect.value).toBe('Watching');
@@ -146,6 +143,82 @@ describe('modals/activity.ts', () => {
                 media_id: 10,
                 activity_type: 'Watching'
             }));
+        });
+
+        it('routes duplicate titles by the explicitly selected media ID and keeps activity type independent', async () => {
+            vi.mocked(api.getAllMedia).mockResolvedValue([
+                {
+                    id: 10,
+                    title: 'Horimiya',
+                    variant: 'Anime',
+                    default_activity_type: 'Watching',
+                    status: 'Active',
+                    tracking_status: 'Ongoing',
+                },
+                {
+                    id: 11,
+                    title: 'Horimiya',
+                    variant: 'Manga',
+                    default_activity_type: 'Reading',
+                    status: 'Active',
+                    tracking_status: 'Ongoing',
+                },
+            ] as Media[]);
+
+            const promise = showLogActivityModal();
+            await vi.waitFor(() => document.querySelector('#activity-media'));
+
+            const titleInput = document.querySelector<HTMLInputElement>('#activity-media')!;
+            titleInput.value = 'Horimiya';
+            titleInput.dispatchEvent(new Event('input'));
+
+            const suggestions = document.querySelectorAll<HTMLButtonElement>('.activity-media-suggestion');
+            expect(suggestions).toHaveLength(2);
+            expect(Array.from(suggestions).map(button => button.textContent)).toEqual([
+                expect.stringContaining('Anime'),
+                expect.stringContaining('Manga'),
+            ]);
+
+            document.querySelector<HTMLButtonElement>('[data-media-id="11"]')!.click();
+            expect(document.querySelector('#activity-media-variant')?.textContent).toBe('Manga');
+            expect((document.querySelector('#activity-type') as HTMLSelectElement).value).toBe('Reading');
+
+            // Per-log activity type is independent from media identity/defaults.
+            (document.querySelector('#activity-type') as HTMLSelectElement).value = 'Listening';
+            (document.querySelector('#activity-duration') as HTMLInputElement).value = '25';
+            document.querySelector('#add-activity-form')!.dispatchEvent(new Event('submit'));
+
+            await expect(promise).resolves.toBe(true);
+            expect(api.addLog).toHaveBeenCalledWith(expect.objectContaining({
+                media_id: 11,
+                activity_type: 'Listening',
+            }));
+        });
+
+        it('does not guess an existing media from a typed title without an explicit selection', async () => {
+            vi.mocked(api.getAllMedia).mockResolvedValue([
+                { id: 10, title: 'Horimiya', variant: 'Anime', status: 'Active', tracking_status: 'Ongoing' },
+                { id: 11, title: 'Horimiya', variant: 'Manga', status: 'Active', tracking_status: 'Ongoing' },
+            ] as Media[]);
+            const { customAlert } = await import('../../src/modal_base');
+
+            const promise = showLogActivityModal();
+            await vi.waitFor(() => document.querySelector('#activity-media'));
+            const titleInput = document.querySelector<HTMLInputElement>('#activity-media')!;
+            titleInput.value = 'Horimiya';
+            titleInput.dispatchEvent(new Event('input'));
+            (document.querySelector('#activity-duration') as HTMLInputElement).value = '20';
+            document.querySelector('#add-activity-form')!.dispatchEvent(new Event('submit'));
+
+            await vi.waitFor(() => expect(customAlert).toHaveBeenCalledWith(
+                'Select Media',
+                expect.stringContaining('multiple variants'),
+            ));
+            expect(api.addLog).not.toHaveBeenCalled();
+            expect(api.addMedia).not.toHaveBeenCalled();
+
+            (document.querySelector('#activity-cancel') as HTMLElement).click();
+            await expect(promise).resolves.toBe(false);
         });
 
         it('should show the selected media variant as disambiguating context', async () => {
@@ -163,7 +236,7 @@ describe('modals/activity.ts', () => {
                 tracking_status: 'Ongoing'
             }]);
 
-            const promise = showLogActivityModal('Horimiya');
+            const promise = showLogActivityModal(10);
             await vi.waitFor(() => document.querySelector('#activity-media-variant'));
 
             const variant = document.querySelector('#activity-media-variant') as HTMLElement;
@@ -235,8 +308,14 @@ describe('modals/activity.ts', () => {
         });
 
         it('should handle prefilled title and focus duration', async () => {
-            vi.mocked(api.getAllMedia).mockResolvedValue([]);
-            showLogActivityModal('Prefilled');
+            vi.mocked(api.getAllMedia).mockResolvedValue([{
+                id: 12,
+                title: 'Prefilled',
+                default_activity_type: 'Reading',
+                status: 'Active',
+                tracking_status: 'Ongoing',
+            }] as Media[]);
+            showLogActivityModal(12);
             await vi.waitFor(() => document.querySelector('#activity-duration'));
             
             expect((document.querySelector('#activity-media') as HTMLInputElement).value).toBe('Prefilled');
@@ -247,10 +326,9 @@ describe('modals/activity.ts', () => {
             const mockMedia = [{ id: 10, title: 'Archived Item', status: 'Archived', tracking_status: 'Ongoing' }];
             vi.mocked(api.getAllMedia).mockResolvedValue(mockMedia as unknown as Media[]);
             
-            const promise = showLogActivityModal();
+            const promise = showLogActivityModal(10);
             await vi.waitFor(() => document.querySelector('#add-activity-form'));
             
-            (document.querySelector('#activity-media') as HTMLInputElement).value = 'Archived Item';
             (document.querySelector('#activity-duration') as HTMLInputElement).value = '10';
             document.querySelector('#add-activity-form')!.dispatchEvent(new Event('submit'));
             
@@ -273,11 +351,9 @@ describe('modals/activity.ts', () => {
             vi.mocked(api.getAllMedia).mockResolvedValue([{ id: 1, title: 'Item 1', status: 'Active', tracking_status: 'Ongoing' }] as unknown as Media[]);
             const { customAlert } = await import('../../src/modal_base');
             
-            showLogActivityModal();
+            showLogActivityModal(1);
             await vi.waitFor(() => document.querySelector('#add-activity-form'));
             
-            const titleInput = document.querySelector('#activity-media') as HTMLInputElement;
-            titleInput.value = 'Item 1';
             // Duration and characters are 0 by default
             
             document.querySelector('#add-activity-form')!.dispatchEvent(new Event('submit'));
@@ -397,10 +473,9 @@ describe('modals/activity.ts', () => {
         it('should use the mobile date input when the mobile date field is visible', async () => {
             vi.mocked(api.getAllMedia).mockResolvedValue([{ id: 10, title: 'Mobile Item', status: 'Active', tracking_status: 'Ongoing' }] as unknown as Media[]);
 
-            const promise = showLogActivityModal();
+            const promise = showLogActivityModal(10);
             await vi.waitFor(() => document.querySelector('#add-activity-form'));
 
-            (document.querySelector('#activity-media') as HTMLInputElement).value = 'Mobile Item';
             (document.querySelector('#activity-duration') as HTMLInputElement).value = '30';
             (document.querySelector('#mobile-date-field') as HTMLElement).style.display = 'flex';
             (document.querySelector('#mobile-date-input') as HTMLInputElement).value = '2026-06-10';
@@ -412,12 +487,7 @@ describe('modals/activity.ts', () => {
             }));
         });
 
-        it('should show and interact with Android media suggestions', async () => {
-            document.body.dataset.runtime = 'mobile-app';
-            Object.defineProperty(globalThis.navigator, 'userAgent', {
-                value: 'Mozilla/5.0 Android',
-                configurable: true,
-            });
+        it('should show and interact with deterministic media suggestions across runtimes', async () => {
             const titleKeydownListeners: EventListener[] = [];
             const originalAddEventListener = HTMLInputElement.prototype.addEventListener;
             vi.spyOn(HTMLInputElement.prototype, 'addEventListener').mockImplementation(function (
@@ -481,6 +551,11 @@ describe('modals/activity.ts', () => {
             titleKeydownListeners[titleKeydownListeners.length - 1]?.({ key: 'Escape' } as KeyboardEvent);
             expect(suggestions.style.display).toBe('none');
 
+            titleInput.dispatchEvent(new Event('input'));
+            const blueLockSuggestion = suggestions.querySelector<HTMLButtonElement>('[data-media-id="2"]')!;
+            blueLockSuggestion.click();
+            expect(typeSelect.value).toBe('Watching');
+
             titleInput.dispatchEvent(new Event('blur'));
             expect(vi.getTimerCount()).toBeGreaterThan(0);
             vi.advanceTimersByTime(120);
@@ -514,6 +589,7 @@ describe('modals/activity.ts', () => {
             titleInput.focus();
             titleInput.value = 'Timer Item';
             titleInput.dispatchEvent(new Event('input'));
+            document.querySelector<HTMLButtonElement>('[data-media-id="1"]')!.click();
             titleInput.dispatchEvent(new Event('blur'));
             expect(vi.getTimerCount()).toBeGreaterThan(0);
 
@@ -556,10 +632,9 @@ describe('modals/activity.ts', () => {
             const { customAlert } = await import('../../src/modal_base');
             const errorSpy = vi.spyOn(Logger, 'error').mockImplementation(() => {});
 
-            showLogActivityModal();
+            showLogActivityModal(10);
             await vi.waitFor(() => document.querySelector('#add-activity-form'));
 
-            (document.querySelector('#activity-media') as HTMLInputElement).value = 'Broken Item';
             (document.querySelector('#activity-duration') as HTMLInputElement).value = '20';
             document.querySelector('#add-activity-form')!.dispatchEvent(new Event('submit'));
 

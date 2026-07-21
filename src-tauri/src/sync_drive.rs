@@ -312,6 +312,33 @@ pub fn validate_remote_snapshot_compatibility(snapshot: &SyncSnapshot) -> Result
         ));
     }
 
+    let mut identities: BTreeMap<(&str, &str), &str> = BTreeMap::new();
+    for (uid, media) in &snapshot.library {
+        if uid != &media.uid {
+            return Err(format!(
+                "Remote snapshot library key '{uid}' does not match media uid '{}'",
+                media.uid
+            ));
+        }
+        if media.title.trim().is_empty() {
+            return Err(format!("Remote snapshot media '{uid}' has a blank title"));
+        }
+        let normalized_variant = media.variant.trim();
+        if identities
+            .insert((media.title.as_str(), normalized_variant), uid.as_str())
+            .is_some()
+        {
+            let label = if normalized_variant.is_empty() {
+                media.title.clone()
+            } else {
+                format!("{} — {}", media.title, normalized_variant)
+            };
+            return Err(format!(
+                "Remote snapshot contains more than one media entry using '{label}'"
+            ));
+        }
+    }
+
     Ok(())
 }
 
@@ -1153,6 +1180,62 @@ mod tests {
             profile_picture: None,
             tombstones: vec![],
         }
+    }
+
+    #[test]
+    fn remote_snapshot_validation_rejects_trim_equivalent_media_identities() {
+        let mut snapshot = sample_snapshot("profile-1", "snapshot-1");
+        let first = snapshot.library.get_mut("uid-1").unwrap();
+        first.title = "Horimiya".to_string();
+        first.variant = "Manga".to_string();
+        let mut second = first.clone();
+        second.uid = "uid-2".to_string();
+        second.variant = "\u{2003}Manga\t".to_string();
+        snapshot.library.insert(second.uid.clone(), second);
+
+        let error = validate_remote_snapshot_compatibility(&snapshot).unwrap_err();
+
+        assert!(error.contains("more than one media entry"));
+        assert!(error.contains("Horimiya — Manga"));
+    }
+
+    #[test]
+    fn remote_snapshot_validation_rejects_a_library_key_uid_mismatch_and_blank_title() {
+        let mut snapshot = sample_snapshot("profile-1", "snapshot-1");
+        snapshot.library.get_mut("uid-1").unwrap().uid = "uid-other".to_string();
+        let mismatch = validate_remote_snapshot_compatibility(&snapshot).unwrap_err();
+        assert!(mismatch.contains("library key 'uid-1'"));
+        assert!(mismatch.contains("media uid 'uid-other'"));
+
+        snapshot.library.get_mut("uid-1").unwrap().uid = "uid-1".to_string();
+        snapshot.library.get_mut("uid-1").unwrap().title = " \t\u{2003}".to_string();
+        let blank_title = validate_remote_snapshot_compatibility(&snapshot).unwrap_err();
+        assert!(blank_title.contains("blank title"));
+    }
+
+    #[test]
+    fn remote_compatibility_rejects_a_newer_database_schema_before_syncing() {
+        let mut manifest = RemoteSyncManifest::new(
+            "profile-1",
+            "Morg",
+            "snapshot-1",
+            "sha256",
+            1,
+            "2026-04-02T10:00:00Z",
+            "dev_remote",
+        );
+        manifest.db_schema_version = db::CURRENT_SCHEMA_VERSION + 1;
+
+        let manifest_error = validate_remote_manifest_compatibility(&manifest).unwrap_err();
+        assert!(manifest_error.contains("requires unsupported DB schema version"));
+        assert!(manifest_error.contains(&db::CURRENT_SCHEMA_VERSION.to_string()));
+
+        let mut snapshot = sample_snapshot("profile-1", "snapshot-1");
+        snapshot.db_schema_version = db::CURRENT_SCHEMA_VERSION + 1;
+
+        let snapshot_error = validate_remote_snapshot_compatibility(&snapshot).unwrap_err();
+        assert!(snapshot_error.contains("requires unsupported DB schema version"));
+        assert!(snapshot_error.contains(&db::CURRENT_SCHEMA_VERSION.to_string()));
     }
 
     fn file_to_json(file: StoredTestFile) -> serde_json::Value {

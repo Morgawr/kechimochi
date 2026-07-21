@@ -205,7 +205,7 @@ export class QuickLog extends Component<QuickLogState> {
     }
 
     private async openQuickLog(media: Media): Promise<void> {
-        const success = await showLogActivityModal(media.title);
+        const success = await showLogActivityModal(media.id);
         if (!success) {
             return;
         }

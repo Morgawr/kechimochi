@@ -615,6 +615,14 @@ pub fn disconnect_google_drive_data(
     app_dir: &Path,
     token_store: &dyn SecureTokenStore,
 ) -> Result<(), String> {
+    let _sync_guard = sync_state::acquire_sync_lock(app_dir)?;
+    disconnect_google_drive_data_locked(app_dir, token_store)
+}
+
+pub(crate) fn disconnect_google_drive_data_locked(
+    app_dir: &Path,
+    token_store: &dyn SecureTokenStore,
+) -> Result<(), String> {
     token_store.clear_tokens()?;
     sync_state::clear_sync_runtime_files(app_dir)?;
     Ok(())
@@ -1278,5 +1286,45 @@ mod tests {
         assert!(!sync_state::sync_config_path(temp_dir.path()).exists());
         assert!(!sync_state::base_snapshot_path(temp_dir.path()).exists());
         assert!(!sync_state::pending_conflicts_path(temp_dir.path()).exists());
+    }
+
+    #[test]
+    fn disconnect_refuses_active_sync_without_clearing_tokens_or_runtime() {
+        let temp_dir = TempDir::new().unwrap();
+        sync_state::save_sync_config(
+            temp_dir.path(),
+            &sync_state::SyncConfig {
+                sync_profile_id: "prof_1".to_string(),
+                profile_name: "Morg".to_string(),
+                google_account_email: Some("user@example.com".to_string()),
+                remote_manifest_name: "manifest.json".to_string(),
+                last_confirmed_snapshot_id: Some("snap_1".to_string()),
+                last_sync_at: Some("2026-04-02T00:00:00Z".to_string()),
+                last_sync_status: sync_state::SyncLifecycleStatus::Clean,
+                device_name: "Laptop".to_string(),
+            },
+        )
+        .unwrap();
+        fs::write(sync_state::base_snapshot_path(temp_dir.path()), "snapshot").unwrap();
+
+        let token_store = MemoryTokenStore::default();
+        token_store
+            .save_tokens(&StoredGoogleTokens {
+                refresh_token: "refresh-1".to_string(),
+                access_token: None,
+                access_token_expires_at: None,
+                scope: None,
+                token_type: None,
+                google_account_email: None,
+            })
+            .unwrap();
+        let _sync_guard = sync_state::acquire_sync_lock(temp_dir.path()).unwrap();
+
+        let error = disconnect_google_drive_data(temp_dir.path(), &token_store).unwrap_err();
+
+        assert_eq!(error, sync_state::SYNC_OPERATION_IN_PROGRESS_ERROR);
+        assert!(token_store.load_tokens().unwrap().is_some());
+        assert!(sync_state::sync_config_path(temp_dir.path()).exists());
+        assert!(sync_state::base_snapshot_path(temp_dir.path()).exists());
     }
 }

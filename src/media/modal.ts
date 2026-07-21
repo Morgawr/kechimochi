@@ -224,8 +224,8 @@ export async function showMediaCsvConflictModal(conflicts: MediaConflict[]): Pro
         const rowsHtml = overlapping.map((conflict, idx) => `
             <div style="padding: 0.5rem; background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: var(--radius-sm); margin-bottom: 0.5rem; display: flex; align-items: center; justify-content: space-between;">
                 <div style="flex: 1;">
-                    <div style="font-weight: 500; font-size: 0.9rem;">${conflict.incoming["Title"]}</div>
-                    <div style="font-size: 0.75rem; color: var(--text-secondary);">Currently: ${conflict.existing!.status} | Incoming: ${conflict.incoming["Status"]}</div>
+                    <div style="font-weight: 500; font-size: 0.9rem;">${escapeHTML(conflict.incoming["Title"])}</div>
+                    <div style="font-size: 0.75rem; color: var(--text-secondary);">Currently: ${escapeHTML(conflict.existing!.status)} | Incoming: ${escapeHTML(conflict.incoming["Status"])}</div>
                     ${(conflict.existing!.variant || conflict.incoming["Variant"])
                         ? `<div style="font-size: 0.75rem; color: var(--text-secondary);">Variant: ${escapeHTML(conflict.existing!.variant || 'none')} (existing) | ${escapeHTML(conflict.incoming["Variant"] || 'none')} (incoming)</div>`
                         : ''}
@@ -243,7 +243,7 @@ export async function showMediaCsvConflictModal(conflicts: MediaConflict[]): Pro
         overlay.innerHTML = `
             <div class="modal-content" style="max-width: 600px; width: 90vw; max-height: 90vh; display: flex; flex-direction: column;">
                 <h3>Import Conflicts</h3>
-                <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1rem;">Some entries already exist. How do you want to handle them? Replacing an entry preserves its existing variant.</p>
+                <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1rem;">Some exact title and variant pairs already exist. How do you want to handle them? Replacing updates that matched entry without exposing its private internal identity.</p>
                 <div style="display: flex; flex-direction: column; overflow-y: auto; flex: 1; padding-right: 0.5rem;">
                     ${rowsHtml}
                 </div>

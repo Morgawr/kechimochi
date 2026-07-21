@@ -184,6 +184,7 @@ pub struct TimelineEvent {
     pub date: String,
     pub media_id: i64,
     pub media_title: String,
+    pub media_variant: String,
     pub cover_image: String,
     pub activity_type: String,
     pub content_type: String,
@@ -204,6 +205,7 @@ pub struct Milestone {
     pub id: Option<i64>,
     #[serde(default)]
     pub media_uid: Option<String>,
+    #[serde(default)]
     pub media_title: String,
     pub name: String,
     pub duration: i64,
@@ -296,5 +298,21 @@ mod tests {
         let summary_json = serde_json::to_value(HttpActivitySummary::from(summary)).unwrap();
         assert_eq!(summary_json["activity_type"], "Watching");
         assert!(summary_json.get("media_type").is_none());
+    }
+
+    #[test]
+    fn milestone_request_can_use_media_uid_without_client_supplied_display_title() {
+        let milestone: Milestone = serde_json::from_value(serde_json::json!({
+            "id": null,
+            "media_uid": "media-uid",
+            "name": "Checkpoint",
+            "duration": 30,
+            "characters": 0,
+            "date": null
+        }))
+        .unwrap();
+
+        assert_eq!(milestone.media_uid.as_deref(), Some("media-uid"));
+        assert_eq!(milestone.media_title, "");
     }
 }

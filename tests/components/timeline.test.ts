@@ -61,6 +61,7 @@ describe('TimelineView', () => {
         date: '2024-03-15',
         mediaId: 1,
         mediaTitle: 'Novel A',
+        mediaVariant: '',
         coverImage: '',
         activityType: 'Reading',
         contentType: 'Novel',
@@ -221,6 +222,31 @@ describe('TimelineView', () => {
         expect(container.querySelector('.timeline-hero-card')).toBeNull();
     });
 
+    it('disambiguates same-title variants while leaving unique titles concise', async () => {
+        vi.mocked(api.getTimelineEvents).mockResolvedValue([
+            createEvent({ mediaId: 10, mediaTitle: 'Horimiya', mediaVariant: 'Manga' }),
+            createEvent({ mediaId: 11, mediaTitle: 'Horimiya', mediaVariant: 'Anime' }),
+            createEvent({ mediaId: 12, mediaTitle: 'Unique title', mediaVariant: 'Light Novel' }),
+        ]);
+
+        const view = new TimelineView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelectorAll('.timeline-media-link')).toHaveLength(3));
+        const labels = Array.from(container.querySelectorAll('.timeline-media-link')).map(link => link.textContent?.trim());
+        expect(labels).toEqual([
+            'Horimiya — Manga',
+            'Horimiya — Anime',
+            'Unique title',
+        ]);
+
+        const searchInput = container.querySelector('#timeline-search') as HTMLInputElement;
+        searchInput.value = 'anime';
+        searchInput.dispatchEvent(new Event('input'));
+        await vi.waitFor(() => expect(container.querySelectorAll('.timeline-entry')).toHaveLength(1));
+        expect(normalizedText()).toContain('Horimiya — Anime');
+    });
+
     it('renders loading, empty, and failed-fetch states', async () => {
         const view = createInternalView();
         view.state = {
@@ -281,6 +307,7 @@ describe('TimelineView', () => {
                 date: '2024-04-01',
                 mediaId: 9,
                 mediaTitle: 'One Day Book',
+                mediaVariant: '',
                 coverImage: '',
                 activityType: 'Reading',
                 contentType: 'Novel',

@@ -57,7 +57,7 @@ describe('MediaLog', () => {
         (container.querySelector('.edit-log-btn') as HTMLButtonElement).click();
 
         await vi.waitFor(() => {
-            expect(showLogActivityModal).toHaveBeenCalledWith('Test Media', logs[0]);
+            expect(showLogActivityModal).toHaveBeenCalledWith(logs[0].media_id, logs[0]);
             expect(dispatchSpy).toHaveBeenCalled();
         });
     });

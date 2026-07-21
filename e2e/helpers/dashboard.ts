@@ -4,6 +4,31 @@
 import { clickTopmostOverlayChild, confirmAction, performActivityEdit, safeClick, getTopmostVisibleOverlay, waitForOverlayToDisappear, waitForNoActiveOverlays, selectActivityDate } from './common.js';
 import { setText, setSelect } from './form-controls.js';
 
+async function selectExistingActivityMedia(title: string, variant?: string): Promise<void> {
+    const outcome = await browser.execute((expectedTitle, expectedVariant) => {
+        const exactTitleMatches = Array.from(document.querySelectorAll<HTMLButtonElement>('.activity-media-suggestion'))
+            .filter(button => button.dataset.mediaTitle === expectedTitle);
+        const matches = expectedVariant === null
+            ? exactTitleMatches
+            : exactTitleMatches.filter(button => (button.dataset.mediaVariant || '') === expectedVariant);
+        if (matches.length === 1) {
+            matches[0].click();
+            return 'selected';
+        }
+        if (matches.length > 1 || (expectedVariant === null && exactTitleMatches.length > 1)) {
+            return 'ambiguous';
+        }
+        return 'new';
+    }, title, variant ?? null);
+
+    if (outcome === 'ambiguous') {
+        throw new Error(`Activity media "${title}" is ambiguous; provide its variant.`);
+    }
+    if (variant !== undefined && outcome !== 'selected') {
+        throw new Error(`Activity media "${title}" with variant "${variant}" was not selectable.`);
+    }
+}
+
 /**
  * High-level helper to log an activity from the dashboard
  */
@@ -14,6 +39,7 @@ export async function logActivity(
     date?: string,
     activityType?: string,
     notes?: string,
+    mediaVariant?: string,
 ): Promise<void> {
     await waitForNoActiveOverlays();
     const addActivityBtn = $('#btn-add-activity');
@@ -25,6 +51,7 @@ export async function logActivity(
     // Dynamically fetch and wait for elements to avoid StaleElementReferenceException from UI updates
     await browser.waitUntil(async () => await overlay.$('#activity-media').isDisplayed().catch(() => false), { timeout: 10000 });
     await setText('#activity-media', title);
+    await selectExistingActivityMedia(title, mediaVariant);
 
     await browser.waitUntil(async () => await overlay.$('#activity-duration').isDisplayed().catch(() => false), { timeout: 5000 });
     await setText('#activity-duration', duration);
@@ -203,11 +230,12 @@ export async function getActivityChartRangeMetadata(): Promise<{
 /**
  * Logs activity using the global (+) button in the navbar.
  */
-export async function logActivityGlobal(mediaTitle: string, minutes: number, characters: number = 0, activityType?: string): Promise<void> {
+export async function logActivityGlobal(mediaTitle: string, minutes: number, characters: number = 0, activityType?: string, mediaVariant?: string): Promise<void> {
     const logBtn = $('#btn-add-activity');
     await safeClick(logBtn);
     
     await setText('#activity-media', mediaTitle);
+    await selectExistingActivityMedia(mediaTitle, mediaVariant);
     await setText('#activity-duration', String(minutes));
     if (await $('#activity-characters').isExisting()) {
         await setText('#activity-characters', String(characters));

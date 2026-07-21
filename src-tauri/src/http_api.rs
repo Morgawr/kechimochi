@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use axum::{
     body::Body,
-    extract::{Multipart, Path, Query, State},
+    extract::{rejection::JsonRejection, Multipart, Path, Query, State},
     http::{header, HeaderValue, Method, Request, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -78,6 +78,7 @@ struct HostPolicyState {
 enum AppError {
     Internal(String),
     BadRequest(String),
+    Conflict(String),
 }
 
 impl IntoResponse for AppError {
@@ -85,7 +86,50 @@ impl IntoResponse for AppError {
         match self {
             Self::Internal(message) => (StatusCode::INTERNAL_SERVER_ERROR, message).into_response(),
             Self::BadRequest(message) => (StatusCode::BAD_REQUEST, message).into_response(),
+            Self::Conflict(message) => (StatusCode::CONFLICT, message).into_response(),
         }
+    }
+}
+
+fn map_media_write_error(error: rusqlite::Error) -> AppError {
+    let message = error.to_string();
+    if message.contains("Another media entry already uses title") {
+        AppError::Conflict(message)
+    } else if message.contains("cannot be blank")
+        || message.contains("requires an id")
+        || message.contains("cannot be changed")
+    {
+        AppError::BadRequest(message)
+    } else {
+        AppError::Internal(message)
+    }
+}
+
+fn map_milestone_write_error(error: rusqlite::Error) -> AppError {
+    let message = error.to_string();
+    if message.contains("Milestone must")
+        || message.contains("Milestone update requires")
+        || message.contains("Media with uid")
+    {
+        AppError::BadRequest(message)
+    } else {
+        AppError::Internal(message)
+    }
+}
+
+fn map_csv_import_error(error: String) -> AppError {
+    if csv_import::is_client_input_error_message(&error) {
+        AppError::BadRequest(error)
+    } else {
+        AppError::Internal(error)
+    }
+}
+
+fn map_sync_operation_error(error: String) -> AppError {
+    if error == sync_state::SYNC_OPERATION_IN_PROGRESS_ERROR {
+        AppError::Conflict(error)
+    } else {
+        AppError::Internal(error)
     }
 }
 
@@ -127,7 +171,7 @@ pub fn build_api_router(state: SharedApiState, config: HttpApiRouterConfig) -> R
         .route("/api/timeline", get(get_timeline_events_handler))
         .route("/api/milestones", post(add_milestone_handler))
         .route(
-            "/api/milestones/media/:title",
+            "/api/media/:media_uid/milestones",
             get(get_milestones_for_media_handler).delete(clear_milestones_for_media_handler),
         )
         .route(
@@ -304,7 +348,7 @@ async fn add_media(
 ) -> HandlerResult<Json<i64>> {
     let media = models::Media::try_from(media).map_err(AppError::BadRequest)?;
     let conn = s.conn.lock().ae()?;
-    let id = db::add_media_with_id(&conn, &media).ae()?;
+    let id = db::add_media_with_id(&conn, &media).map_err(map_media_write_error)?;
     mark_dirty(&s)?;
     Ok(Json(id))
 }
@@ -317,7 +361,7 @@ async fn update_media(
     let mut media = models::Media::try_from(media).map_err(AppError::BadRequest)?;
     media.id = Some(id);
     let conn = s.conn.lock().ae()?;
-    db::update_media(&conn, &media).ae()?;
+    db::update_media(&conn, &media).map_err(map_media_write_error)?;
     mark_dirty(&s)?;
     Ok(Json(()))
 }
@@ -405,10 +449,12 @@ async fn get_timeline_events_handler(
 
 async fn get_milestones_for_media_handler(
     State(s): State<SharedApiState>,
-    Path(title): Path<String>,
+    Path(media_uid): Path<String>,
 ) -> HandlerResult<Json<Vec<models::Milestone>>> {
     let conn = s.conn.lock().ae()?;
-    db::get_milestones_for_media(&conn, &title).ae().map(Json)
+    db::get_milestones_for_media_uid(&conn, &media_uid)
+        .ae()
+        .map(Json)
 }
 
 async fn add_milestone_handler(
@@ -416,7 +462,7 @@ async fn add_milestone_handler(
     Json(milestone): Json<models::Milestone>,
 ) -> HandlerResult<Json<i64>> {
     let conn = s.conn.lock().ae()?;
-    let id = db::add_milestone(&conn, &milestone).ae()?;
+    let id = db::add_milestone(&conn, &milestone).map_err(map_milestone_write_error)?;
     mark_dirty(&s)?;
     Ok(Json(id))
 }
@@ -428,7 +474,7 @@ async fn update_milestone_handler(
 ) -> HandlerResult<Json<()>> {
     milestone.id = Some(id);
     let conn = s.conn.lock().ae()?;
-    db::update_milestone(&conn, &milestone).ae()?;
+    db::update_milestone(&conn, &milestone).map_err(map_milestone_write_error)?;
     mark_dirty(&s)?;
     Ok(Json(()))
 }
@@ -445,10 +491,10 @@ async fn delete_milestone_handler(
 
 async fn clear_milestones_for_media_handler(
     State(s): State<SharedApiState>,
-    Path(title): Path<String>,
+    Path(media_uid): Path<String>,
 ) -> HandlerResult<Json<()>> {
     let conn = s.conn.lock().ae()?;
-    db::delete_milestones_for_media(&conn, &title).ae()?;
+    db::delete_milestones_for_media_uid(&conn, &media_uid).ae()?;
     mark_dirty(&s)?;
     Ok(Json(()))
 }
@@ -541,10 +587,12 @@ async fn clear_activities(State(s): State<SharedApiState>) -> HandlerResult<Json
 }
 
 async fn wipe_everything_handler(State(s): State<SharedApiState>) -> HandlerResult<Json<()>> {
-    *s.conn.lock().ae()? = rusqlite::Connection::open_in_memory().ae()?;
+    let _sync_guard =
+        sync_state::acquire_sync_lock(&s.data_dir).map_err(map_sync_operation_error)?;
+    let mut conn = s.conn.lock().ae()?;
+    *conn = rusqlite::Connection::open_in_memory().ae()?;
     sync_state::clear_sync_runtime_files(&s.data_dir).ae()?;
     db::wipe_everything(s.data_dir.clone()).ae()?;
-    mark_dirty(&s)?;
     Ok(Json(()))
 }
 
@@ -560,7 +608,7 @@ async fn import_activities(
         .to_owned();
     let count = {
         let mut conn = s.conn.lock().ae()?;
-        csv_import::import_csv(&mut conn, &path).ae()?
+        csv_import::import_csv(&mut conn, &path).map_err(map_csv_import_error)?
     };
     mark_dirty(&s)?;
     Ok(Json(serde_json::json!({ "count": count })))
@@ -609,17 +657,21 @@ async fn analyze_media_csv_upload(
         .ok_or_else(|| AppError::Internal("Invalid temp path".into()))?
         .to_owned();
     let conn = s.conn.lock().ae()?;
-    csv_import::analyze_media_csv(&conn, &path).ae().map(Json)
+    csv_import::analyze_media_csv(&conn, &path)
+        .map_err(map_csv_import_error)
+        .map(Json)
 }
 
 async fn apply_media_import_handler(
     State(s): State<SharedApiState>,
-    Json(records): Json<Vec<csv_import::MediaCsvRow>>,
+    payload: Result<Json<Vec<csv_import::MediaCsvRow>>, JsonRejection>,
 ) -> HandlerResult<Json<usize>> {
+    let Json(records) = payload.map_err(|error| AppError::BadRequest(error.body_text()))?;
     let covers_dir = s.data_dir.join("covers");
     let count = {
         let mut conn = s.conn.lock().ae()?;
-        csv_import::apply_media_import(covers_dir, &mut conn, records).ae()?
+        csv_import::apply_media_import(covers_dir, &mut conn, records)
+            .map_err(map_csv_import_error)?
     };
     mark_dirty(&s)?;
     Ok(Json(count))
@@ -660,7 +712,7 @@ async fn import_milestones(
         .to_owned();
     let count = {
         let mut conn = s.conn.lock().ae()?;
-        csv_import::import_milestones_csv(&mut conn, &path).ae()?
+        csv_import::import_milestones_csv(&mut conn, &path).map_err(map_csv_import_error)?
     };
     mark_dirty(&s)?;
     Ok(Json(serde_json::json!({ "count": count })))
@@ -741,10 +793,14 @@ async fn import_full_backup_handler(
         .to_owned();
 
     let ls = {
+        let _sync_guard =
+            sync_state::acquire_sync_lock(&s.data_dir).map_err(map_sync_operation_error)?;
         let mut conn = s.conn.lock().ae()?;
-        backup::import_full_backup_internal(&s.data_dir, &mut conn, &path).ae()?
+        let local_storage =
+            backup::import_full_backup_internal(&s.data_dir, &mut conn, &path).ae()?;
+        sync_state::clear_sync_runtime_files(&s.data_dir).ae()?;
+        local_storage
     };
-    mark_dirty(&s)?;
 
     Ok(Json(serde_json::json!({ "localStorage": ls })))
 }
@@ -934,6 +990,68 @@ async fn field_to_tempfile(multipart: &mut Multipart) -> HandlerResult<tempfile:
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::extract::FromRequest;
+    use tower::ServiceExt;
+
+    fn setup_api_state() -> SharedApiState {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute("ATTACH DATABASE ':memory:' AS shared", [])
+            .unwrap();
+        db::create_tables(&conn).unwrap();
+        Arc::new(HttpApiState::new(
+            Arc::new(Mutex::new(conn)),
+            PathBuf::from("/tmp/kechimochi-http-api-tests"),
+            None,
+        ))
+    }
+
+    fn setup_disk_api_state(data_dir: &std::path::Path) -> SharedApiState {
+        let conn = db::init_db(data_dir.to_path_buf(), None).unwrap();
+        Arc::new(HttpApiState::new(
+            Arc::new(Mutex::new(conn)),
+            data_dir.to_path_buf(),
+            None,
+        ))
+    }
+
+    fn sample_http_media(title: &str, variant: &str) -> models::HttpMedia {
+        models::HttpMedia::from(models::Media {
+            id: None,
+            uid: None,
+            title: title.to_string(),
+            variant: variant.to_string(),
+            default_activity_type: "Reading".to_string(),
+            status: "Active".to_string(),
+            language: "Japanese".to_string(),
+            description: String::new(),
+            cover_image: String::new(),
+            extra_data: "{}".to_string(),
+            content_type: "Unknown".to_string(),
+            tracking_status: "Untracked".to_string(),
+        })
+    }
+
+    async fn csv_multipart(file_name: &str, contents: &str) -> Multipart {
+        file_multipart(file_name, "text/csv", contents.as_bytes()).await
+    }
+
+    async fn file_multipart(file_name: &str, content_type: &str, contents: &[u8]) -> Multipart {
+        let boundary = "kechimochi-csv-boundary";
+        let mut body = format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{file_name}\"\r\nContent-Type: {content_type}\r\n\r\n"
+        )
+        .into_bytes();
+        body.extend_from_slice(contents);
+        body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+        let request = Request::builder()
+            .header(
+                header::CONTENT_TYPE,
+                format!("multipart/form-data; boundary={boundary}"),
+            )
+            .body(Body::from(body))
+            .unwrap();
+        Multipart::from_request(request, &()).await.unwrap()
+    }
 
     #[test]
     fn host_validation_allows_only_loopback_in_local_mode() {
@@ -981,5 +1099,388 @@ mod tests {
             "8.8.8.8:3031",
             HostValidationPolicy::LocalNetwork
         ));
+    }
+
+    #[tokio::test]
+    async fn media_handlers_allow_variants_and_return_conflict_for_an_exact_pair() {
+        let state = setup_api_state();
+        let _ = add_media(
+            State(state.clone()),
+            Json(sample_http_media("Horimiya", "Anime")),
+        )
+        .await
+        .unwrap();
+        let _ = add_media(
+            State(state.clone()),
+            Json(sample_http_media("Horimiya", "Manga")),
+        )
+        .await
+        .unwrap();
+
+        let error = add_media(
+            State(state.clone()),
+            Json(sample_http_media("Horimiya", "Anime")),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(error, AppError::Conflict(_)));
+
+        let mut anime = get_all_media(State(state.clone()))
+            .await
+            .unwrap()
+            .0
+            .into_iter()
+            .find(|media| media.variant == "Anime")
+            .unwrap();
+        let anime_id = anime.id.unwrap();
+        anime.variant = "Manga".to_string();
+        let error = update_media(State(state.clone()), Path(anime_id), Json(anime))
+            .await
+            .unwrap_err();
+        assert!(matches!(error, AppError::Conflict(_)));
+        assert_eq!(get_all_media(State(state)).await.unwrap().0.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn media_handlers_return_bad_request_for_whitespace_only_titles() {
+        let state = setup_api_state();
+        let add_error = add_media(
+            State(state.clone()),
+            Json(sample_http_media(" \t\u{2003} ", "Novel")),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(add_error, AppError::BadRequest(_)));
+        assert!(get_all_media(State(state.clone()))
+            .await
+            .unwrap()
+            .0
+            .is_empty());
+
+        let media_id = add_media(
+            State(state.clone()),
+            Json(sample_http_media("Original", "Novel")),
+        )
+        .await
+        .unwrap()
+        .0;
+        let mut media = get_all_media(State(state.clone()))
+            .await
+            .unwrap()
+            .0
+            .remove(0);
+        media.title = " \n\u{2003}".to_string();
+        let update_error = update_media(State(state.clone()), Path(media_id), Json(media))
+            .await
+            .unwrap_err();
+        assert!(matches!(update_error, AppError::BadRequest(_)));
+        assert_eq!(
+            get_all_media(State(state)).await.unwrap().0[0].title,
+            "Original"
+        );
+    }
+
+    #[tokio::test]
+    async fn csv_activity_handler_returns_bad_request_for_identifier_columns_and_ambiguity() {
+        let state = setup_api_state();
+        let forbidden_identifier = csv_multipart(
+            "activities.csv",
+            "Date,Log Name,Default Activity Type,Duration,Language,Media UID\n\
+             2026-07-21,No IDs,Reading,30,Japanese,opaque-id\n",
+        )
+        .await;
+        let error = import_activities(State(state.clone()), forbidden_identifier)
+            .await
+            .unwrap_err();
+        match error {
+            AppError::BadRequest(message) => {
+                assert!(message.contains("Unsupported 'Media UID' column"));
+            }
+            other => panic!("expected bad request, got {other:?}"),
+        }
+
+        {
+            let conn = state.conn.lock().unwrap();
+            for variant in ["Anime", "Manga"] {
+                db::add_media_with_id(
+                    &conn,
+                    &models::Media {
+                        variant: variant.to_string(),
+                        ..models::Media::try_from(sample_http_media("Horimiya", variant)).unwrap()
+                    },
+                )
+                .unwrap();
+            }
+        }
+        let ambiguous = csv_multipart(
+            "activities.csv",
+            "Date,Log Name,Default Activity Type,Duration,Language\n\
+             2026-07-21,Horimiya,Reading,30,Japanese\n",
+        )
+        .await;
+        let error = import_activities(State(state.clone()), ambiguous)
+            .await
+            .unwrap_err();
+        match error {
+            AppError::BadRequest(message) => {
+                assert!(message.contains("Ambiguous activity CSV row 2"));
+            }
+            other => panic!("expected bad request, got {other:?}"),
+        }
+        assert!(db::get_logs(&state.conn.lock().unwrap())
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn csv_media_apply_handler_maps_semantic_errors_to_bad_request_only() {
+        let state = setup_api_state();
+        let invalid = csv_import::MediaCsvRow {
+            title: " \t\u{2003} ".to_string(),
+            default_activity_type: Some("Reading".to_string()),
+            legacy_media_type: None,
+            status: "Active".to_string(),
+            language: "Japanese".to_string(),
+            description: String::new(),
+            content_type: "Novel".to_string(),
+            extra_data: "{}".to_string(),
+            cover_image_b64: String::new(),
+            variant: "Manga".to_string(),
+        };
+
+        let error = apply_media_import_handler(State(state), Ok(Json(vec![invalid])))
+            .await
+            .unwrap_err();
+        assert!(matches!(error, AppError::BadRequest(_)));
+        assert!(matches!(
+            map_csv_import_error("disk write failed".to_string()),
+            AppError::Internal(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn csv_media_apply_route_maps_forbidden_identifier_json_to_bad_request() {
+        let state = setup_api_state();
+        let router = build_api_router(
+            state,
+            HttpApiRouterConfig {
+                scope: HttpApiScope::Full,
+                cors: HttpApiCors::AllowedOrigins(Vec::new()),
+                host_policy: HostValidationPolicy::Disabled,
+            },
+        );
+        let body = serde_json::json!([{
+            "Title": "No private identity",
+            "Default Activity Type": "Reading",
+            "Status": "Active",
+            "Language": "Japanese",
+            "Description": "",
+            "Content Type": "Novel",
+            "Extra Data": "{}",
+            "Cover Image (Base64)": "",
+            "Variant": "",
+            "Media UID": "private-uid"
+        }])
+        .to_string();
+
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/import/media/apply")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn milestone_handlers_use_media_uid_for_same_title_variants() {
+        let state = setup_api_state();
+        let _ = add_media(
+            State(state.clone()),
+            Json(sample_http_media("Horimiya", "Anime")),
+        )
+        .await
+        .unwrap();
+        let _ = add_media(
+            State(state.clone()),
+            Json(sample_http_media("Horimiya", "Manga")),
+        )
+        .await
+        .unwrap();
+        let media = get_all_media(State(state.clone())).await.unwrap().0;
+        let anime_uid = media
+            .iter()
+            .find(|media| media.variant == "Anime")
+            .and_then(|media| media.uid.clone())
+            .unwrap();
+        let manga_uid = media
+            .iter()
+            .find(|media| media.variant == "Manga")
+            .and_then(|media| media.uid.clone())
+            .unwrap();
+
+        for (uid, name) in [
+            (&anime_uid, "Anime checkpoint"),
+            (&manga_uid, "Manga checkpoint"),
+        ] {
+            let _ = add_milestone_handler(
+                State(state.clone()),
+                Json(models::Milestone {
+                    id: None,
+                    media_uid: Some(uid.to_string()),
+                    media_title: "client display text is ignored".to_string(),
+                    name: name.to_string(),
+                    duration: 30,
+                    characters: 0,
+                    date: None,
+                }),
+            )
+            .await
+            .unwrap();
+        }
+
+        let anime = get_milestones_for_media_handler(State(state.clone()), Path(anime_uid.clone()))
+            .await
+            .unwrap()
+            .0;
+        let manga = get_milestones_for_media_handler(State(state.clone()), Path(manga_uid.clone()))
+            .await
+            .unwrap()
+            .0;
+        assert_eq!(anime[0].name, "Anime checkpoint");
+        assert_eq!(anime[0].media_title, "Horimiya");
+        assert_eq!(manga[0].name, "Manga checkpoint");
+
+        let _ = clear_milestones_for_media_handler(State(state.clone()), Path(anime_uid.clone()))
+            .await
+            .unwrap();
+        assert!(
+            get_milestones_for_media_handler(State(state.clone()), Path(anime_uid))
+                .await
+                .unwrap()
+                .0
+                .is_empty()
+        );
+        assert_eq!(
+            get_milestones_for_media_handler(State(state), Path(manga_uid))
+                .await
+                .unwrap()
+                .0
+                .len(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn destructive_routes_return_conflict_without_mutating_database_or_sync_runtime() {
+        let data_dir = tempfile::TempDir::new().unwrap();
+        let state = setup_disk_api_state(data_dir.path());
+        let _ = add_media(
+            State(state.clone()),
+            Json(sample_http_media("Keep me", "Novel")),
+        )
+        .await
+        .unwrap();
+        sync_state::ensure_sync_dir(data_dir.path()).unwrap();
+        std::fs::write(sync_state::sync_config_path(data_dir.path()), "config").unwrap();
+        std::fs::write(sync_state::base_snapshot_path(data_dir.path()), "base").unwrap();
+        std::fs::write(
+            sync_state::pending_conflicts_path(data_dir.path()),
+            "pending",
+        )
+        .unwrap();
+        let _sync_guard = sync_state::acquire_sync_lock(data_dir.path()).unwrap();
+
+        let router = build_api_router(
+            state.clone(),
+            HttpApiRouterConfig {
+                scope: HttpApiScope::Full,
+                cors: HttpApiCors::AllowedOrigins(Vec::new()),
+                host_policy: HostValidationPolicy::Disabled,
+            },
+        );
+        let reset_response = router
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/reset")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(reset_response.status(), StatusCode::CONFLICT);
+
+        let import_error = import_full_backup_handler(
+            State(state.clone()),
+            file_multipart("backup.zip", "application/zip", b"not opened").await,
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(import_error, AppError::Conflict(_)));
+
+        assert_eq!(
+            db::get_all_media(&state.conn.lock().unwrap())
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(data_dir.path().join("kechimochi_user.db").exists());
+        assert!(sync_state::sync_config_path(data_dir.path()).exists());
+        assert!(sync_state::base_snapshot_path(data_dir.path()).exists());
+        assert!(sync_state::pending_conflicts_path(data_dir.path()).exists());
+    }
+
+    #[tokio::test]
+    async fn full_backup_import_clears_the_previous_sync_runtime() {
+        let source_dir = tempfile::TempDir::new().unwrap();
+        let source_conn = db::init_db(source_dir.path().to_path_buf(), None).unwrap();
+        db::add_media_with_id(
+            &source_conn,
+            &models::Media::try_from(sample_http_media("Imported", "Manga")).unwrap(),
+        )
+        .unwrap();
+        let backup_path = source_dir.path().join("full-backup.zip");
+        backup::export_full_backup_internal(
+            source_dir.path(),
+            &source_conn,
+            backup_path.to_str().unwrap(),
+            r#"{"restored":true}"#,
+            "test",
+        )
+        .unwrap();
+
+        let target_dir = tempfile::TempDir::new().unwrap();
+        let state = setup_disk_api_state(target_dir.path());
+        sync_state::ensure_sync_dir(target_dir.path()).unwrap();
+        std::fs::write(sync_state::sync_config_path(target_dir.path()), "config").unwrap();
+        std::fs::write(sync_state::base_snapshot_path(target_dir.path()), "base").unwrap();
+        std::fs::write(
+            sync_state::pending_conflicts_path(target_dir.path()),
+            "pending",
+        )
+        .unwrap();
+        let backup_bytes = std::fs::read(&backup_path).unwrap();
+
+        let Json(result) = import_full_backup_handler(
+            State(state.clone()),
+            file_multipart("backup.zip", "application/zip", &backup_bytes).await,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result["localStorage"], r#"{"restored":true}"#);
+        let media = db::get_all_media(&state.conn.lock().unwrap()).unwrap();
+        assert_eq!(media.len(), 1);
+        assert_eq!(media[0].title, "Imported");
+        assert!(!sync_state::sync_config_path(target_dir.path()).exists());
+        assert!(!sync_state::base_snapshot_path(target_dir.path()).exists());
+        assert!(!sync_state::pending_conflicts_path(target_dir.path()).exists());
     }
 }

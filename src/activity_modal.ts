@@ -1,4 +1,4 @@
-import { getAllMedia, addLog, updateLog, addMedia, updateMedia, ActivitySummary } from './api';
+import { getAllMedia, addLog, updateLog, addMedia, updateMedia, ActivitySummary, Media } from './api';
 import { ACTIVITY_TYPES } from './constants';
 import { buildCalendar } from './calendar';
 import { customPrompt, customAlert, createCancelableOverlay } from './modal_base';
@@ -57,7 +57,7 @@ export async function showExportCsvModal(): Promise<{mode: 'all' | 'range', star
     });
 }
 
-export async function showLogActivityModal(prefillMediaTitle?: string, editLog?: ActivitySummary): Promise<boolean> {
+export async function showLogActivityModal(prefillMediaId?: number, editLog?: ActivitySummary): Promise<boolean> {
     const mediaList = await getAllMedia();
     return new Promise((resolve) => {
         const baseHandle = createCancelableOverlay(() => resolve(false), { closeOnEscape: true });
@@ -77,33 +77,25 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
             }
             baseHandle.dismiss();
         };
-        const useCustomMediaSuggestions = document.body.dataset.runtime === 'mobile-app'
-            && /\bAndroid\b/i.test(navigator.userAgent || '');
-
         const activeMedia = mediaList.filter(m => m.status !== 'Archived' && m.tracking_status === 'Ongoing');
-
-        const escapedTitle = escapeHTML(editLog?.title || prefillMediaTitle || '');
-        const activeMediaOptions = activeMedia.map(m => {
-            const variantLabel = m.variant ? ' label="' + escapeHTML(m.variant) + '"' : '';
-            return `<option value="${escapeHTML(m.title)}"${variantLabel}>`;
-        }).join('');
-
-        const findMediaByTitle = (title: string) => {
-            const normalizedTitle = title.trim().toLowerCase();
-            if (!normalizedTitle) return undefined;
-            return mediaList.find(m => m.title.trim().toLowerCase() === normalizedTitle);
-        };
+        const mediaById = new Map(mediaList
+            .filter((media): media is Media & { id: number } => typeof media.id === 'number')
+            .map(media => [media.id, media]));
+        const initialMediaId = editLog?.media_id ?? prefillMediaId;
+        const initialMedia = typeof initialMediaId === 'number' ? mediaById.get(initialMediaId) : undefined;
+        let selectedMediaId = initialMedia?.id ?? null;
+        const escapedTitle = escapeHTML(initialMedia?.title ?? editLog?.title ?? '');
 
         const isActivityType = (activityType: string | undefined): activityType is ActivityType =>
             typeof activityType === 'string' && ACTIVITY_TYPES.includes(activityType as ActivityType);
 
-        const getDefaultActivityTypeForTitle = (title: string): ActivityType | undefined => {
-            const defaultActivityType = findMediaByTitle(title)?.default_activity_type;
+        const getDefaultActivityType = (media: Media | undefined): ActivityType | undefined => {
+            const defaultActivityType = media?.default_activity_type;
             return isActivityType(defaultActivityType) ? defaultActivityType : undefined;
         };
 
         // Determine the default activity type
-        const defaultActivityType = editLog?.activity_type || getDefaultActivityTypeForTitle(editLog?.title || prefillMediaTitle || '') || 'Reading';
+        const defaultActivityType = editLog?.activity_type || getDefaultActivityType(initialMedia) || 'Reading';
             
         overlay.innerHTML = `
             <div class="modal-content" style="width: 450px;">
@@ -111,11 +103,9 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
                 <form id="add-activity-form" style="margin-top: 1rem; display: flex; flex-direction: column; gap: 1rem;">
                     <div style="display: flex; flex-direction: column; gap: 0.5rem; position: relative; z-index: 2">
                         <label style="font-size: 0.85rem; color: var(--text-secondary);">Media Title</label>
-                        <input type="text" id="activity-media" ${useCustomMediaSuggestions ? '' : 'list="media-datalist"'} autocomplete="off" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm);" value="${escapedTitle}" ${editLog ? 'disabled' : ''} required oninvalid="this.setCustomValidity('Media Title is required')" oninput="this.setCustomValidity('')" />
+                        <input type="text" id="activity-media" role="combobox" aria-autocomplete="list" aria-controls="activity-media-suggestions" aria-expanded="false" autocomplete="off" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm);" value="${escapedTitle}" ${editLog ? 'disabled' : ''} required oninvalid="this.setCustomValidity('Media Title is required')" oninput="this.setCustomValidity('')" />
                         <div id="activity-media-variant" style="display: none; color: var(--text-secondary); font-size: 0.78rem;"></div>
-                        ${useCustomMediaSuggestions
-                ? '<div id="activity-media-suggestions" style="display: none; margin-top: 0.35rem; max-height: 11rem; overflow-y: auto; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: color-mix(in srgb, var(--bg-card) 94%, black 6%); box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22); position: absolute; top: 100%"></div>'
-                : `<datalist id="media-datalist">${activeMediaOptions}</datalist>`}
+                        <div id="activity-media-suggestions" role="listbox" style="display: none; margin-top: 0.35rem; max-height: 11rem; overflow-y: auto; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: color-mix(in srgb, var(--bg-card) 94%, black 6%); box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22); position: absolute; top: 100%; left: 0; right: 0;"></div>
                     </div>
                     <div style="display: flex; gap: 0.5rem; align-items: center;">
                         <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.5rem;">
@@ -162,8 +152,42 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
         mobileDateInput.value = selectedDate;
 
         const titleInput = overlay.querySelector<HTMLInputElement>('#activity-media')!;
-        const suggestionList = overlay.querySelector<HTMLElement>('#activity-media-suggestions');
-        if (useCustomMediaSuggestions && suggestionList && !editLog) {
+        const suggestionList = overlay.querySelector<HTMLElement>('#activity-media-suggestions')!;
+        const activityTypeSelect = overlay.querySelector<HTMLSelectElement>('#activity-type')!;
+        const mediaVariantLabel = overlay.querySelector<HTMLElement>('#activity-media-variant')!;
+        let suggestionMatches: Array<Media & { id: number }> = [];
+        let highlightedSuggestionIndex = -1;
+
+        const syncSelectedMediaContext = (media: Media | undefined, updateActivityType: boolean) => {
+            const variant = media?.variant?.trim() || '';
+            mediaVariantLabel.textContent = variant;
+            mediaVariantLabel.style.display = variant ? 'block' : 'none';
+            if (updateActivityType) {
+                const mediaDefaultActivityType = getDefaultActivityType(media);
+                if (mediaDefaultActivityType) {
+                    activityTypeSelect.value = mediaDefaultActivityType;
+                }
+            }
+        };
+
+        const hideSuggestions = () => {
+            suggestionList.style.display = 'none';
+            suggestionList.innerHTML = '';
+            suggestionMatches = [];
+            highlightedSuggestionIndex = -1;
+            titleInput.setAttribute('aria-expanded', 'false');
+            titleInput.removeAttribute('aria-activedescendant');
+        };
+
+        const selectMedia = (media: Media & { id: number }) => {
+            selectedMediaId = media.id;
+            titleInput.value = media.title;
+            syncSelectedMediaContext(media, true);
+            hideSuggestions();
+            titleInput.focus({ preventScroll: true });
+        };
+
+        if (!editLog) {
             const handleSuggestionPointerDown = (event: PointerEvent) => {
                 const target = event.target;
                 if (!(target instanceof HTMLElement) || !target.closest('.activity-media-suggestion')) {
@@ -181,109 +205,119 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
                 if (!button) {
                     return;
                 }
-                titleInput.value = button.dataset.title || '';
-                titleInput.dispatchEvent(new Event('input'));
-                suggestionList.style.display = 'none';
-                suggestionList.innerHTML = '';
-                titleInput.focus({ preventScroll: true });
+                const mediaId = Number.parseInt(button.dataset.mediaId || '', 10);
+                const media = mediaById.get(mediaId);
+                if (media?.id !== undefined) {
+                    selectMedia(media as Media & { id: number });
+                }
             };
 
             const renderSuggestions = () => {
                 const query = titleInput.value.trim().toLowerCase();
-                const matches = activeMedia
+                const activeMatches = activeMedia
                     .filter(media => query.length === 0
                         || media.title.toLowerCase().includes(query)
-                        || (media.variant || '').toLowerCase().includes(query))
+                        || (media.variant || '').toLowerCase().includes(query));
+                // Preserve the old ability to pick an archived/paused entry by its exact
+                // title without filling the normal suggestion list with inactive media.
+                const exactInactiveMatches = query.length === 0 ? [] : mediaList.filter(media =>
+                    !activeMedia.includes(media) && media.title.trim().toLowerCase() === query);
+                suggestionMatches = [...activeMatches, ...exactInactiveMatches]
+                    .filter((media): media is Media & { id: number } => typeof media.id === 'number')
                     .slice(0, 8);
+                highlightedSuggestionIndex = -1;
 
-                if (matches.length === 0 || document.activeElement !== titleInput) {
-                    suggestionList.style.display = 'none';
-                    suggestionList.innerHTML = '';
+                if (suggestionMatches.length === 0 || document.activeElement !== titleInput) {
+                    hideSuggestions();
                     return;
                 }
 
-                suggestionList.innerHTML = matches.map(media => `
+                suggestionList.innerHTML = suggestionMatches.map((media, index) => {
+                    let inactiveState = '';
+                    if (media.status === 'Archived') {
+                        inactiveState = 'Archived';
+                    } else if (media.tracking_status !== 'Ongoing') {
+                        inactiveState = media.tracking_status;
+                    }
+                    const inactiveStateHtml = inactiveState
+                        ? `<span style="color: var(--text-secondary); font-size: 0.7rem;">${escapeHTML(inactiveState)}</span>`
+                        : '';
+                    return `
                     <button
                         type="button"
                         class="activity-media-suggestion"
-                        data-title="${escapeHTML(media.title)}"
+                        id="activity-media-suggestion-${index}"
+                        role="option"
+                        aria-selected="false"
+                        data-media-id="${media.id}"
+                        data-media-title="${escapeHTML(media.title)}"
+                        data-media-variant="${escapeHTML(media.variant || '')}"
                         style="display: flex; flex-direction: column; gap: 0.15rem; width: 100%; padding: 0.65rem 0.8rem; border: none; background: transparent; color: var(--text-primary); text-align: left; cursor: pointer; font: inherit;"
                     >
                         <span>${escapeHTML(media.title)}</span>
                         ${media.variant ? `<span style="color: var(--text-secondary); font-size: 0.78rem;">${escapeHTML(media.variant)}</span>` : ''}
+                        ${inactiveStateHtml}
                     </button>
-                `).join('');
+                `;
+                }).join('');
                 suggestionList.style.display = 'block';
+                titleInput.setAttribute('aria-expanded', 'true');
+            };
+
+            const highlightSuggestion = (index: number) => {
+                if (suggestionMatches.length === 0) return;
+                highlightedSuggestionIndex = (index + suggestionMatches.length) % suggestionMatches.length;
+                suggestionList.querySelectorAll<HTMLElement>('.activity-media-suggestion').forEach((option, optionIndex) => {
+                    const isHighlighted = optionIndex === highlightedSuggestionIndex;
+                    option.setAttribute('aria-selected', String(isHighlighted));
+                    option.style.background = isHighlighted ? 'rgba(255,255,255,0.08)' : 'transparent';
+                    if (isHighlighted) option.scrollIntoView?.({ block: 'nearest' });
+                });
+                titleInput.setAttribute('aria-activedescendant', `activity-media-suggestion-${highlightedSuggestionIndex}`);
             };
 
             suggestionList.addEventListener('pointerdown', handleSuggestionPointerDown);
             suggestionList.addEventListener('click', handleSuggestionClick);
 
             titleInput.addEventListener('focus', renderSuggestions);
-            titleInput.addEventListener('input', renderSuggestions);
+            titleInput.addEventListener('input', () => {
+                selectedMediaId = null;
+                syncSelectedMediaContext(undefined, false);
+                renderSuggestions();
+            });
             titleInput.addEventListener('blur', () => {
                 suggestionHideTimer = globalThis.setTimeout(() => {
-                    suggestionList.style.display = 'none';
+                    hideSuggestions();
                 }, 120);
             });
             titleInput.addEventListener('keydown', (event) => {
                 if (event.key === 'Escape') {
-                    suggestionList.style.display = 'none';
+                    hideSuggestions();
+                    return;
+                }
+                if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                    event.preventDefault();
+                    if (suggestionList.style.display === 'none') renderSuggestions();
+                    highlightSuggestion(highlightedSuggestionIndex + (event.key === 'ArrowDown' ? 1 : -1));
+                    return;
+                }
+                if (event.key === 'Enter' && highlightedSuggestionIndex >= 0) {
+                    event.preventDefault();
+                    const media = suggestionMatches[highlightedSuggestionIndex];
+                    if (media) selectMedia(media);
                 }
             });
         }
 
-        if (editLog || prefillMediaTitle) {
+        syncSelectedMediaContext(initialMedia, false);
+
+        if (editLog || initialMedia) {
             overlay.querySelector<HTMLInputElement>('#activity-duration')!.focus();
         } else {
             titleInput.focus();
         }
 
-        const mediaInput = overlay.querySelector<HTMLInputElement>('#activity-media')!;
-        const activityTypeSelect = overlay.querySelector<HTMLSelectElement>('#activity-type')!;
-        const mediaVariantLabel = overlay.querySelector<HTMLElement>('#activity-media-variant')!;
-        const syncVariantFromSelectedMedia = () => {
-            const variant = findMediaByTitle(mediaInput.value)?.variant?.trim() || '';
-            mediaVariantLabel.textContent = variant;
-            mediaVariantLabel.style.display = variant ? 'block' : 'none';
-        };
-        const syncActivityTypeFromSelectedMedia = () => {
-            const defaultActivityType = getDefaultActivityTypeForTitle(mediaInput.value);
-            if (defaultActivityType) {
-                activityTypeSelect.value = defaultActivityType;
-            }
-            syncVariantFromSelectedMedia();
-        };
-
-        syncVariantFromSelectedMedia();
-
-        if (!editLog) {
-            mediaInput.addEventListener('input', syncActivityTypeFromSelectedMedia);
-            mediaInput.addEventListener('change', syncActivityTypeFromSelectedMedia);
-        }
-
-        const handleEscape = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') {
-                e.preventDefault();
-                e.stopPropagation();
-                cleanup();
-                resolve(false);
-            }
-        };
-
-        globalThis.addEventListener('keydown', handleEscape, true);
-
-
-        const resolveMediaId = async (title: string): Promise<number | null> => {
-            const existingMedia = findMediaByTitle(title);
-            if (existingMedia?.id) {
-                if (existingMedia.status === 'Archived') {
-                    existingMedia.status = 'Active';
-                    await updateMedia(existingMedia);
-                }
-                return existingMedia.id;
-            }
-
+        const createMedia = async (title: string): Promise<number | null> => {
             const typeResp = await customPrompt(`"${title}" is new! What type of media is this?`, "Reading");
             if (!typeResp) return null;
             
@@ -298,6 +332,38 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
                 content_type: "Unknown", 
                 tracking_status: "Ongoing" 
             });
+        };
+
+        const resolveMediaIdForSubmission = async (mediaTitle: string): Promise<number | null> => {
+            let selectedMedia = selectedMediaId === null ? undefined : mediaById.get(selectedMediaId);
+            // A programmatic value change without an input event must not retain a
+            // stale selection. The ID is authoritative only while its displayed title
+            // still matches the selected record.
+            if (selectedMedia && mediaTitle !== selectedMedia.title) {
+                selectedMedia = undefined;
+                selectedMediaId = null;
+            }
+
+            if (selectedMedia?.id !== undefined) {
+                if (selectedMedia.status === 'Archived') {
+                    await updateMedia({ ...selectedMedia, status: 'Active' });
+                }
+                return selectedMedia.id;
+            }
+
+            const sameTitleExists = mediaList.some(media =>
+                media.title.trim().toLowerCase() === mediaTitle.toLowerCase());
+            if (sameTitleExists) {
+                await customAlert(
+                    "Select Media",
+                    "Choose the intended media entry from the suggestions. Titles can have multiple variants."
+                );
+                titleInput.focus();
+                titleInput.dispatchEvent(new Event('focus'));
+                return null;
+            }
+
+            return createMedia(mediaTitle);
         };
 
         overlay.querySelector('#activity-cancel')!.addEventListener('click', dismiss);
@@ -338,7 +404,7 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
                         notes
                     });
                 } else {
-                    const mediaId = await resolveMediaId(mediaTitle);
+                    const mediaId = await resolveMediaIdForSubmission(mediaTitle);
                     if (mediaId === null) return;
                     await addLog({ media_id: mediaId, duration_minutes: duration, characters, date: dateToSave, activity_type: activityType, notes });
                 }

@@ -18,9 +18,10 @@ function getLibraryContainerSelector(layout: LibraryLayoutMode): string {
     return layout === 'grid' ? '#media-grid-container' : '#media-list-container';
 }
 
-function getLibraryItemSelector(title: string, layout: LibraryLayoutMode): string {
+function getLibraryItemSelector(title: string, layout: LibraryLayoutMode, variant?: string): string {
     const itemSelector = layout === 'grid' ? GRID_ITEM_SELECTOR : LIST_ITEM_SELECTOR;
-    return `${itemSelector}[data-title="${title}"]`;
+    const variantSelector = variant === undefined ? '' : `[data-variant="${variant}"]`;
+    return `${itemSelector}[data-title="${title}"]${variantSelector}`;
 }
 
 function getLibraryItemsSelector(layout: LibraryLayoutMode): string {
@@ -51,9 +52,11 @@ export async function isLayoutToggleAvailable(): Promise<boolean> {
 }
 
 /** Selector for media items in the active layout, optionally narrowed to a title. */
-export async function getActiveMediaItemSelector(title?: string): Promise<string> {
+export async function getActiveMediaItemSelector(title?: string, variant?: string): Promise<string> {
     const itemSelector = getLibraryItemsSelector(await getActiveLibraryLayout());
-    return title ? `${itemSelector}[data-title="${title}"]` : itemSelector;
+    if (!title) return itemSelector;
+    const variantSelector = variant === undefined ? '' : `[data-variant="${variant}"]`;
+    return `${itemSelector}[data-title="${title}"]${variantSelector}`;
 }
 
 /** Waits until the active library container is displayed (grid or list). */
@@ -199,7 +202,7 @@ export async function addMedia(title: string, type: string, contentType?: string
             if (await detailNow.isDisplayed().catch(() => false)) {
                 return true;
             }
-            const added = $(`${GRID_ITEM_SELECTOR}[data-title="${title}"]`);
+            const added = $(getLibraryItemSelector(title, 'grid', variant));
             return await added.isExisting().catch(() => false);
         }, {
             timeout: 10000,
@@ -208,7 +211,7 @@ export async function addMedia(title: string, type: string, contentType?: string
 
         const detailAfterWait = $('#media-detail-header');
         if (!(await detailAfterWait.isDisplayed().catch(() => false))) {
-            await clickMediaItem(title);
+            await clickMediaItem(title, variant);
         }
 
         await waitForSelectorDisplayed('#media-description', 8000);
@@ -343,9 +346,9 @@ export async function setHideArchived(hide: boolean): Promise<void> {
 /**
  * Internal helper to find a media item and log grid state on failure.
  */
-async function findMediaItemInternal(title: string, timeout = 5000, layout?: LibraryLayoutMode) {
+async function findMediaItemInternal(title: string, timeout = 5000, layout?: LibraryLayoutMode, variant?: string) {
     const activeLayout = layout ?? await getActiveLibraryLayout();
-    const itemProxy = $(getLibraryItemSelector(title, activeLayout));
+    const itemProxy = $(getLibraryItemSelector(title, activeLayout, variant));
     try {
         await itemProxy.waitForExist({ timeout });
         // Resolved element is what we return
@@ -395,15 +398,15 @@ export async function isMediaNotVisible(title: string): Promise<boolean> {
 /**
  * Clicks a media item in the active library layout by its title.
  */
-export async function clickMediaItem(title: string): Promise<void> {
+export async function clickMediaItem(title: string, variant?: string): Promise<void> {
     await waitForNoActiveOverlays(5_000).catch(() => undefined);
     const activeLayout = await getActiveLibraryLayout();
-    const item = await findMediaItemInternal(title, 5000, activeLayout);
+    const item = await findMediaItemInternal(title, 5000, activeLayout, variant);
     if (!item) {
         throw new Error(`[E2E] Failed to click "${title}": not found in the active library layout.`);
     }
     await item.waitForDisplayed({ timeout: 5000 });
-    await safeClickBySelector(getLibraryItemSelector(title, activeLayout));
+    await safeClickBySelector(getLibraryItemSelector(title, activeLayout, variant));
 
     // Wait for the detail view root to be present and displayed before returning.
     // Re-fetch each poll (see waitForSelectorDisplayed) so an async re-render on

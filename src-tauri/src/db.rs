@@ -1,5 +1,5 @@
 use chrono::{SecondsFormat, Utc};
-use rusqlite::{params, Connection, OptionalExtension, Result};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Result};
 use std::collections::HashMap;
 use std::fs;
 use std::io;
@@ -12,7 +12,7 @@ use crate::models::{
     TimelineEventKind,
 };
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 5;
+pub const CURRENT_SCHEMA_VERSION: i64 = 6;
 
 type MigrationFn = fn(&Connection) -> Result<()>;
 
@@ -42,6 +42,11 @@ const VERSIONED_MIGRATIONS: &[Migration] = &[
         from: 4,
         to: 5,
         apply: migrate_v4_to_v5_rename_default_activity_type,
+    },
+    Migration {
+        from: 5,
+        to: 6,
+        apply: migrate_v5_to_v6_use_media_title_variant_identity,
     },
 ];
 
@@ -276,6 +281,29 @@ fn table_has_column(conn: &Connection, schema: &str, table: &str, column: &str) 
     Ok(false)
 }
 
+fn table_column_is_not_null(
+    conn: &Connection,
+    schema: &str,
+    table: &str,
+    column: &str,
+) -> Result<bool> {
+    if !table_exists(conn, schema, table)? {
+        return Ok(false);
+    }
+
+    let mut stmt = conn.prepare(&format!("PRAGMA {}.table_info({})", schema, table))?;
+    let columns = stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(1)?, row.get::<_, i64>(3)? != 0))
+    })?;
+    for existing in columns {
+        let (name, is_not_null) = existing?;
+        if name == column {
+            return Ok(is_not_null);
+        }
+    }
+    Ok(false)
+}
+
 fn table_has_all_columns(
     conn: &Connection,
     schema: &str,
@@ -292,6 +320,55 @@ fn table_has_all_columns(
         }
     }
     Ok(true)
+}
+
+fn table_has_unique_index_on_columns(
+    conn: &Connection,
+    schema: &str,
+    table: &str,
+    expected_columns: &[&str],
+) -> Result<bool> {
+    if !table_exists(conn, schema, table)? {
+        return Ok(false);
+    }
+
+    let escaped_table = table.replace('\'', "''");
+    let mut index_stmt = conn.prepare(&format!(
+        "PRAGMA {}.index_list('{}')",
+        schema, escaped_table
+    ))?;
+    let indexes = index_stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(1)?, row.get::<_, i64>(2)? != 0))
+    })?;
+
+    for index in indexes {
+        let (index_name, is_unique) = index?;
+        if !is_unique {
+            continue;
+        }
+
+        let escaped_index = index_name.replace('\'', "''");
+        let mut column_stmt = conn.prepare(&format!(
+            "PRAGMA {}.index_info('{}')",
+            schema, escaped_index
+        ))?;
+        let columns = column_stmt
+            .query_map([], |row| row.get::<_, String>(2))?
+            .collect::<Result<Vec<_>>>()?;
+        if columns == expected_columns {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
+fn latest_media_identity_constraints_are_present(conn: &Connection) -> Result<bool> {
+    Ok(
+        table_has_unique_index_on_columns(conn, "shared", "media", &["uid"])?
+            && table_has_unique_index_on_columns(conn, "shared", "media", &["title", "variant"])?
+            && !table_has_unique_index_on_columns(conn, "shared", "media", &["title"])?,
+    )
 }
 
 fn ensure_table_has_columns(
@@ -338,11 +415,43 @@ fn add_column_if_missing(
     Ok(true)
 }
 
+fn first_blank_media_title_row(conn: &Connection) -> Result<Option<i64>> {
+    if !table_exists(conn, "shared", "media")?
+        || !table_has_column(conn, "shared", "media", "title")?
+    {
+        return Ok(None);
+    }
+
+    let mut stmt = conn.prepare("SELECT id, title FROM shared.media ORDER BY id ASC")?;
+    let rows = stmt.query_map([], |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+    })?;
+    for row in rows {
+        let (id, title) = row?;
+        if title.trim().is_empty() {
+            return Ok(Some(id));
+        }
+    }
+    Ok(None)
+}
+
+fn validate_media_titles(conn: &Connection) -> Result<()> {
+    if let Some(id) = first_blank_media_title_row(conn)? {
+        return Err(migration_error(format!(
+            "Media row {id} has a blank title and cannot be assigned a stable title/variant identity"
+        )));
+    }
+    Ok(())
+}
+
 fn latest_schema_is_present(conn: &Connection) -> Result<bool> {
     Ok(
         table_has_all_columns(conn, "shared", "media", SHARED_MEDIA_COLUMNS)?
+            && latest_media_identity_constraints_are_present(conn)?
+            && first_blank_media_title_row(conn)?.is_none()
             && table_has_all_columns(conn, "main", "activity_logs", ACTIVITY_LOG_COLUMNS)?
             && table_has_all_columns(conn, "main", "milestones", MILESTONE_COLUMNS)?
+            && table_column_is_not_null(conn, "main", "milestones", "media_uid")?
             && table_has_all_columns(conn, "main", "settings", SETTINGS_COLUMNS)?
             && table_has_all_columns(conn, "main", "profile_picture", PROFILE_PICTURE_COLUMNS)?,
     )
@@ -350,8 +459,20 @@ fn latest_schema_is_present(conn: &Connection) -> Result<bool> {
 
 fn validate_latest_schema(conn: &Connection) -> Result<()> {
     ensure_table_has_columns(conn, "shared", "media", SHARED_MEDIA_COLUMNS)?;
+    if !latest_media_identity_constraints_are_present(conn)? {
+        return Err(migration_error(
+            "shared.media must keep uid unique and use exact (title, variant) uniqueness",
+        ));
+    }
+    validate_media_titles(conn)?;
     ensure_table_has_columns(conn, "main", "activity_logs", ACTIVITY_LOG_COLUMNS)?;
     ensure_table_has_columns(conn, "main", "milestones", MILESTONE_COLUMNS)?;
+    if !table_column_is_not_null(conn, "main", "milestones", "media_uid")? {
+        return Err(migration_error(
+            "main.milestones.media_uid must be required in the latest schema",
+        ));
+    }
+    validate_milestone_media_links(conn)?;
     ensure_table_has_columns(conn, "main", "settings", SETTINGS_COLUMNS)?;
     ensure_table_has_columns(conn, "main", "profile_picture", PROFILE_PICTURE_COLUMNS)?;
     Ok(())
@@ -371,10 +492,19 @@ fn legacy_schema_markers_present(conn: &Connection) -> Result<bool> {
     if !table_has_all_columns(conn, "shared", "media", SHARED_MEDIA_COLUMNS)? {
         return Ok(true);
     }
+    if !latest_media_identity_constraints_are_present(conn)? {
+        return Ok(true);
+    }
+    if first_blank_media_title_row(conn)?.is_some() {
+        return Ok(true);
+    }
     if !table_has_all_columns(conn, "main", "activity_logs", ACTIVITY_LOG_COLUMNS)? {
         return Ok(true);
     }
     if !table_has_all_columns(conn, "main", "milestones", MILESTONE_COLUMNS)? {
+        return Ok(true);
+    }
+    if !table_column_is_not_null(conn, "main", "milestones", "media_uid")? {
         return Ok(true);
     }
     if !table_has_all_columns(conn, "main", "settings", SETTINGS_COLUMNS)? {
@@ -422,6 +552,26 @@ where
         }
         Err(err) => {
             let _ = conn.execute_batch("ROLLBACK");
+            Err(err)
+        }
+    }
+}
+
+fn with_write_savepoint<T, F>(conn: &Connection, f: F) -> Result<T>
+where
+    F: FnOnce(&Connection) -> Result<T>,
+{
+    conn.execute_batch("SAVEPOINT kechimochi_write")?;
+    match f(conn) {
+        Ok(value) => {
+            conn.execute_batch("RELEASE SAVEPOINT kechimochi_write")?;
+            Ok(value)
+        }
+        Err(err) => {
+            let _ = conn.execute_batch(
+                "ROLLBACK TO SAVEPOINT kechimochi_write;
+                 RELEASE SAVEPOINT kechimochi_write;",
+            );
             Err(err)
         }
     }
@@ -490,7 +640,7 @@ fn create_shared_media_table_named(conn: &Connection, table_name: &str) -> Resul
             "CREATE TABLE IF NOT EXISTS {} (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 uid TEXT NOT NULL UNIQUE,
-                title TEXT NOT NULL UNIQUE,
+                title TEXT NOT NULL,
                 default_activity_type TEXT NOT NULL,
                 status TEXT NOT NULL,
                 language TEXT NOT NULL,
@@ -499,7 +649,8 @@ fn create_shared_media_table_named(conn: &Connection, table_name: &str) -> Resul
                 extra_data TEXT DEFAULT '{{}}',
                 content_type TEXT DEFAULT 'Unknown',
                 tracking_status TEXT DEFAULT 'Untracked',
-                variant TEXT NOT NULL DEFAULT ''
+                variant TEXT NOT NULL DEFAULT '',
+                UNIQUE(title, variant)
             )",
             table_name
         ),
@@ -609,6 +760,94 @@ fn backfill_milestone_media_uid(conn: &Connection) -> Result<()> {
              WHERE title = main.milestones.media_title
          )
          WHERE media_uid IS NULL OR media_uid = ''",
+        [],
+    )?;
+    Ok(())
+}
+
+fn validate_milestone_media_links(conn: &Connection) -> Result<()> {
+    if !table_exists(conn, "main", "milestones")?
+        || !table_has_column(conn, "main", "milestones", "media_uid")?
+        || !table_exists(conn, "shared", "media")?
+        || !table_has_column(conn, "shared", "media", "uid")?
+    {
+        return Ok(());
+    }
+
+    let unresolved: Option<(String, String)> = conn
+        .query_row(
+            "SELECT ms.media_title, ms.name
+             FROM main.milestones ms
+             LEFT JOIN shared.media m ON m.uid = ms.media_uid
+             WHERE TRIM(COALESCE(ms.media_uid, '')) = '' OR m.uid IS NULL
+             ORDER BY ms.id ASC
+             LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    if let Some((media_title, milestone_name)) = unresolved {
+        return Err(migration_error(format!(
+            "Milestone '{milestone_name}' for media '{media_title}' is not linked to an existing media UID"
+        )));
+    }
+    Ok(())
+}
+
+fn migrate_milestones_to_required_media_uid(conn: &Connection) -> Result<()> {
+    ensure_table_has_columns(conn, "main", "milestones", MILESTONE_COLUMNS)?;
+    ensure_table_has_columns(conn, "shared", "media", SHARED_MEDIA_COLUMNS)?;
+
+    // Versions before v6 accepted title-only milestone writes. Repair those links
+    // while media titles are still unique. A missing or stale UID is replaced only
+    // when the display title has exactly one match; ambiguous/orphan rows abort the
+    // migration instead of being guessed, dropped, or attached to the wrong variant.
+    conn.execute(
+        "UPDATE main.milestones
+         SET media_uid = (
+             SELECT m.uid FROM shared.media m
+             WHERE m.title = main.milestones.media_title
+         )
+         WHERE (
+             TRIM(COALESCE(media_uid, '')) = ''
+             OR NOT EXISTS (
+                 SELECT 1 FROM shared.media current_media
+                 WHERE current_media.uid = main.milestones.media_uid
+             )
+         )
+         AND 1 = (
+             SELECT COUNT(*) FROM shared.media title_match
+             WHERE title_match.title = main.milestones.media_title
+         )",
+        [],
+    )?;
+    validate_milestone_media_links(conn)?;
+
+    // The title is denormalized display data. Once the UID is trustworthy, make
+    // the linked media row authoritative before rebuilding the stricter table.
+    conn.execute(
+        "UPDATE main.milestones
+         SET media_title = (
+             SELECT m.title FROM shared.media m
+             WHERE m.uid = main.milestones.media_uid
+         )",
+        [],
+    )?;
+
+    conn.execute("DROP TABLE IF EXISTS main.milestones_v6_new", [])?;
+    create_milestones_table_named(conn, "main.milestones_v6_new")?;
+    conn.execute(
+        "INSERT INTO main.milestones_v6_new (
+             id, media_uid, media_title, name, duration, characters, date
+         )
+         SELECT id, media_uid, media_title, name, duration, characters, date
+         FROM main.milestones
+         ORDER BY id ASC",
+        [],
+    )?;
+    conn.execute("DROP TABLE main.milestones", [])?;
+    conn.execute(
+        "ALTER TABLE main.milestones_v6_new RENAME TO milestones",
         [],
     )?;
     Ok(())
@@ -731,6 +970,80 @@ fn migrate_v4_to_v5_rename_default_activity_type(conn: &Connection) -> Result<()
         )?;
     }
 
+    Ok(())
+}
+
+fn normalize_legacy_media_variants(conn: &Connection) -> Result<()> {
+    let rows = {
+        let mut stmt = conn.prepare(
+            "SELECT id, title, COALESCE(variant, '')
+             FROM shared.media
+             ORDER BY id ASC",
+        )?;
+        let collected = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>>>()?;
+        collected
+    };
+
+    let mut identities: HashMap<(String, String), i64> = HashMap::new();
+    let mut normalized_variants = Vec::new();
+    for (id, title, variant) in rows {
+        let normalized_variant = variant.trim().to_string();
+        if let Some(existing_id) =
+            identities.insert((title.clone(), normalized_variant.clone()), id)
+        {
+            let variant_label = if normalized_variant.is_empty() {
+                "(no variant)"
+            } else {
+                normalized_variant.as_str()
+            };
+            return Err(migration_error(format!(
+                "Cannot normalize legacy media variants because media rows {existing_id} and {id} both use title '{title}' with variant '{variant_label}' after trimming"
+            )));
+        }
+        if normalized_variant != variant {
+            normalized_variants.push((id, normalized_variant));
+        }
+    }
+
+    for (id, variant) in normalized_variants {
+        conn.execute(
+            "UPDATE shared.media SET variant = ?1 WHERE id = ?2",
+            params![variant, id],
+        )?;
+    }
+    Ok(())
+}
+
+fn migrate_v5_to_v6_use_media_title_variant_identity(conn: &Connection) -> Result<()> {
+    ensure_table_has_columns(conn, "shared", "media", SHARED_MEDIA_COLUMNS)?;
+
+    validate_media_titles(conn)?;
+    normalize_legacy_media_variants(conn)?;
+    migrate_milestones_to_required_media_uid(conn)?;
+
+    conn.execute("DROP TABLE IF EXISTS shared.media_v6_new", [])?;
+    create_shared_media_table_named(conn, "shared.media_v6_new")?;
+    conn.execute(
+        "INSERT INTO shared.media_v6_new (
+             id, uid, title, default_activity_type, status, language, description,
+             cover_image, extra_data, content_type, tracking_status, variant
+         )
+         SELECT id, uid, title, default_activity_type, status, language, description,
+                cover_image, extra_data, content_type, tracking_status, variant
+         FROM shared.media
+         ORDER BY id ASC",
+        [],
+    )?;
+    conn.execute("DROP TABLE shared.media", [])?;
+    conn.execute("ALTER TABLE shared.media_v6_new RENAME TO media", [])?;
     Ok(())
 }
 
@@ -883,20 +1196,27 @@ fn create_activity_logs_table(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-fn create_milestones_table(conn: &Connection) -> Result<()> {
+fn create_milestones_table_named(conn: &Connection, table_name: &str) -> Result<()> {
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS main.milestones (
+        &format!(
+            "CREATE TABLE IF NOT EXISTS {} (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            media_uid TEXT,
+            media_uid TEXT NOT NULL,
             media_title TEXT NOT NULL,
             name TEXT NOT NULL,
             duration INTEGER NOT NULL,
             characters INTEGER NOT NULL DEFAULT 0,
             date TEXT
         )",
+            table_name
+        ),
         [],
     )?;
     Ok(())
+}
+
+fn create_milestones_table(conn: &Connection) -> Result<()> {
+    create_milestones_table_named(conn, "main.milestones")
 }
 
 fn migrate_milestones(conn: &Connection) -> Result<()> {
@@ -1000,6 +1320,39 @@ fn create_profile_picture_table(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn reject_unsupported_future_schema(conn: &Connection) -> Result<()> {
+    let main_version = get_schema_version(conn, "main")?;
+    let shared_version = get_schema_version(conn, "shared")?;
+    if main_version > CURRENT_SCHEMA_VERSION || shared_version > CURRENT_SCHEMA_VERSION {
+        return Err(migration_error(format!(
+            "Database schema versions are newer than this app supports (main={}, shared={}, supported={})",
+            main_version, shared_version, CURRENT_SCHEMA_VERSION
+        )));
+    }
+    Ok(())
+}
+
+fn reject_unsupported_future_schema_file(
+    path: &std::path::Path,
+    database_label: &str,
+) -> Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+
+    // Check every existing bundle member read-only before SQLite is allowed to
+    // create a missing companion file (or before legacy-profile fallback files
+    // are copied into their canonical location).
+    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let version = get_schema_version(&conn, "main")?;
+    if version > CURRENT_SCHEMA_VERSION {
+        return Err(migration_error(format!(
+            "{database_label} database schema version {version} is newer than this app supports ({CURRENT_SCHEMA_VERSION})"
+        )));
+    }
+    Ok(())
+}
+
 fn apply_pragmas(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "PRAGMA foreign_keys = ON;
@@ -1069,6 +1422,7 @@ fn migrate_legacy_pre_release_to_current_schema(conn: &Connection) -> Result<()>
     migrate_v2_to_v3_add_activity_notes(conn)?;
     migrate_v3_to_v4_add_media_variant(conn)?;
     migrate_v4_to_v5_rename_default_activity_type(conn)?;
+    migrate_v5_to_v6_use_media_title_variant_identity(conn)?;
     create_indexes(conn)?;
     Ok(())
 }
@@ -1165,10 +1519,14 @@ pub fn init_db(app_dir: std::path::PathBuf, fallback_username: Option<&str>) -> 
     let shared_db_path = app_dir.join("kechimochi_shared_media.db");
     let user_db_path = app_dir.join("kechimochi_user.db");
 
+    reject_unsupported_future_schema_file(&user_db_path, "Main")?;
+    reject_unsupported_future_schema_file(&shared_db_path, "Shared")?;
+
     if !user_db_path.exists() {
         if let Some(username) = fallback_username {
             let fallback_path = app_dir.join(format!("kechimochi_{}.db", username));
             if fallback_path.exists() {
+                reject_unsupported_future_schema_file(&fallback_path, "Fallback main")?;
                 let _ = fs::copy(&fallback_path, &user_db_path);
 
                 let fallback_wal = app_dir.join(format!("kechimochi_{}.db-wal", username));
@@ -1194,6 +1552,9 @@ pub fn init_db(app_dir: std::path::PathBuf, fallback_username: Option<&str>) -> 
         rusqlite::params![shared_db_path.to_string_lossy()],
     )?;
 
+    // WAL mode is persistent. Reject a future schema before applying any
+    // connection pragmas so an older app cannot alter newer database files.
+    reject_unsupported_future_schema(&conn)?;
     apply_pragmas(&conn)?;
 
     migrate_schema(&conn)?;
@@ -1223,18 +1584,6 @@ pub fn wipe_everything(app_dir: std::path::PathBuf) -> std::result::Result<(), S
     Ok(())
 }
 
-fn get_media_uid_by_title(conn: &Connection, title: &str) -> Result<Option<String>> {
-    if !schema_is_attached(conn, "shared")? || !table_exists(conn, "shared", "media")? {
-        return Ok(None);
-    }
-    conn.query_row(
-        "SELECT uid FROM shared.media WHERE title = ?1",
-        params![title],
-        |row| row.get(0),
-    )
-    .optional()
-}
-
 fn get_media_title_by_uid(conn: &Connection, uid: &str) -> Result<Option<String>> {
     if !schema_is_attached(conn, "shared")? || !table_exists(conn, "shared", "media")? {
         return Ok(None);
@@ -1250,21 +1599,47 @@ fn get_media_title_by_uid(conn: &Connection, uid: &str) -> Result<Option<String>
 fn resolve_milestone_media_identity(
     conn: &Connection,
     milestone: &Milestone,
-) -> Result<(String, Option<String>)> {
-    if let Some(media_uid) = normalize_optional_string(milestone.media_uid.clone()) {
-        if let Some(media_title) = get_media_title_by_uid(conn, &media_uid)? {
-            return Ok((media_title, Some(media_uid)));
-        }
-    }
-
-    let media_title = milestone.media_title.trim().to_string();
-    let media_uid = if media_title.is_empty() {
-        None
-    } else {
-        get_media_uid_by_title(conn, &media_title)?
-    };
-
+) -> Result<(String, String)> {
+    let media_uid = normalize_optional_string(milestone.media_uid.clone())
+        .ok_or_else(|| migration_error("Milestone must specify a media_uid"))?;
+    let media_title = get_media_title_by_uid(conn, &media_uid)?
+        .ok_or_else(|| migration_error(format!("Media with uid '{media_uid}' was not found")))?;
     Ok((media_title, media_uid))
+}
+
+fn media_identity_collision_error(title: &str, variant: &str) -> rusqlite::Error {
+    let variant = if variant.is_empty() {
+        "(no variant)"
+    } else {
+        variant
+    };
+    migration_error(format!(
+        "Another media entry already uses title '{title}' with variant '{variant}'"
+    ))
+}
+
+fn ensure_media_identity_available(
+    conn: &Connection,
+    title: &str,
+    variant: &str,
+    excluding_media_id: Option<i64>,
+) -> Result<()> {
+    let collision = conn
+        .query_row(
+            "SELECT id
+             FROM shared.media
+             WHERE title = ?1
+               AND variant = ?2
+               AND (?3 IS NULL OR id != ?3)
+             LIMIT 1",
+            params![title, variant, excluding_media_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?;
+    if collision.is_some() {
+        return Err(media_identity_collision_error(title, variant));
+    }
+    Ok(())
 }
 
 // Media Operations
@@ -1306,85 +1681,95 @@ pub fn get_all_media(conn: &Connection) -> Result<Vec<Media>> {
 }
 
 pub fn add_media_with_id(conn: &Connection, media: &Media) -> Result<i64> {
+    if media.title.trim().is_empty() {
+        return Err(migration_error("Media title cannot be blank"));
+    }
     let uid =
         normalize_optional_string(media.uid.clone()).unwrap_or_else(generate_random_media_uid);
     let default_activity_type = media.default_activity_type.trim();
     if default_activity_type.is_empty() {
         return Err(migration_error("Default activity type cannot be blank"));
     }
+    let variant = media.variant.trim();
+    ensure_media_identity_available(conn, &media.title, variant, None)?;
     conn.execute(
         "INSERT INTO shared.media (uid, title, default_activity_type, status, language, description, cover_image, extra_data, content_type, tracking_status, variant) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-        params![uid, media.title, default_activity_type, media.status, media.language, media.description, media.cover_image, media.extra_data, media.content_type, media.tracking_status, media.variant.trim()],
+        params![uid, media.title, default_activity_type, media.status, media.language, media.description, media.cover_image, media.extra_data, media.content_type, media.tracking_status, variant],
     )?;
     Ok(conn.last_insert_rowid())
 }
 
 pub fn update_media(conn: &Connection, media: &Media) -> Result<()> {
-    let media_id = media.id.unwrap();
-    let existing = conn
+    if media.title.trim().is_empty() {
+        return Err(migration_error("Media title cannot be blank"));
+    }
+    let media_id = media
+        .id
+        .ok_or_else(|| migration_error("Media update requires an id"))?;
+    let existing_uid = conn
         .query_row(
-            "SELECT title, uid FROM shared.media WHERE id = ?1",
+            "SELECT uid FROM shared.media WHERE id = ?1",
             params![media_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            |row| row.get::<_, String>(0),
         )
         .optional()?
         .ok_or_else(|| migration_error(format!("Media {} not found", media_id)))?;
-    let previous_title = existing.0;
-    let uid = normalize_optional_string(media.uid.clone()).unwrap_or(existing.1);
+    if let Some(requested_uid) = normalize_optional_string(media.uid.clone()) {
+        if requested_uid != existing_uid {
+            return Err(migration_error("A media UID cannot be changed"));
+        }
+    }
     let default_activity_type = media.default_activity_type.trim();
     if default_activity_type.is_empty() {
         return Err(migration_error("Default activity type cannot be blank"));
     }
+    let variant = media.variant.trim();
+    ensure_media_identity_available(conn, &media.title, variant, Some(media_id))?;
 
-    conn.execute(
-        "UPDATE shared.media
-         SET uid = ?1, title = ?2, default_activity_type = ?3, status = ?4, language = ?5,
-             description = ?6, cover_image = ?7, extra_data = ?8, content_type = ?9,
-             tracking_status = ?10, variant = ?11
-         WHERE id = ?12",
-        params![
-            uid,
-            media.title,
-            default_activity_type,
-            media.status,
-            media.language,
-            media.description,
-            media.cover_image,
-            media.extra_data,
-            media.content_type,
-            media.tracking_status,
-            media.variant.trim(),
-            media_id
-        ],
-    )?;
+    with_write_savepoint(conn, |conn| {
+        conn.execute(
+            "UPDATE shared.media
+             SET title = ?1, default_activity_type = ?2, status = ?3, language = ?4,
+                 description = ?5, cover_image = ?6, extra_data = ?7, content_type = ?8,
+                 tracking_status = ?9, variant = ?10
+             WHERE id = ?11",
+            params![
+                media.title,
+                default_activity_type,
+                media.status,
+                media.language,
+                media.description,
+                media.cover_image,
+                media.extra_data,
+                media.content_type,
+                media.tracking_status,
+                variant,
+                media_id
+            ],
+        )?;
 
-    conn.execute(
-        "UPDATE main.milestones
-         SET media_title = ?1, media_uid = ?2
-         WHERE media_uid = ?2 OR media_title = ?3",
-        params![media.title, uid, previous_title],
-    )?;
-    Ok(())
+        conn.execute(
+            "UPDATE main.milestones
+             SET media_title = ?1
+             WHERE media_uid = ?2",
+            params![media.title, existing_uid],
+        )?;
+        Ok(())
+    })
 }
 
 pub fn delete_media(conn: &Connection, id: i64) -> Result<()> {
-    if let Some((cover_image, title, uid)) = conn
+    if let Some((cover_image, uid)) = conn
         .query_row(
-            "SELECT cover_image, title, uid FROM shared.media WHERE id = ?1",
+            "SELECT cover_image, uid FROM shared.media WHERE id = ?1",
             params![id],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            },
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         )
         .optional()?
     {
         conn.execute(
-            "DELETE FROM main.milestones WHERE media_uid = ?1 OR media_title = ?2",
-            params![uid, title],
+            "DELETE FROM main.milestones WHERE media_uid = ?1",
+            params![uid],
         )?;
 
         remove_cover_file_if_unreferenced(conn, std::path::Path::new(&cover_image), Some(id))?;
@@ -1623,8 +2008,7 @@ pub fn delete_profile_picture(conn: &Connection) -> Result<()> {
 }
 
 // Milestone Operations
-pub fn get_milestones_for_media(conn: &Connection, media_title: &str) -> Result<Vec<Milestone>> {
-    let media_uid = get_media_uid_by_title(conn, media_title)?;
+pub fn get_milestones_for_media_uid(conn: &Connection, media_uid: &str) -> Result<Vec<Milestone>> {
     let mut stmt = conn.prepare(
         "SELECT ms.id,
                 ms.media_uid,
@@ -1635,10 +2019,10 @@ pub fn get_milestones_for_media(conn: &Connection, media_title: &str) -> Result<
                 ms.date
          FROM main.milestones ms
          LEFT JOIN shared.media m ON ms.media_uid = m.uid
-         WHERE ms.media_title = ?1 OR ms.media_uid = ?2
+         WHERE ms.media_uid = ?1
          ORDER BY ms.id ASC",
     )?;
-    let milestone_iter = stmt.query_map(params![media_title, media_uid], |row| {
+    let milestone_iter = stmt.query_map(params![media_uid], |row| {
         Ok(Milestone {
             id: row.get(0)?,
             media_uid: row.get(1)?,
@@ -1693,6 +2077,7 @@ pub fn get_all_milestones(conn: &Connection) -> Result<Vec<Milestone>> {
 struct TimelineMediaContext {
     media_id: i64,
     media_title: String,
+    media_variant: String,
     cover_image: String,
     activity_type: String,
     content_type: String,
@@ -1769,6 +2154,7 @@ fn build_timeline_event(
         date,
         media_id: context.media_id,
         media_title: context.media_title.clone(),
+        media_variant: context.media_variant.clone(),
         cover_image: context.cover_image.clone(),
         activity_type: context.activity_type.clone(),
         content_type: context.content_type.clone(),
@@ -1797,7 +2183,6 @@ pub fn get_timeline_events(conn: &Connection) -> Result<Vec<TimelineEvent>> {
 
     let mut media_contexts_by_id: HashMap<i64, TimelineMediaContext> = HashMap::new();
     let mut media_ids_by_uid: HashMap<String, i64> = HashMap::new();
-    let mut media_ids_by_title: HashMap<String, i64> = HashMap::new();
     let mut timeline_events = Vec::new();
 
     for media in media_list {
@@ -1808,11 +2193,10 @@ pub fn get_timeline_events(conn: &Connection) -> Result<Vec<TimelineEvent>> {
         if let Some(media_uid) = normalize_optional_string(media.uid.clone()) {
             media_ids_by_uid.insert(media_uid, media_id);
         }
-        media_ids_by_title.insert(media.title.clone(), media_id);
-
         let fallback_context = TimelineMediaContext {
             media_id,
             media_title: media.title.clone(),
+            media_variant: media.variant.clone(),
             cover_image: media.cover_image.clone(),
             activity_type: media.default_activity_type.clone(),
             content_type: media.content_type.clone(),
@@ -1849,6 +2233,7 @@ pub fn get_timeline_events(conn: &Connection) -> Result<Vec<TimelineEvent>> {
         let context = TimelineMediaContext {
             media_id,
             media_title: media.title.clone(),
+            media_variant: media.variant.clone(),
             cover_image: media.cover_image.clone(),
             activity_type,
             content_type: media.content_type.clone(),
@@ -1905,8 +2290,7 @@ pub fn get_timeline_events(conn: &Connection) -> Result<Vec<TimelineEvent>> {
             .media_uid
             .as_deref()
             .and_then(|media_uid| media_ids_by_uid.get(media_uid))
-            .copied()
-            .or_else(|| media_ids_by_title.get(&milestone.media_title).copied());
+            .copied();
         let Some(media_id) = media_id else {
             continue;
         };
@@ -1960,16 +2344,23 @@ pub fn delete_milestone(conn: &Connection, id: i64) -> Result<()> {
     Ok(())
 }
 
-pub fn delete_milestones_for_media(conn: &Connection, media_title: &str) -> Result<()> {
-    let media_uid = get_media_uid_by_title(conn, media_title)?;
+pub fn delete_milestones_for_media_uid(conn: &Connection, media_uid: &str) -> Result<()> {
     conn.execute(
-        "DELETE FROM main.milestones WHERE media_title = ?1 OR media_uid = ?2",
-        params![media_title, media_uid],
+        "DELETE FROM main.milestones WHERE media_uid = ?1",
+        params![media_uid],
     )?;
     Ok(())
 }
 
 pub fn update_milestone(conn: &Connection, milestone: &Milestone) -> Result<()> {
+    let milestone_id = milestone
+        .id
+        .ok_or_else(|| migration_error("Milestone update requires an id"))?;
+    if milestone.duration == 0 && milestone.characters == 0 {
+        return Err(migration_error(
+            "Milestone must have either duration or characters",
+        ));
+    }
     let (media_title, media_uid) = resolve_milestone_media_identity(conn, milestone)?;
     conn.execute(
         "UPDATE main.milestones
@@ -1982,7 +2373,7 @@ pub fn update_milestone(conn: &Connection, milestone: &Milestone) -> Result<()> 
             milestone.duration,
             milestone.characters,
             milestone.date,
-            milestone.id.unwrap()
+            milestone_id
         ],
     )?;
     Ok(())
@@ -2201,6 +2592,15 @@ mod tests {
         }
     }
 
+    fn media_uid_for_id(conn: &Connection, media_id: i64) -> String {
+        conn.query_row(
+            "SELECT uid FROM shared.media WHERE id = ?1",
+            params![media_id],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
     fn unique_temp_dir(prefix: &str) -> PathBuf {
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -2336,12 +2736,207 @@ mod tests {
     }
 
     #[test]
+    fn test_add_and_update_media_reject_whitespace_only_titles_without_writes() {
+        let conn = setup_test_db();
+        let blank_add = add_media_with_id(&conn, &sample_media(" \t\n\u{2003} "))
+            .unwrap_err()
+            .to_string();
+        assert!(blank_add.contains("Media title cannot be blank"));
+        assert!(get_all_media(&conn).unwrap().is_empty());
+
+        let media_id = add_media_with_id(&conn, &sample_media("Original Title")).unwrap();
+        let media_uid = media_uid_for_id(&conn, media_id);
+        add_milestone(
+            &conn,
+            &Milestone {
+                id: None,
+                media_uid: Some(media_uid.clone()),
+                media_title: String::new(),
+                name: "Preserved checkpoint".to_string(),
+                duration: 30,
+                characters: 0,
+                date: None,
+            },
+        )
+        .unwrap();
+
+        let mut media = get_all_media(&conn).unwrap().remove(0);
+        media.title = " \t\u{2003} ".to_string();
+        let blank_update = update_media(&conn, &media).unwrap_err().to_string();
+        assert!(blank_update.contains("Media title cannot be blank"));
+
+        assert_eq!(get_all_media(&conn).unwrap()[0].title, "Original Title");
+        let milestones = get_milestones_for_media_uid(&conn, &media_uid).unwrap();
+        assert_eq!(milestones.len(), 1);
+        assert_eq!(milestones[0].media_title, "Original Title");
+    }
+
+    #[test]
     fn test_add_duplicate_media_fails() {
         let conn = setup_test_db();
         let media = sample_media("薬屋のひとりごと");
         add_media_with_id(&conn, &media).unwrap();
         let result = add_media_with_id(&conn, &media);
         assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Another media entry already uses title"));
+    }
+
+    #[test]
+    fn test_same_title_different_variants_are_distinct_media() {
+        let conn = setup_test_db();
+        let anime = Media {
+            variant: "Anime".to_string(),
+            ..sample_media("Horimiya")
+        };
+        let manga = Media {
+            variant: "Manga".to_string(),
+            ..sample_media("Horimiya")
+        };
+
+        let anime_id = add_media_with_id(&conn, &anime).unwrap();
+        let manga_id = add_media_with_id(&conn, &manga).unwrap();
+        assert_ne!(anime_id, manga_id);
+
+        let duplicate = add_media_with_id(&conn, &anime).unwrap_err().to_string();
+        assert!(duplicate.contains("title 'Horimiya'"));
+        assert!(duplicate.contains("variant 'Anime'"));
+
+        let media = get_all_media(&conn).unwrap();
+        assert_eq!(media.len(), 2);
+    }
+
+    #[test]
+    fn test_update_media_rejects_identity_collision_without_changing_media_or_milestones() {
+        let conn = setup_test_db();
+        let anime_id = add_media_with_id(
+            &conn,
+            &Media {
+                variant: "Anime".to_string(),
+                ..sample_media("Horimiya")
+            },
+        )
+        .unwrap();
+        add_media_with_id(
+            &conn,
+            &Media {
+                variant: "Manga".to_string(),
+                ..sample_media("Horimiya")
+            },
+        )
+        .unwrap();
+        let anime_uid = media_uid_for_id(&conn, anime_id);
+        add_milestone(
+            &conn,
+            &Milestone {
+                id: None,
+                media_uid: Some(anime_uid.clone()),
+                media_title: String::new(),
+                name: "Episode 6".to_string(),
+                duration: 120,
+                characters: 0,
+                date: None,
+            },
+        )
+        .unwrap();
+
+        let mut anime = get_all_media(&conn)
+            .unwrap()
+            .into_iter()
+            .find(|media| media.id == Some(anime_id))
+            .unwrap();
+        anime.variant = "Manga".to_string();
+        let error = update_media(&conn, &anime).unwrap_err().to_string();
+        assert!(error.contains("Another media entry already uses title"));
+
+        let stored = get_all_media(&conn)
+            .unwrap()
+            .into_iter()
+            .find(|media| media.id == Some(anime_id))
+            .unwrap();
+        assert_eq!(stored.variant, "Anime");
+        let milestones = get_milestones_for_media_uid(&conn, &anime_uid).unwrap();
+        assert_eq!(milestones.len(), 1);
+        assert_eq!(milestones[0].media_title, "Horimiya");
+    }
+
+    #[test]
+    fn test_update_media_rejects_title_collision_for_blank_variants_without_changes() {
+        let conn = setup_test_db();
+        let first_id = add_media_with_id(&conn, &sample_media("Title A")).unwrap();
+        add_media_with_id(&conn, &sample_media("Title B")).unwrap();
+        let first_uid = media_uid_for_id(&conn, first_id);
+        add_milestone(
+            &conn,
+            &Milestone {
+                id: None,
+                media_uid: Some(first_uid.clone()),
+                media_title: String::new(),
+                name: "Title A checkpoint".to_string(),
+                duration: 30,
+                characters: 0,
+                date: None,
+            },
+        )
+        .unwrap();
+
+        let mut first = get_all_media(&conn)
+            .unwrap()
+            .into_iter()
+            .find(|media| media.id == Some(first_id))
+            .unwrap();
+        assert!(first.variant.is_empty());
+        first.title = "Title B".to_string();
+        let error = update_media(&conn, &first).unwrap_err().to_string();
+        assert!(error.contains("title 'Title B'"));
+        assert!(error.contains("variant '(no variant)'"));
+
+        let stored = get_all_media(&conn).unwrap();
+        assert_eq!(stored.len(), 2);
+        assert!(stored
+            .iter()
+            .any(|media| media.id == Some(first_id) && media.title == "Title A"));
+        let milestones = get_milestones_for_media_uid(&conn, &first_uid).unwrap();
+        assert_eq!(milestones.len(), 1);
+        assert_eq!(milestones[0].media_title, "Title A");
+    }
+
+    #[test]
+    fn test_update_media_and_milestone_title_propagation_are_atomic() {
+        let conn = setup_test_db();
+        let media_id = add_media_with_id(&conn, &sample_media("Original")).unwrap();
+        let media_uid = media_uid_for_id(&conn, media_id);
+        add_milestone(
+            &conn,
+            &Milestone {
+                id: None,
+                media_uid: Some(media_uid.clone()),
+                media_title: String::new(),
+                name: "Checkpoint".to_string(),
+                duration: 10,
+                characters: 0,
+                date: None,
+            },
+        )
+        .unwrap();
+        conn.execute_batch(
+            "CREATE TRIGGER main.reject_milestone_title_update
+             BEFORE UPDATE OF media_title ON main.milestones
+             BEGIN
+                 SELECT RAISE(ABORT, 'forced milestone update failure');
+             END;",
+        )
+        .unwrap();
+
+        let mut media = get_all_media(&conn).unwrap().remove(0);
+        media.title = "Renamed".to_string();
+        assert!(update_media(&conn, &media).is_err());
+
+        assert_eq!(get_all_media(&conn).unwrap()[0].title, "Original");
+        let milestones = get_milestones_for_media_uid(&conn, &media_uid).unwrap();
+        assert_eq!(milestones[0].media_title, "Original");
     }
 
     #[test]
@@ -2385,7 +2980,7 @@ mod tests {
             &conn,
             &Milestone {
                 id: None,
-                media_uid: None,
+                media_uid: original_media.uid.clone(),
                 media_title: "Before Rename".to_string(),
                 name: "Checkpoint".to_string(),
                 duration: 90,
@@ -2399,17 +2994,90 @@ mod tests {
         renamed_media.title = "After Rename".to_string();
         update_media(&conn, &renamed_media).unwrap();
 
-        assert_eq!(
-            get_milestones_for_media(&conn, "Before Rename")
-                .unwrap()
-                .len(),
-            0
-        );
-
-        let renamed_milestones = get_milestones_for_media(&conn, "After Rename").unwrap();
+        let renamed_milestones =
+            get_milestones_for_media_uid(&conn, original_media.uid.as_deref().unwrap()).unwrap();
         assert_eq!(renamed_milestones.len(), 1);
         assert_eq!(renamed_milestones[0].media_title, "After Rename");
         assert_eq!(renamed_milestones[0].media_uid, original_media.uid);
+    }
+
+    #[test]
+    fn test_same_title_variant_milestones_are_uid_scoped_for_rename_get_and_delete() {
+        let conn = setup_test_db();
+        let anime_id = add_media_with_id(
+            &conn,
+            &Media {
+                variant: "Anime".to_string(),
+                ..sample_media("Shared Title")
+            },
+        )
+        .unwrap();
+        let manga_id = add_media_with_id(
+            &conn,
+            &Media {
+                variant: "Manga".to_string(),
+                ..sample_media("Shared Title")
+            },
+        )
+        .unwrap();
+        let anime_uid = media_uid_for_id(&conn, anime_id);
+        let manga_uid = media_uid_for_id(&conn, manga_id);
+
+        for (uid, name) in [
+            (&anime_uid, "Anime milestone"),
+            (&manga_uid, "Manga milestone"),
+        ] {
+            add_milestone(
+                &conn,
+                &Milestone {
+                    id: None,
+                    media_uid: Some(uid.to_string()),
+                    media_title: "stale input title".to_string(),
+                    name: name.to_string(),
+                    duration: 30,
+                    characters: 0,
+                    date: None,
+                },
+            )
+            .unwrap();
+        }
+
+        assert_eq!(
+            get_milestones_for_media_uid(&conn, &anime_uid).unwrap()[0].name,
+            "Anime milestone"
+        );
+        assert_eq!(
+            get_milestones_for_media_uid(&conn, &manga_uid).unwrap()[0].name,
+            "Manga milestone"
+        );
+
+        let mut anime = get_all_media(&conn)
+            .unwrap()
+            .into_iter()
+            .find(|media| media.id == Some(anime_id))
+            .unwrap();
+        anime.title = "Renamed Anime".to_string();
+        update_media(&conn, &anime).unwrap();
+
+        assert_eq!(
+            get_milestones_for_media_uid(&conn, &anime_uid).unwrap()[0].media_title,
+            "Renamed Anime"
+        );
+        assert_eq!(
+            get_milestones_for_media_uid(&conn, &manga_uid).unwrap()[0].media_title,
+            "Shared Title"
+        );
+
+        delete_media(&conn, anime_id).unwrap();
+        assert!(get_milestones_for_media_uid(&conn, &anime_uid)
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            get_milestones_for_media_uid(&conn, &manga_uid)
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]
@@ -2426,6 +3094,7 @@ mod tests {
             ..sample_media("Cleanup Test")
         };
         let media_id = add_media_with_id(&conn, &media).unwrap();
+        let media_uid = media_uid_for_id(&conn, media_id);
 
         let log = ActivityLog {
             id: None,
@@ -2441,7 +3110,7 @@ mod tests {
             &conn,
             &Milestone {
                 id: None,
-                media_uid: None,
+                media_uid: Some(media_uid),
                 media_title: "Cleanup Test".to_string(),
                 name: "Delete Me".to_string(),
                 duration: 30,
@@ -2641,12 +3310,14 @@ mod tests {
     #[test]
     fn test_get_all_milestones_returns_all_rows_in_date_order() {
         let conn = setup_test_db();
+        let alpha_id = add_media_with_id(&conn, &sample_media("Alpha")).unwrap();
+        let beta_id = add_media_with_id(&conn, &sample_media("Beta")).unwrap();
 
         add_milestone(
             &conn,
             &Milestone {
                 id: None,
-                media_uid: None,
+                media_uid: Some(media_uid_for_id(&conn, alpha_id)),
                 media_title: "Alpha".to_string(),
                 name: "Older".to_string(),
                 duration: 10,
@@ -2659,7 +3330,7 @@ mod tests {
             &conn,
             &Milestone {
                 id: None,
-                media_uid: None,
+                media_uid: Some(media_uid_for_id(&conn, beta_id)),
                 media_title: "Beta".to_string(),
                 name: "Newer".to_string(),
                 duration: 20,
@@ -2742,7 +3413,7 @@ mod tests {
             &conn,
             &Milestone {
                 id: None,
-                media_uid: None,
+                media_uid: Some(media_uid_for_id(&conn, complete_id)),
                 media_title: "Complete Title".to_string(),
                 name: "Halfway".to_string(),
                 duration: 60,
@@ -2755,7 +3426,7 @@ mod tests {
             &conn,
             &Milestone {
                 id: None,
-                media_uid: None,
+                media_uid: Some(media_uid_for_id(&conn, ongoing_id)),
                 media_title: "Ongoing Title".to_string(),
                 name: "Undated".to_string(),
                 duration: 30,
@@ -2819,6 +3490,49 @@ mod tests {
         assert!(!events
             .iter()
             .any(|event| event.milestone_name.as_deref() == Some("Undated")));
+    }
+
+    #[test]
+    fn test_get_timeline_events_preserves_same_title_variants() {
+        let conn = setup_test_db();
+        let manga_id = add_media_with_id(
+            &conn,
+            &Media {
+                variant: "Manga".to_string(),
+                ..sample_media("Shared Title")
+            },
+        )
+        .unwrap();
+        let anime_id = add_media_with_id(
+            &conn,
+            &Media {
+                variant: "Anime".to_string(),
+                default_activity_type: "Watching".to_string(),
+                ..sample_media("Shared Title")
+            },
+        )
+        .unwrap();
+
+        add_log(&conn, &sample_log(manga_id, "2024-04-01", "Reading")).unwrap();
+        add_log(&conn, &sample_log(anime_id, "2024-04-02", "Watching")).unwrap();
+
+        let events = get_timeline_events(&conn).unwrap();
+        let manga = events
+            .iter()
+            .find(|event| event.media_id == manga_id)
+            .unwrap();
+        let anime = events
+            .iter()
+            .find(|event| event.media_id == anime_id)
+            .unwrap();
+        assert_eq!(manga.media_title, "Shared Title");
+        assert_eq!(manga.media_variant, "Manga");
+        assert_eq!(anime.media_title, "Shared Title");
+        assert_eq!(anime.media_variant, "Anime");
+
+        let serialized = serde_json::to_value(anime).unwrap();
+        assert_eq!(serialized["mediaVariant"], "Anime");
+        assert!(serialized.get("media_variant").is_none());
     }
 
     #[test]
@@ -2889,7 +3603,7 @@ mod tests {
             &conn,
             &Milestone {
                 id: None,
-                media_uid: None,
+                media_uid: Some(media_uid_for_id(&conn, complete_id)),
                 media_title: "Complete Title".to_string(),
                 name: "Final Stretch".to_string(),
                 duration: 25,
@@ -2902,7 +3616,7 @@ mod tests {
             &conn,
             &Milestone {
                 id: None,
-                media_uid: None,
+                media_uid: Some(media_uid_for_id(&conn, ongoing_id)),
                 media_title: "Ongoing Title".to_string(),
                 name: "Checkpoint".to_string(),
                 duration: 15,
@@ -2959,7 +3673,7 @@ mod tests {
             &conn,
             &Milestone {
                 id: None,
-                media_uid: None,
+                media_uid: Some(media_uid_for_id(&conn, media_id)),
                 media_title: "Sorted Media".to_string(),
                 name: "Milestone A".to_string(),
                 duration: 30,
@@ -2974,7 +3688,7 @@ mod tests {
             &conn,
             &Milestone {
                 id: None,
-                media_uid: None,
+                media_uid: Some(media_uid_for_id(&conn, media_id)),
                 media_title: "Sorted Media".to_string(),
                 name: "Milestone B".to_string(),
                 duration: 30,
@@ -3331,32 +4045,198 @@ mod tests {
 
     #[test]
     fn test_init_db_rejects_newer_schema_version() {
-        let temp_dir = unique_temp_dir("future_schema_test");
-        std::fs::create_dir_all(&temp_dir).unwrap();
+        for (case, main_version, shared_version) in [
+            (
+                "future_main",
+                CURRENT_SCHEMA_VERSION + 1,
+                CURRENT_SCHEMA_VERSION,
+            ),
+            (
+                "future_shared",
+                CURRENT_SCHEMA_VERSION,
+                CURRENT_SCHEMA_VERSION + 1,
+            ),
+        ] {
+            let temp_dir = unique_temp_dir(case);
+            std::fs::create_dir_all(&temp_dir).unwrap();
+            let user_db = temp_dir.join("kechimochi_user.db");
+            let shared_db = temp_dir.join("kechimochi_shared_media.db");
 
+            for (path, version, marker) in [
+                (&user_db, main_version, "user marker"),
+                (&shared_db, shared_version, "shared marker"),
+            ] {
+                let conn = Connection::open(path).unwrap();
+                conn.execute_batch(&format!(
+                    "PRAGMA journal_mode = DELETE;
+                     CREATE TABLE future_marker (value TEXT NOT NULL);
+                     PRAGMA user_version = {version};"
+                ))
+                .unwrap();
+                conn.execute("INSERT INTO future_marker (value) VALUES (?1)", [marker])
+                    .unwrap();
+            }
+
+            let directory_entries = |directory: &std::path::Path| {
+                let mut entries = std::fs::read_dir(directory)
+                    .unwrap()
+                    .map(|entry| entry.unwrap().file_name())
+                    .collect::<Vec<_>>();
+                entries.sort();
+                entries
+            };
+            let files_before = directory_entries(&temp_dir);
+
+            let err = init_db(temp_dir.clone(), None).unwrap_err();
+            assert!(err.to_string().contains("newer than this app supports"));
+            assert_eq!(directory_entries(&temp_dir), files_before);
+
+            for (path, expected_version, expected_marker) in [
+                (&user_db, main_version, "user marker"),
+                (&shared_db, shared_version, "shared marker"),
+            ] {
+                let conn = Connection::open(path).unwrap();
+                assert_eq!(get_schema_version(&conn, "main").unwrap(), expected_version);
+                let journal_mode: String = conn
+                    .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+                    .unwrap();
+                assert_eq!(journal_mode, "delete");
+                let marker: String = conn
+                    .query_row("SELECT value FROM future_marker", [], |row| row.get(0))
+                    .unwrap();
+                assert_eq!(marker, expected_marker);
+                let tables: i64 = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table'",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .unwrap();
+                assert_eq!(tables, 1);
+            }
+
+            std::fs::remove_dir_all(temp_dir).ok();
+        }
+    }
+
+    #[test]
+    fn test_init_db_rejects_a_lone_future_database_before_creating_or_copying_companions() {
+        for (case, future_file_name, fallback_username, forbidden_file_name) in [
+            (
+                "future_main_without_shared",
+                "kechimochi_user.db",
+                None,
+                "kechimochi_shared_media.db",
+            ),
+            (
+                "future_shared_without_main",
+                "kechimochi_shared_media.db",
+                None,
+                "kechimochi_user.db",
+            ),
+            (
+                "future_fallback_without_main",
+                "kechimochi_legacy-user.db",
+                Some("legacy-user"),
+                "kechimochi_user.db",
+            ),
+        ] {
+            let temp_dir = unique_temp_dir(case);
+            std::fs::create_dir_all(&temp_dir).unwrap();
+            let future_path = temp_dir.join(future_file_name);
+            let forbidden_path = temp_dir.join(forbidden_file_name);
+            {
+                let conn = Connection::open(&future_path).unwrap();
+                conn.execute_batch(&format!(
+                    "PRAGMA journal_mode = DELETE;
+                     CREATE TABLE future_marker (value TEXT NOT NULL);
+                     INSERT INTO future_marker (value) VALUES ('preserved');
+                     PRAGMA user_version = {};",
+                    CURRENT_SCHEMA_VERSION + 1
+                ))
+                .unwrap();
+            }
+            let files_before = std::fs::read_dir(&temp_dir)
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name())
+                .collect::<Vec<_>>();
+
+            let error = init_db(temp_dir.clone(), fallback_username)
+                .unwrap_err()
+                .to_string();
+
+            assert!(error.contains("newer than this app supports"));
+            assert!(!forbidden_path.exists());
+            assert_eq!(
+                std::fs::read_dir(&temp_dir)
+                    .unwrap()
+                    .map(|entry| entry.unwrap().file_name())
+                    .collect::<Vec<_>>(),
+                files_before
+            );
+            let conn = Connection::open(&future_path).unwrap();
+            assert_eq!(
+                get_schema_version(&conn, "main").unwrap(),
+                CURRENT_SCHEMA_VERSION + 1
+            );
+            assert_eq!(
+                conn.query_row("PRAGMA journal_mode", [], |row| row.get::<_, String>(0))
+                    .unwrap(),
+                "delete"
+            );
+            assert_eq!(
+                conn.query_row("SELECT value FROM future_marker", [], |row| {
+                    row.get::<_, String>(0)
+                })
+                .unwrap(),
+                "preserved"
+            );
+
+            std::fs::remove_dir_all(temp_dir).ok();
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_init_db_preflight_reads_an_uncheckpointed_future_version_from_wal() {
+        let temp_dir = unique_temp_dir("future_version_in_wal");
+        std::fs::create_dir_all(&temp_dir).unwrap();
         let user_db = temp_dir.join("kechimochi_user.db");
         let shared_db = temp_dir.join("kechimochi_shared_media.db");
-
-        {
-            let conn = Connection::open(&user_db).unwrap();
-            conn.execute_batch(&format!(
-                "PRAGMA user_version = {};",
+        let writer = Connection::open(&user_db).unwrap();
+        writer
+            .execute_batch(&format!(
+                "PRAGMA journal_mode = WAL;
+                 PRAGMA wal_autocheckpoint = 0;
+                 CREATE TABLE future_marker (value TEXT NOT NULL);
+                 INSERT INTO future_marker (value) VALUES ('only in WAL');
+                 PRAGMA user_version = {};",
                 CURRENT_SCHEMA_VERSION + 1
             ))
             .unwrap();
-        }
-        {
-            let conn = Connection::open(&shared_db).unwrap();
-            conn.execute_batch(&format!(
-                "PRAGMA user_version = {};",
-                CURRENT_SCHEMA_VERSION + 1
-            ))
-            .unwrap();
-        }
+        assert!(user_db.with_extension("db-wal").exists());
 
-        let err = init_db(temp_dir.clone(), None).unwrap_err();
-        assert!(err.to_string().contains("newer than this app supports"));
+        // A read-only WAL open may recreate -shm, but it must see the future
+        // version in the WAL and reject before creating the missing shared DB.
+        std::fs::remove_file(user_db.with_extension("db-shm")).unwrap();
+        let error = init_db(temp_dir.clone(), None).unwrap_err().to_string();
 
+        assert!(error.contains("newer than this app supports"));
+        assert!(!shared_db.exists());
+        assert_eq!(
+            get_schema_version(&writer, "main").unwrap(),
+            CURRENT_SCHEMA_VERSION + 1
+        );
+        assert_eq!(
+            writer
+                .query_row("SELECT value FROM future_marker", [], |row| {
+                    row.get::<_, String>(0)
+                })
+                .unwrap(),
+            "only in WAL"
+        );
+
+        drop(writer);
         std::fs::remove_dir_all(temp_dir).ok();
     }
 
@@ -3526,7 +4406,8 @@ mod tests {
         assert_eq!(media.len(), 1);
         assert_eq!(media[0].uid.as_deref(), Some(expected_uid.as_str()));
 
-        let milestones = get_milestones_for_media(&conn, "Migrated Media").unwrap();
+        let milestones =
+            get_milestones_for_media_uid(&conn, media[0].uid.as_deref().unwrap()).unwrap();
         assert_eq!(milestones.len(), 1);
         assert_eq!(milestones[0].media_uid, media[0].uid);
 
@@ -3548,11 +4429,13 @@ mod tests {
     fn test_milestone_operations() {
         let conn = setup_test_db();
         let media_title = "Milestone Media";
+        let media_id = add_media_with_id(&conn, &sample_media(media_title)).unwrap();
+        let media_uid = media_uid_for_id(&conn, media_id);
 
         let milestone = Milestone {
             id: None,
-            media_uid: None,
-            media_title: media_title.to_string(),
+            media_uid: Some(media_uid.clone()),
+            media_title: "Ignored stale display title".to_string(),
             name: "First Quarter".to_string(),
             duration: 120,
             characters: 0,
@@ -3563,9 +4446,10 @@ mod tests {
         let id = add_milestone(&conn, &milestone).unwrap();
         assert!(id > 0);
 
-        // Test get_milestones_for_media
-        let milestones = get_milestones_for_media(&conn, media_title).unwrap();
+        // Test get_milestones_for_media_uid and canonical display title materialization.
+        let milestones = get_milestones_for_media_uid(&conn, &media_uid).unwrap();
         assert_eq!(milestones.len(), 1);
+        assert_eq!(milestones[0].media_title, media_title);
         assert_eq!(milestones[0].name, "First Quarter");
         assert_eq!(milestones[0].duration, 120);
 
@@ -3573,15 +4457,17 @@ mod tests {
         let mut updated = milestones[0].clone();
         updated.name = "Halfway".to_string();
         updated.duration = 240;
+        updated.media_title = "stale client display title".to_string();
         update_milestone(&conn, &updated).unwrap();
 
-        let milestones = get_milestones_for_media(&conn, media_title).unwrap();
+        let milestones = get_milestones_for_media_uid(&conn, &media_uid).unwrap();
         assert_eq!(milestones[0].name, "Halfway");
         assert_eq!(milestones[0].duration, 240);
+        assert_eq!(milestones[0].media_title, media_title);
 
         // Test delete_milestone
         delete_milestone(&conn, id).unwrap();
-        let milestones = get_milestones_for_media(&conn, media_title).unwrap();
+        let milestones = get_milestones_for_media_uid(&conn, &media_uid).unwrap();
         assert_eq!(milestones.len(), 0);
     }
 
@@ -3606,16 +4492,43 @@ mod tests {
     }
 
     #[test]
+    fn test_milestone_writes_require_an_existing_media_uid_without_title_fallback() {
+        let conn = setup_test_db();
+        add_media_with_id(&conn, &sample_media("Title Must Not Resolve")).unwrap();
+        let mut milestone = Milestone {
+            id: None,
+            media_uid: None,
+            media_title: "Title Must Not Resolve".to_string(),
+            name: "Checkpoint".to_string(),
+            duration: 10,
+            characters: 0,
+            date: None,
+        };
+
+        let missing_uid = add_milestone(&conn, &milestone).unwrap_err().to_string();
+        assert!(missing_uid.contains("Milestone must specify a media_uid"));
+
+        milestone.media_uid = Some("does-not-exist".to_string());
+        let unknown_uid = add_milestone(&conn, &milestone).unwrap_err().to_string();
+        assert!(unknown_uid.contains("Media with uid 'does-not-exist' was not found"));
+        assert!(get_all_milestones(&conn).unwrap().is_empty());
+    }
+
+    #[test]
     fn test_delete_milestones_for_media() {
         let conn = setup_test_db();
         let title1 = "Media 1";
         let title2 = "Media 2";
+        let media1_id = add_media_with_id(&conn, &sample_media(title1)).unwrap();
+        let media2_id = add_media_with_id(&conn, &sample_media(title2)).unwrap();
+        let media1_uid = media_uid_for_id(&conn, media1_id);
+        let media2_uid = media_uid_for_id(&conn, media2_id);
 
         add_milestone(
             &conn,
             &Milestone {
                 id: None,
-                media_uid: None,
+                media_uid: Some(media1_uid.clone()),
                 media_title: title1.to_string(),
                 name: "M1".to_string(),
                 duration: 10,
@@ -3628,7 +4541,7 @@ mod tests {
             &conn,
             &Milestone {
                 id: None,
-                media_uid: None,
+                media_uid: Some(media2_uid.clone()),
                 media_title: title2.to_string(),
                 name: "M2".to_string(),
                 duration: 20,
@@ -3638,17 +4551,40 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(get_milestones_for_media(&conn, title1).unwrap().len(), 1);
-        assert_eq!(get_milestones_for_media(&conn, title2).unwrap().len(), 1);
+        assert_eq!(
+            get_milestones_for_media_uid(&conn, &media1_uid)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            get_milestones_for_media_uid(&conn, &media2_uid)
+                .unwrap()
+                .len(),
+            1
+        );
 
-        delete_milestones_for_media(&conn, title1).unwrap();
-        assert_eq!(get_milestones_for_media(&conn, title1).unwrap().len(), 0);
-        assert_eq!(get_milestones_for_media(&conn, title2).unwrap().len(), 1);
+        delete_milestones_for_media_uid(&conn, &media1_uid).unwrap();
+        assert_eq!(
+            get_milestones_for_media_uid(&conn, &media1_uid)
+                .unwrap()
+                .len(),
+            0
+        );
+        assert_eq!(
+            get_milestones_for_media_uid(&conn, &media2_uid)
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]
     fn test_migrate_milestones() {
         let conn = Connection::open_in_memory().unwrap();
+        conn.execute("ATTACH DATABASE ':memory:' AS shared", [])
+            .unwrap();
+        create_shared_media_table(&conn).unwrap();
         // Create table with only id (simulate old version if it ever missed columns)
         conn.execute(
             "CREATE TABLE main.milestones (id INTEGER PRIMARY KEY AUTOINCREMENT)",
@@ -3658,11 +4594,12 @@ mod tests {
 
         // This should add the missing columns
         migrate_milestones(&conn).unwrap();
+        let media_id = add_media_with_id(&conn, &sample_media("Migrated")).unwrap();
 
         // Verify we can insert
         let milestone = Milestone {
             id: None,
-            media_uid: None,
+            media_uid: Some(media_uid_for_id(&conn, media_id)),
             media_title: "Migrated".to_string(),
             name: "Test".to_string(),
             duration: 50,
@@ -3757,8 +4694,8 @@ mod tests {
     }
 
     #[test]
-    fn test_fresh_db_has_latest_columns_and_is_at_schema_v5() {
-        let temp_dir = unique_temp_dir("fresh_v5");
+    fn test_fresh_db_has_latest_columns_and_is_at_schema_v6() {
+        let temp_dir = unique_temp_dir("fresh_v6");
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         let conn = init_db(temp_dir.clone(), None).unwrap();
@@ -3767,15 +4704,34 @@ mod tests {
             get_bundle_schema_version(&conn).unwrap(),
             CURRENT_SCHEMA_VERSION
         );
-        assert_eq!(CURRENT_SCHEMA_VERSION, 5);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 6);
         assert!(table_has_column(&conn, "main", "activity_logs", "notes").unwrap());
         assert!(table_has_column(&conn, "shared", "media", "variant").unwrap());
         assert!(table_has_column(&conn, "shared", "media", "default_activity_type").unwrap());
         assert!(!table_has_column(&conn, "shared", "media", "media_type").unwrap());
+        assert!(latest_media_identity_constraints_are_present(&conn).unwrap());
+        assert!(table_column_is_not_null(&conn, "main", "milestones", "media_uid").unwrap());
         assert!(latest_schema_is_present(&conn).unwrap());
         validate_latest_schema(&conn).unwrap();
 
         std::fs::remove_dir_all(temp_dir).ok();
+    }
+
+    #[test]
+    fn test_latest_schema_validation_rejects_a_preexisting_blank_media_title() {
+        let conn = setup_test_db();
+        conn.execute(
+            "INSERT INTO shared.media (
+                 uid, title, default_activity_type, status, language, variant
+             ) VALUES ('blank-title-uid', ?1, 'Reading', 'Active', 'Japanese', 'Manga')",
+            [" \t\u{2003} "],
+        )
+        .unwrap();
+
+        assert!(!latest_schema_is_present(&conn).unwrap());
+        let error = validate_latest_schema(&conn).unwrap_err().to_string();
+        assert!(error.contains("Media row 1 has a blank title"));
+        assert!(error.contains("stable title/variant identity"));
     }
 
     #[test]
@@ -3873,11 +4829,11 @@ mod tests {
     }
 
     #[test]
-    fn test_no_op_startup_on_v5_db_stays_at_v5() {
-        let temp_dir = unique_temp_dir("noop_v5");
+    fn test_no_op_startup_on_v6_db_stays_at_v6() {
+        let temp_dir = unique_temp_dir("noop_v6");
         std::fs::create_dir_all(&temp_dir).unwrap();
 
-        // First init creates the DB at v5.
+        // First init creates the DB at v6.
         let conn1 = init_db(temp_dir.clone(), None).unwrap();
         let media_id = add_media_with_id(&conn1, &sample_media("No-op Media")).unwrap();
         add_log(
@@ -3897,7 +4853,7 @@ mod tests {
 
         // Second init should be a no-op
         let conn2 = init_db(temp_dir.clone(), None).unwrap();
-        assert_eq!(get_bundle_schema_version(&conn2).unwrap(), 5);
+        assert_eq!(get_bundle_schema_version(&conn2).unwrap(), 6);
 
         let logs = get_logs(&conn2).unwrap();
         assert_eq!(logs.len(), 1);
@@ -3935,6 +4891,122 @@ mod tests {
     }
 
     #[test]
+    fn test_v3_database_migrates_sequentially_to_v6_without_losing_relations() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute("ATTACH DATABASE ':memory:' AS shared", [])
+            .unwrap();
+        conn.execute_batch(
+            "CREATE TABLE shared.media (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 uid TEXT NOT NULL UNIQUE,
+                 title TEXT NOT NULL UNIQUE,
+                 media_type TEXT NOT NULL,
+                 status TEXT NOT NULL,
+                 language TEXT NOT NULL,
+                 description TEXT DEFAULT '',
+                 cover_image TEXT DEFAULT '',
+                 extra_data TEXT DEFAULT '{}',
+                 content_type TEXT DEFAULT 'Unknown',
+                 tracking_status TEXT DEFAULT 'Untracked'
+             );
+             CREATE TABLE main.activity_logs (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 media_id INTEGER NOT NULL,
+                 duration_minutes INTEGER NOT NULL,
+                 characters INTEGER NOT NULL DEFAULT 0,
+                 date TEXT NOT NULL,
+                 activity_type TEXT NOT NULL DEFAULT '',
+                 notes TEXT NOT NULL DEFAULT ''
+             );
+             CREATE TABLE main.milestones (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 media_uid TEXT,
+                 media_title TEXT NOT NULL,
+                 name TEXT NOT NULL,
+                 duration INTEGER NOT NULL,
+                 characters INTEGER NOT NULL DEFAULT 0,
+                 date TEXT
+             );
+             CREATE TABLE main.settings (
+                 key TEXT PRIMARY KEY,
+                 value TEXT NOT NULL,
+                 updated_at TEXT NOT NULL
+             );
+             CREATE TABLE main.profile_picture (
+                 id INTEGER PRIMARY KEY CHECK (id = 1),
+                 mime_type TEXT NOT NULL,
+                 base64_data TEXT NOT NULL,
+                 byte_size INTEGER NOT NULL,
+                 width INTEGER NOT NULL,
+                 height INTEGER NOT NULL,
+                 updated_at TEXT NOT NULL
+             );
+             INSERT INTO shared.media (
+                 id, uid, title, media_type, status, language, description,
+                 cover_image, extra_data, content_type, tracking_status
+             ) VALUES (
+                 12, 'v3-stable-uid', 'V3 Media', 'Reading', 'Active', 'Japanese',
+                 'preserved description', '', '{}', 'Novel', 'Ongoing'
+             );
+             INSERT INTO main.activity_logs (
+                 id, media_id, duration_minutes, characters, date, activity_type, notes
+             ) VALUES (
+                 21, 12, 45, 1800, '2026-07-20', 'Reading', 'preserved v3 note'
+             );
+             INSERT INTO main.milestones (
+                 id, media_uid, media_title, name, duration, characters, date
+             ) VALUES (
+                 34, NULL, 'V3 Media', 'Legacy v3 checkpoint', 45, 1800, '2026-07-20'
+             );",
+        )
+        .unwrap();
+        set_bundle_schema_version(&conn, 3).unwrap();
+
+        migrate_schema(&conn).unwrap();
+
+        assert_eq!(get_bundle_schema_version(&conn).unwrap(), 6);
+        assert!(latest_media_identity_constraints_are_present(&conn).unwrap());
+        assert!(table_column_is_not_null(&conn, "main", "milestones", "media_uid").unwrap());
+
+        let media = get_all_media(&conn).unwrap().remove(0);
+        assert_eq!(media.id, Some(12));
+        assert_eq!(media.uid.as_deref(), Some("v3-stable-uid"));
+        assert_eq!(media.title, "V3 Media");
+        assert_eq!(media.variant, "");
+        assert_eq!(media.default_activity_type, "Reading");
+        assert_eq!(media.description, "preserved description");
+
+        let logs = get_logs_for_media(&conn, 12).unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].id, Some(21));
+        assert_eq!(logs[0].activity_type, "Reading");
+        assert_eq!(logs[0].notes, "preserved v3 note");
+
+        let milestones = get_milestones_for_media_uid(&conn, "v3-stable-uid").unwrap();
+        assert_eq!(milestones.len(), 1);
+        assert_eq!(milestones[0].id, Some(34));
+        assert_eq!(milestones[0].media_uid.as_deref(), Some("v3-stable-uid"));
+
+        add_media_with_id(
+            &conn,
+            &Media {
+                uid: Some("v6-second-variant".to_string()),
+                variant: "Audiobook".to_string(),
+                ..sample_media("V3 Media")
+            },
+        )
+        .unwrap();
+        assert!(add_media_with_id(
+            &conn,
+            &Media {
+                uid: Some("v6-duplicate-empty-variant".to_string()),
+                ..sample_media("V3 Media")
+            },
+        )
+        .is_err());
+    }
+
+    #[test]
     fn test_v4_to_v5_migration_materializes_activity_types_and_renames_media_column() {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute("ATTACH DATABASE ':memory:' AS shared", [])
@@ -3966,7 +5038,7 @@ mod tests {
 
         migrate_schema(&conn).unwrap();
 
-        assert_eq!(get_bundle_schema_version(&conn).unwrap(), 5);
+        assert_eq!(get_bundle_schema_version(&conn).unwrap(), 6);
         assert!(table_has_column(&conn, "shared", "media", "default_activity_type").unwrap());
         assert!(!table_has_column(&conn, "shared", "media", "media_type").unwrap());
 
@@ -4019,6 +5091,352 @@ mod tests {
             )
             .unwrap();
         assert_eq!(historical_activity_type, "Reading");
+    }
+
+    #[test]
+    fn test_v5_to_v6_migration_preserves_media_and_relations_and_replaces_title_uniqueness() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute("ATTACH DATABASE ':memory:' AS shared", [])
+            .unwrap();
+        conn.execute_batch(
+            "CREATE TABLE shared.media (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 uid TEXT NOT NULL UNIQUE,
+                 title TEXT NOT NULL UNIQUE,
+                 default_activity_type TEXT NOT NULL,
+                 status TEXT NOT NULL,
+                 language TEXT NOT NULL,
+                 description TEXT DEFAULT '',
+                 cover_image TEXT DEFAULT '',
+                 extra_data TEXT DEFAULT '{}',
+                 content_type TEXT DEFAULT 'Unknown',
+                 tracking_status TEXT DEFAULT 'Untracked',
+                 variant TEXT NOT NULL DEFAULT ''
+             );",
+        )
+        .unwrap();
+        create_activity_logs_table(&conn).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE main.milestones (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 media_uid TEXT,
+                 media_title TEXT NOT NULL,
+                 name TEXT NOT NULL,
+                 duration INTEGER NOT NULL,
+                 characters INTEGER NOT NULL DEFAULT 0,
+                 date TEXT
+             );",
+        )
+        .unwrap();
+        create_settings_table(&conn).unwrap();
+        create_profile_picture_table(&conn).unwrap();
+        conn.execute_batch(
+            "INSERT INTO shared.media (
+                 id, uid, title, default_activity_type, status, language, description,
+                 cover_image, extra_data, content_type, tracking_status, variant
+             ) VALUES (
+                 42, 'stable-uid', 'Horimiya', 'Watching', 'Active', 'Japanese',
+                 'preserved description', '/tmp/preserved-cover.png', '{\"key\":\"value\"}',
+                 'Anime', 'Complete', '  Anime  '
+             );
+             INSERT INTO main.activity_logs (
+                 id, media_id, duration_minutes, characters, date, activity_type, notes
+             ) VALUES (7, 42, 25, 321, '2026-01-02', 'Watching', 'preserved note');
+             INSERT INTO main.milestones (
+                 id, media_uid, media_title, name, duration, characters, date
+             ) VALUES
+                 (9, 'stable-uid', 'Stale display title', 'Episode 6', 150, 0, '2026-01-02'),
+                 (10, NULL, 'Horimiya', 'Legacy title-only milestone', 175, 0, '2026-01-03');",
+        )
+        .unwrap();
+        set_bundle_schema_version(&conn, 5).unwrap();
+
+        migrate_schema(&conn).unwrap();
+
+        assert_eq!(get_bundle_schema_version(&conn).unwrap(), 6);
+        assert!(latest_media_identity_constraints_are_present(&conn).unwrap());
+        let migrated = get_all_media(&conn).unwrap().remove(0);
+        assert_eq!(migrated.id, Some(42));
+        assert_eq!(migrated.uid.as_deref(), Some("stable-uid"));
+        assert_eq!(migrated.title, "Horimiya");
+        assert_eq!(migrated.variant, "Anime");
+        assert_eq!(migrated.default_activity_type, "Watching");
+        assert_eq!(migrated.status, "Active");
+        assert_eq!(migrated.language, "Japanese");
+        assert_eq!(migrated.description, "preserved description");
+        assert_eq!(migrated.cover_image, "/tmp/preserved-cover.png");
+        assert_eq!(migrated.extra_data, "{\"key\":\"value\"}");
+        assert_eq!(migrated.content_type, "Anime");
+        assert_eq!(migrated.tracking_status, "Complete");
+
+        let logs = get_logs_for_media(&conn, 42).unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].id, Some(7));
+        assert_eq!(logs[0].notes, "preserved note");
+        let milestones = get_milestones_for_media_uid(&conn, "stable-uid").unwrap();
+        assert_eq!(milestones.len(), 2);
+        assert_eq!(milestones[0].id, Some(9));
+        assert_eq!(milestones[0].media_title, "Horimiya");
+        assert_eq!(milestones[1].id, Some(10));
+        assert_eq!(milestones[1].media_uid.as_deref(), Some("stable-uid"));
+        assert!(table_column_is_not_null(&conn, "main", "milestones", "media_uid").unwrap());
+
+        let manga_id = add_media_with_id(
+            &conn,
+            &Media {
+                uid: Some("different-uid".to_string()),
+                variant: "Manga".to_string(),
+                ..sample_media("Horimiya")
+            },
+        )
+        .unwrap();
+        assert!(manga_id > 42);
+        let duplicate = add_media_with_id(
+            &conn,
+            &Media {
+                uid: Some("third-uid".to_string()),
+                variant: "Anime".to_string(),
+                ..sample_media("Horimiya")
+            },
+        );
+        assert!(duplicate.is_err());
+    }
+
+    #[test]
+    fn test_v5_to_v6_migration_rejects_variant_trim_collision_atomically() {
+        let conn = setup_test_db();
+        conn.execute("DROP TABLE shared.media", []).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE shared.media (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 uid TEXT NOT NULL UNIQUE,
+                 title TEXT NOT NULL,
+                 default_activity_type TEXT NOT NULL,
+                 status TEXT NOT NULL,
+                 language TEXT NOT NULL,
+                 description TEXT DEFAULT '',
+                 cover_image TEXT DEFAULT '',
+                 extra_data TEXT DEFAULT '{}',
+                 content_type TEXT DEFAULT 'Unknown',
+                 tracking_status TEXT DEFAULT 'Untracked',
+                 variant TEXT NOT NULL DEFAULT ''
+             );",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO shared.media (
+                 id, uid, title, default_activity_type, status, language, variant
+             ) VALUES (1, 'uid-a', 'Collision', 'Reading', 'Active', 'Japanese', ?1)",
+            ["Manga"],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO shared.media (
+                 id, uid, title, default_activity_type, status, language, variant
+             ) VALUES (2, 'uid-b', 'Collision', 'Reading', 'Active', 'Japanese', ?1)",
+            ["\u{2003}Manga\u{2003}"],
+        )
+        .unwrap();
+        set_bundle_schema_version(&conn, 5).unwrap();
+
+        let error = migrate_schema(&conn).unwrap_err().to_string();
+
+        assert!(error.contains("Cannot normalize legacy media variants"));
+        assert!(error.contains("rows 1 and 2"));
+        assert_eq!(get_bundle_schema_version(&conn).unwrap(), 5);
+        let variants: Vec<String> = {
+            let mut stmt = conn
+                .prepare("SELECT variant FROM shared.media ORDER BY id ASC")
+                .unwrap();
+            stmt.query_map([], |row| row.get(0))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap()
+        };
+        assert_eq!(variants, vec!["Manga", "\u{2003}Manga\u{2003}"]);
+        assert!(!table_exists(&conn, "shared", "media_v6_new").unwrap());
+    }
+
+    #[test]
+    fn test_v5_to_v6_migration_rejects_blank_title_without_any_changes() {
+        let conn = setup_test_db();
+        conn.execute("DROP TABLE shared.media", []).unwrap();
+        conn.execute("DROP TABLE main.milestones", []).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE shared.media (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 uid TEXT NOT NULL UNIQUE,
+                 title TEXT NOT NULL UNIQUE,
+                 default_activity_type TEXT NOT NULL,
+                 status TEXT NOT NULL,
+                 language TEXT NOT NULL,
+                 description TEXT DEFAULT '',
+                 cover_image TEXT DEFAULT '',
+                 extra_data TEXT DEFAULT '{}',
+                 content_type TEXT DEFAULT 'Unknown',
+                 tracking_status TEXT DEFAULT 'Untracked',
+                 variant TEXT NOT NULL DEFAULT ''
+             );
+             CREATE TABLE main.milestones (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 media_uid TEXT,
+                 media_title TEXT NOT NULL,
+                 name TEXT NOT NULL,
+                 duration INTEGER NOT NULL,
+                 characters INTEGER NOT NULL DEFAULT 0,
+                 date TEXT
+             );
+             INSERT INTO shared.media (
+                 id, uid, title, default_activity_type, status, language, variant
+             ) VALUES (1, 'valid-uid', 'Valid title', 'Reading', 'Active', 'Japanese', '  Manga  ');
+             INSERT INTO main.milestones (
+                 id, media_uid, media_title, name, duration, characters
+             ) VALUES (7, NULL, 'Valid title', 'Unchanged milestone', 30, 0);",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO shared.media (
+                 id, uid, title, default_activity_type, status, language, variant
+             ) VALUES (2, 'blank-uid', ?1, 'Reading', 'Active', 'Japanese', ' Anime ')",
+            [" \t\u{2003} "],
+        )
+        .unwrap();
+        set_bundle_schema_version(&conn, 5).unwrap();
+
+        let media_schema_before: String = conn
+            .query_row(
+                "SELECT sql FROM shared.sqlite_master WHERE type = 'table' AND name = 'media'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let milestones_schema_before: String = conn
+            .query_row(
+                "SELECT sql FROM main.sqlite_master WHERE type = 'table' AND name = 'milestones'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        let error = migrate_schema(&conn).unwrap_err().to_string();
+
+        assert!(error.contains("Media row 2 has a blank title"));
+        assert_eq!(get_bundle_schema_version(&conn).unwrap(), 5);
+        assert_eq!(
+            conn.query_row(
+                "SELECT sql FROM shared.sqlite_master WHERE type = 'table' AND name = 'media'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            media_schema_before
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT sql FROM main.sqlite_master WHERE type = 'table' AND name = 'milestones'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            milestones_schema_before
+        );
+        let variants: Vec<String> = {
+            let mut stmt = conn
+                .prepare("SELECT variant FROM shared.media ORDER BY id ASC")
+                .unwrap();
+            stmt.query_map([], |row| row.get(0))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap()
+        };
+        assert_eq!(variants, vec!["  Manga  ", " Anime "]);
+        let milestone_link: Option<String> = conn
+            .query_row(
+                "SELECT media_uid FROM main.milestones WHERE id = 7",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(milestone_link, None);
+        assert!(!table_exists(&conn, "shared", "media_v6_new").unwrap());
+        assert!(!table_exists(&conn, "main", "milestones_v6_new").unwrap());
+    }
+
+    #[test]
+    fn test_v5_to_v6_migration_rejects_an_unresolvable_milestone_atomically() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute("ATTACH DATABASE ':memory:' AS shared", [])
+            .unwrap();
+        conn.execute_batch(
+            "CREATE TABLE shared.media (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 uid TEXT NOT NULL UNIQUE,
+                 title TEXT NOT NULL UNIQUE,
+                 default_activity_type TEXT NOT NULL,
+                 status TEXT NOT NULL,
+                 language TEXT NOT NULL,
+                 description TEXT DEFAULT '',
+                 cover_image TEXT DEFAULT '',
+                 extra_data TEXT DEFAULT '{}',
+                 content_type TEXT DEFAULT 'Unknown',
+                 tracking_status TEXT DEFAULT 'Untracked',
+                 variant TEXT NOT NULL DEFAULT ''
+             );
+             CREATE TABLE main.activity_logs (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 media_id INTEGER NOT NULL,
+                 duration_minutes INTEGER NOT NULL,
+                 characters INTEGER NOT NULL DEFAULT 0,
+                 date TEXT NOT NULL,
+                 activity_type TEXT NOT NULL DEFAULT '',
+                 notes TEXT NOT NULL DEFAULT ''
+             );
+             CREATE TABLE main.milestones (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 media_uid TEXT,
+                 media_title TEXT NOT NULL,
+                 name TEXT NOT NULL,
+                 duration INTEGER NOT NULL,
+                 characters INTEGER NOT NULL DEFAULT 0,
+                 date TEXT
+             );
+             CREATE TABLE main.settings (
+                 key TEXT PRIMARY KEY,
+                 value TEXT NOT NULL,
+                 updated_at TEXT NOT NULL
+             );
+             CREATE TABLE main.profile_picture (
+                 id INTEGER PRIMARY KEY CHECK (id = 1),
+                 mime_type TEXT NOT NULL,
+                 base64_data TEXT NOT NULL,
+                 byte_size INTEGER NOT NULL,
+                 width INTEGER NOT NULL,
+                 height INTEGER NOT NULL,
+                 updated_at TEXT NOT NULL
+             );
+             INSERT INTO shared.media (
+                 uid, title, default_activity_type, status, language, variant
+             ) VALUES ('known-uid', 'Known Media', 'Reading', 'Active', 'Japanese', '');
+             INSERT INTO main.milestones (
+                 media_uid, media_title, name, duration, characters
+             ) VALUES (NULL, 'Missing Media', 'Orphan checkpoint', 60, 0);",
+        )
+        .unwrap();
+        set_bundle_schema_version(&conn, 5).unwrap();
+
+        let error = migrate_schema(&conn).unwrap_err().to_string();
+
+        assert!(error.contains("Orphan checkpoint"));
+        assert!(error.contains("not linked to an existing media UID"));
+        assert_eq!(get_bundle_schema_version(&conn).unwrap(), 5);
+        assert!(table_has_unique_index_on_columns(&conn, "shared", "media", &["title"]).unwrap());
+        assert!(!table_column_is_not_null(&conn, "main", "milestones", "media_uid").unwrap());
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM main.milestones", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
     }
 
     #[test]

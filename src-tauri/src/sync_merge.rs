@@ -21,6 +21,11 @@ pub enum MergeSide {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SyncConflict {
+    DuplicateMediaIdentity {
+        local_media: Box<SnapshotMediaAggregate>,
+        remote_media: Box<SnapshotMediaAggregate>,
+        remote_tombstone: SnapshotTombstone,
+    },
     MediaFieldConflict {
         media_uid: String,
         field_name: String,
@@ -48,6 +53,46 @@ pub enum SyncConflict {
         local_picture: Box<Option<SnapshotProfilePicture>>,
         remote_picture: Box<Option<SnapshotProfilePicture>>,
     },
+}
+
+pub fn merge_duplicate_media_identity(
+    canonical_uid: &str,
+    local: &SnapshotMediaAggregate,
+    remote: &SnapshotMediaAggregate,
+) -> Result<(SnapshotMediaAggregate, Vec<SyncConflict>), String> {
+    if local.title != remote.title || local.variant != remote.variant {
+        return Err(
+            "Duplicate media identity merge requires matching title and variant".to_string(),
+        );
+    }
+
+    let mut canonical_local = local.clone();
+    canonical_local.uid = canonical_uid.to_string();
+    let mut canonical_remote = remote.clone();
+    canonical_remote.uid = canonical_uid.to_string();
+    let result = merge_media_created_on_both(canonical_uid, &canonical_local, &canonical_remote);
+    let mut merged = result.media.ok_or_else(|| {
+        "Duplicate media identity merge unexpectedly deleted the media".to_string()
+    })?;
+    // These aggregates came from distinct internal identities. Even byte-for-byte
+    // identical activity or milestone rows are therefore distinct user records and
+    // must survive an explicit combine operation. The normal same-UID merge uses
+    // multiset maxima to avoid duplicating records replicated to both devices.
+    merged.activities = local
+        .activities
+        .iter()
+        .chain(remote.activities.iter())
+        .cloned()
+        .collect();
+    merged.activities.sort_by(activity_sort);
+    merged.milestones = local
+        .milestones
+        .iter()
+        .chain(remote.milestones.iter())
+        .cloned()
+        .collect();
+    merged.milestones.sort_by(milestone_sort);
+    Ok((merged, result.conflicts))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -692,14 +737,31 @@ fn merge_extra_data_field(
         (None, Some(local), Some(remote)) if base_raw.is_none() => {
             merge_extra_data_entries(media_uid, None, local, remote, conflicts)
         }
-        _ => choose_scalar_string_default(base_raw, local_raw, remote_raw),
+        _ => merge_raw_extra_data_field(media_uid, base_raw, local_raw, remote_raw, conflicts),
     }
 }
 
-fn choose_scalar_string_default(base: Option<&String>, local: &str, remote: &str) -> String {
+fn merge_raw_extra_data_field(
+    media_uid: &str,
+    base: Option<&String>,
+    local: &str,
+    remote: &str,
+    conflicts: &mut Vec<SyncConflict>,
+) -> String {
     match base {
         Some(base) if local == base => remote.to_string(),
-        _ => local.to_string(),
+        Some(base) if remote == base || local == remote => local.to_string(),
+        _ if local == remote => local.to_string(),
+        base => {
+            conflicts.push(SyncConflict::MediaFieldConflict {
+                media_uid: media_uid.to_string(),
+                field_name: "extra_data".to_string(),
+                base_value: base.cloned(),
+                local_value: Some(local.to_string()),
+                remote_value: Some(remote.to_string()),
+            });
+            local.to_string()
+        }
     }
 }
 
@@ -1101,6 +1163,7 @@ fn activity_sort(left: &SnapshotActivity, right: &SnapshotActivity) -> Ordering 
         .then_with(|| left.activity_type.cmp(&right.activity_type))
         .then_with(|| left.duration_minutes.cmp(&right.duration_minutes))
         .then_with(|| left.characters.cmp(&right.characters))
+        .then_with(|| left.notes.cmp(&right.notes))
 }
 
 fn milestone_sort(left: &SnapshotMilestone, right: &SnapshotMilestone) -> Ordering {
@@ -1194,6 +1257,89 @@ mod tests {
             height: 32,
             updated_at: updated_at.to_string(),
             updated_by_device_id: device.to_string(),
+        }
+    }
+
+    #[test]
+    fn explicit_duplicate_identity_merge_preserves_identical_records_from_both_entries() {
+        let mut local = media("uid-local");
+        let mut remote = media("uid-remote");
+        local.title = "Shared title".to_string();
+        remote.title = local.title.clone();
+        local.variant = "Audiobook".to_string();
+        remote.variant = local.variant.clone();
+        let same_activity = activity("2026-04-02", "Listening", 30, 0);
+        let same_milestone = milestone("Chapter 1", 30, 0, Some("2026-04-02"));
+        local.activities.push(same_activity.clone());
+        remote.activities.push(same_activity);
+        local.milestones.push(same_milestone.clone());
+        remote.milestones.push(same_milestone);
+
+        let (merged, conflicts) =
+            merge_duplicate_media_identity("uid-local", &local, &remote).unwrap();
+
+        assert!(conflicts.is_empty());
+        assert_eq!(merged.uid, "uid-local");
+        assert_eq!(merged.activities.len(), 2);
+        assert_eq!(merged.milestones.len(), 2);
+    }
+
+    #[test]
+    fn explicit_duplicate_identity_merge_uses_notes_as_activity_sort_tiebreaker() {
+        let mut local = media("uid-local");
+        let mut remote = media("uid-remote");
+        remote.title = local.title.clone();
+        remote.variant = local.variant.clone();
+        let mut later = activity("2026-04-02", "Listening", 30, 0);
+        later.notes = "z note".to_string();
+        let mut earlier = later.clone();
+        earlier.notes = "a note".to_string();
+        local.activities.push(later);
+        remote.activities.push(earlier);
+
+        let (merged, conflicts) =
+            merge_duplicate_media_identity("uid-local", &local, &remote).unwrap();
+
+        assert!(conflicts.is_empty());
+        assert_eq!(
+            merged
+                .activities
+                .iter()
+                .map(|activity| activity.notes.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a note", "z note"]
+        );
+    }
+
+    #[test]
+    fn explicit_duplicate_identity_merge_conflicts_on_different_invalid_extra_data() {
+        for (local_extra, remote_extra) in [
+            ("not-json", "also-not-json"),
+            (r#"["local"]"#, r#"["remote"]"#),
+        ] {
+            let mut local = media("uid-local");
+            let mut remote = media("uid-remote");
+            remote.title = local.title.clone();
+            remote.variant = local.variant.clone();
+            local.extra_data = local_extra.to_string();
+            remote.extra_data = remote_extra.to_string();
+
+            let (merged, conflicts) =
+                merge_duplicate_media_identity("uid-local", &local, &remote).unwrap();
+
+            assert_eq!(merged.extra_data, local_extra);
+            assert!(conflicts.iter().any(|conflict| matches!(
+                conflict,
+                SyncConflict::MediaFieldConflict {
+                    field_name,
+                    base_value: None,
+                    local_value: Some(local_value),
+                    remote_value: Some(remote_value),
+                    ..
+                } if field_name == "extra_data"
+                    && local_value == local_extra
+                    && remote_value == remote_extra
+            )));
         }
     }
 

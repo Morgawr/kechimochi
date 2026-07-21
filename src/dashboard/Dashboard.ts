@@ -314,7 +314,7 @@ export class Dashboard extends Component<DashboardState> {
         if (this.activeChartsComponent) this.activeChartsComponent.destroy();
         this.activeChartsComponent = new ActivityCharts(
             this.containers.charts,
-            { logs: this.state.logs, ...this.state.chartParams },
+            { logs: this.state.logs, mediaList: this.state.mediaList, ...this.state.chartParams },
             (newParams) => {
                 this.setState({ chartParams: { ...this.state.chartParams, ...newParams } });
 
@@ -507,7 +507,7 @@ export class Dashboard extends Component<DashboardState> {
         list.querySelectorAll('.edit-log-btn').forEach((btn, idx) => {
             btn.addEventListener('click', async () => {
                 const log = pagedLogs[idx];
-                const success = await showLogActivityModal(log.title, log);
+                const success = await showLogActivityModal(log.media_id, log);
                 if (success) {
                     await this.loadData();
                     globalThis.dispatchEvent(new CustomEvent(EVENTS.LOCAL_DATA_CHANGED));

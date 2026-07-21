@@ -88,6 +88,7 @@ describe('WebServices', () => {
 
     const sampleMilestone: Milestone = {
         id: 5,
+        media_uid: 'uid-example',
         media_title: 'Example',
         name: 'Chapter 1',
         duration: 30,
@@ -357,16 +358,16 @@ describe('WebServices', () => {
         expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/profile-picture', { method: 'DELETE' });
     });
 
-    it('manages milestones through media-title endpoints', async () => {
+    it('manages milestones through canonical media-UID endpoints', async () => {
         fetchMock.mockResolvedValue(okJson(null));
 
-        await services.getMilestones('Example Title');
+        await services.getMilestones('uid/example');
         await services.addMilestone(sampleMilestone);
         await services.updateMilestone(sampleMilestone);
         await services.deleteMilestone(5);
-        await services.clearMilestones('Example Title');
+        await services.clearMilestones('uid/example');
 
-        expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/milestones/media/Example%20Title');
+        expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/media/uid%2Fexample/milestones');
         expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/milestones', expect.objectContaining({
             method: 'POST',
             body: JSON.stringify(sampleMilestone),
@@ -376,7 +377,7 @@ describe('WebServices', () => {
             body: JSON.stringify(sampleMilestone),
         }));
         expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/milestones/5', { method: 'DELETE' });
-        expect(fetchMock).toHaveBeenNthCalledWith(5, '/api/milestones/media/Example%20Title', { method: 'DELETE' });
+        expect(fetchMock).toHaveBeenNthCalledWith(5, '/api/media/uid%2Fexample/milestones', { method: 'DELETE' });
     });
 
     it('uploads and downloads cover images through the API', async () => {
@@ -445,7 +446,7 @@ describe('WebServices', () => {
             services.replaceLocalFromRemote(),
             services.forcePublishLocalAsRemote(),
             services.getSyncConflicts(),
-            services.resolveSyncConflict(0, { kind: 'media_field', side: 'local' }),
+            services.resolveSyncConflict(0, 'conflict_0', { kind: 'media_field', side: 'local' }),
             services.clearSyncBackups(),
         ];
 

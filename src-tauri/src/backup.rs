@@ -200,9 +200,10 @@ pub fn import_full_backup(
     file_path: String,
 ) -> Result<String, String> {
     let app_dir = db::get_data_dir(&app_handle);
+    let _sync_guard = sync_state::acquire_sync_lock(&app_dir)?;
     let zip_file = app_file_io::open_input_file(&app_handle, &file_path)?;
     let import_result = {
-        let mut conn_guard = state.conn.lock().unwrap();
+        let mut conn_guard = state.conn.lock().map_err(|e| e.to_string())?;
         import_full_backup_from_reader_internal(&app_dir, &mut conn_guard, zip_file)
     }?;
     sync_state::clear_sync_runtime_files(&app_dir)?;

@@ -93,7 +93,7 @@ export interface AppServices {
     replaceLocalFromRemote(): Promise<SyncActionResult>;
     forcePublishLocalAsRemote(): Promise<SyncActionResult>;
     getSyncConflicts(): Promise<SyncConflict[]>;
-    resolveSyncConflict(conflictIndex: number, resolution: SyncConflictResolution): Promise<SyncActionResult>;
+    resolveSyncConflict(conflictIndex: number, conflictToken: string, resolution: SyncConflictResolution): Promise<SyncActionResult>;
     subscribeSyncProgress(listener: (update: SyncProgressUpdate) => void): Promise<() => void>;
     clearSyncBackups(): Promise<void>;
 
@@ -118,11 +118,11 @@ export interface AppServices {
     pickAndImportFullBackup(): Promise<string | null>;
 
     // ── Milestone operations ────────────────────────────────────────────────
-    getMilestones(mediaTitle: string): Promise<Milestone[]>;
+    getMilestones(mediaUid: string): Promise<Milestone[]>;
     addMilestone(milestone: Milestone): Promise<number>;
     updateMilestone(milestone: Milestone): Promise<void>;
     deleteMilestone(id: number): Promise<void>;
-    clearMilestones(mediaTitle: string): Promise<void>;
+    clearMilestones(mediaUid: string): Promise<void>;
     exportMilestonesCsv(filePath: string): Promise<number>;
     importMilestonesCsv(filePath: string): Promise<number>;
 

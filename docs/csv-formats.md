@@ -6,6 +6,25 @@ Kechimochi supports importing and exporting data via CSV files. This document de
 
 All CSV files should use UTF-8 encoding. Headers are required for all formats.
 
+CSV identity is always human-readable. Numeric IDs, UIDs, UUIDs, and other opaque
+identity fields are never exported and are not accepted on import. Only the
+columns documented below are supported; an unknown column makes the import fail.
+
+Media is identified at the CSV boundary by the exact `(title, variant)` pair.
+Titles are compared exactly. Surrounding whitespace in variants is ignored, and
+an empty variant is a real value. Internal database and cloud-sync identities
+remain private to Kechimochi.
+
+Free-form, user-authored metadata remains data rather than CSV identity.
+Kechimochi never uses `Extra Data`, descriptions, notes, or source URLs to link
+CSV rows, and it never injects internal database or cloud IDs into those fields.
+Existing user metadata, including external references, round-trips unchanged.
+
+Imports are preflighted in full before any database rows are written. A malformed
+row, ambiguous legacy lookup, missing milestone parent, or inconsistent default
+for a media entry that would be created aborts the entire import. No earlier rows
+from that file are retained.
+
 ---
 
 ## 1. Activity Logs
@@ -24,7 +43,7 @@ Used for importing and exporting your daily activity history.
 | **Characters** | The number of characters read or written (useful for books/writing). | No | 0 |
 | **Activity Type** | The type recorded for this individual activity. May override the media entry's default and falls back to `Default Activity Type` if empty. | No | Reading |
 | **Notes** | Optional notes attached to the activity. | No | Episode 1 |
-| **Media Variant** | A descriptive subtitle for the media, used only when the import creates a new library entry. | No | Anime |
+| **Media Variant** | The variant portion of the media identity. If this header exists, every row targets the exact `(Log Name, Media Variant)` pair; a blank cell explicitly targets the blank variant. | No | Anime |
 
 ### Example
 ```csv
@@ -34,6 +53,13 @@ Date,Log Name,Default Activity Type,Duration,Language,Characters,Activity Type,N
 ```
 
 `Default Activity Type` describes the media-level default, while `Activity Type` preserves what was recorded for that particular log. In the second example, the media normally defaults to `Watching`, but that individual activity was logged as `Reading`.
+
+`Activity Type` is never used to identify or split media. For example, two rows
+for `Horimiya` may record `Reading` and `Watching` while both still belong to the
+same media entry. If those rows would create one new media entry, their `Default
+Activity Type` values must agree. Different per-log `Activity Type` values remain
+valid. When rows target an existing media entry, import does not change that
+entry's default activity type.
 
 ---
 
@@ -45,20 +71,25 @@ Used for bulk importing media metadata or exporting your entire library.
 
 | Column Name | Description | Required | Example |
 | :--- | :--- | :--- | :--- |
-| **Title** | The unique title of the media. | Yes | FF7 Rebirth |
+| **Title** | The media title. It is unique only together with `Variant`. | Yes | FF7 Rebirth |
 | **Default Activity Type** | Default activity type for future logs. Standard values are `Reading`, `Watching`, `Playing`, `Listening`, and `None`. | Yes | Playing |
-| **Status** | The library state. Must be one of: `Active`, `Archived`. Note: 'Tracking Status' (e.g. Ongoing, Complete) is not currently imported from CSV. | Yes | Active |
+| **Status** | The stored library-status value. Current UI-created entries use `Active` or `Archived`; import preserves other existing values for compatibility. Tracking Status is not a separate CSV field. | Yes | Active |
 | **Language** | Primary language. | Yes | Japanese |
 | **Description** | A brief summary or notes. | No | Remake part 2. |
-| **Content Type** | Specific format. Must be one of: `Anime`, `Movie`, `Novel`, `WebNovel`, `NonFiction`, `Videogame`, `Visual Novel`, `Manga`, `Audio`, `Drama`, `Livestream`, `Youtube Video`, `Unknown`. | Yes | Videogame |
-| **Extra Data** | A JSON string containing additional metadata. | Yes | `{"vNDB_ID": "v123"}` |
+| **Content Type** | Specific format. Use one of the labels recognized by the current UI, such as `Anime`, `Movie`, `Novel`, `WebNovel`, `NonFiction`, `Videogame`, `Visual Novel`, `Manga`, `Audio`, `Drama`, `Livestream`, `Youtube Video`, or `Unknown`. Import preserves the supplied text. | Yes | Videogame |
+| **Extra Data** | A JSON string containing user-authored metadata. It is never used as media identity. | Yes | `{"Developer": "Square Enix"}` |
 | **Cover Image (Base64)** | The cover image encoded as a Base64 string. | Yes | (long base64 string) |
-| **Variant** | An optional, non-unique subtitle that distinguishes editions or formats sharing a title. | No | Manga |
+| **Variant** | The optional variant portion of the media identity. If this header exists, a blank cell explicitly targets the blank variant. | No | Manga |
 
 > [!NOTE]
 > Content Types are case-sensitive and should match the labels used in the application (e.g., `Videogame`, `Visual Novel`, `Novel`, `Anime`, `Manga`, `Movie`, `WebNovel`).
 
 `Content Type` describes what the media is, while `Default Activity Type` is the action initially selected when logging it. For example, a `Visual Novel` can default to either `Reading` or `Playing`.
+
+An exact `(Title, Variant)` match is offered as an update to that media entry.
+The same title with a different variant is a different media entry. A media CSV
+must contain each exact pair at most once; duplicate target pairs abort analysis
+before the apply step.
 
 ### Example
 ```csv
@@ -85,8 +116,8 @@ Used for importing and exporting specific progress markers/milestones for your m
 | **Name** | The name of the milestone. | Yes | Volume 100 |
 | **Duration** | Total duration spent to reach this milestone (accumulated). | Yes | 5000 |
 | **Characters** | Total characters read to reach this milestone (accumulated). | Yes | 150000 |
-| **Date** | The date the milestone was reached (`YYYY-MM-DD`). | No | 2024-03-01 |
-| **Media Variant** | Descriptive context exported with the milestone. Currently ignored when importing because milestones are matched by title. | No | Manga |
+| **Date** | The date text for the milestone. Kechimochi-generated CSV uses `YYYY-MM-DD`; import preserves the supplied text. | No | 2024-03-01 |
+| **Media Variant** | The variant portion of the parent media identity. If this header exists, a blank cell explicitly targets the blank variant. | No | Manga |
 
 ### Example
 ```csv
@@ -95,11 +126,32 @@ One Piece,Volume 1,120,5000,2024-01-01,Manga
 One Piece,Volume 2,240,10000,2024-01-02,Manga
 ```
 
+Milestone import never creates a media entry or an orphan milestone. The parent
+media must already exist and resolve unambiguously. After resolving the
+human-readable pair, Kechimochi links the milestone to that media using an
+internal identity that is never written to the CSV. Milestone export likewise
+derives the title and variant from the linked media entry.
+
 ## Variant import compatibility
 
-The variant columns are optional, so CSV files exported by older Kechimochi versions remain importable. Media matching is deliberately title-only in this release:
+The variant columns are optional so CSV files exported by older Kechimochi
+versions remain importable. Header presence—not whether an individual cell is
+blank—selects the lookup rule:
 
-- If the title already exists, imported activities are appended to it and a media-library replacement preserves its current variant. A missing, blank, or different CSV variant never changes the existing variant.
-- If a media-library import creates a title, its `Variant` value is stored.
-- If an activity import creates a title, its variant is stored only when every non-empty `Media Variant` value for that title agrees. Mixed variants create the media with an empty variant so the import does not guess.
-- Milestone imports continue to resolve by title and do not update variants.
+- When `Media Variant` (activities and milestones) or `Variant` (media library)
+  is present, each row uses the exact `(title, variant)` pair. A blank cell means
+  the blank variant. Mixed variants for one title create or target distinct media
+  entries; they are never collapsed to a consensus variant.
+- When the relevant variant header is absent, the row uses legacy title-only
+  resolution. One existing title match is used even if it has a non-blank
+  variant. Multiple same-title entries are ambiguous, so the whole import fails
+  and reports the row, title, and available variants.
+- With no existing title match, an activity import or media-library import creates
+  the blank-variant pair. A milestone import fails because it does not have enough
+  metadata to create a parent media entry.
+
+Imports accept the legacy `Media Type` header as an alias for `Default Activity
+Type`. If both are populated on a row, they must agree. Rows that would create
+the same media pair must also agree on the new entry's default activity type;
+Kechimochi rejects conflicting defaults instead of choosing one based on row
+order.

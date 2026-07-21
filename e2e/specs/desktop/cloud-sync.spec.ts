@@ -16,7 +16,7 @@ import {
   uploadCoverImage,
 } from '../../helpers/media-detail.js';
 import { uploadProfilePicture } from '../../helpers/profile.js';
-import { setSelect } from '../../helpers/form-controls.js';
+import { setSelect, setText } from '../../helpers/form-controls.js';
 import {
   enableSyncByAttachingExistingProfile,
   enableSyncByCreatingNewProfile,
@@ -29,6 +29,7 @@ import {
   waitForSyncCardText,
 } from '../../helpers/sync.js';
 import {
+  addRemoteMediaWithIndependentUid,
   getRemoteMedia,
   getSingleRemoteProfileId,
   readRemoteProfile,
@@ -45,6 +46,9 @@ const MANUAL_SYNC_TITLE = 'Cloud Sync Manual Local';
 const ROUNDTRIP_TITLE = 'Cloud Sync Backup Roundtrip';
 const COMPLETE_ENTITY_TITLE = 'Cloud Sync Complete Entity';
 const DELETION_TITLE = 'Cloud Sync Deletion Propagation';
+const DUPLICATE_IDENTITY_TITLE = 'Cloud Sync Duplicate Identity';
+const KEEP_BOTH_IDENTITY_TITLE = 'Cloud Sync Keep Both Identity';
+const RENAMED_CLOUD_IDENTITY_TITLE = 'Cloud Sync Keep Both Cloud Copy';
 const REMOTE_SYNC_TIMEOUT_MS = 12_000;
 const BACKUP_ALERT_TIMEOUT_MS = 12_000;
 
@@ -303,5 +307,101 @@ describe('CUJ: Cloud Sync', () => {
       timeoutMsg: 'Remote snapshot did not receive the local media deletion',
     });
     completedStep = 8;
+  });
+
+  it('should pause on equal title/variant with different cloud identity and combine explicitly', async function () {
+    requireStep(this, 8);
+    await navigateTo('media');
+    await addMedia(DUPLICATE_IDENTITY_TITLE, 'Reading', 'Novel', 'Shared Edition');
+    await backToLibrary('grid');
+
+    const remoteDuplicateUid = addRemoteMediaWithIndependentUid(remoteProfileId, {
+      title: DUPLICATE_IDENTITY_TITLE,
+      variant: 'Shared Edition',
+      mediaType: 'Reading',
+      contentType: 'Novel',
+    });
+
+    await navigateTo('profile');
+    await runSyncNow('Resolve them in the Cloud Sync card');
+    await waitForSyncCardText('Conflicts Pending');
+    await openSyncConflictsPanel();
+
+    const conflictCard = $('.sync-duplicate-media-conflict');
+    await conflictCard.waitForDisplayed({ timeout: 10_000 });
+    const conflictText = await conflictCard.getText();
+    expect(conflictText).toContain(DUPLICATE_IDENTITY_TITLE);
+    expect(conflictText).toContain('Shared Edition');
+    expect(conflictText).not.toContain(remoteDuplicateUid);
+
+    await safeClick(() => conflictCard.$('[data-sync-resolution-kind="duplicate_media_identity_merge"]'));
+    await confirmAction(true);
+    await dismissAlert('1 conflict still need review', REMOTE_SYNC_TIMEOUT_MS);
+
+    // Combining two independently-created entries preserves their histories,
+    // but differing metadata still needs an explicit choice. The local entry
+    // starts Untracked while the mock cloud entry starts Ongoing.
+    await openSyncConflictsPanel();
+    expect(await $('#profile-sync-conflicts').getText()).toContain('Tracking Status conflict');
+    await safeClick('[data-sync-resolution-kind="media_field"][data-sync-resolution-side="local"]');
+    await dismissAlert('Run Sync Now to publish the merged state', REMOTE_SYNC_TIMEOUT_MS);
+    await runSyncNow('Cloud Sync completed successfully');
+
+    const remote = readRemoteProfile(remoteProfileId).snapshot;
+    expect(Object.values(remote.library).filter(media =>
+      media.title === DUPLICATE_IDENTITY_TITLE && media.variant === 'Shared Edition'
+    )).toHaveLength(1);
+    expect(remote.tombstones).toEqual(expect.arrayContaining([
+      expect.objectContaining({ media_uid: remoteDuplicateUid }),
+    ]));
+
+    await navigateTo('media');
+    expect(await $$(`.media-grid-item[data-title="${DUPLICATE_IDENTITY_TITLE}"]`).length).toBe(1);
+    completedStep = 9;
+  });
+
+  it('should rename the selected cloud identity and keep both independent entries', async function () {
+    requireStep(this, 9);
+    await navigateTo('media');
+    await addMedia(KEEP_BOTH_IDENTITY_TITLE, 'Reading', 'Novel', 'Shared Edition');
+    await backToLibrary('grid');
+
+    const remoteDuplicateUid = addRemoteMediaWithIndependentUid(remoteProfileId, {
+      title: KEEP_BOTH_IDENTITY_TITLE,
+      variant: 'Shared Edition',
+      mediaType: 'Watching',
+      contentType: 'Anime',
+    });
+
+    await navigateTo('profile');
+    await runSyncNow('Resolve them in the Cloud Sync card');
+    await waitForSyncCardText('Conflicts Pending');
+    await openSyncConflictsPanel();
+
+    await setText(
+      '.sync-duplicate-replacement-title[data-sync-duplicate-side="remote"]',
+      RENAMED_CLOUD_IDENTITY_TITLE,
+    );
+    await safeClick(
+      '[data-sync-resolution-kind="duplicate_media_identity_keep_both"][data-sync-resolution-side="remote"]',
+    );
+    await dismissAlert('Run Sync Now to publish the merged state', REMOTE_SYNC_TIMEOUT_MS);
+    await runSyncNow('Cloud Sync completed successfully');
+
+    const remote = readRemoteProfile(remoteProfileId).snapshot;
+    expect(remote.library[remoteDuplicateUid]).toMatchObject({
+      title: RENAMED_CLOUD_IDENTITY_TITLE,
+      variant: 'Shared Edition',
+      media_type: 'Watching',
+    });
+    expect(Object.values(remote.library).filter(media =>
+      media.title === KEEP_BOTH_IDENTITY_TITLE && media.variant === 'Shared Edition'
+    )).toHaveLength(1);
+    expect(remote.tombstones.some(tombstone => tombstone.media_uid === remoteDuplicateUid)).toBe(false);
+
+    await navigateTo('media');
+    expect(await $$(`.media-grid-item[data-title="${KEEP_BOTH_IDENTITY_TITLE}"][data-variant="Shared Edition"]`).length).toBe(1);
+    expect(await $$(`.media-grid-item[data-title="${RENAMED_CLOUD_IDENTITY_TITLE}"][data-variant="Shared Edition"]`).length).toBe(1);
+    completedStep = 10;
   });
 });

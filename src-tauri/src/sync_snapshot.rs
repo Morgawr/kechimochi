@@ -14,6 +14,12 @@ pub const SYNC_PROTOCOL_VERSION: i64 = 1;
 
 const PROFILE_NAME_SETTING_KEY: &str = "profile_name";
 const DEFAULT_PROFILE_NAME: &str = "default";
+/// Local-only proof that a journaled snapshot replacement reached SQLite.
+///
+/// This setting is deliberately absent from `SYNCABLE_SETTING_KEYS`: it is an
+/// implementation detail used to bridge the atomic SQLite transaction and the
+/// filesystem-backed sync journal, never part of a cloud snapshot.
+const SNAPSHOT_APPLY_COMMIT_MARKER_KEY: &str = "__sync_snapshot_apply_commit_marker";
 const SNAPSHOT_PROGRESS_BATCH_SIZE: usize = 5;
 const SYNCABLE_SETTING_KEYS: &[&str] = &[
     "theme",
@@ -31,6 +37,16 @@ pub struct SnapshotBuildOptions<'a> {
     pub profile_id: &'a str,
     pub base_snapshot: Option<&'a SyncSnapshot>,
     pub tombstones: &'a [SnapshotTombstone],
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SnapshotApplyCommitMarker {
+    pub operation_id: String,
+    pub target_snapshot_id: String,
+    /// The cover hash that SQLite pointed at immediately after the snapshot
+    /// transaction committed. Missing remote blobs intentionally record
+    /// `None`; cover materialization uses this as its compare-and-swap base.
+    pub post_apply_cover_blob_sha256: BTreeMap<String, Option<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -182,7 +198,6 @@ where
 
     let mut library = BTreeMap::new();
     let mut media_uid_by_id = HashMap::new();
-    let mut media_uid_by_title = HashMap::new();
 
     for media_row in media_rows {
         let (media, cover_blob_sha256) = media_row?;
@@ -212,7 +227,6 @@ where
         };
 
         media_uid_by_id.insert(media_id, media_uid.clone());
-        media_uid_by_title.insert(media.title, media_uid.clone());
         library.insert(media_uid, aggregate);
     }
 
@@ -234,19 +248,27 @@ where
     for milestone in all_milestones {
         let media_uid = milestone
             .media_uid
-            .clone()
-            .or_else(|| media_uid_by_title.get(&milestone.media_title).cloned());
-        let Some(media_uid) = media_uid else {
-            continue;
-        };
-        if let Some(entry) = library.get_mut(&media_uid) {
-            entry.milestones.push(SnapshotMilestone {
-                name: milestone.name,
-                duration: milestone.duration,
-                characters: milestone.characters,
-                date: milestone.date,
-            });
-        }
+            .as_deref()
+            .map(str::trim)
+            .filter(|uid| !uid.is_empty())
+            .ok_or_else(|| {
+                format!(
+                    "Milestone '{}' for media '{}' is missing its internal media identity",
+                    milestone.name, milestone.media_title
+                )
+            })?;
+        let entry = library.get_mut(media_uid).ok_or_else(|| {
+            format!(
+                "Milestone '{}' for media '{}' refers to a media identity that does not exist",
+                milestone.name, milestone.media_title
+            )
+        })?;
+        entry.milestones.push(SnapshotMilestone {
+            name: milestone.name,
+            duration: milestone.duration,
+            characters: milestone.characters,
+            date: milestone.date,
+        });
     }
 
     for (uid, entry) in &mut library {
@@ -266,8 +288,15 @@ where
         }
     }
 
-    let (profile_name, profile_updated_at) =
+    let (profile_name, mut profile_updated_at) =
         profile_from_settings(&syncable_settings, options.created_at);
+    if let Some(base_profile) = options
+        .base_snapshot
+        .map(|snapshot| &snapshot.profile)
+        .filter(|base| base.profile_name == profile_name)
+    {
+        profile_updated_at = base_profile.updated_at.clone();
+    }
     let mut settings = BTreeMap::new();
     for row in syncable_settings {
         if row.key == PROFILE_NAME_SETTING_KEY {
@@ -352,6 +381,83 @@ pub fn apply_snapshot(conn: &Connection, snapshot: &SyncSnapshot) -> Result<(), 
             Err(err)
         }
     }
+}
+
+/// Apply a snapshot and write its recovery proof in the same SQLite
+/// transaction. If the process exits after COMMIT but before the external
+/// journal advances, the matching marker proves that replay must not perform a
+/// second destructive apply.
+pub fn apply_snapshot_with_commit_marker(
+    conn: &Connection,
+    snapshot: &SyncSnapshot,
+    operation_id: &str,
+    updated_at: &str,
+) -> Result<SnapshotApplyCommitMarker, String> {
+    let cover_cache = build_existing_cover_cache(conn)?;
+    let marker = SnapshotApplyCommitMarker {
+        operation_id: operation_id.to_string(),
+        target_snapshot_id: snapshot.snapshot_id.clone(),
+        post_apply_cover_blob_sha256: snapshot
+            .library
+            .iter()
+            .map(|(uid, aggregate)| {
+                let installed_hash = aggregate
+                    .cover_blob_sha256
+                    .as_ref()
+                    .filter(|hash| cover_cache.contains_key(*hash))
+                    .cloned();
+                (uid.clone(), installed_hash)
+            })
+            .collect(),
+    };
+    let marker_json = serde_json::to_string(&marker).map_err(|e| e.to_string())?;
+
+    conn.execute_batch("BEGIN IMMEDIATE")
+        .map_err(|e| e.to_string())?;
+    let result = apply_snapshot_inner(conn, snapshot, &cover_cache).and_then(|()| {
+        upsert_setting_with_updated_at(
+            conn,
+            SNAPSHOT_APPLY_COMMIT_MARKER_KEY,
+            &marker_json,
+            updated_at,
+        )
+    });
+    match result {
+        Ok(()) => {
+            conn.execute_batch("COMMIT").map_err(|e| e.to_string())?;
+            Ok(marker)
+        }
+        Err(err) => {
+            let _ = conn.execute_batch("ROLLBACK");
+            Err(err)
+        }
+    }
+}
+
+pub fn load_snapshot_apply_commit_marker(
+    conn: &Connection,
+) -> Result<Option<SnapshotApplyCommitMarker>, String> {
+    let result = conn.query_row(
+        "SELECT value FROM main.settings WHERE key = ?1",
+        params![SNAPSHOT_APPLY_COMMIT_MARKER_KEY],
+        |row| row.get::<_, String>(0),
+    );
+    match result {
+        Ok(json) => serde_json::from_str(&json)
+            .map(Some)
+            .map_err(|e| format!("Local snapshot-apply commit marker is malformed: {e}")),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(err) => Err(err.to_string()),
+    }
+}
+
+pub fn clear_snapshot_apply_commit_marker(conn: &Connection) -> Result<(), String> {
+    conn.execute(
+        "DELETE FROM main.settings WHERE key = ?1",
+        params![SNAPSHOT_APPLY_COMMIT_MARKER_KEY],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 pub fn compute_cover_blob_sha256_from_path(path: &Path) -> Result<Option<String>, String> {
@@ -562,6 +668,7 @@ fn activity_sort_key(left: &SnapshotActivity, right: &SnapshotActivity) -> std::
         .then_with(|| left.activity_type.cmp(&right.activity_type))
         .then_with(|| left.duration_minutes.cmp(&right.duration_minutes))
         .then_with(|| left.characters.cmp(&right.characters))
+        .then_with(|| left.notes.cmp(&right.notes))
 }
 
 fn milestone_sort_key(left: &SnapshotMilestone, right: &SnapshotMilestone) -> std::cmp::Ordering {
@@ -694,6 +801,53 @@ mod tests {
     }
 
     #[test]
+    fn test_build_snapshot_rejects_legacy_title_only_milestone_for_same_title_variants() {
+        let conn = setup_test_db();
+        for variant in ["Anime", "Manga"] {
+            let mut media = sample_media("Horimiya", String::new(), "{}");
+            media.variant = variant.to_string();
+            db::add_media_with_id(&conn, &media).unwrap();
+        }
+
+        // Simulate a pre-v6 row that never received a UID. Title fallback is no
+        // longer safe now that both variants legitimately share this title.
+        conn.execute("DROP TABLE main.milestones", []).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE main.milestones (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 media_uid TEXT,
+                 media_title TEXT NOT NULL,
+                 name TEXT NOT NULL,
+                 duration INTEGER NOT NULL,
+                 characters INTEGER NOT NULL DEFAULT 0,
+                 date TEXT
+             );
+             INSERT INTO main.milestones (
+                 media_uid, media_title, name, duration, characters, date
+             ) VALUES (
+                 NULL, 'Horimiya', 'Ambiguous legacy checkpoint', 60, 0, '2026-07-21'
+             );",
+        )
+        .unwrap();
+
+        let error = build_snapshot(
+            &conn,
+            SnapshotBuildOptions {
+                snapshot_id: "snap_ambiguous_milestone",
+                created_at: "2026-07-21T00:00:00Z",
+                created_by_device_id: "dev_test",
+                profile_id: "prof_test",
+                base_snapshot: None,
+                tombstones: &[],
+            },
+        )
+        .unwrap_err();
+
+        assert!(error.contains("Ambiguous legacy checkpoint"));
+        assert!(error.contains("missing its internal media identity"));
+    }
+
+    #[test]
     fn test_build_snapshot_is_canonical_and_excludes_local_paths() {
         let conn = setup_test_db();
         let temp_dir = unique_temp_dir("snapshot_serializer");
@@ -710,6 +864,12 @@ mod tests {
             ),
         )
         .unwrap();
+        let media_uid = db::get_all_media(&conn)
+            .unwrap()
+            .into_iter()
+            .find(|media| media.id == Some(media_id))
+            .and_then(|media| media.uid)
+            .unwrap();
 
         db::add_log(
             &conn,
@@ -741,7 +901,7 @@ mod tests {
             &conn,
             &Milestone {
                 id: None,
-                media_uid: None,
+                media_uid: Some(media_uid.clone()),
                 media_title: "Serializer Test".to_string(),
                 name: "B Milestone".to_string(),
                 duration: 90,
@@ -754,7 +914,7 @@ mod tests {
             &conn,
             &Milestone {
                 id: None,
-                media_uid: None,
+                media_uid: Some(media_uid),
                 media_title: "Serializer Test".to_string(),
                 name: "A Milestone".to_string(),
                 duration: 30,
@@ -829,6 +989,12 @@ mod tests {
         );
         roundtrip_media.variant = "Light Novel".to_string();
         let media_id = db::add_media_with_id(&conn, &roundtrip_media).unwrap();
+        let media_uid = db::get_all_media(&conn)
+            .unwrap()
+            .into_iter()
+            .find(|media| media.id == Some(media_id))
+            .and_then(|media| media.uid)
+            .unwrap();
         db::add_log(
             &conn,
             &ActivityLog {
@@ -846,7 +1012,7 @@ mod tests {
             &conn,
             &Milestone {
                 id: None,
-                media_uid: None,
+                media_uid: Some(media_uid),
                 media_title: "Roundtrip Title".to_string(),
                 name: "Checkpoint".to_string(),
                 duration: 60,
@@ -918,6 +1084,60 @@ mod tests {
 
         assert_eq!(rebuilt, parsed);
         std::fs::remove_dir_all(temp_dir).ok();
+    }
+
+    #[test]
+    fn test_apply_commit_marker_is_atomic_local_only_recovery_state() {
+        let conn = setup_test_db();
+        db::add_media_with_id(&conn, &sample_media("Marker target", String::new(), "{}")).unwrap();
+        let target = build_snapshot(
+            &conn,
+            SnapshotBuildOptions {
+                snapshot_id: "snap_marker_target",
+                created_at: "2026-07-21T05:00:00Z",
+                created_by_device_id: "dev_marker",
+                profile_id: "prof_marker",
+                base_snapshot: None,
+                tombstones: &[],
+            },
+        )
+        .unwrap();
+
+        let committed = apply_snapshot_with_commit_marker(
+            &conn,
+            &target,
+            "apply_marker_operation",
+            "2026-07-21T05:00:00Z",
+        )
+        .unwrap();
+        assert_eq!(
+            load_snapshot_apply_commit_marker(&conn).unwrap(),
+            Some(committed.clone())
+        );
+        assert_eq!(committed.target_snapshot_id, target.snapshot_id);
+        assert!(committed
+            .post_apply_cover_blob_sha256
+            .values()
+            .all(Option::is_none));
+
+        let rebuilt = build_snapshot(
+            &conn,
+            SnapshotBuildOptions {
+                snapshot_id: "snap_after_marker",
+                created_at: "2026-07-21T05:01:00Z",
+                created_by_device_id: "dev_marker",
+                profile_id: "prof_marker",
+                base_snapshot: Some(&target),
+                tombstones: &[],
+            },
+        )
+        .unwrap();
+        assert!(!rebuilt
+            .settings
+            .contains_key(SNAPSHOT_APPLY_COMMIT_MARKER_KEY));
+
+        clear_snapshot_apply_commit_marker(&conn).unwrap();
+        assert!(load_snapshot_apply_commit_marker(&conn).unwrap().is_none());
     }
 
     #[test]
@@ -1031,6 +1251,55 @@ mod tests {
         assert_eq!(note_logs[0].notes, "My sync note");
 
         std::fs::remove_dir_all(temp_dir).ok();
+    }
+
+    #[test]
+    fn test_snapshot_orders_otherwise_equal_activities_by_notes() {
+        let conn = setup_test_db();
+        let media_id =
+            db::add_media_with_id(&conn, &sample_media("Sorted notes", String::new(), "{}"))
+                .unwrap();
+        for notes in ["z note", "a note"] {
+            db::add_log(
+                &conn,
+                &ActivityLog {
+                    id: None,
+                    media_id,
+                    duration_minutes: 40,
+                    characters: 500,
+                    date: "2026-05-01".to_string(),
+                    activity_type: "Reading".to_string(),
+                    notes: notes.to_string(),
+                },
+            )
+            .unwrap();
+        }
+
+        let snapshot = build_snapshot(
+            &conn,
+            SnapshotBuildOptions {
+                snapshot_id: "snap_sorted_notes",
+                created_at: "2026-05-01T12:00:00Z",
+                created_by_device_id: "dev_notes",
+                profile_id: "prof_notes",
+                base_snapshot: None,
+                tombstones: &[],
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            snapshot
+                .library
+                .values()
+                .next()
+                .unwrap()
+                .activities
+                .iter()
+                .map(|activity| activity.notes.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a note", "z note"]
+        );
     }
 
     #[test]

@@ -12,7 +12,7 @@ function isExistingMilestone(input?: Milestone | MilestoneDefaults): input is Mi
     return typeof (input as Milestone).name === 'string' && typeof (input as Milestone).media_title === 'string';
 }
 
-export async function showAddMilestoneModal(mediaTitle: string, initialValues?: Milestone | MilestoneDefaults): Promise<Milestone | null> {
+export async function showAddMilestoneModal(mediaTitle: string, mediaUid: string, initialValues?: Milestone | MilestoneDefaults): Promise<Milestone | null> {
     return new Promise((resolve) => {
         const { overlay, cleanup, dismiss } = createCancelableOverlay(() => resolve(null), { closeOnEscape: true });
         const existingMilestone = isExistingMilestone(initialValues) ? initialValues : undefined;
@@ -119,7 +119,7 @@ export async function showAddMilestoneModal(mediaTitle: string, initialValues?: 
             cleanup();
             resolve({
                 id: existingMilestone?.id,
-                media_uid: existingMilestone?.media_uid,
+                media_uid: mediaUid,
                 media_title: mediaTitle,
                 name,
                 duration: totalDuration,

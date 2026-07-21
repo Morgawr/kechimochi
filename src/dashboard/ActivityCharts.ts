@@ -1,6 +1,6 @@
 import { Component } from '../component';
 import { html } from '../html';
-import { ActivitySummary } from '../api';
+import { ActivitySummary, Media } from '../api';
 import Chart from 'chart.js/auto';
 import { formatStatsDuration } from '../time';
 import { ACTIVITY_TIME_RANGES, getActivityRange, type ActivityRange } from './activity_ranges';
@@ -12,12 +12,18 @@ const DAILY_LABEL_FORMATTER = new Intl.DateTimeFormat('en-US', {
 
 interface ActivityChartsState {
     logs: ActivitySummary[];
+    mediaList?: Media[];
     timeRangeDays: number;
     timeRangeOffset: number;
     groupByMode: 'activity_type' | 'log_name';
     chartType: 'bar' | 'line';
     metric: 'minutes' | 'characters';
     weekStartDay?: number;
+}
+
+interface ChartGroup {
+    key: string;
+    label: string;
 }
 
 export class ActivityCharts extends Component<ActivityChartsState> {
@@ -188,28 +194,31 @@ export class ActivityCharts extends Component<ActivityChartsState> {
     private createPieChart(canvas: HTMLCanvasElement, colors: string[], timeRange: ActivityRange) {
         const { logs, groupByMode } = this.state;
         const { validStart, validEnd } = timeRange;
+        const isInRange = (log: ActivitySummary) => log.date >= validStart && log.date <= validEnd;
+        const activeGroups = this.getActiveGroups(logs, isInRange, groupByMode);
         const pieTypeMap = new Map<string, number>();
         const style = getComputedStyle(document.body);
 
         for (const log of logs) {
-            if (log.date >= validStart && log.date <= validEnd) {
-                const key = groupByMode === 'activity_type' ? log.activity_type : log.title;
+            if (isInRange(log)) {
+                const key = this.getGroupForLog(log, groupByMode).key;
                 const value = this.state.metric === 'minutes' ? log.duration_minutes : (log.characters || 0);
                 pieTypeMap.set(key, (pieTypeMap.get(key) || 0) + value);
             }
         }
 
         const sortedEntries = Array.from(pieTypeMap.entries()).sort((a, b) => b[1] - a[1]);
+        const displayLabels = sortedEntries.map(([key]) => activeGroups.get(key) ?? key);
 
         canvas.dataset.groupBy = groupByMode;
         canvas.dataset.metric = this.state.metric;
-        canvas.dataset.labels = JSON.stringify(sortedEntries.map(entry => entry[0]));
+        canvas.dataset.labels = JSON.stringify(displayLabels);
         canvas.dataset.values = JSON.stringify(sortedEntries.map(entry => entry[1]));
 
         this.pieChartInstance = new Chart(canvas, {
             type: 'doughnut',
             data: {
-                labels: sortedEntries.map(e => e[0]),
+                labels: displayLabels,
                 datasets: [{
                     data: sortedEntries.map(e => e[1]),
                     backgroundColor: colors,
@@ -305,13 +314,13 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         const { logs, groupByMode, chartType } = this.state;
         const { labels, getBucketIndex } = timeRange;
 
-        const activeKeys = this.getActiveKeys(logs, getBucketIndex, groupByMode);
-        const datasetsMap = this.aggregateDailyData(logs, activeKeys, getBucketIndex, labels.length, groupByMode);
+        const activeGroups = this.getActiveGroups(logs, log => getBucketIndex(log.date) !== -1, groupByMode);
+        const datasetsMap = this.aggregateDailyData(logs, activeGroups, getBucketIndex, labels.length, groupByMode);
 
         return Array.from(datasetsMap.entries())
             .sort((a, b) => b[1].reduce((s, v) => s + v, 0) - a[1].reduce((s, v) => s + v, 0))
             .map(([key, data], i) => ({
-                label: key,
+                label: activeGroups.get(key) ?? key,
                 data: data,
                 backgroundColor: colors[i % colors.length],
                 borderColor: colors[i % colors.length],
@@ -320,26 +329,84 @@ export class ActivityCharts extends Component<ActivityChartsState> {
             }));
     }
 
-    private getActiveKeys(logs: ActivitySummary[], getBucketIndex: (date: string) => number, mode: 'activity_type' | 'log_name'): Set<string> {
-        const keys = new Set<string>();
+    private getActiveGroups(
+        logs: ActivitySummary[],
+        isActive: (log: ActivitySummary) => boolean,
+        mode: 'activity_type' | 'log_name',
+    ): Map<string, string> {
+        const groups = new Map<string, string>();
+        const nameGroups = mode === 'log_name' ? this.buildLogNameGroups(logs, isActive) : undefined;
         for (const log of logs) {
-            if (getBucketIndex(log.date) !== -1) {
-                keys.add(mode === 'activity_type' ? log.activity_type : log.title);
+            if (isActive(log)) {
+                const group = this.getGroupForLog(log, mode, nameGroups);
+                groups.set(group.key, group.label);
             }
         }
-        return keys;
+        return groups;
     }
 
-    private aggregateDailyData(logs: ActivitySummary[], activeKeys: Set<string>, getBucketIndex: (date: string) => number, length: number, mode: 'activity_type' | 'log_name') {
+    private buildLogNameGroups(
+        logs: ActivitySummary[],
+        isActive: (log: ActivitySummary) => boolean,
+    ): Map<number, ChartGroup> {
+        const mediaById = new Map(
+            (this.state.mediaList ?? [])
+                .filter((media): media is Media & { id: number } => media.id !== undefined)
+                .map(media => [media.id, media]),
+        );
+        const activeMedia = new Map<number, { title: string; variant: string }>();
+
+        for (const log of logs) {
+            if (!isActive(log) || activeMedia.has(log.media_id)) continue;
+            const media = mediaById.get(log.media_id);
+            activeMedia.set(log.media_id, {
+                title: media?.title ?? log.title,
+                variant: media?.variant?.trim() ?? '',
+            });
+        }
+
+        const titleCounts = new Map<string, number>();
+        for (const { title } of activeMedia.values()) {
+            titleCounts.set(title, (titleCounts.get(title) ?? 0) + 1);
+        }
+
+        const groups = new Map<number, ChartGroup>();
+        for (const [mediaId, media] of activeMedia) {
+            const needsVariant = (titleCounts.get(media.title) ?? 0) > 1;
+            groups.set(mediaId, {
+                key: `media:${mediaId}`,
+                label: needsVariant
+                    ? `${media.title} — ${media.variant || '(no variant)'}`
+                    : media.title,
+            });
+        }
+        return groups;
+    }
+
+    private getGroupForLog(
+        log: ActivitySummary,
+        mode: 'activity_type' | 'log_name',
+        nameGroups?: Map<number, ChartGroup>,
+    ): ChartGroup {
+        if (mode === 'activity_type') {
+            return { key: `activity:${log.activity_type}`, label: log.activity_type };
+        }
+        return nameGroups?.get(log.media_id) ?? {
+            key: `media:${log.media_id}`,
+            label: log.title,
+        };
+    }
+
+    private aggregateDailyData(logs: ActivitySummary[], activeGroups: Map<string, string>, getBucketIndex: (date: string) => number, length: number, mode: 'activity_type' | 'log_name') {
         const map = new Map<string, number[]>();
-        for (const key of activeKeys) {
+        for (const key of activeGroups.keys()) {
             map.set(key, Array.from({ length }, () => 0));
         }
 
         for (const log of logs) {
             const index = getBucketIndex(log.date);
             if (index !== -1) {
-                const key = mode === 'activity_type' ? log.activity_type : log.title;
+                const key = this.getGroupForLog(log, mode).key;
                 if (map.has(key)) {
                     const value = this.state.metric === 'minutes' ? log.duration_minutes : (log.characters || 0);
                     map.get(key)![index] += value;
