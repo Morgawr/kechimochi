@@ -5,6 +5,7 @@ import { ActivitySummary } from '../../src/api';
 import { customConfirm } from '../../src/modal_base';
 import { HeatmapView } from '../../src/dashboard/HeatmapView';
 import { ActivityCharts } from '../../src/dashboard/ActivityCharts';
+import { Logger } from '../../src/logger';
 
 vi.mock('../../src/api', () => ({
     getLogs: vi.fn(),
@@ -210,6 +211,30 @@ describe('Dashboard', () => {
         // @ts-expect-error - accessing private state
         expect(dashboard.state.chartParams.groupByMode).toBe('activity_type');
         expect(api.setSetting).toHaveBeenCalledWith('dashboard_group_by', 'activity_type');
+    });
+
+    it('keeps loading with activity_type when persisting the legacy setting migration fails', async () => {
+        const migrationError = new Error('settings unavailable');
+        const loggerSpy = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
+        vi.mocked(api.getLogs).mockResolvedValue([]);
+        vi.mocked(api.getHeatmap).mockResolvedValue([]);
+        vi.mocked(api.getAllMedia).mockResolvedValue([]);
+        vi.mocked(api.getSetting).mockImplementation(async (key) => (
+            key === 'dashboard_group_by' ? 'media_type' : null
+        ));
+        vi.mocked(api.setSetting).mockRejectedValue(migrationError);
+
+        const dashboard = new Dashboard(container);
+        await vi.waitFor(() => {
+            dashboard.render();
+            // @ts-expect-error - accessing private state
+            if (!dashboard.state.isInitialized) throw new Error('Not initialized');
+        });
+
+        // @ts-expect-error - accessing private state
+        expect(dashboard.state.chartParams.groupByMode).toBe('activity_type');
+        expect(loggerSpy).toHaveBeenCalledWith('Failed to migrate dashboard group by setting', migrationError);
+        loggerSpy.mockRestore();
     });
 
     it('should switch the activity charts to the clicked heatmap week', async () => {

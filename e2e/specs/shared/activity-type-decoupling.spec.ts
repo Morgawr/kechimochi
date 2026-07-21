@@ -2,6 +2,7 @@ import { waitForAppReady } from '../../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../../helpers/navigation.js';
 import { clickMediaItem } from '../../helpers/library.js';
 import { addExtraField, logActivityFromDetail, backToGrid } from '../../helpers/media-detail.js';
+import { closeModal, getTopmostVisibleOverlay } from '../../helpers/common.js';
 
 describe('CUJ: Activity Type Decoupling', () => {
     before(async () => {
@@ -22,6 +23,11 @@ describe('CUJ: Activity Type Decoupling', () => {
         await logsContainer.waitForDisplayed({ timeout: 5000 });
         const logsText = await logsContainer.getText();
         expect(logsText).toContain('30');
+
+        await $('.media-detail-log-item .edit-log-btn').click();
+        const editOverlay = await getTopmostVisibleOverlay('#add-activity-form');
+        expect(await editOverlay.$('#activity-type').getValue()).toBe('Watching');
+        await closeModal('#activity-cancel');
     });
 
     it('should reflect the dominant activity type verb in stats', async () => {

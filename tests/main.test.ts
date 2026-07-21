@@ -601,7 +601,7 @@ describe('main.ts initialization', () => {
             'Database schema version 3 is newer than this app supports (2)'
         ));
         document.getElementById('alert-ok')?.click();
-        expect(mockWindow.close).toHaveBeenCalled();
+        await vi.waitFor(() => expect(mockWindow.close).toHaveBeenCalled());
     });
 
     it('should refresh timeline data after logging activity from the timeline view', async () => {
@@ -674,7 +674,7 @@ describe('main.ts initialization', () => {
         const mockWindow = vi.mocked(getCurrentWindow)();
         expect(mockWindow.minimize).toHaveBeenCalled();
         expect(mockWindow.toggleMaximize).toHaveBeenCalled();
-        expect(mockWindow.close).toHaveBeenCalled();
+        await vi.waitFor(() => expect(mockWindow.close).toHaveBeenCalled());
     });
 
     

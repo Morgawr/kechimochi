@@ -201,6 +201,11 @@ export class ActivityCharts extends Component<ActivityChartsState> {
 
         const sortedEntries = Array.from(pieTypeMap.entries()).sort((a, b) => b[1] - a[1]);
 
+        canvas.dataset.groupBy = groupByMode;
+        canvas.dataset.metric = this.state.metric;
+        canvas.dataset.labels = JSON.stringify(sortedEntries.map(entry => entry[0]));
+        canvas.dataset.values = JSON.stringify(sortedEntries.map(entry => entry[1]));
+
         this.pieChartInstance = new Chart(canvas, {
             type: 'doughnut',
             data: {
@@ -239,6 +244,14 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         const secondaryColor = style.getPropertyValue('--text-secondary').trim() || '#a0a0b0'
         const gridColor = `color-mix(in srgb, ${style.getPropertyValue('--text-secondary').trim() || '#3f3f4e'} 30%, transparent)`;
         const datasets = this.prepareBarChartDatasets(timeRange, colors);
+
+        canvas.dataset.chartType = chartType;
+        canvas.dataset.groupBy = this.state.groupByMode;
+        canvas.dataset.metric = this.state.metric;
+        canvas.dataset.seriesLabels = JSON.stringify(datasets.map(dataset => dataset.label));
+        canvas.dataset.seriesTotals = JSON.stringify(
+            datasets.map(dataset => dataset.data.reduce((sum, value) => sum + value, 0)),
+        );
 
         this.barChartInstance = new Chart(canvas, {
             type: chartType,

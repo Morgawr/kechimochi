@@ -7,7 +7,14 @@ import { setText, setSelect } from './form-controls.js';
 /**
  * High-level helper to log an activity from the dashboard
  */
-export async function logActivity(title: string, duration: string, characters: string = "0", date?: string, activityType?: string): Promise<void> {
+export async function logActivity(
+    title: string,
+    duration: string,
+    characters: string = "0",
+    date?: string,
+    activityType?: string,
+    notes?: string,
+): Promise<void> {
     await waitForNoActiveOverlays();
     const addActivityBtn = $('#btn-add-activity');
     await addActivityBtn.waitForClickable({ timeout: 5000 });
@@ -30,6 +37,10 @@ export async function logActivity(title: string, duration: string, characters: s
         if (await overlay.$('#activity-type').isExisting()) {
             await setSelect('#activity-type', { text: activityType });
         }
+    }
+
+    if (notes !== undefined && await overlay.$('#activity-notes').isExisting()) {
+        await setText('#activity-notes', notes);
     }
 
     if (date) {
@@ -102,8 +113,19 @@ export async function deleteMostRecentLog(): Promise<void> {
 /**
  * Clicks the edit button for the most recent log in the dashboard timeline and updates it.
  */
-export async function editMostRecentLog(newDuration: string, newCharacters: string = "0"): Promise<void> {
-    await performActivityEdit('.dashboard-activity-item .edit-log-btn', newDuration, newCharacters);
+export async function editMostRecentLog(
+    newDuration: string,
+    newCharacters: string = "0",
+    newNotes?: string,
+    newActivityType?: string,
+): Promise<void> {
+    await performActivityEdit(
+        '.dashboard-activity-item .edit-log-btn',
+        newDuration,
+        newCharacters,
+        newNotes,
+        newActivityType,
+    );
 }
 
 /**
@@ -148,7 +170,7 @@ export async function clickHeatmapCell(date: string): Promise<void> {
     await safeClick(cell);
 }
 
-export async function selectActivityChartTimeRange(days: '7' | '30' | '365'): Promise<void> {
+export async function selectActivityChartTimeRange(days: '0' | '7' | '30' | '365'): Promise<void> {
     await setSelect('#select-time-range', { value: days });
 }
 

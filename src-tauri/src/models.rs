@@ -54,7 +54,9 @@ pub struct HttpMedia {
     pub variant: String,
     #[serde(default)]
     pub default_activity_type: Option<String>,
-    #[serde(default)]
+    // Accepted only for backwards-compatible request deserialization. Responses
+    // must expose the canonical `default_activity_type` field exclusively.
+    #[serde(default, skip_serializing)]
     pub media_type: Option<String>,
     pub status: String,
     pub language: String,
@@ -116,8 +118,8 @@ impl From<Media> for HttpMedia {
             uid: value.uid,
             title: value.title,
             variant: value.variant,
-            default_activity_type: Some(value.default_activity_type.clone()),
-            media_type: Some(value.default_activity_type),
+            default_activity_type: Some(value.default_activity_type),
+            media_type: None,
             status: value.status,
             language: value.language,
             description: value.description,
@@ -135,7 +137,6 @@ pub struct HttpActivitySummary {
     pub media_id: i64,
     pub title: String,
     pub activity_type: String,
-    pub media_type: String,
     pub duration_minutes: i64,
     pub characters: i64,
     pub date: String,
@@ -149,8 +150,7 @@ impl From<ActivitySummary> for HttpActivitySummary {
             id: value.id,
             media_id: value.media_id,
             title: value.title,
-            activity_type: value.activity_type.clone(),
-            media_type: value.activity_type,
+            activity_type: value.activity_type,
             duration_minutes: value.duration_minutes,
             characters: value.characters,
             date: value.date,
@@ -263,7 +263,7 @@ mod tests {
     }
 
     #[test]
-    fn http_responses_emit_canonical_and_legacy_activity_type_fields() {
+    fn http_responses_emit_only_canonical_activity_type_fields() {
         let media = Media {
             id: Some(1),
             uid: None,
@@ -280,7 +280,7 @@ mod tests {
         };
         let media_json = serde_json::to_value(HttpMedia::from(media)).unwrap();
         assert_eq!(media_json["default_activity_type"], "Reading");
-        assert_eq!(media_json["media_type"], "Reading");
+        assert!(media_json.get("media_type").is_none());
 
         let summary = ActivitySummary {
             id: Some(1),
@@ -295,6 +295,6 @@ mod tests {
         };
         let summary_json = serde_json::to_value(HttpActivitySummary::from(summary)).unwrap();
         assert_eq!(summary_json["activity_type"], "Watching");
-        assert_eq!(summary_json["media_type"], "Watching");
+        assert!(summary_json.get("media_type").is_none());
     }
 }

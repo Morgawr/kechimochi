@@ -95,11 +95,11 @@ export function makeConfig(
         baselineFolder: path.join(__dirname, '..', 'screenshots', 'baseline'),
         formatImageName: '{tag}',
         savePerInstance: false,
-        autoSaveBaseline: true,
+        autoSaveBaseline: false,
         blockOutStatusBar: true,
         blockOutToolBar: true,
         clearRuntimeFolder: false,
-        misMatchTolerance: 10,
+        misMatchTolerance: 5,
         compareOptions: {
           threshold: 0.5,
           includeAA: true,

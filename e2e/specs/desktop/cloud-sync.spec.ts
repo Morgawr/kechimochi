@@ -5,7 +5,18 @@ import { waitForAppReady } from '../../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../../helpers/navigation.js';
 import { safeClick, dismissAlert, confirmAction, setDialogMockPath, waitForNoActiveOverlays } from '../../helpers/common.js';
 import { addMedia, clickMediaItem, isMediaVisible } from '../../helpers/library.js';
-import { addExtraField, backToLibrary, editExtraField, getDescription, getExtraField } from '../../helpers/media-detail.js';
+import {
+  addExtraField,
+  addMilestone,
+  backToLibrary,
+  editExtraField,
+  getDescription,
+  getExtraField,
+  logActivityFromDetail,
+  uploadCoverImage,
+} from '../../helpers/media-detail.js';
+import { uploadProfilePicture } from '../../helpers/profile.js';
+import { setSelect } from '../../helpers/form-controls.js';
 import {
   enableSyncByAttachingExistingProfile,
   enableSyncByCreatingNewProfile,
@@ -32,6 +43,8 @@ const CONFLICT_KEY = 'sync_conflict_note';
 const FORCE_KEY = 'force_publish_note';
 const MANUAL_SYNC_TITLE = 'Cloud Sync Manual Local';
 const ROUNDTRIP_TITLE = 'Cloud Sync Backup Roundtrip';
+const COMPLETE_ENTITY_TITLE = 'Cloud Sync Complete Entity';
+const DELETION_TITLE = 'Cloud Sync Deletion Propagation';
 const REMOTE_SYNC_TIMEOUT_MS = 12_000;
 const BACKUP_ALERT_TIMEOUT_MS = 12_000;
 
@@ -220,5 +233,75 @@ describe('CUJ: Cloud Sync', () => {
       timeoutMsg: 'Remote-only media was not restored after re-attaching the cloud profile',
     });
     completedStep = 7;
+  });
+
+  it('should sync logs, notes, milestones, settings, profile picture, covers, variants, and deletions', async function () {
+    requireStep(this, 7);
+    const imageFixture = path.join(
+      process.env.KECHIMOCHI_DATA_DIR || path.resolve(process.cwd(), 'e2e', 'fixtures'),
+      'covers',
+      'profile_placeholder.png',
+    );
+
+    await navigateTo('media');
+    await addMedia(COMPLETE_ENTITY_TITLE, 'Reading', 'Novel', 'Sync Edition');
+    await uploadCoverImage(imageFixture);
+    await logActivityFromDetail(
+      COMPLETE_ENTITY_TITLE,
+      '36',
+      '2400',
+      'Watching',
+      'Synced note with exact content',
+    );
+    await addMilestone('Synced milestone', '0', '36', '2400', true);
+    await backToLibrary('grid');
+    await addMedia(DELETION_TITLE, 'Playing', 'Videogame');
+    await backToLibrary('grid');
+
+    await navigateTo('profile');
+    await setSelect('#profile-select-theme', { value: 'molokai' });
+    await uploadProfilePicture(imageFixture);
+    await runSyncNow('Cloud Sync completed successfully');
+
+    await browser.waitUntil(async () => {
+      const snapshot = readRemoteProfile(remoteProfileId).snapshot;
+      return Object.values(snapshot.library).some(media => media.title === COMPLETE_ENTITY_TITLE);
+    }, { timeout: REMOTE_SYNC_TIMEOUT_MS });
+
+    const syncedSnapshot = readRemoteProfile(remoteProfileId).snapshot;
+    const syncedMedia = Object.values(syncedSnapshot.library)
+      .find(media => media.title === COMPLETE_ENTITY_TITLE) as Record<string, unknown>;
+    const activities = syncedMedia.activities as Array<Record<string, unknown>>;
+    const milestones = syncedMedia.milestones as Array<Record<string, unknown>>;
+    expect(syncedMedia.variant).toBe('Sync Edition');
+    expect(syncedMedia.cover_blob_sha256).toEqual(expect.any(String));
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({
+      activity_type: 'Watching',
+      duration_minutes: 36,
+      characters: 2400,
+      notes: 'Synced note with exact content',
+    });
+    expect(milestones).toHaveLength(1);
+    expect(milestones[0]).toMatchObject({ name: 'Synced milestone', duration: 36, characters: 2400 });
+    expect((syncedSnapshot.settings.theme as Record<string, unknown>).value).toBe('molokai');
+    expect((syncedSnapshot.profile_picture as Record<string, unknown>).base64_data).toEqual(expect.any(String));
+
+    await openMediaDetail(DELETION_TITLE);
+    await safeClick('#btn-media-overflow');
+    await safeClick('#btn-delete-media-detail');
+    await confirmAction(true);
+    await navigateTo('profile');
+    await runSyncNow('Cloud Sync completed successfully');
+
+    await browser.waitUntil(async () => {
+      const snapshot = readRemoteProfile(remoteProfileId).snapshot;
+      return !Object.values(snapshot.library).some(media => media.title === DELETION_TITLE)
+        && snapshot.tombstones.length > 0;
+    }, {
+      timeout: REMOTE_SYNC_TIMEOUT_MS,
+      timeoutMsg: 'Remote snapshot did not receive the local media deletion',
+    });
+    completedStep = 8;
   });
 });
