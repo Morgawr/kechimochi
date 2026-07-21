@@ -197,8 +197,15 @@ describe('WebServices', () => {
         globals.__APP_BUILD_CHANNEL__ = 'release';
 
         await expect(services.getAppVersion()).resolves.toBe('1.2.3');
-        await expect(services.getStartupError()).resolves.toBeNull();
         expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('loads startup lock failures from the web server', async () => {
+        const startupError = 'Unable to obtain unique lock. Some other process is already running Kechimochi (pid=4242).';
+        fetchMock.mockResolvedValue(okJson(startupError));
+
+        await expect(services.getStartupError()).resolves.toBe(startupError);
+        expect(fetchMock).toHaveBeenCalledWith('/api/startup-error');
     });
 
     it('exports activities with query params and triggers a download', async () => {

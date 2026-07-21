@@ -3,6 +3,7 @@ pub mod backup;
 pub mod csv_import;
 pub mod db;
 pub mod http_api;
+pub mod instance_lock;
 pub mod models;
 pub mod profile_picture;
 pub mod sync_auth;
@@ -1430,7 +1431,28 @@ pub fn run() {
         .setup(|app| {
             let app_dir = db::get_data_dir(app.handle());
             let user_db_path = app_dir.join("kechimochi_user.db");
-            let (conn, startup_error) = if user_db_path.exists() {
+
+            #[cfg(desktop)]
+            let lock_startup_error =
+                match instance_lock::acquire_instance_lock(
+                    &app_dir,
+                    instance_lock::InstanceKind::Desktop,
+                ) {
+                    Ok(guard) => {
+                        app.manage(guard);
+                        None
+                    }
+                    Err(error) => Some(error.to_string()),
+                };
+            #[cfg(not(desktop))]
+            let lock_startup_error: Option<String> = None;
+
+            let (conn, startup_error) = if let Some(error) = lock_startup_error {
+                (
+                    rusqlite::Connection::open_in_memory().unwrap(),
+                    Some(error),
+                )
+            } else if user_db_path.exists() {
                 match db::init_db(app_dir, None) {
                     Ok(conn) => (conn, None),
                     Err(err) => {
@@ -1450,6 +1472,7 @@ pub fn run() {
                 // The frontend will force the user to create an initial profile and call initialize_user_db.
                 (rusqlite::Connection::open_in_memory().unwrap(), None)
             };
+            let startup_blocked = startup_error.is_some();
             let db_conn = Arc::new(Mutex::new(conn));
             app.manage(DbState {
                 conn: db_conn.clone(),
@@ -1457,7 +1480,11 @@ pub fn run() {
             app.manage(StartupState {
                 error: startup_error,
             });
-            let local_http_api_config = load_local_http_api_config(app.handle());
+            let local_http_api_config = if startup_blocked {
+                LocalHttpApiConfig::default()
+            } else {
+                load_local_http_api_config(app.handle())
+            };
             let local_http_api_state = LocalHttpApiState::new(local_http_api_config.clone());
             let local_http_api_inner = local_http_api_state.inner.clone();
             app.manage(local_http_api_state);

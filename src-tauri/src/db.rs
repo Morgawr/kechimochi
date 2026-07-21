@@ -193,11 +193,14 @@ fn default_data_dir_from_identifier() -> PathBuf {
 
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
-        let home = std::env::var("HOME").expect("HOME env var not set");
-        PathBuf::from(home)
-            .join(".local")
-            .join("share")
-            .join(app_id)
+        let data_home = std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .unwrap_or_else(|| {
+                let home = std::env::var("HOME").expect("HOME env var not set");
+                PathBuf::from(home).join(".local").join("share")
+            });
+        data_home.join(app_id)
     }
 }
 
@@ -2695,6 +2698,43 @@ mod tests {
             None => unsafe {
                 std::env::remove_var("APPDATA");
             },
+        }
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn test_get_data_dir_linux_default_honors_xdg_data_home() {
+        let _guard = ENV_LOCK.lock().unwrap();
+
+        let original_data_dir = std::env::var("KECHIMOCHI_DATA_DIR").ok();
+        let original_app_identifier = std::env::var("KECHIMOCHI_APP_IDENTIFIER").ok();
+        let original_xdg_data_home = std::env::var("XDG_DATA_HOME").ok();
+        let fake_xdg_data_home =
+            std::env::temp_dir().join(format!("kechimochi_xdg_data_{}", std::process::id()));
+
+        unsafe {
+            std::env::remove_var("KECHIMOCHI_DATA_DIR");
+            std::env::set_var("KECHIMOCHI_APP_IDENTIFIER", "com.example.kechimochi-test");
+            std::env::set_var("XDG_DATA_HOME", &fake_xdg_data_home);
+        }
+
+        let resolved = get_data_dir(&STANDALONE_DATA_DIR_PROVIDER);
+        assert_eq!(
+            resolved,
+            fake_xdg_data_home.join("com.example.kechimochi-test")
+        );
+
+        match original_data_dir {
+            Some(value) => unsafe { std::env::set_var("KECHIMOCHI_DATA_DIR", value) },
+            None => unsafe { std::env::remove_var("KECHIMOCHI_DATA_DIR") },
+        }
+        match original_app_identifier {
+            Some(value) => unsafe { std::env::set_var("KECHIMOCHI_APP_IDENTIFIER", value) },
+            None => unsafe { std::env::remove_var("KECHIMOCHI_APP_IDENTIFIER") },
+        }
+        match original_xdg_data_home {
+            Some(value) => unsafe { std::env::set_var("XDG_DATA_HOME", value) },
+            None => unsafe { std::env::remove_var("XDG_DATA_HOME") },
         }
     }
 

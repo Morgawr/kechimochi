@@ -19,6 +19,7 @@ The format is based on Keep a Changelog, with one section per released version.
  - Renamed the media-level "Media Type" field to "Default Activity Type" across the database, API, and CSV exports, while retaining compatibility with legacy imports and API clients.
  - Cloud sync now asks whether to combine entries or rename one and keep both when local and remote media have the same title and variant but different internal identities.
  - CSV imports now identify media using the exact title and variant pair. Legacy CSVs without a variant column remain supported when the title identifies only one media entry.
+ - Introduced a global lock that prevents multiple kechimochi instances from running on the same device.
 
 ### Fixed
  - Activity types are now stored on every activity log, so changing a media default no longer reclassifies historical activity; This also retroactively applies to historical blank activities.

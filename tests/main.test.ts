@@ -604,6 +604,22 @@ describe('main.ts initialization', () => {
         await vi.waitFor(() => expect(mockWindow.close).toHaveBeenCalled());
     });
 
+    it('should show lock owner details when another process owns the data directory', async () => {
+        vi.mocked(api.getStartupError).mockResolvedValue(
+            'Unable to obtain unique lock. Some other process is already running Kechimochi (pid=4242).\n\nLock owner details:\npid=4242\nkind=web'
+        );
+
+        const { App } = await import('../src/main');
+        await App.start();
+
+        expect(api.initializeUserDb).not.toHaveBeenCalled();
+        expect(document.querySelector('h1')?.textContent).toBe('Kechimochi is already running');
+        expect(document.getElementById('alert-body')?.textContent).toContain(
+            'Some other process is already running Kechimochi (pid=4242)'
+        );
+        expect(document.getElementById('alert-body')?.textContent).toContain('kind=web');
+    });
+
     it('should refresh timeline data after logging activity from the timeline view', async () => {
         await bootApp();
 

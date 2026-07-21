@@ -23,7 +23,9 @@ use serde::Deserialize;
 use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
 
-use kechimochi_lib::{csv_import, db, get_username_logic, models, profile_picture, sync_state};
+use kechimochi_lib::{
+    csv_import, db, get_username_logic, instance_lock, models, profile_picture, sync_state,
+};
 
 // ── Error handling ────────────────────────────────────────────────────────────
 
@@ -105,6 +107,7 @@ struct AppState {
     conn: Mutex<rusqlite::Connection>,
     data_dir: PathBuf,
     static_dir: PathBuf,
+    startup_error: Option<String>,
 }
 
 type Shared = Arc<AppState>;
@@ -115,13 +118,6 @@ type Shared = Arc<AppState>;
 async fn main() {
     let data_dir = db::get_data_dir(&db::STANDALONE_DATA_DIR_PROVIDER);
     println!("[kechimochi] data dir: {}", data_dir.display());
-
-    let user_db_path = data_dir.join("kechimochi_user.db");
-    let conn = if user_db_path.exists() {
-        db::init_db(data_dir.clone(), None).expect("Failed to open database")
-    } else {
-        rusqlite::Connection::open_in_memory().expect("Failed to open in-memory DB")
-    };
 
     let static_dir = resolve_static_dir();
     let static_index = static_dir.join("index.html");
@@ -134,10 +130,35 @@ async fn main() {
 
     println!("[kechimochi] static dir: {}", static_dir.display());
 
+    let instance_lock =
+        instance_lock::acquire_instance_lock(&data_dir, instance_lock::InstanceKind::Web);
+    let startup_error = instance_lock
+        .as_ref()
+        .err()
+        .map(std::string::ToString::to_string);
+    if let Some(error) = &startup_error {
+        eprintln!("[kechimochi] startup blocked: {error}");
+    }
+
+    let user_db_path = data_dir.join("kechimochi_user.db");
+    let conn = if startup_error.is_some() {
+        rusqlite::Connection::open_in_memory().expect("Failed to open in-memory DB")
+    } else if user_db_path.exists() {
+        db::init_db(data_dir.clone(), None).expect("Failed to open database")
+    } else {
+        rusqlite::Connection::open_in_memory().expect("Failed to open in-memory DB")
+    };
+
+    // Keep the successful guard alive until the server exits. A blocked server
+    // deliberately keeps serving only the startup warning so browser users can
+    // see which process owns the data directory.
+    let _instance_lock = instance_lock.ok();
+
     let state: Shared = Arc::new(AppState {
         conn: Mutex::new(conn),
         data_dir,
         static_dir: static_dir.clone(),
+        startup_error,
     });
 
     let app = build_app_router(state);
@@ -157,6 +178,17 @@ fn build_app_router(state: Shared) -> Router {
         .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any);
+
+    if state.startup_error.is_some() {
+        return Router::new()
+            .route("/api/startup-error", get(get_startup_error_handler))
+            .route("/api", any(startup_blocked_api))
+            .route("/api/*path", any(startup_blocked_api))
+            .route("/", get(serve_spa_index))
+            .route("/*path", get(serve_static_or_spa))
+            .with_state(state)
+            .layer(cors);
+    }
 
     Router::new()
         // Media
@@ -195,6 +227,7 @@ fn build_app_router(state: Shared) -> Router {
         // Settings
         .route("/api/settings/:key", get(get_setting).put(set_setting))
         // Utility
+        .route("/api/startup-error", get(get_startup_error_handler))
         .route("/api/username", get(get_username))
         .route("/api/version", get(get_version))
         .route("/api/activities/clear", post(clear_activities))
@@ -251,6 +284,19 @@ fn resolve_static_dir() -> PathBuf {
 
 async fn api_not_found() -> (StatusCode, &'static str) {
     (StatusCode::NOT_FOUND, "API route not found")
+}
+
+async fn get_startup_error_handler(State(s): State<Shared>) -> Json<Option<String>> {
+    Json(s.startup_error.clone())
+}
+
+async fn startup_blocked_api(State(s): State<Shared>) -> (StatusCode, String) {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        s.startup_error
+            .clone()
+            .unwrap_or_else(|| "Kechimochi startup is blocked".to_string()),
+    )
 }
 
 async fn serve_spa_index(State(s): State<Shared>) -> HandlerResult<Response> {
@@ -1030,6 +1076,7 @@ mod tests {
             conn: Mutex::new(conn),
             data_dir,
             static_dir: PathBuf::from("dist"),
+            startup_error: None,
         })
     }
 
@@ -1041,6 +1088,7 @@ mod tests {
             conn: Mutex::new(conn),
             data_dir,
             static_dir: PathBuf::from("dist"),
+            startup_error: None,
         })
     }
 
@@ -1100,6 +1148,50 @@ mod tests {
     async fn test_get_version_has_web_prefix() {
         let version = get_version().await.0;
         assert!(version.starts_with("web-"));
+    }
+
+    #[tokio::test]
+    async fn startup_error_route_reports_lock_owner_and_blocks_other_apis() {
+        let mut state = setup_state();
+        let state_dir = state.data_dir.clone();
+        let startup_error = "Unable to obtain unique lock. Some other process is already running Kechimochi (pid=4242).\n\nLock owner details:\npid=4242\nkind=desktop";
+        Arc::get_mut(&mut state).unwrap().startup_error = Some(startup_error.to_string());
+
+        let startup_response = build_app_router(state.clone())
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/api/startup-error")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(startup_response.status(), StatusCode::OK);
+        let startup_body = axum::body::to_bytes(startup_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Option<String>>(&startup_body).unwrap(),
+            Some(startup_error.to_string())
+        );
+
+        let mutation_response = build_app_router(state)
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/api/reset")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(mutation_response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let mutation_body = axum::body::to_bytes(mutation_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert!(String::from_utf8_lossy(&mutation_body).contains("pid=4242"));
+
+        let _ = std::fs::remove_dir_all(state_dir);
     }
 
     #[tokio::test]
