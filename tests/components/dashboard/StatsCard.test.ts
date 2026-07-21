@@ -20,9 +20,9 @@ describe('StatsCard', () => {
 
     it('should calculate and render streaks and averages correctly', () => {
         const logs: ActivitySummary[] = [
-            { id: 1, media_id: 1, title: 'T1', media_type: 'Reading', duration_minutes: 60, characters: 0, date: '2024-01-01', language: 'Japanese' },
-            { id: 2, media_id: 1, title: 'T1', media_type: 'Reading', duration_minutes: 60, characters: 0, date: '2024-01-02', language: 'Japanese' },
-            { id: 3, media_id: 2, title: 'T2', media_type: 'Watching', duration_minutes: 30, characters: 0, date: '2024-01-04', language: 'Japanese' },
+            { id: 1, media_id: 1, title: 'T1', activity_type: 'Reading', duration_minutes: 60, characters: 0, date: '2024-01-01', language: 'Japanese' },
+            { id: 2, media_id: 1, title: 'T1', activity_type: 'Reading', duration_minutes: 60, characters: 0, date: '2024-01-02', language: 'Japanese' },
+            { id: 3, media_id: 2, title: 'T2', activity_type: 'Watching', duration_minutes: 30, characters: 0, date: '2024-01-04', language: 'Japanese' },
         ];
         
         const component = new StatsCard(container, { logs, mediaList: [{} as unknown as Media, {} as unknown as Media] });
@@ -39,8 +39,8 @@ describe('StatsCard', () => {
 
     it('should calculate and render character stats correctly', () => {
         const logs: ActivitySummary[] = [
-            { id: 1, media_id: 1, title: 'T1', media_type: 'Reading', duration_minutes: 60, characters: 1000, date: '2024-03-01', language: 'Japanese' },
-            { id: 2, media_id: 1, title: 'T1', media_type: 'Reading', duration_minutes: 60, characters: 2000, date: '2024-03-02', language: 'Japanese' },
+            { id: 1, media_id: 1, title: 'T1', activity_type: 'Reading', duration_minutes: 60, characters: 1000, date: '2024-03-01', language: 'Japanese' },
+            { id: 2, media_id: 1, title: 'T1', activity_type: 'Reading', duration_minutes: 60, characters: 2000, date: '2024-03-02', language: 'Japanese' },
         ];
         
         const component = new StatsCard(container, { logs, mediaList: [] });
@@ -54,7 +54,7 @@ describe('StatsCard', () => {
 
     it('should hide character stats if total characters is 0', () => {
         const logs: ActivitySummary[] = [
-            { id: 1, media_id: 1, title: 'T1', media_type: 'Reading', duration_minutes: 60, characters: 0, date: '2024-03-01', language: 'Japanese' },
+            { id: 1, media_id: 1, title: 'T1', activity_type: 'Reading', duration_minutes: 60, characters: 0, date: '2024-03-01', language: 'Japanese' },
         ];
         
         const component = new StatsCard(container, { logs, mediaList: [] });
@@ -73,8 +73,8 @@ describe('StatsCard', () => {
         const formatDate = (d: Date) => d.toISOString().split('T')[0];
         
         const logs: ActivitySummary[] = [
-            { id: 1, media_id: 1, title: 'T', media_type: 'Reading', duration_minutes: 10, characters: 0, date: formatDate(yesterday), language: 'Japanese' },
-            { id: 2, media_id: 1, title: 'T', media_type: 'Reading', duration_minutes: 10, characters: 0, date: formatDate(today), language: 'Japanese' },
+            { id: 1, media_id: 1, title: 'T', activity_type: 'Reading', duration_minutes: 10, characters: 0, date: formatDate(yesterday), language: 'Japanese' },
+            { id: 2, media_id: 1, title: 'T', activity_type: 'Reading', duration_minutes: 10, characters: 0, date: formatDate(today), language: 'Japanese' },
         ];
 
         const component = new StatsCard(container, { logs, mediaList: [] });

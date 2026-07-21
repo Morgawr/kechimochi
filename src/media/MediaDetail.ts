@@ -259,8 +259,8 @@ export class MediaDetail extends Component<MediaDetailState> {
                         </svg>
                     </button>
                 </div>
-                <select class="badge badge-select media-detail-control" id="media-type" title="Default activity type">
-                    ${ACTIVITY_TYPES.map(opt => `<option value="${opt}" ${opt === media.media_type ? 'selected' : ''}>${opt}</option>`).join('')}
+                <select class="badge badge-select media-detail-control" id="default-activity-type" title="Default activity type">
+                    ${ACTIVITY_TYPES.map(opt => `<option value="${opt}" ${opt === media.default_activity_type ? 'selected' : ''}>${opt}</option>`).join('')}
                 </select>
                 <select class="badge badge-select badge-content media-detail-control" id="media-content-type" title="Content type">
                     ${this.getContentTypeOptions(media)}
@@ -696,10 +696,10 @@ export class MediaDetail extends Component<MediaDetailState> {
         // Determine verb from the most common activity type across logs
         const typeCounts = new Map<string, number>();
         for (const log of logs) {
-            const t = log.media_type || media.media_type;
+            const t = log.activity_type || media.default_activity_type;
             typeCounts.set(t, (typeCounts.get(t) || 0) + 1);
         }
-        let dominantType = media.media_type;
+        let dominantType = media.default_activity_type;
         let maxCount = 0;
         for (const [t, c] of typeCounts) {
             if (c > maxCount) { dominantType = t; maxCount = c; }
@@ -715,7 +715,7 @@ export class MediaDetail extends Component<MediaDetailState> {
         const isReadingType = ["Novel", "Visual Novel", "Manga", "WebNovel", "NonFiction"].includes(media.content_type || "");
         // For reading speed, only use time from logs tagged as Reading
         const readingMin = isReadingType
-            ? logs.filter(l => (l.media_type || media.media_type) === 'Reading').reduce((acc, l) => acc + l.duration_minutes, 0)
+            ? logs.filter(l => (l.activity_type || media.default_activity_type) === 'Reading').reduce((acc, l) => acc + l.duration_minutes, 0)
             : 0;
         const readingSpeedHtml = isReadingType && readingMin > 0 ? await this.computeReadingSpeedHtml(media, readingMin) : "";
 
@@ -846,8 +846,8 @@ export class MediaDetail extends Component<MediaDetailState> {
             await this.persistMediaChanges();
         });
 
-        root.querySelector('#media-type')?.addEventListener('change', async (e) => {
-            this.state.media.media_type = (e.target as HTMLSelectElement).value;
+        root.querySelector('#default-activity-type')?.addEventListener('change', async (e) => {
+            this.state.media.default_activity_type = (e.target as HTMLSelectElement).value;
             await this.persistMediaChanges();
         });
 
@@ -1057,7 +1057,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                 this.state.media.content_type = meta.contentType;
                 const activityType = CONTENT_TYPE_TO_ACTIVITY_TYPE[meta.contentType];
                 if (activityType) {
-                    this.state.media.media_type = activityType;
+                    this.state.media.default_activity_type = activityType;
                 }
             }
 

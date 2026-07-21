@@ -257,7 +257,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
         for (const log of this.state.logs) {
             if (log.date < validStart || log.date > validEnd) continue;
             const media = mediaById.get(log.media_id);
-            const category = media?.content_type || media?.media_type || log.media_type || 'Unknown';
+            const category = media?.content_type || media?.default_activity_type || log.activity_type || 'Unknown';
             const current = totalsByCategory.get(category) || { minutes: 0, characters: 0 };
             totalsByCategory.set(category, {
                 minutes: current.minutes + log.duration_minutes,

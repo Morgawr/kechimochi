@@ -124,7 +124,7 @@ export class QuickLog extends Component<QuickLogState> {
 
     private renderItem(media: Media): string {
         const coverUrl = media.id ? this.state.coverUrls[media.id] : '';
-        const contentType = (media.content_type || media.media_type || 'Unknown').trim() || 'Unknown';
+        const contentType = (media.content_type || media.default_activity_type || 'Unknown').trim() || 'Unknown';
         const variant = (media.variant || '').trim();
         const secondaryLabel = variant && variant.toLowerCase() !== contentType.toLowerCase()
             ? `${contentType} · ${variant}`

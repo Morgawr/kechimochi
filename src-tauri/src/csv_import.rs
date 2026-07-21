@@ -16,8 +16,10 @@ struct CsvRow {
     date: String,
     #[serde(rename = "Log Name")]
     log_name: String,
-    #[serde(rename = "Media Type")]
-    media_type: String,
+    #[serde(rename = "Default Activity Type", default)]
+    default_activity_type: Option<String>,
+    #[serde(rename = "Media Type", default)]
+    legacy_media_type: Option<String>,
     #[serde(rename = "Duration")]
     duration: i64,
     #[serde(rename = "Language")]
@@ -38,8 +40,8 @@ struct ActivityCsvRow {
     date: String,
     #[serde(rename = "Log Name")]
     log_name: String,
-    #[serde(rename = "Media Type")]
-    media_type: String,
+    #[serde(rename = "Default Activity Type")]
+    default_activity_type: String,
     #[serde(rename = "Duration")]
     duration: i64,
     #[serde(rename = "Language")]
@@ -58,7 +60,7 @@ impl ActivityCsvRow {
     const HEADERS: [&str; 9] = [
         "Date",
         "Log Name",
-        "Media Type",
+        "Default Activity Type",
         "Duration",
         "Language",
         "Characters",
@@ -88,8 +90,18 @@ pub struct MilestoneCsvRow {
 pub struct MediaCsvRow {
     #[serde(rename = "Title")]
     pub title: String,
-    #[serde(rename = "Media Type")]
-    pub media_type: String,
+    #[serde(
+        rename = "Default Activity Type",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub default_activity_type: Option<String>,
+    #[serde(
+        rename = "Media Type",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub legacy_media_type: Option<String>,
     #[serde(rename = "Status")]
     pub status: String,
     #[serde(rename = "Language")]
@@ -104,6 +116,70 @@ pub struct MediaCsvRow {
     pub cover_image_b64: String,
     #[serde(rename = "Variant", default)]
     pub variant: String,
+}
+
+#[derive(Debug, Serialize)]
+struct MediaCsvExportRow {
+    #[serde(rename = "Title")]
+    title: String,
+    #[serde(rename = "Default Activity Type")]
+    default_activity_type: String,
+    #[serde(rename = "Status")]
+    status: String,
+    #[serde(rename = "Language")]
+    language: String,
+    #[serde(rename = "Description")]
+    description: String,
+    #[serde(rename = "Content Type")]
+    content_type: String,
+    #[serde(rename = "Extra Data")]
+    extra_data: String,
+    #[serde(rename = "Cover Image (Base64)")]
+    cover_image_b64: String,
+    #[serde(rename = "Variant")]
+    variant: String,
+}
+
+fn resolve_default_activity_type(
+    canonical: Option<&str>,
+    legacy: Option<&str>,
+    context: &str,
+) -> Result<String, String> {
+    let canonical = canonical.map(str::trim).filter(|value| !value.is_empty());
+    let legacy = legacy.map(str::trim).filter(|value| !value.is_empty());
+
+    match (canonical, legacy) {
+        (Some(canonical), Some(legacy)) if canonical != legacy => Err(format!(
+            "Conflicting Default Activity Type ('{canonical}') and Media Type ('{legacy}') in {context}"
+        )),
+        (Some(canonical), _) => Ok(canonical.to_string()),
+        (_, Some(legacy)) => Ok(legacy.to_string()),
+        (None, None) => Err(format!(
+            "Missing Default Activity Type (or legacy Media Type) in {context}"
+        )),
+    }
+}
+
+impl MediaCsvRow {
+    fn normalize_default_activity_type(mut self, context: &str) -> Result<Self, String> {
+        let resolved = resolve_default_activity_type(
+            self.default_activity_type.as_deref(),
+            self.legacy_media_type.as_deref(),
+            context,
+        )?;
+        self.default_activity_type = Some(resolved);
+        self.legacy_media_type = None;
+        Ok(self)
+    }
+
+    fn resolved_default_activity_type(&self) -> Result<&str, String> {
+        self.default_activity_type.as_deref().ok_or_else(|| {
+            format!(
+                "Media CSV row '{}' was not normalized before use",
+                self.title
+            )
+        })
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -130,7 +206,7 @@ pub fn import_csv_from_reader<R: Read>(conn: &mut Connection, reader: R) -> Resu
     let mut records = Vec::new();
     let mut variants_by_title: HashMap<String, HashSet<String>> = HashMap::new();
 
-    for (index, result) in rdr.deserialize().enumerate() {
+    for (index, result) in rdr.deserialize::<CsvRow>().enumerate() {
         let record: CsvRow = match result {
             Ok(r) => r,
             Err(e) => {
@@ -138,6 +214,12 @@ pub fn import_csv_from_reader<R: Read>(conn: &mut Connection, reader: R) -> Resu
                 continue;
             }
         };
+        let row_number = index + 2;
+        let default_activity_type = resolve_default_activity_type(
+            record.default_activity_type.as_deref(),
+            record.legacy_media_type.as_deref(),
+            &format!("activity CSV row {row_number}"),
+        )?;
         let variant = record.media_variant.trim();
         if !variant.is_empty() {
             variants_by_title
@@ -145,13 +227,13 @@ pub fn import_csv_from_reader<R: Read>(conn: &mut Connection, reader: R) -> Resu
                 .or_default()
                 .insert(variant.to_string());
         }
-        records.push((index + 2, record));
+        records.push((row_number, record, default_activity_type));
     }
 
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     let mut imported_count = 0;
 
-    for (row_number, record) in records {
+    for (row_number, record, default_activity_type) in records {
         let formatted_date = normalize_activity_date(&record.date, row_number)?;
 
         // Check if media exists
@@ -173,7 +255,7 @@ pub fn import_csv_from_reader<R: Read>(conn: &mut Connection, reader: R) -> Resu
                         .and_then(|variants| variants.iter().next())
                         .cloned()
                         .unwrap_or_default(),
-                    media_type: record.media_type.clone(),
+                    default_activity_type: default_activity_type.clone(),
                     status: "Complete".into(), // Default to Complete for historical data
                     language: record.language.clone(),
                     description: "".to_string(),
@@ -205,8 +287,9 @@ pub fn import_csv_from_reader<R: Read>(conn: &mut Connection, reader: R) -> Resu
             date: formatted_date,
             activity_type: record
                 .activity_type
-                .filter(|s| !s.is_empty())
-                .unwrap_or_else(|| record.media_type.clone()),
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+                .unwrap_or(default_activity_type),
             notes: record.notes.unwrap_or_default(),
         };
 
@@ -264,10 +347,10 @@ pub fn export_media_csv(conn: &Connection, file_path: &str) -> Result<usize, Str
             }
         }
 
-        let row = MediaCsvRow {
+        let row = MediaCsvExportRow {
             title: m.title,
             variant: m.variant,
-            media_type: m.media_type,
+            default_activity_type: m.default_activity_type,
             status: m.status,
             language: m.language,
             description: m.description,
@@ -295,8 +378,8 @@ pub fn export_logs_csv(
 
     let mut stmt = conn
         .prepare(
-            "SELECT a.id, a.date, m.title, m.media_type, a.duration_minutes, m.language,
-                    a.characters, COALESCE(NULLIF(a.activity_type, ''), m.media_type),
+            "SELECT a.id, a.date, m.title, m.default_activity_type, a.duration_minutes, m.language,
+                    a.characters, a.activity_type,
                     a.notes, m.variant
              FROM main.activity_logs a
              JOIN shared.media m ON a.media_id = m.id
@@ -323,7 +406,7 @@ pub fn export_logs_csv(
         let (
             date,
             title,
-            media_type,
+            default_activity_type,
             duration,
             language,
             characters,
@@ -345,7 +428,7 @@ pub fn export_logs_csv(
         wtr.serialize(ActivityCsvRow {
             date,
             log_name: title,
-            media_type,
+            default_activity_type,
             duration,
             language,
             characters,
@@ -477,23 +560,24 @@ pub fn analyze_media_csv_from_reader<R: Read>(
         .from_reader(reader);
     let mut conflicts = Vec::new();
 
-    for result in rdr.deserialize() {
+    for (index, result) in rdr.deserialize::<MediaCsvRow>().enumerate() {
         let record: MediaCsvRow = match result {
             Ok(r) => r,
             Err(e) => {
                 println!("Error parsing media row: {:?}", e);
                 continue;
             }
-        };
+        }
+        .normalize_default_activity_type(&format!("media CSV row {}", index + 2))?;
 
         let existing: Option<Media> = conn.query_row(
-            "SELECT id, uid, title, media_type, status, language, description, cover_image, extra_data, content_type, tracking_status, variant FROM shared.media WHERE title = ?1",
+            "SELECT id, uid, title, default_activity_type, status, language, description, cover_image, extra_data, content_type, tracking_status, variant FROM shared.media WHERE title = ?1",
             [&record.title],
             |row| Ok(Media {
                 id: row.get(0)?,
                 uid: row.get(1)?,
                 title: row.get(2)?,
-                media_type: row.get(3)?,
+                default_activity_type: row.get(3)?,
                 status: row.get(4)?,
                 language: row.get(5)?,
                 description: row.get(6).unwrap_or_default(),
@@ -524,7 +608,10 @@ pub fn apply_media_import(
 
     std::fs::create_dir_all(&covers_dir).map_err(|e| e.to_string())?;
 
-    for req in records {
+    for (index, req) in records.into_iter().enumerate() {
+        let req = req
+            .normalize_default_activity_type(&format!("media import request row {}", index + 1))?;
+        let default_activity_type = req.resolved_default_activity_type()?.to_string();
         // Find existing to possibly delete old cover
         let existing: Option<(i64, String)> = tx
             .query_row(
@@ -570,7 +657,7 @@ pub fn apply_media_import(
                 uid: None,
                 title: req.title,
                 variant: existing_variant,
-                media_type: req.media_type,
+                default_activity_type: default_activity_type.clone(),
                 status: req.status,
                 language: req.language,
                 description: req.description,
@@ -586,7 +673,7 @@ pub fn apply_media_import(
                 uid: None,
                 title: req.title,
                 variant: req.variant.trim().to_string(),
-                media_type: req.media_type,
+                default_activity_type,
                 status: req.status,
                 language: req.language,
                 description: req.description,
@@ -638,7 +725,7 @@ mod tests {
             uid: None,
             title: title.to_string(),
             variant: String::new(),
-            media_type: "Reading".to_string(),
+            default_activity_type: "Reading".to_string(),
             status: "Active".to_string(),
             language: "Japanese".to_string(),
             description: "".to_string(),
@@ -652,7 +739,8 @@ mod tests {
     fn sample_media_csv_row(title: &str, variant: &str) -> MediaCsvRow {
         MediaCsvRow {
             title: title.to_string(),
-            media_type: "Reading".to_string(),
+            default_activity_type: Some("Reading".to_string()),
+            legacy_media_type: None,
             status: "Active".to_string(),
             language: "Japanese".to_string(),
             description: String::new(),
@@ -677,11 +765,49 @@ mod tests {
 
         let media = db::get_all_media(&conn).unwrap();
         assert_eq!(media.len(), 2);
+        assert_eq!(
+            media
+                .iter()
+                .find(|entry| entry.title == "ある魔女が死ぬまで")
+                .unwrap()
+                .default_activity_type,
+            "Reading"
+        );
 
         let logs = db::get_logs(&conn).unwrap();
         assert_eq!(logs.len(), 2);
 
         std::fs::remove_file(csv_path).ok();
+    }
+
+    #[test]
+    fn test_import_csv_accepts_canonical_default_and_preserves_activity_override() {
+        let mut conn = setup_test_db();
+        let csv =
+            "Date,Log Name,Default Activity Type,Duration,Language,Characters,Activity Type\n\
+                   2024-01-15,Canonical Import,Reading,45,Japanese,1000,Watching\n";
+
+        assert_eq!(
+            import_csv_from_reader(&mut conn, csv.as_bytes()).unwrap(),
+            1
+        );
+
+        let media = db::get_all_media(&conn).unwrap();
+        assert_eq!(media[0].default_activity_type, "Reading");
+        let logs = db::get_logs(&conn).unwrap();
+        assert_eq!(logs[0].activity_type, "Watching");
+    }
+
+    #[test]
+    fn test_import_csv_rejects_conflicting_canonical_and_legacy_defaults() {
+        let mut conn = setup_test_db();
+        let csv = "Date,Log Name,Default Activity Type,Media Type,Duration,Language,Characters,Activity Type\n\
+                   2024-01-15,Conflict,Reading,Watching,45,Japanese,1000,Reading\n";
+
+        let error = import_csv_from_reader(&mut conn, csv.as_bytes()).unwrap_err();
+        assert!(error.contains("Conflicting Default Activity Type"));
+        assert!(db::get_all_media(&conn).unwrap().is_empty());
+        assert!(db::get_logs(&conn).unwrap().is_empty());
     }
 
     #[test]
@@ -828,7 +954,7 @@ mod tests {
             uid: None,
             title: "Export Test".to_string(),
             variant: "Light Novel".to_string(),
-            media_type: "Reading".to_string(),
+            default_activity_type: "Reading".to_string(),
             status: "Ongoing".to_string(),
             language: "Japanese".to_string(),
             description: "Test Desc".to_string(),
@@ -847,6 +973,12 @@ mod tests {
         assert_eq!(count, 1);
 
         let content = std::fs::read_to_string(&path).unwrap();
+        let mut reader = csv::Reader::from_reader(content.as_bytes());
+        let headers = reader.headers().unwrap();
+        assert!(headers
+            .iter()
+            .any(|header| header == "Default Activity Type"));
+        assert!(!headers.iter().any(|header| header == "Media Type"));
         assert!(content.contains("Export Test"));
         assert!(content.contains("Novel"));
         assert!(content.contains("Light Novel"));
@@ -869,7 +1001,7 @@ mod tests {
             uid: None,
             title: "Existing".to_string(),
             variant: "Manga".to_string(),
-            media_type: "Reading".to_string(),
+            default_activity_type: "Reading".to_string(),
             status: "Complete".to_string(),
             language: "Japanese".to_string(),
             description: "".to_string(),
@@ -899,6 +1031,26 @@ mod tests {
         assert!(conflicts[1].existing.is_none());
 
         std::fs::remove_file(csv_path).ok();
+    }
+
+    #[test]
+    fn test_analyze_media_csv_accepts_canonical_header_and_rejects_alias_conflicts() {
+        let conn = setup_test_db();
+        let canonical = "Title,Default Activity Type,Status,Language,Description,Content Type,Extra Data,Cover Image (Base64)\n\
+                         Canonical,Watching,Active,Japanese,,Anime,{},\n";
+
+        let conflicts = analyze_media_csv_from_reader(&conn, canonical.as_bytes()).unwrap();
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(
+            conflicts[0].incoming.default_activity_type.as_deref(),
+            Some("Watching")
+        );
+        assert!(conflicts[0].incoming.legacy_media_type.is_none());
+
+        let conflicting = "Title,Default Activity Type,Media Type,Status,Language,Description,Content Type,Extra Data,Cover Image (Base64)\n\
+                           Conflict,Watching,Reading,Active,Japanese,,Anime,{},\n";
+        let error = analyze_media_csv_from_reader(&conn, conflicting.as_bytes()).unwrap_err();
+        assert!(error.contains("Conflicting Default Activity Type"));
     }
 
     #[test]
@@ -972,7 +1124,7 @@ mod tests {
             vec![ActivityCsvRow {
                 date: "2024-02-01".to_string(),
                 log_name: "Log Test".to_string(),
-                media_type: "Reading".to_string(),
+                default_activity_type: "Reading".to_string(),
                 duration: 45,
                 language: "Japanese".to_string(),
                 characters: 200,
@@ -981,6 +1133,13 @@ mod tests {
                 media_variant: "Manga".to_string(),
             }]
         );
+
+        let mut imported_conn = setup_test_db();
+        assert_eq!(import_csv(&mut imported_conn, &path_str).unwrap(), 1);
+        let imported_media = db::get_all_media(&imported_conn).unwrap();
+        assert_eq!(imported_media[0].default_activity_type, "Reading");
+        let imported_logs = db::get_logs(&imported_conn).unwrap();
+        assert_eq!(imported_logs[0].activity_type, "Watching");
 
         std::fs::remove_file(path).ok();
     }
@@ -1056,7 +1215,8 @@ mod tests {
 
         let records = vec![MediaCsvRow {
             title: "Binary Media".to_string(),
-            media_type: "Watching".to_string(),
+            default_activity_type: Some("Watching".to_string()),
+            legacy_media_type: None,
             status: "Ongoing".to_string(),
             language: "English".to_string(),
             description: "".to_string(),

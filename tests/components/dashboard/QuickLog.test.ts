@@ -27,15 +27,15 @@ describe('QuickLog', () => {
 
     it('sorts unfinished media first, then by latest log date', () => {
         const mediaList: Media[] = [
-            { id: 1, title: 'Complete Recent', media_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Complete' },
-            { id: 2, title: 'Ongoing Older', media_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Novel', tracking_status: 'Ongoing' },
-            { id: 3, title: 'Ongoing Recent', media_type: 'Watching', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Anime', tracking_status: 'Ongoing' },
-            { id: 4, title: 'Archived Item', media_type: 'Reading', status: 'Archived', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Ongoing' },
+            { id: 1, title: 'Complete Recent', default_activity_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Complete' },
+            { id: 2, title: 'Ongoing Older', default_activity_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Novel', tracking_status: 'Ongoing' },
+            { id: 3, title: 'Ongoing Recent', default_activity_type: 'Watching', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Anime', tracking_status: 'Ongoing' },
+            { id: 4, title: 'Archived Item', default_activity_type: 'Reading', status: 'Archived', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Ongoing' },
         ];
         const logs: ActivitySummary[] = [
-            { id: 10, media_id: 2, title: 'Ongoing Older', media_type: 'Reading', duration_minutes: 20, characters: 0, date: '2026-04-01', language: 'Japanese' },
-            { id: 15, media_id: 1, title: 'Complete Recent', media_type: 'Reading', duration_minutes: 15, characters: 0, date: '2026-04-02', language: 'Japanese' },
-            { id: 21, media_id: 3, title: 'Ongoing Recent', media_type: 'Watching', duration_minutes: 30, characters: 0, date: '2026-04-03', language: 'Japanese' },
+            { id: 10, media_id: 2, title: 'Ongoing Older', activity_type: 'Reading', duration_minutes: 20, characters: 0, date: '2026-04-01', language: 'Japanese' },
+            { id: 15, media_id: 1, title: 'Complete Recent', activity_type: 'Reading', duration_minutes: 15, characters: 0, date: '2026-04-02', language: 'Japanese' },
+            { id: 21, media_id: 3, title: 'Ongoing Recent', activity_type: 'Watching', duration_minutes: 30, characters: 0, date: '2026-04-03', language: 'Japanese' },
         ];
 
         const component = new QuickLog(container, { logs, mediaList }, { onLogged: vi.fn().mockResolvedValue(undefined) });
@@ -50,12 +50,12 @@ describe('QuickLog', () => {
 
     it('prefers a newer log date over a larger log id', () => {
         const mediaList: Media[] = [
-            { id: 10, title: 'Older Date Newer Id', media_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Ongoing' },
-            { id: 11, title: 'Newer Date Older Id', media_type: 'Watching', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Anime', tracking_status: 'Ongoing' },
+            { id: 10, title: 'Older Date Newer Id', default_activity_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Ongoing' },
+            { id: 11, title: 'Newer Date Older Id', default_activity_type: 'Watching', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Anime', tracking_status: 'Ongoing' },
         ];
         const logs: ActivitySummary[] = [
-            { id: 55, media_id: 10, title: 'Older Date Newer Id', media_type: 'Reading', duration_minutes: 20, characters: 0, date: '2026-04-10', language: 'Japanese' },
-            { id: 12, media_id: 11, title: 'Newer Date Older Id', media_type: 'Watching', duration_minutes: 20, characters: 0, date: '2026-04-11', language: 'Japanese' },
+            { id: 55, media_id: 10, title: 'Older Date Newer Id', activity_type: 'Reading', duration_minutes: 20, characters: 0, date: '2026-04-10', language: 'Japanese' },
+            { id: 12, media_id: 11, title: 'Newer Date Older Id', activity_type: 'Watching', duration_minutes: 20, characters: 0, date: '2026-04-11', language: 'Japanese' },
         ];
 
         const component = new QuickLog(container, { logs, mediaList }, { onLogged: vi.fn().mockResolvedValue(undefined) });
@@ -67,20 +67,20 @@ describe('QuickLog', () => {
 
     it('uses latest log id as tiebreaker when two media share the same latest date', () => {
         const mediaList: Media[] = [
-            { id: 1, title: 'Top 1', media_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Ongoing' },
-            { id: 2, title: 'Top 2', media_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Ongoing' },
-            { id: 3, title: 'Top 3', media_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Ongoing' },
-            { id: 4, title: 'Top 4', media_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Ongoing' },
-            { id: 5, title: 'Same Day Higher Id', media_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Ongoing' },
-            { id: 6, title: 'Same Day Lower Id', media_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Ongoing' },
+            { id: 1, title: 'Top 1', default_activity_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Ongoing' },
+            { id: 2, title: 'Top 2', default_activity_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Ongoing' },
+            { id: 3, title: 'Top 3', default_activity_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Ongoing' },
+            { id: 4, title: 'Top 4', default_activity_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Ongoing' },
+            { id: 5, title: 'Same Day Higher Id', default_activity_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Ongoing' },
+            { id: 6, title: 'Same Day Lower Id', default_activity_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Ongoing' },
         ];
         const logs: ActivitySummary[] = [
-            { id: 101, media_id: 1, title: 'Top 1', media_type: 'Reading', duration_minutes: 10, characters: 0, date: '2026-04-20', language: 'Japanese' },
-            { id: 102, media_id: 2, title: 'Top 2', media_type: 'Reading', duration_minutes: 10, characters: 0, date: '2026-04-19', language: 'Japanese' },
-            { id: 103, media_id: 3, title: 'Top 3', media_type: 'Reading', duration_minutes: 10, characters: 0, date: '2026-04-18', language: 'Japanese' },
-            { id: 104, media_id: 4, title: 'Top 4', media_type: 'Reading', duration_minutes: 10, characters: 0, date: '2026-04-17', language: 'Japanese' },
-            { id: 250, media_id: 5, title: 'Same Day Higher Id', media_type: 'Reading', duration_minutes: 10, characters: 0, date: '2026-04-16', language: 'Japanese' },
-            { id: 200, media_id: 6, title: 'Same Day Lower Id', media_type: 'Reading', duration_minutes: 10, characters: 0, date: '2026-04-16', language: 'Japanese' },
+            { id: 101, media_id: 1, title: 'Top 1', activity_type: 'Reading', duration_minutes: 10, characters: 0, date: '2026-04-20', language: 'Japanese' },
+            { id: 102, media_id: 2, title: 'Top 2', activity_type: 'Reading', duration_minutes: 10, characters: 0, date: '2026-04-19', language: 'Japanese' },
+            { id: 103, media_id: 3, title: 'Top 3', activity_type: 'Reading', duration_minutes: 10, characters: 0, date: '2026-04-18', language: 'Japanese' },
+            { id: 104, media_id: 4, title: 'Top 4', activity_type: 'Reading', duration_minutes: 10, characters: 0, date: '2026-04-17', language: 'Japanese' },
+            { id: 250, media_id: 5, title: 'Same Day Higher Id', activity_type: 'Reading', duration_minutes: 10, characters: 0, date: '2026-04-16', language: 'Japanese' },
+            { id: 200, media_id: 6, title: 'Same Day Lower Id', activity_type: 'Reading', duration_minutes: 10, characters: 0, date: '2026-04-16', language: 'Japanese' },
         ];
 
         const component = new QuickLog(container, { logs, mediaList }, { onLogged: vi.fn().mockResolvedValue(undefined) });
@@ -96,7 +96,7 @@ describe('QuickLog', () => {
         vi.mocked(showLogActivityModal).mockResolvedValue(true);
         const onLogged = vi.fn().mockResolvedValue(undefined);
         const mediaList: Media[] = [
-            { id: 7, title: 'Blue Box', media_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Ongoing' },
+            { id: 7, title: 'Blue Box', default_activity_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Ongoing' },
         ];
 
         const component = new QuickLog(container, { logs: [], mediaList }, { onLogged });
@@ -112,7 +112,7 @@ describe('QuickLog', () => {
 
     it('opens media details from the desktop quick action button', () => {
         const mediaList: Media[] = [
-            { id: 8, title: 'Dandadan', media_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Ongoing' },
+            { id: 8, title: 'Dandadan', default_activity_type: 'Reading', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Manga', tracking_status: 'Ongoing' },
         ];
         const dispatchSpy = vi.spyOn(globalThis, 'dispatchEvent');
 
@@ -128,7 +128,7 @@ describe('QuickLog', () => {
 
     it('shows the variant alongside the content type', () => {
         const mediaList: Media[] = [
-            { id: 9, title: 'Horimiya', variant: 'TV Series', media_type: 'Watching', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Anime', tracking_status: 'Ongoing' },
+            { id: 9, title: 'Horimiya', variant: 'TV Series', default_activity_type: 'Watching', status: 'Active', language: 'Japanese', description: '', cover_image: '', extra_data: '{}', content_type: 'Anime', tracking_status: 'Ongoing' },
         ];
 
         const component = new QuickLog(container, { logs: [], mediaList }, { onLogged: vi.fn().mockResolvedValue(undefined) });

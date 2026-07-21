@@ -1104,7 +1104,7 @@ mod tests {
                 uid: "uid-1".to_string(),
                 title: "Elden Ring".to_string(),
                 variant: "Game".to_string(),
-                media_type: "Playing".to_string(),
+                default_activity_type: "Playing".to_string(),
                 status: "Active".to_string(),
                 language: "Japanese".to_string(),
                 description: "".to_string(),

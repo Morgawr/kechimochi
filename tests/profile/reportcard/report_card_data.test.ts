@@ -9,7 +9,7 @@ function buildMedia(overrides: Partial<Media> = {}): Media {
         id: 1,
         uid: 'uid-1',
         title: 'Title',
-        media_type: 'Reading',
+        default_activity_type: 'Reading',
         status: 'Active',
         language: 'ja',
         description: '',
@@ -26,7 +26,7 @@ function buildLog(overrides: Partial<ActivitySummary> = {}): ActivitySummary {
         id: 1,
         media_id: 1,
         title: 'Title',
-        media_type: 'Reading',
+        activity_type: 'Reading',
         duration_minutes: 60,
         characters: 0,
         date: '2024-03-31',
@@ -40,9 +40,9 @@ function buildLog(overrides: Partial<ActivitySummary> = {}): ActivitySummary {
 describe('aggregateTimeByCategory (activity)', () => {
     it('sums minutes per activity type, sorted descending', () => {
         const logs = [
-            buildLog({ media_id: 1, media_type: 'Reading', duration_minutes: 100 }),
-            buildLog({ media_id: 2, media_type: 'Watching', duration_minutes: 50 }),
-            buildLog({ media_id: 1, media_type: 'Reading', duration_minutes: 20 }),
+            buildLog({ media_id: 1, activity_type: 'Reading', duration_minutes: 100 }),
+            buildLog({ media_id: 2, activity_type: 'Watching', duration_minutes: 50 }),
+            buildLog({ media_id: 1, activity_type: 'Reading', duration_minutes: 20 }),
         ];
         const slices = aggregateTimeByCategory(logs, [], 'activity');
         expect(slices).toEqual([
@@ -53,22 +53,22 @@ describe('aggregateTimeByCategory (activity)', () => {
 
     it('drops "None" and empty activity buckets', () => {
         const logs = [
-            buildLog({ media_type: 'Reading', duration_minutes: 60 }),
-            buildLog({ media_type: 'None', duration_minutes: 999 }),
-            buildLog({ media_type: '', duration_minutes: 999 }),
+            buildLog({ activity_type: 'Reading', duration_minutes: 60 }),
+            buildLog({ activity_type: 'None', duration_minutes: 999 }),
+            buildLog({ activity_type: '', duration_minutes: 999 }),
         ];
         const slices = aggregateTimeByCategory(logs, [], 'activity');
         expect(slices.map(slice => slice.label)).toEqual(['Reading']);
     });
 
-    it('uses log.media_type and does not require the media list', () => {
-        const logs = [buildLog({ media_type: 'Listening', duration_minutes: 30 })];
+    it('uses log.activity_type and does not require the media list', () => {
+        const logs = [buildLog({ activity_type: 'Listening', duration_minutes: 30 })];
         const slices = aggregateTimeByCategory(logs, [], 'activity');
         expect(slices).toEqual([{ label: 'Listening', minutes: 30, percent: 100 }]);
     });
 
     it('drops zero-minute buckets', () => {
-        const logs = [buildLog({ media_type: 'Reading', duration_minutes: 0 })];
+        const logs = [buildLog({ activity_type: 'Reading', duration_minutes: 0 })];
         expect(aggregateTimeByCategory(logs, [], 'activity')).toEqual([]);
     });
 });
@@ -92,13 +92,13 @@ describe('aggregateTimeByCategory (content)', () => {
         ]);
     });
 
-    it('falls back to media_type then "Unknown" when content_type is absent', () => {
+    it('falls back to default_activity_type then "Unknown" when content_type is absent', () => {
         const media = [
-            buildMedia({ id: 1, content_type: '', media_type: 'Reading' }),
+            buildMedia({ id: 1, content_type: '', default_activity_type: 'Reading' }),
         ];
         const logs = [
-            buildLog({ media_id: 1, media_type: 'Reading', duration_minutes: 10 }),
-            buildLog({ media_id: 99, media_type: '', duration_minutes: 5 }),
+            buildLog({ media_id: 1, activity_type: 'Reading', duration_minutes: 10 }),
+            buildLog({ media_id: 99, activity_type: '', duration_minutes: 5 }),
         ];
         const slices = aggregateTimeByCategory(logs, media, 'content');
         expect(slices).toEqual([

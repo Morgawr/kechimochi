@@ -14,7 +14,7 @@ interface ActivityChartsState {
     logs: ActivitySummary[];
     timeRangeDays: number;
     timeRangeOffset: number;
-    groupByMode: 'media_type' | 'log_name';
+    groupByMode: 'activity_type' | 'log_name';
     chartType: 'bar' | 'line';
     metric: 'minutes' | 'characters';
     weekStartDay?: number;
@@ -83,7 +83,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
 
                             <!-- Group By Toggle -->
                             <div class="chart-toolbar-group">
-                                <span class="toggle-label ${this.state.groupByMode === 'media_type' ? 'active' : ''}">Type</span>
+                                <span class="toggle-label ${this.state.groupByMode === 'activity_type' ? 'active' : ''}">Type</span>
                                 <label class="switch">
                                     <input type="checkbox" id="toggle-group-by" ${this.state.groupByMode === 'log_name' ? 'checked' : ''}>
                                     <span class="slider"></span>
@@ -138,7 +138,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         });
         const toggleGroupBy = layout.querySelector<HTMLInputElement>('#toggle-group-by');
         toggleGroupBy?.addEventListener('change', () => {
-            this.onChartParamChange({ groupByMode: toggleGroupBy.checked ? 'log_name' : 'media_type' });
+            this.onChartParamChange({ groupByMode: toggleGroupBy.checked ? 'log_name' : 'activity_type' });
         });
         const toggleMetric = layout.querySelector<HTMLInputElement>('#toggle-metric');
         toggleMetric?.addEventListener('change', () => {
@@ -193,7 +193,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
 
         for (const log of logs) {
             if (log.date >= validStart && log.date <= validEnd) {
-                const key = groupByMode === 'media_type' ? log.media_type : log.title;
+                const key = groupByMode === 'activity_type' ? log.activity_type : log.title;
                 const value = this.state.metric === 'minutes' ? log.duration_minutes : (log.characters || 0);
                 pieTypeMap.set(key, (pieTypeMap.get(key) || 0) + value);
             }
@@ -307,17 +307,17 @@ export class ActivityCharts extends Component<ActivityChartsState> {
             }));
     }
 
-    private getActiveKeys(logs: ActivitySummary[], getBucketIndex: (date: string) => number, mode: 'media_type' | 'log_name'): Set<string> {
+    private getActiveKeys(logs: ActivitySummary[], getBucketIndex: (date: string) => number, mode: 'activity_type' | 'log_name'): Set<string> {
         const keys = new Set<string>();
         for (const log of logs) {
             if (getBucketIndex(log.date) !== -1) {
-                keys.add(mode === 'media_type' ? log.media_type : log.title);
+                keys.add(mode === 'activity_type' ? log.activity_type : log.title);
             }
         }
         return keys;
     }
 
-    private aggregateDailyData(logs: ActivitySummary[], activeKeys: Set<string>, getBucketIndex: (date: string) => number, length: number, mode: 'media_type' | 'log_name') {
+    private aggregateDailyData(logs: ActivitySummary[], activeKeys: Set<string>, getBucketIndex: (date: string) => number, length: number, mode: 'activity_type' | 'log_name') {
         const map = new Map<string, number[]>();
         for (const key of activeKeys) {
             map.set(key, Array.from({ length }, () => 0));
@@ -326,7 +326,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         for (const log of logs) {
             const index = getBucketIndex(log.date);
             if (index !== -1) {
-                const key = mode === 'media_type' ? log.media_type : log.title;
+                const key = mode === 'activity_type' ? log.activity_type : log.title;
                 if (map.has(key)) {
                     const value = this.state.metric === 'minutes' ? log.duration_minutes : (log.characters || 0);
                     map.get(key)![index] += value;

@@ -6,7 +6,8 @@
 export interface MediaCsvRow {
     "Title": string;
     "Variant"?: string;
-    "Media Type": string;
+    "Default Activity Type"?: string;
+    "Media Type"?: string;
     "Status": string;
     "Language": string;
     "Description": string;
@@ -25,7 +26,7 @@ export interface Media {
     uid?: string;
     title: string;
     variant?: string;
-    media_type: string;
+    default_activity_type: string;
     status: string;
     language: string;
     description: string;
@@ -49,7 +50,7 @@ export interface ActivitySummary {
     id: number;
     media_id: number;
     title: string;
-    media_type: string;
+    activity_type: string;
     duration_minutes: number;
     characters: number;
     date: string;

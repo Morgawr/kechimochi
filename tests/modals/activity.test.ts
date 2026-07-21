@@ -111,7 +111,7 @@ describe('modals/activity.ts', () => {
                 {
                     id: 10,
                     title: 'Anime Item',
-                    media_type: 'Watching',
+                    default_activity_type: 'Watching',
                     status: 'Active',
                     language: 'Japanese',
                     description: '',
@@ -153,7 +153,7 @@ describe('modals/activity.ts', () => {
                 id: 10,
                 title: 'Horimiya',
                 variant: 'Anime',
-                media_type: 'Watching',
+                default_activity_type: 'Watching',
                 status: 'Active',
                 language: 'Japanese',
                 description: '',
@@ -317,7 +317,7 @@ describe('modals/activity.ts', () => {
                 id: 123,
                 media_id: 456,
                 title: 'Test Media',
-                media_type: 'Reading',
+                activity_type: 'Reading',
                 duration_minutes: 30,
                 characters: 100,
                 date: '2024-03-01',
@@ -328,7 +328,7 @@ describe('modals/activity.ts', () => {
             vi.mocked(api.getAllMedia).mockResolvedValue([{ 
                 id: 456, 
                 title: 'Test Media',
-                media_type: 'Reading',
+                default_activity_type: 'Reading',
                 status: 'Active',
                 language: 'Japanese',
                 description: '',
@@ -365,7 +365,7 @@ describe('modals/activity.ts', () => {
                 id: 123,
                 media_id: 456,
                 title: 'Edit Fallback',
-                media_type: 'Listening',
+                activity_type: 'Listening',
                 duration_minutes: 0,
                 characters: 100,
                 date: '2024-03-01',
@@ -432,10 +432,10 @@ describe('modals/activity.ts', () => {
                 return originalAddEventListener.call(this, type, listener, options);
             });
             vi.mocked(api.getAllMedia).mockResolvedValue([
-                { id: 1, title: 'Blue Box', media_type: 'Reading', status: 'Active', tracking_status: 'Ongoing' },
-                { id: 2, title: 'Blue Lock', media_type: 'Watching', status: 'Active', tracking_status: 'Ongoing' },
-                { id: 3, title: 'Archived Blue', media_type: 'Reading', status: 'Archived', tracking_status: 'Ongoing' },
-                { id: 4, title: 'Paused Blue', media_type: 'Reading', status: 'Active', tracking_status: 'Paused' },
+                { id: 1, title: 'Blue Box', default_activity_type: 'Reading', status: 'Active', tracking_status: 'Ongoing' },
+                { id: 2, title: 'Blue Lock', default_activity_type: 'Watching', status: 'Active', tracking_status: 'Ongoing' },
+                { id: 3, title: 'Archived Blue', default_activity_type: 'Reading', status: 'Archived', tracking_status: 'Ongoing' },
+                { id: 4, title: 'Paused Blue', default_activity_type: 'Reading', status: 'Active', tracking_status: 'Paused' },
             ] as unknown as Media[]);
 
             const promise = showLogActivityModal();
@@ -502,7 +502,7 @@ describe('modals/activity.ts', () => {
                 configurable: true,
             });
             vi.mocked(api.getAllMedia).mockResolvedValue([
-                { id: 1, title: 'Timer Item', media_type: 'Reading', status: 'Active', tracking_status: 'Ongoing' },
+                { id: 1, title: 'Timer Item', default_activity_type: 'Reading', status: 'Active', tracking_status: 'Ongoing' },
             ] as unknown as Media[]);
             const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
 
@@ -531,7 +531,7 @@ describe('modals/activity.ts', () => {
                 configurable: true,
             });
             vi.mocked(api.getAllMedia).mockResolvedValue([
-                { id: 1, title: 'Cancel Timer Item', media_type: 'Reading', status: 'Active', tracking_status: 'Ongoing' },
+                { id: 1, title: 'Cancel Timer Item', default_activity_type: 'Reading', status: 'Active', tracking_status: 'Ongoing' },
             ] as unknown as Media[]);
             const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
 

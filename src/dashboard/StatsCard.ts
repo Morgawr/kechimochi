@@ -125,8 +125,8 @@ export class StatsCard extends Component<StatsCardState> {
     private calculateBreakdown(logs: ActivitySummary[], loggedDaysCount: number) {
         const mediaBreakdown = new Map<string, { mins: number, chars: number }>();
         for (const log of logs) {
-            const current = mediaBreakdown.get(log.media_type) || { mins: 0, chars: 0 };
-            mediaBreakdown.set(log.media_type, {
+            const current = mediaBreakdown.get(log.activity_type) || { mins: 0, chars: 0 };
+            mediaBreakdown.set(log.activity_type, {
                 mins: current.mins + log.duration_minutes,
                 chars: current.chars + (log.characters || 0)
             });

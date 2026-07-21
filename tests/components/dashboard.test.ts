@@ -88,7 +88,7 @@ describe('Dashboard', () => {
     });
 
     it('should handle pagination', async () => {
-        const mockLog = { id: 1, title: 'T', media_id: 1, duration_minutes: 10, characters: 0, date: '2024-01-01', media_type: 'Type', language: 'Japanese' };
+        const mockLog = { id: 1, title: 'T', media_id: 1, duration_minutes: 10, characters: 0, date: '2024-01-01', activity_type: 'Type', language: 'Japanese' };
         const logs: ActivitySummary[] = Array.from({ length: 20 }, () => ({ ...mockLog }));
         vi.mocked(api.getLogs).mockResolvedValue(logs);
         vi.mocked(api.getHeatmap).mockResolvedValue([]);
@@ -117,7 +117,7 @@ describe('Dashboard', () => {
             duration_minutes: 24,
             characters: 0,
             date: '2026-07-20',
-            media_type: 'Watching',
+            activity_type: 'Watching',
             language: 'Japanese',
             notes: ''
         }]);
@@ -126,7 +126,7 @@ describe('Dashboard', () => {
             id: 7,
             title: 'Horimiya',
             variant: 'Anime',
-            media_type: 'Watching',
+            default_activity_type: 'Watching',
             status: 'Active',
             language: 'Japanese',
             description: '',
@@ -147,7 +147,7 @@ describe('Dashboard', () => {
     });
 
     it('should prompt before deleting a log', async () => {
-        const logs: ActivitySummary[] = [{ id: 456, title: 'To Delete', media_id: 1, duration_minutes: 10, characters: 0, date: '2024-01-01', media_type: 'Type', language: 'Japanese' }];
+        const logs: ActivitySummary[] = [{ id: 456, title: 'To Delete', media_id: 1, duration_minutes: 10, characters: 0, date: '2024-01-01', activity_type: 'Type', language: 'Japanese' }];
         vi.mocked(api.getLogs).mockResolvedValue(logs);
         vi.mocked(api.getHeatmap).mockResolvedValue([]);
         vi.mocked(api.getAllMedia).mockResolvedValue([]);
@@ -190,6 +190,26 @@ describe('Dashboard', () => {
         expect(dashboard.state.chartParams.chartType).toBe('line');
         // @ts-expect-error - accessing private state
         expect(dashboard.state.chartParams.groupByMode).toBe('log_name');
+    });
+
+    it('migrates the legacy media_type chart setting to activity_type', async () => {
+        vi.mocked(api.getLogs).mockResolvedValue([]);
+        vi.mocked(api.getHeatmap).mockResolvedValue([]);
+        vi.mocked(api.getAllMedia).mockResolvedValue([]);
+        vi.mocked(api.getSetting).mockImplementation(async (key) => (
+            key === 'dashboard_group_by' ? 'media_type' : null
+        ));
+
+        const dashboard = new Dashboard(container);
+        await vi.waitFor(() => {
+            dashboard.render();
+            // @ts-expect-error - accessing private state
+            if (!dashboard.state.isInitialized) throw new Error('Not initialized');
+        });
+
+        // @ts-expect-error - accessing private state
+        expect(dashboard.state.chartParams.groupByMode).toBe('activity_type');
+        expect(api.setSetting).toHaveBeenCalledWith('dashboard_group_by', 'activity_type');
     });
 
     it('should switch the activity charts to the clicked heatmap week', async () => {

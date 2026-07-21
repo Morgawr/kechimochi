@@ -79,7 +79,7 @@ describe('MediaDetail', () => {
         id: 1,
         title: 'Test Media',
         status: 'Active',
-        media_type: 'Reading',
+        default_activity_type: 'Reading',
         content_type: 'Novel',
         tracking_status: 'Ongoing',
         language: 'Japanese',
@@ -185,8 +185,8 @@ describe('MediaDetail', () => {
         const milestones = [{ id: 1, name: 'M1', duration: 100, characters: 5000 }];
         vi.mocked(api.getMilestones).mockResolvedValue(milestones as unknown as Milestone[]);
         const mockLogs = [
-            { id: 1, duration_minutes: 60, characters: 1000, date: '2024-03-01', media_id: 1, title: 'T1', media_type: 'Reading', language: 'Japanese' },
-            { id: 2, duration_minutes: 30, characters: 500, date: '2024-03-02', media_id: 1, title: 'T1', media_type: 'Reading', language: 'Japanese' }
+            { id: 1, duration_minutes: 60, characters: 1000, date: '2024-03-01', media_id: 1, title: 'T1', activity_type: 'Reading', language: 'Japanese' },
+            { id: 2, duration_minutes: 30, characters: 500, date: '2024-03-02', media_id: 1, title: 'T1', activity_type: 'Reading', language: 'Japanese' }
         ] as unknown as api.ActivitySummary[];
         vi.mocked(api.getLogsForMedia).mockResolvedValue(mockLogs);
 
@@ -245,7 +245,7 @@ describe('MediaDetail', () => {
             extra_data: '{"CHARACTER COUNT":"10,000"}'
         };
         const mockLogs = [
-            { id: 1, duration_minutes: 60, characters: 1000, date: '2024-03-01', media_id: 1, title: 'T1', media_type: 'Reading', language: 'Japanese' }
+            { id: 1, duration_minutes: 60, characters: 1000, date: '2024-03-01', media_id: 1, title: 'T1', activity_type: 'Reading', language: 'Japanese' }
         ] as unknown as api.ActivitySummary[];
 
         const component = new MediaDetail(container, completedMedia as unknown as Media, mockLogs, [completedMedia as unknown as Media], 0, mockCallbacks);
@@ -319,8 +319,8 @@ describe('MediaDetail', () => {
         const newMilestone = { name: 'M1', duration: 100 };
         vi.mocked(modals.showAddMilestoneModal).mockResolvedValue(newMilestone as unknown as Milestone);
         const logs = [
-            { id: 1, duration_minutes: 40, characters: 200, date: '2024-03-01', media_id: 1, title: 'T1', media_type: 'Reading', language: 'Japanese' },
-            { id: 2, duration_minutes: 20, characters: 300, date: '2024-03-02', media_id: 1, title: 'T1', media_type: 'Reading', language: 'Japanese' }
+            { id: 1, duration_minutes: 40, characters: 200, date: '2024-03-01', media_id: 1, title: 'T1', activity_type: 'Reading', language: 'Japanese' },
+            { id: 2, duration_minutes: 20, characters: 300, date: '2024-03-02', media_id: 1, title: 'T1', activity_type: 'Reading', language: 'Japanese' }
         ] as unknown as api.ActivitySummary[];
 
         const component = new MediaDetail(container, { ...mockMedia } as unknown as Media, logs, [mockMedia as unknown as Media], 0, mockCallbacks);
@@ -523,7 +523,7 @@ describe('MediaDetail', () => {
             id: 99,
             title: 'Updated',
             media_id: 1,
-            media_type: 'Reading',
+            activity_type: 'Reading',
             language: 'Japanese',
             date: '2024-03-02',
             duration_minutes: 45,
@@ -540,7 +540,7 @@ describe('MediaDetail', () => {
     });
 
     it('should automatically update content type if Unknown during metadata import', async () => {
-        const unknownMedia = { ...mockMedia, content_type: 'Unknown', media_type: 'None' };
+        const unknownMedia = { ...mockMedia, content_type: 'Unknown', default_activity_type: 'None' };
         vi.mocked(api.getMilestones).mockResolvedValue([]);
         const mockScraped = {
             title: 'Scraped',
@@ -565,7 +565,7 @@ describe('MediaDetail', () => {
 
         await vi.waitFor(() => expect(api.updateMedia).toHaveBeenCalledWith(expect.objectContaining({
             content_type: 'Anime',
-            media_type: 'Watching'
+            default_activity_type: 'Watching'
         })));
     });
 

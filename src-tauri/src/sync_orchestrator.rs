@@ -1674,7 +1674,9 @@ fn apply_media_field_choice(
     match field_name {
         "title" => aggregate.title = required_choice(field_name, chosen)?,
         "variant" => aggregate.variant = required_choice(field_name, chosen)?,
-        "media_type" => aggregate.media_type = required_choice(field_name, chosen)?,
+        "media_type" | "default_activity_type" => {
+            aggregate.default_activity_type = required_choice(field_name, chosen)?
+        }
         "status" => aggregate.status = required_choice(field_name, chosen)?,
         "language" => aggregate.language = required_choice(field_name, chosen)?,
         "description" => aggregate.description = required_choice(field_name, chosen)?,
@@ -2455,7 +2457,7 @@ mod tests {
             uid: None,
             title: title.to_string(),
             variant: String::new(),
-            media_type: "Playing".to_string(),
+            default_activity_type: "Playing".to_string(),
             status: "Active".to_string(),
             language: "Japanese".to_string(),
             description: String::new(),
@@ -3267,7 +3269,7 @@ mod tests {
                     uid: "uid-1".to_string(),
                     title: "Test".to_string(),
                     variant: String::new(),
-                    media_type: "Playing".to_string(),
+                    default_activity_type: "Playing".to_string(),
                     status: "Active".to_string(),
                     language: "Japanese".to_string(),
                     description: String::new(),

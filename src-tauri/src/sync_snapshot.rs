@@ -60,7 +60,8 @@ pub struct SnapshotMediaAggregate {
     pub title: String,
     #[serde(default)]
     pub variant: String,
-    pub media_type: String,
+    #[serde(rename = "media_type")]
+    pub default_activity_type: String,
     pub status: String,
     pub language: String,
     pub description: String,
@@ -196,7 +197,7 @@ where
             uid: media_uid.clone(),
             title: media.title.clone(),
             variant: media.variant,
-            media_type: media.media_type,
+            default_activity_type: media.default_activity_type,
             status: media.status,
             language: media.language,
             description: media.description,
@@ -222,7 +223,7 @@ where
         if let Some(entry) = library.get_mut(&media_uid) {
             entry.activities.push(SnapshotActivity {
                 date: log.date,
-                activity_type: log.media_type,
+                activity_type: log.activity_type,
                 duration_minutes: log.duration_minutes,
                 characters: log.characters,
                 notes: log.notes,
@@ -428,7 +429,7 @@ fn apply_snapshot_inner(
                 uid: Some(aggregate.uid.clone()),
                 title: aggregate.title.clone(),
                 variant: aggregate.variant.clone(),
-                media_type: aggregate.media_type.clone(),
+                default_activity_type: aggregate.default_activity_type.clone(),
                 status: aggregate.status.clone(),
                 language: aggregate.language.clone(),
                 description: aggregate.description.clone(),
@@ -575,7 +576,7 @@ fn media_content_eq(left: &SnapshotMediaAggregate, right: &SnapshotMediaAggregat
     left.uid == right.uid
         && left.title == right.title
         && left.variant == right.variant
-        && left.media_type == right.media_type
+        && left.default_activity_type == right.default_activity_type
         && left.status == right.status
         && left.language == right.language
         && left.description == right.description
@@ -645,7 +646,7 @@ mod tests {
             uid: None,
             title: title.to_string(),
             variant: String::new(),
-            media_type: "Reading".to_string(),
+            default_activity_type: "Reading".to_string(),
             status: "Active".to_string(),
             language: "Japanese".to_string(),
             description: "Desc".to_string(),

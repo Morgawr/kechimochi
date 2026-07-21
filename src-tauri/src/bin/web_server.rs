@@ -28,11 +28,17 @@ use kechimochi_lib::{csv_import, db, get_username_logic, models, profile_picture
 // ── Error handling ────────────────────────────────────────────────────────────
 
 #[derive(Debug)]
-struct AppError(String);
+enum AppError {
+    Internal(String),
+    BadRequest(String),
+}
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        (StatusCode::INTERNAL_SERVER_ERROR, self.0).into_response()
+        match self {
+            Self::Internal(message) => (StatusCode::INTERNAL_SERVER_ERROR, message).into_response(),
+            Self::BadRequest(message) => (StatusCode::BAD_REQUEST, message).into_response(),
+        }
     }
 }
 
@@ -43,7 +49,7 @@ trait AeExt<T> {
 
 impl<T, E: std::fmt::Display> AeExt<T> for std::result::Result<T, E> {
     fn ae(self) -> HandlerResult<T> {
-        self.map_err(|e| AppError(e.to_string()))
+        self.map_err(|e| AppError::Internal(e.to_string()))
     }
 }
 
@@ -257,23 +263,30 @@ async fn serve_static_or_spa(
 
 // ── Media handlers ────────────────────────────────────────────────────────────
 
-async fn get_all_media(State(s): State<Shared>) -> HandlerResult<Json<Vec<models::Media>>> {
+async fn get_all_media(State(s): State<Shared>) -> HandlerResult<Json<Vec<models::HttpMedia>>> {
     let conn = s.conn.lock().await;
-    db::get_all_media(&conn).ae().map(Json)
+    let media = db::get_all_media(&conn)
+        .ae()?
+        .into_iter()
+        .map(models::HttpMedia::from)
+        .collect();
+    Ok(Json(media))
 }
 
 async fn add_media(
     State(s): State<Shared>,
-    Json(media): Json<models::Media>,
+    Json(media): Json<models::HttpMedia>,
 ) -> HandlerResult<Json<i64>> {
+    let media = models::Media::try_from(media).map_err(AppError::BadRequest)?;
     let conn = s.conn.lock().await;
     db::add_media_with_id(&conn, &media).ae().map(Json)
 }
 
 async fn update_media(
     State(s): State<Shared>,
-    Json(media): Json<models::Media>,
+    Json(media): Json<models::HttpMedia>,
 ) -> HandlerResult<Json<()>> {
+    let media = models::Media::try_from(media).map_err(AppError::BadRequest)?;
     let conn = s.conn.lock().await;
     db::update_media(&conn, &media).ae().map(|_| Json(()))
 }
@@ -288,9 +301,16 @@ async fn delete_media_handler(
 
 // ── Log handlers ──────────────────────────────────────────────────────────────
 
-async fn get_logs(State(s): State<Shared>) -> HandlerResult<Json<Vec<models::ActivitySummary>>> {
+async fn get_logs(
+    State(s): State<Shared>,
+) -> HandlerResult<Json<Vec<models::HttpActivitySummary>>> {
     let conn = s.conn.lock().await;
-    db::get_logs(&conn).ae().map(Json)
+    let logs = db::get_logs(&conn)
+        .ae()?
+        .into_iter()
+        .map(models::HttpActivitySummary::from)
+        .collect();
+    Ok(Json(logs))
 }
 
 async fn add_log(
@@ -327,9 +347,14 @@ async fn get_heatmap(State(s): State<Shared>) -> HandlerResult<Json<Vec<models::
 async fn get_logs_for_media(
     State(s): State<Shared>,
     Path(id): Path<i64>,
-) -> HandlerResult<Json<Vec<models::ActivitySummary>>> {
+) -> HandlerResult<Json<Vec<models::HttpActivitySummary>>> {
     let conn = s.conn.lock().await;
-    db::get_logs_for_media(&conn, id).ae().map(Json)
+    let logs = db::get_logs_for_media(&conn, id)
+        .ae()?
+        .into_iter()
+        .map(models::HttpActivitySummary::from)
+        .collect();
+    Ok(Json(logs))
 }
 
 async fn get_timeline_events_handler(
@@ -418,7 +443,7 @@ async fn upload_profile_picture_handler(
         .next_field()
         .await
         .ae()?
-        .ok_or_else(|| AppError("No file field in multipart".into()))?;
+        .ok_or_else(|| AppError::Internal("No file field in multipart".into()))?;
     let bytes = field.bytes().await.ae()?.to_vec();
     let profile_picture = profile_picture::process_profile_picture_bytes(&bytes).ae()?;
     let conn = s.conn.lock().await;
@@ -490,7 +515,7 @@ async fn import_activities(
     let path = tmp
         .path()
         .to_str()
-        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .ok_or_else(|| AppError::Internal("Invalid temp path".into()))?
         .to_owned();
     let count = {
         let mut conn = s.conn.lock().await;
@@ -513,7 +538,7 @@ async fn export_activities(
     let path = tmp
         .path()
         .to_str()
-        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .ok_or_else(|| AppError::Internal("Invalid temp path".into()))?
         .to_owned();
     let count = {
         let conn = s.conn.lock().await;
@@ -539,7 +564,7 @@ async fn analyze_media_csv_upload(
     let path = tmp
         .path()
         .to_str()
-        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .ok_or_else(|| AppError::Internal("Invalid temp path".into()))?
         .to_owned();
     let conn = s.conn.lock().await;
     csv_import::analyze_media_csv(&conn, &path).ae().map(Json)
@@ -561,7 +586,7 @@ async fn export_media_handler(State(s): State<Shared>) -> HandlerResult<Response
     let path = tmp
         .path()
         .to_str()
-        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .ok_or_else(|| AppError::Internal("Invalid temp path".into()))?
         .to_owned();
     let count = {
         let conn = s.conn.lock().await;
@@ -587,7 +612,7 @@ async fn import_milestones(
     let path = tmp
         .path()
         .to_str()
-        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .ok_or_else(|| AppError::Internal("Invalid temp path".into()))?
         .to_owned();
     let count = {
         let mut conn = s.conn.lock().await;
@@ -601,7 +626,7 @@ async fn export_milestones(State(s): State<Shared>) -> HandlerResult<Response> {
     let path = tmp
         .path()
         .to_str()
-        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .ok_or_else(|| AppError::Internal("Invalid temp path".into()))?
         .to_owned();
     let count = {
         let conn = s.conn.lock().await;
@@ -635,7 +660,7 @@ async fn export_full_backup_handler(
     let path = tmp
         .path()
         .to_str()
-        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .ok_or_else(|| AppError::Internal("Invalid temp path".into()))?
         .to_owned();
 
     {
@@ -669,7 +694,7 @@ async fn import_full_backup_handler(
     let path = tmp
         .path()
         .to_str()
-        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .ok_or_else(|| AppError::Internal("Invalid temp path".into()))?
         .to_owned();
 
     let ls = {
@@ -694,7 +719,7 @@ async fn upload_cover(
         .next_field()
         .await
         .ae()?
-        .ok_or_else(|| AppError("No file field in multipart".into()))?;
+        .ok_or_else(|| AppError::Internal("No file field in multipart".into()))?;
     let filename = field.file_name().unwrap_or("upload").to_owned();
     let ext = std::path::Path::new(&filename)
         .extension()
@@ -715,11 +740,11 @@ async fn serve_cover(
     let safe_name = std::path::Path::new(&filename)
         .file_name()
         .and_then(|n| n.to_str())
-        .ok_or_else(|| AppError("Invalid filename".into()))?
+        .ok_or_else(|| AppError::Internal("Invalid filename".into()))?
         .to_owned();
     let file_path = s.data_dir.join("covers").join(&safe_name);
     if !file_path.exists() {
-        return Err(AppError("Cover not found".into()));
+        return Err(AppError::Internal("Cover not found".into()));
     }
     let bytes = std::fs::read(&file_path).ae()?;
     let content_type = match file_path
@@ -858,7 +883,7 @@ async fn field_to_tempfile(multipart: &mut Multipart) -> HandlerResult<tempfile:
         .next_field()
         .await
         .ae()?
-        .ok_or_else(|| AppError("No file in multipart".into()))?;
+        .ok_or_else(|| AppError::Internal("No file in multipart".into()))?;
     let bytes = field.bytes().await.ae()?;
     let mut tmp = tempfile::NamedTempFile::new().ae()?;
     tmp.write_all(&bytes).ae()?;
@@ -887,7 +912,7 @@ mod tests {
             uid: None,
             title: title.to_string(),
             variant: String::new(),
-            media_type: "Reading".to_string(),
+            default_activity_type: "Reading".to_string(),
             status: "Active".to_string(),
             language: "Japanese".to_string(),
             description: String::new(),
@@ -938,7 +963,7 @@ mod tests {
         let state_dir = state.data_dir.clone();
 
         let media = sample_media("Web Handler Test");
-        let inserted = add_media(State(state.clone()), Json(media))
+        let inserted = add_media(State(state.clone()), Json(media.into()))
             .await
             .unwrap()
             .0;
@@ -978,11 +1003,11 @@ mod tests {
         let state = setup_state();
         let state_dir = state.data_dir.clone();
 
-        let media_a = add_media(State(state.clone()), Json(sample_media("A")))
+        let media_a = add_media(State(state.clone()), Json(sample_media("A").into()))
             .await
             .unwrap()
             .0;
-        let media_b = add_media(State(state.clone()), Json(sample_media("B")))
+        let media_b = add_media(State(state.clone()), Json(sample_media("B").into()))
             .await
             .unwrap()
             .0;
@@ -1035,11 +1060,11 @@ mod tests {
 
         let media_id = add_media(
             State(state.clone()),
-            Json(models::Media {
+            Json(models::HttpMedia::from(models::Media {
                 tracking_status: "Complete".to_string(),
                 content_type: "Novel".to_string(),
                 ..sample_media("Timeline Handler")
-            }),
+            })),
         )
         .await
         .unwrap()
@@ -1091,7 +1116,9 @@ mod tests {
         let state_dir = state.data_dir.clone();
 
         let media = sample_media("Milestone Media");
-        let _ = add_media(State(state.clone()), Json(media)).await.unwrap();
+        let _ = add_media(State(state.clone()), Json(media.into()))
+            .await
+            .unwrap();
 
         let milestone = sample_milestone("Milestone Media", "Chapter 1", 120);
         let inserted_id = add_milestone_handler(State(state.clone()), Json(milestone))
@@ -1129,10 +1156,10 @@ mod tests {
         let state = setup_state();
         let state_dir = state.data_dir.clone();
 
-        let _ = add_media(State(state.clone()), Json(sample_media("A")))
+        let _ = add_media(State(state.clone()), Json(sample_media("A").into()))
             .await
             .unwrap();
-        let _ = add_media(State(state.clone()), Json(sample_media("B")))
+        let _ = add_media(State(state.clone()), Json(sample_media("B").into()))
             .await
             .unwrap();
 
@@ -1172,10 +1199,13 @@ mod tests {
         let state = setup_state();
         let state_dir = state.data_dir.clone();
 
-        let media_id = add_media(State(state.clone()), Json(sample_media("Clear Activities")))
-            .await
-            .unwrap()
-            .0;
+        let media_id = add_media(
+            State(state.clone()),
+            Json(sample_media("Clear Activities").into()),
+        )
+        .await
+        .unwrap()
+        .0;
         {
             let conn = state.conn.lock().await;
             db::add_log(

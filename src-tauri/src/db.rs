@@ -12,7 +12,7 @@ use crate::models::{
     TimelineEventKind,
 };
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 4;
+pub const CURRENT_SCHEMA_VERSION: i64 = 5;
 
 type MigrationFn = fn(&Connection) -> Result<()>;
 
@@ -38,6 +38,11 @@ const VERSIONED_MIGRATIONS: &[Migration] = &[
         to: 4,
         apply: migrate_v3_to_v4_add_media_variant,
     },
+    Migration {
+        from: 4,
+        to: 5,
+        apply: migrate_v4_to_v5_rename_default_activity_type,
+    },
 ];
 
 const KECHIMOCHI_SYNC_NAMESPACE: &str = "0718e147-943f-4f0a-977d-5447bb2342f2";
@@ -46,7 +51,7 @@ const SHARED_MEDIA_COLUMNS: &[&str] = &[
     "id",
     "uid",
     "title",
-    "media_type",
+    "default_activity_type",
     "status",
     "language",
     "description",
@@ -104,7 +109,7 @@ fn migration_error(message: impl Into<String>) -> rusqlite::Error {
 struct SharedMediaRow {
     id: i64,
     title: String,
-    media_type: String,
+    default_activity_type: String,
     status: String,
     language: String,
     description: String,
@@ -486,7 +491,7 @@ fn create_shared_media_table_named(conn: &Connection, table_name: &str) -> Resul
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 uid TEXT NOT NULL UNIQUE,
                 title TEXT NOT NULL UNIQUE,
-                media_type TEXT NOT NULL,
+                default_activity_type TEXT NOT NULL,
                 status TEXT NOT NULL,
                 language TEXT NOT NULL,
                 description TEXT DEFAULT '',
@@ -504,21 +509,27 @@ fn create_shared_media_table_named(conn: &Connection, table_name: &str) -> Resul
 }
 
 fn read_shared_media_rows(conn: &Connection) -> Result<Vec<SharedMediaRow>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, title, media_type, status, language,
+    let activity_type_column =
+        if table_has_column(conn, "shared", "media", "default_activity_type")? {
+            "default_activity_type"
+        } else {
+            "media_type"
+        };
+    let mut stmt = conn.prepare(&format!(
+        "SELECT id, title, {activity_type_column}, status, language,
                 COALESCE(description, ''),
                 COALESCE(cover_image, ''),
-                COALESCE(extra_data, '{}'),
+                COALESCE(extra_data, '{{}}'),
                 COALESCE(content_type, 'Unknown'),
                 COALESCE(tracking_status, 'Untracked')
          FROM shared.media
-         ORDER BY id ASC",
-    )?;
+         ORDER BY id ASC"
+    ))?;
     let rows = stmt.query_map([], |row| {
         Ok(SharedMediaRow {
             id: row.get(0)?,
             title: row.get(1)?,
-            media_type: row.get(2)?,
+            default_activity_type: row.get(2)?,
             status: row.get(3)?,
             language: row.get(4)?,
             description: row.get(5)?,
@@ -548,14 +559,14 @@ fn recreate_shared_media_table_with_uids(conn: &Connection) -> Result<()> {
     for row in &rows {
         conn.execute(
             "INSERT INTO shared.media_new (
-                id, uid, title, media_type, status, language,
+                id, uid, title, default_activity_type, status, language,
                 description, cover_image, extra_data, content_type, tracking_status
              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 row.id,
                 generate_deterministic_media_uid(&row.title)?,
                 row.title,
-                row.media_type,
+                row.default_activity_type,
                 row.status,
                 row.language,
                 row.description,
@@ -657,6 +668,72 @@ fn migrate_v3_to_v4_add_media_variant(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn migrate_v4_to_v5_rename_default_activity_type(conn: &Connection) -> Result<()> {
+    let has_legacy_column = table_has_column(conn, "shared", "media", "media_type")?;
+    let has_canonical_column = table_has_column(conn, "shared", "media", "default_activity_type")?;
+
+    let default_column = match (has_legacy_column, has_canonical_column) {
+        (true, false) => "media_type",
+        (false, true) => "default_activity_type",
+        (true, true) => {
+            return Err(migration_error(
+                "shared.media contains both media_type and default_activity_type",
+            ));
+        }
+        (false, false) => {
+            return Err(migration_error(
+                "shared.media is missing its default activity type column",
+            ));
+        }
+    };
+
+    conn.execute(
+        &format!(
+            "UPDATE shared.media
+             SET {default_column} = 'None'
+             WHERE TRIM(COALESCE({default_column}, '')) = ''"
+        ),
+        [],
+    )?;
+
+    conn.execute(
+        &format!(
+            "UPDATE main.activity_logs
+             SET activity_type = COALESCE(
+                 (SELECT {default_column}
+                  FROM shared.media
+                  WHERE id = activity_logs.media_id),
+                 'None'
+             )
+             WHERE TRIM(COALESCE(activity_type, '')) = ''"
+        ),
+        [],
+    )?;
+
+    let remaining_blank_logs: i64 = conn.query_row(
+        "SELECT COUNT(*)
+         FROM main.activity_logs
+         WHERE TRIM(COALESCE(activity_type, '')) = ''",
+        [],
+        |row| row.get(0),
+    )?;
+    if remaining_blank_logs > 0 {
+        return Err(migration_error(format!(
+            "Could not materialize activity type for {remaining_blank_logs} log(s)"
+        )));
+    }
+
+    if has_legacy_column {
+        conn.execute(
+            "ALTER TABLE shared.media
+             RENAME COLUMN media_type TO default_activity_type",
+            [],
+        )?;
+    }
+
+    Ok(())
+}
+
 fn migrate_to_shared(conn: &Connection) -> Result<()> {
     // Check if `main.media` exists
     if table_exists(conn, "main", "media")? {
@@ -699,7 +776,7 @@ fn migrate_to_shared(conn: &Connection) -> Result<()> {
             Ok(SharedMediaRow {
                 id: row.get(0)?,
                 title: row.get(1)?,
-                media_type: row.get(2)?,
+                default_activity_type: row.get(2)?,
                 status: row.get(3)?,
                 language: row.get(4)?,
                 description: row.get(5)?,
@@ -718,14 +795,14 @@ fn migrate_to_shared(conn: &Connection) -> Result<()> {
         for media in &collected_legacy_media {
             conn.execute(
                 "INSERT OR IGNORE INTO shared.media (
-                    id, uid, title, media_type, status, language,
+                    id, uid, title, default_activity_type, status, language,
                     description, cover_image, extra_data, content_type, tracking_status
                  ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                 params![
                     media.id,
                     generate_deterministic_media_uid(&media.title)?,
                     media.title,
-                    media.media_type,
+                    media.default_activity_type,
                     media.status,
                     media.language,
                     media.description,
@@ -877,10 +954,18 @@ fn migrate_activity_type_to_logs(conn: &Connection) -> Result<()> {
         "TEXT NOT NULL DEFAULT ''",
     )?;
     if added {
+        let default_column = if table_has_column(conn, "shared", "media", "default_activity_type")?
+        {
+            "default_activity_type"
+        } else {
+            "media_type"
+        };
         conn.execute(
-            "UPDATE main.activity_logs SET activity_type = (
-                SELECT media_type FROM shared.media WHERE id = activity_logs.media_id
-            ) WHERE activity_type = ''",
+            &format!(
+                "UPDATE main.activity_logs SET activity_type = (
+                    SELECT {default_column} FROM shared.media WHERE id = activity_logs.media_id
+                ) WHERE activity_type = ''"
+            ),
             [],
         )?;
     }
@@ -983,6 +1068,7 @@ fn migrate_legacy_pre_release_to_current_schema(conn: &Connection) -> Result<()>
     migrate_settings_updated_at(conn)?;
     migrate_v2_to_v3_add_activity_notes(conn)?;
     migrate_v3_to_v4_add_media_variant(conn)?;
+    migrate_v4_to_v5_rename_default_activity_type(conn)?;
     create_indexes(conn)?;
     Ok(())
 }
@@ -1184,7 +1270,7 @@ fn resolve_milestone_media_identity(
 // Media Operations
 pub fn get_all_media(conn: &Connection) -> Result<Vec<Media>> {
     let mut stmt = conn.prepare(
-        "SELECT id, uid, title, media_type, status, language, description, cover_image, extra_data, content_type, tracking_status, variant
+        "SELECT id, uid, title, default_activity_type, status, language, description, cover_image, extra_data, content_type, tracking_status, variant
          FROM shared.media m
          ORDER BY 
             CASE 
@@ -1200,7 +1286,7 @@ pub fn get_all_media(conn: &Connection) -> Result<Vec<Media>> {
             id: row.get(0)?,
             uid: row.get(1)?,
             title: row.get(2)?,
-            media_type: row.get(3)?,
+            default_activity_type: row.get(3)?,
             status: row.get(4)?,
             language: row.get(5)?,
             description: row.get(6).unwrap_or_default(),
@@ -1222,9 +1308,13 @@ pub fn get_all_media(conn: &Connection) -> Result<Vec<Media>> {
 pub fn add_media_with_id(conn: &Connection, media: &Media) -> Result<i64> {
     let uid =
         normalize_optional_string(media.uid.clone()).unwrap_or_else(generate_random_media_uid);
+    let default_activity_type = media.default_activity_type.trim();
+    if default_activity_type.is_empty() {
+        return Err(migration_error("Default activity type cannot be blank"));
+    }
     conn.execute(
-        "INSERT INTO shared.media (uid, title, media_type, status, language, description, cover_image, extra_data, content_type, tracking_status, variant) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-        params![uid, media.title, media.media_type, media.status, media.language, media.description, media.cover_image, media.extra_data, media.content_type, media.tracking_status, media.variant.trim()],
+        "INSERT INTO shared.media (uid, title, default_activity_type, status, language, description, cover_image, extra_data, content_type, tracking_status, variant) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        params![uid, media.title, default_activity_type, media.status, media.language, media.description, media.cover_image, media.extra_data, media.content_type, media.tracking_status, media.variant.trim()],
     )?;
     Ok(conn.last_insert_rowid())
 }
@@ -1241,17 +1331,21 @@ pub fn update_media(conn: &Connection, media: &Media) -> Result<()> {
         .ok_or_else(|| migration_error(format!("Media {} not found", media_id)))?;
     let previous_title = existing.0;
     let uid = normalize_optional_string(media.uid.clone()).unwrap_or(existing.1);
+    let default_activity_type = media.default_activity_type.trim();
+    if default_activity_type.is_empty() {
+        return Err(migration_error("Default activity type cannot be blank"));
+    }
 
     conn.execute(
         "UPDATE shared.media
-         SET uid = ?1, title = ?2, media_type = ?3, status = ?4, language = ?5,
+         SET uid = ?1, title = ?2, default_activity_type = ?3, status = ?4, language = ?5,
              description = ?6, cover_image = ?7, extra_data = ?8, content_type = ?9,
              tracking_status = ?10, variant = ?11
          WHERE id = ?12",
         params![
             uid,
             media.title,
-            media.media_type,
+            default_activity_type,
             media.status,
             media.language,
             media.description,
@@ -1306,6 +1400,34 @@ pub fn delete_media(conn: &Connection, id: i64) -> Result<()> {
 }
 
 // Activity Log Operations
+fn resolve_activity_type_for_write(
+    conn: &Connection,
+    media_id: i64,
+    activity_type: &str,
+) -> Result<String> {
+    let activity_type = activity_type.trim();
+    if !activity_type.is_empty() {
+        return Ok(activity_type.to_string());
+    }
+
+    let default_activity_type = conn
+        .query_row(
+            "SELECT default_activity_type FROM shared.media WHERE id = ?1",
+            params![media_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .ok_or_else(|| migration_error(format!("Media {media_id} not found")))?;
+    let default_activity_type = default_activity_type.trim();
+    if default_activity_type.is_empty() {
+        return Err(migration_error(format!(
+            "Media {media_id} has a blank default activity type"
+        )));
+    }
+
+    Ok(default_activity_type.to_string())
+}
+
 pub fn add_log(conn: &Connection, log: &ActivityLog) -> Result<i64> {
     if log.duration_minutes == 0 && log.characters == 0 {
         return Err(rusqlite::Error::ToSqlConversionFailure(Box::new(
@@ -1315,9 +1437,10 @@ pub fn add_log(conn: &Connection, log: &ActivityLog) -> Result<i64> {
             ),
         )));
     }
+    let activity_type = resolve_activity_type_for_write(conn, log.media_id, &log.activity_type)?;
     conn.execute(
         "INSERT INTO main.activity_logs (media_id, duration_minutes, characters, date, activity_type, notes) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![log.media_id, log.duration_minutes, log.characters, log.date, log.activity_type, log.notes],
+        params![log.media_id, log.duration_minutes, log.characters, log.date, activity_type, log.notes],
     )?;
     Ok(conn.last_insert_rowid())
 }
@@ -1336,9 +1459,10 @@ pub fn update_log(conn: &Connection, log: &ActivityLog) -> Result<()> {
             ),
         )));
     }
+    let activity_type = resolve_activity_type_for_write(conn, log.media_id, &log.activity_type)?;
     conn.execute(
         "UPDATE main.activity_logs SET media_id = ?1, duration_minutes = ?2, characters = ?3, date = ?4, activity_type = ?5, notes = ?6 WHERE id = ?7",
-        params![log.media_id, log.duration_minutes, log.characters, log.date, log.activity_type, log.notes, log.id.unwrap()],
+        params![log.media_id, log.duration_minutes, log.characters, log.date, activity_type, log.notes, log.id.unwrap()],
     )?;
     Ok(())
 }
@@ -1350,7 +1474,7 @@ pub fn clear_activities(conn: &Connection) -> Result<()> {
 
 pub fn get_logs(conn: &Connection) -> Result<Vec<ActivitySummary>> {
     let mut stmt = conn.prepare(
-        "SELECT a.id, a.media_id, m.title, COALESCE(NULLIF(a.activity_type, ''), m.media_type) as activity_type, a.duration_minutes, a.characters, a.date, m.language, a.notes
+        "SELECT a.id, a.media_id, m.title, a.activity_type, a.duration_minutes, a.characters, a.date, m.language, a.notes
          FROM main.activity_logs a
          JOIN shared.media m ON a.media_id = m.id
          ORDER BY a.date DESC, a.id DESC",
@@ -1360,7 +1484,7 @@ pub fn get_logs(conn: &Connection) -> Result<Vec<ActivitySummary>> {
             id: row.get(0)?,
             media_id: row.get(1)?,
             title: row.get(2)?,
-            media_type: row.get(3)?,
+            activity_type: row.get(3)?,
             duration_minutes: row.get(4)?,
             characters: row.get(5)?,
             date: row.get(6)?,
@@ -1378,7 +1502,7 @@ pub fn get_logs(conn: &Connection) -> Result<Vec<ActivitySummary>> {
 
 pub fn get_logs_for_media(conn: &Connection, media_id: i64) -> Result<Vec<ActivitySummary>> {
     let mut stmt = conn.prepare(
-        "SELECT a.id, a.media_id, m.title, COALESCE(NULLIF(a.activity_type, ''), m.media_type) as activity_type, a.duration_minutes, a.characters, a.date, m.language, a.notes
+        "SELECT a.id, a.media_id, m.title, a.activity_type, a.duration_minutes, a.characters, a.date, m.language, a.notes
          FROM main.activity_logs a
          JOIN shared.media m ON a.media_id = m.id
          WHERE a.media_id = ?1
@@ -1389,7 +1513,7 @@ pub fn get_logs_for_media(conn: &Connection, media_id: i64) -> Result<Vec<Activi
             id: row.get(0)?,
             media_id: row.get(1)?,
             title: row.get(2)?,
-            media_type: row.get(3)?,
+            activity_type: row.get(3)?,
             duration_minutes: row.get(4)?,
             characters: row.get(5)?,
             date: row.get(6)?,
@@ -1610,7 +1734,7 @@ fn dominant_activity_type(logs: &[ActivitySummary], fallback: &str) -> String {
 
     for (index, log) in logs.iter().enumerate() {
         let entry = counts
-            .entry(log.media_type.clone())
+            .entry(log.activity_type.clone())
             .or_insert((0, usize::MAX));
         entry.0 += 1;
         entry.1 = entry.1.min(index);
@@ -1690,7 +1814,7 @@ pub fn get_timeline_events(conn: &Connection) -> Result<Vec<TimelineEvent>> {
             media_id,
             media_title: media.title.clone(),
             cover_image: media.cover_image.clone(),
-            activity_type: media.media_type.clone(),
+            activity_type: media.default_activity_type.clone(),
             content_type: media.content_type.clone(),
             tracking_status: media.tracking_status.clone(),
             first_date: String::new(),
@@ -1718,7 +1842,7 @@ pub fn get_timeline_events(conn: &Connection) -> Result<Vec<TimelineEvent>> {
             .unwrap_or_default();
         let total_minutes = media_logs.iter().map(|log| log.duration_minutes).sum();
         let total_characters = media_logs.iter().map(|log| log.characters).sum();
-        let activity_type = dominant_activity_type(media_logs, &media.media_type);
+        let activity_type = dominant_activity_type(media_logs, &media.default_activity_type);
         let terminal_event = terminal_kind(&media.tracking_status);
         let same_day_terminal = terminal_event.is_some() && first_date == last_date;
 
@@ -2043,7 +2167,7 @@ mod tests {
             uid: None,
             title: title.to_string(),
             variant: String::new(),
-            media_type: "Reading".to_string(),
+            default_activity_type: "Reading".to_string(),
             status: "Active".to_string(),
             language: "Japanese".to_string(),
             description: "".to_string(),
@@ -2231,7 +2355,7 @@ mod tests {
             uid: None,
             title: "呪術廻戦".to_string(),
             variant: "Anime".to_string(),
-            media_type: "Watching".to_string(),
+            default_activity_type: "Watching".to_string(),
             status: "Complete".to_string(),
             language: "Japanese".to_string(),
             description: "".to_string(),
@@ -2243,7 +2367,7 @@ mod tests {
         update_media(&conn, &updated).unwrap();
 
         let all = get_all_media(&conn).unwrap();
-        assert_eq!(all[0].media_type, "Watching");
+        assert_eq!(all[0].default_activity_type, "Watching");
         assert_eq!(all[0].status, "Complete");
     }
 
@@ -2567,7 +2691,7 @@ mod tests {
         let paused_id = add_media_with_id(
             &conn,
             &Media {
-                media_type: "Playing".to_string(),
+                default_activity_type: "Playing".to_string(),
                 tracking_status: "Paused".to_string(),
                 content_type: "Videogame".to_string(),
                 ..sample_media("Paused Title")
@@ -2577,7 +2701,7 @@ mod tests {
         let dropped_id = add_media_with_id(
             &conn,
             &Media {
-                media_type: "Watching".to_string(),
+                default_activity_type: "Watching".to_string(),
                 tracking_status: "Dropped".to_string(),
                 content_type: "Anime".to_string(),
                 ..sample_media("Dropped Title")
@@ -2587,7 +2711,7 @@ mod tests {
         let ongoing_id = add_media_with_id(
             &conn,
             &Media {
-                media_type: "Listening".to_string(),
+                default_activity_type: "Listening".to_string(),
                 tracking_status: "Ongoing".to_string(),
                 content_type: "Audio".to_string(),
                 ..sample_media("Ongoing Title")
@@ -3582,8 +3706,59 @@ mod tests {
     }
 
     #[test]
-    fn test_fresh_db_has_latest_columns_and_is_at_schema_v4() {
-        let temp_dir = unique_temp_dir("fresh_v4");
+    fn test_blank_activity_type_is_materialized_when_a_log_is_written() {
+        let conn = setup_test_db();
+        let media_id = add_media_with_id(&conn, &sample_media("Materialized Type")).unwrap();
+
+        let log_id = add_log(&conn, &sample_log(media_id, "2024-01-01", "  ")).unwrap();
+        let stored_type: String = conn
+            .query_row(
+                "SELECT activity_type FROM main.activity_logs WHERE id = ?1",
+                [log_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored_type, "Reading");
+
+        let mut media = get_all_media(&conn).unwrap().remove(0);
+        media.default_activity_type = "Watching".to_string();
+        update_media(&conn, &media).unwrap();
+
+        let stored_type_after_media_update: String = conn
+            .query_row(
+                "SELECT activity_type FROM main.activity_logs WHERE id = ?1",
+                [log_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored_type_after_media_update, "Reading");
+
+        update_log(
+            &conn,
+            &ActivityLog {
+                id: Some(log_id),
+                media_id,
+                duration_minutes: 30,
+                characters: 1200,
+                date: "2024-01-01".to_string(),
+                activity_type: String::new(),
+                notes: String::new(),
+            },
+        )
+        .unwrap();
+        let stored_type_after_log_update: String = conn
+            .query_row(
+                "SELECT activity_type FROM main.activity_logs WHERE id = ?1",
+                [log_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored_type_after_log_update, "Watching");
+    }
+
+    #[test]
+    fn test_fresh_db_has_latest_columns_and_is_at_schema_v5() {
+        let temp_dir = unique_temp_dir("fresh_v5");
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         let conn = init_db(temp_dir.clone(), None).unwrap();
@@ -3592,9 +3767,11 @@ mod tests {
             get_bundle_schema_version(&conn).unwrap(),
             CURRENT_SCHEMA_VERSION
         );
-        assert_eq!(CURRENT_SCHEMA_VERSION, 4);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 5);
         assert!(table_has_column(&conn, "main", "activity_logs", "notes").unwrap());
         assert!(table_has_column(&conn, "shared", "media", "variant").unwrap());
+        assert!(table_has_column(&conn, "shared", "media", "default_activity_type").unwrap());
+        assert!(!table_has_column(&conn, "shared", "media", "media_type").unwrap());
         assert!(latest_schema_is_present(&conn).unwrap());
         validate_latest_schema(&conn).unwrap();
 
@@ -3696,11 +3873,11 @@ mod tests {
     }
 
     #[test]
-    fn test_no_op_startup_on_v4_db_stays_at_v4() {
-        let temp_dir = unique_temp_dir("noop_v4");
+    fn test_no_op_startup_on_v5_db_stays_at_v5() {
+        let temp_dir = unique_temp_dir("noop_v5");
         std::fs::create_dir_all(&temp_dir).unwrap();
 
-        // First init creates the DB at v4
+        // First init creates the DB at v5.
         let conn1 = init_db(temp_dir.clone(), None).unwrap();
         let media_id = add_media_with_id(&conn1, &sample_media("No-op Media")).unwrap();
         add_log(
@@ -3720,7 +3897,7 @@ mod tests {
 
         // Second init should be a no-op
         let conn2 = init_db(temp_dir.clone(), None).unwrap();
-        assert_eq!(get_bundle_schema_version(&conn2).unwrap(), 4);
+        assert_eq!(get_bundle_schema_version(&conn2).unwrap(), 5);
 
         let logs = get_logs(&conn2).unwrap();
         assert_eq!(logs.len(), 1);
@@ -3755,6 +3932,93 @@ mod tests {
             .unwrap();
         assert_eq!(title, "Horimiya");
         assert_eq!(variant, "");
+    }
+
+    #[test]
+    fn test_v4_to_v5_migration_materializes_activity_types_and_renames_media_column() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute("ATTACH DATABASE ':memory:' AS shared", [])
+            .unwrap();
+        create_tables(&conn).unwrap();
+        conn.execute(
+            "ALTER TABLE shared.media
+             RENAME COLUMN default_activity_type TO media_type",
+            [],
+        )
+        .unwrap();
+        conn.execute_batch(
+            "INSERT INTO shared.media (
+                 id, uid, title, media_type, status, language, variant
+             ) VALUES
+                 (1, 'uid-reading', 'Reading Default', 'Reading', 'Active', 'Japanese', ''),
+                 (2, 'uid-blank', 'Blank Default', '   ', 'Active', 'Japanese', '');
+             INSERT INTO main.activity_logs (
+                 id, media_id, duration_minutes, characters, date, activity_type, notes
+             ) VALUES
+                 (1, 1, 30, 0, '2024-01-01', '', ''),
+                 (2, 1, 30, 0, '2024-01-02', 'Watching', ''),
+                 (3, 2, 30, 0, '2024-01-03', '  ', ''),
+                 (4, 999, 30, 0, '2024-01-04', '', 'orphan'),
+                 (5, 1, 30, 0, '2024-01-05', ' Studying ', '');",
+        )
+        .unwrap();
+        set_bundle_schema_version(&conn, 4).unwrap();
+
+        migrate_schema(&conn).unwrap();
+
+        assert_eq!(get_bundle_schema_version(&conn).unwrap(), 5);
+        assert!(table_has_column(&conn, "shared", "media", "default_activity_type").unwrap());
+        assert!(!table_has_column(&conn, "shared", "media", "media_type").unwrap());
+
+        let media_types: Vec<(i64, String)> = {
+            let mut stmt = conn
+                .prepare("SELECT id, default_activity_type FROM shared.media ORDER BY id")
+                .unwrap();
+            stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap()
+        };
+        assert_eq!(
+            media_types,
+            vec![(1, "Reading".to_string()), (2, "None".to_string())]
+        );
+
+        let activity_types: Vec<(i64, String)> = {
+            let mut stmt = conn
+                .prepare("SELECT id, activity_type FROM main.activity_logs ORDER BY id")
+                .unwrap();
+            stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap()
+        };
+        assert_eq!(
+            activity_types,
+            vec![
+                (1, "Reading".to_string()),
+                (2, "Watching".to_string()),
+                (3, "None".to_string()),
+                (4, "None".to_string()),
+                (5, " Studying ".to_string()),
+            ]
+        );
+
+        let mut media = get_all_media(&conn)
+            .unwrap()
+            .into_iter()
+            .find(|media| media.id == Some(1))
+            .unwrap();
+        media.default_activity_type = "Playing".to_string();
+        update_media(&conn, &media).unwrap();
+        let historical_activity_type: String = conn
+            .query_row(
+                "SELECT activity_type FROM main.activity_logs WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(historical_activity_type, "Reading");
     }
 
     #[test]

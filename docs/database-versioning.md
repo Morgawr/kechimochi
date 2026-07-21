@@ -22,12 +22,19 @@ An app release may keep the same database schema version, and a new backup forma
 
 ## Current Baseline
 
-- Current database schema version: `4`
+- Current database schema version: `5`
 - Current backup format version: `1`
 - First stable release schema: the current latest schema in `src-tauri`
 
 Databases created before explicit schema versioning are treated as legacy pre-release databases.
-They are upgraded by a one-time legacy upgrader and then stamped as schema version `1`.
+They are normalized by a one-time legacy upgrader, which applies all required schema migrations in order. They are stamped with the current schema version only after the complete upgrade succeeds.
+
+Schema version `5` distinguishes the default chosen on a media entry from the value recorded on an activity log:
+
+- `shared.media.default_activity_type` is the default for future logs.
+- `main.activity_logs.activity_type` is the historical value stored for that individual log.
+
+The `v4` to `v5` migration renames the old media-level `media_type` column. It also materializes blank activity-log values from the media default that existed at migration time. Blank media defaults and activity logs whose media no longer exists are normalized to `None`; existing non-blank activity types are preserved.
 
 ## Storage Model
 
@@ -56,7 +63,7 @@ The app must behave as follows:
 
 - If the schema version is lower than the current supported version, run migrations sequentially until current.
 - If the schema version matches the current supported version, continue normally.
-- If both DB files are unversioned but contain tables, treat them as legacy pre-release data and upgrade them to schema version `1`.
+- If both DB files are unversioned but contain tables, treat them as legacy pre-release data, normalize them, and apply all required schema migrations in order. Stamp them with the current schema version only after the complete upgrade succeeds.
 - If the database schema version is newer than the app supports, fail clearly and do not modify the files.
 - If the two DB files disagree on version, treat that as an inconsistent state and only auto-repair it when the actual schema structure is clearly recoverable.
 

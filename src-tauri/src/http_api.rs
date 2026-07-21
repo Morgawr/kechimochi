@@ -75,11 +75,17 @@ struct HostPolicyState {
 }
 
 #[derive(Debug)]
-struct AppError(String);
+enum AppError {
+    Internal(String),
+    BadRequest(String),
+}
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        (StatusCode::INTERNAL_SERVER_ERROR, self.0).into_response()
+        match self {
+            Self::Internal(message) => (StatusCode::INTERNAL_SERVER_ERROR, message).into_response(),
+            Self::BadRequest(message) => (StatusCode::BAD_REQUEST, message).into_response(),
+        }
     }
 }
 
@@ -89,7 +95,7 @@ trait AeExt<T> {
 
 impl<T, E: std::fmt::Display> AeExt<T> for std::result::Result<T, E> {
     fn ae(self) -> HandlerResult<T> {
-        self.map_err(|e| AppError(e.to_string()))
+        self.map_err(|e| AppError::Internal(e.to_string()))
     }
 }
 
@@ -271,7 +277,7 @@ fn is_ipv6_unicast_link_local(addr: &std::net::Ipv6Addr) -> bool {
 
 fn mark_dirty(state: &HttpApiState) -> HandlerResult<()> {
     if let Some(callback) = &state.mark_dirty {
-        callback().map_err(AppError)?;
+        callback().map_err(AppError::Internal)?;
     }
     Ok(())
 }
@@ -280,15 +286,23 @@ async fn api_not_found() -> (StatusCode, &'static str) {
     (StatusCode::NOT_FOUND, "API route not found")
 }
 
-async fn get_all_media(State(s): State<SharedApiState>) -> HandlerResult<Json<Vec<models::Media>>> {
+async fn get_all_media(
+    State(s): State<SharedApiState>,
+) -> HandlerResult<Json<Vec<models::HttpMedia>>> {
     let conn = s.conn.lock().ae()?;
-    db::get_all_media(&conn).ae().map(Json)
+    let media = db::get_all_media(&conn)
+        .ae()?
+        .into_iter()
+        .map(models::HttpMedia::from)
+        .collect();
+    Ok(Json(media))
 }
 
 async fn add_media(
     State(s): State<SharedApiState>,
-    Json(media): Json<models::Media>,
+    Json(media): Json<models::HttpMedia>,
 ) -> HandlerResult<Json<i64>> {
+    let media = models::Media::try_from(media).map_err(AppError::BadRequest)?;
     let conn = s.conn.lock().ae()?;
     let id = db::add_media_with_id(&conn, &media).ae()?;
     mark_dirty(&s)?;
@@ -298,8 +312,9 @@ async fn add_media(
 async fn update_media(
     State(s): State<SharedApiState>,
     Path(id): Path<i64>,
-    Json(mut media): Json<models::Media>,
+    Json(media): Json<models::HttpMedia>,
 ) -> HandlerResult<Json<()>> {
+    let mut media = models::Media::try_from(media).map_err(AppError::BadRequest)?;
     media.id = Some(id);
     let conn = s.conn.lock().ae()?;
     db::update_media(&conn, &media).ae()?;
@@ -319,9 +334,14 @@ async fn delete_media_handler(
 
 async fn get_logs(
     State(s): State<SharedApiState>,
-) -> HandlerResult<Json<Vec<models::ActivitySummary>>> {
+) -> HandlerResult<Json<Vec<models::HttpActivitySummary>>> {
     let conn = s.conn.lock().ae()?;
-    db::get_logs(&conn).ae().map(Json)
+    let logs = db::get_logs(&conn)
+        .ae()?
+        .into_iter()
+        .map(models::HttpActivitySummary::from)
+        .collect();
+    Ok(Json(logs))
 }
 
 async fn add_log(
@@ -366,9 +386,14 @@ async fn get_heatmap(
 async fn get_logs_for_media(
     State(s): State<SharedApiState>,
     Path(id): Path<i64>,
-) -> HandlerResult<Json<Vec<models::ActivitySummary>>> {
+) -> HandlerResult<Json<Vec<models::HttpActivitySummary>>> {
     let conn = s.conn.lock().ae()?;
-    db::get_logs_for_media(&conn, id).ae().map(Json)
+    let logs = db::get_logs_for_media(&conn, id)
+        .ae()?
+        .into_iter()
+        .map(models::HttpActivitySummary::from)
+        .collect();
+    Ok(Json(logs))
 }
 
 async fn get_timeline_events_handler(
@@ -457,7 +482,7 @@ async fn upload_profile_picture_handler(
         .next_field()
         .await
         .ae()?
-        .ok_or_else(|| AppError("No file field in multipart".into()))?;
+        .ok_or_else(|| AppError::Internal("No file field in multipart".into()))?;
     let bytes = field.bytes().await.ae()?.to_vec();
     let profile_picture = profile_picture::process_profile_picture_bytes(&bytes).ae()?;
     let conn = s.conn.lock().ae()?;
@@ -531,7 +556,7 @@ async fn import_activities(
     let path = tmp
         .path()
         .to_str()
-        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .ok_or_else(|| AppError::Internal("Invalid temp path".into()))?
         .to_owned();
     let count = {
         let mut conn = s.conn.lock().ae()?;
@@ -555,7 +580,7 @@ async fn export_activities(
     let path = tmp
         .path()
         .to_str()
-        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .ok_or_else(|| AppError::Internal("Invalid temp path".into()))?
         .to_owned();
     let count = {
         let conn = s.conn.lock().ae()?;
@@ -581,7 +606,7 @@ async fn analyze_media_csv_upload(
     let path = tmp
         .path()
         .to_str()
-        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .ok_or_else(|| AppError::Internal("Invalid temp path".into()))?
         .to_owned();
     let conn = s.conn.lock().ae()?;
     csv_import::analyze_media_csv(&conn, &path).ae().map(Json)
@@ -605,7 +630,7 @@ async fn export_media_handler(State(s): State<SharedApiState>) -> HandlerResult<
     let path = tmp
         .path()
         .to_str()
-        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .ok_or_else(|| AppError::Internal("Invalid temp path".into()))?
         .to_owned();
     let count = {
         let conn = s.conn.lock().ae()?;
@@ -631,7 +656,7 @@ async fn import_milestones(
     let path = tmp
         .path()
         .to_str()
-        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .ok_or_else(|| AppError::Internal("Invalid temp path".into()))?
         .to_owned();
     let count = {
         let mut conn = s.conn.lock().ae()?;
@@ -646,7 +671,7 @@ async fn export_milestones(State(s): State<SharedApiState>) -> HandlerResult<Res
     let path = tmp
         .path()
         .to_str()
-        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .ok_or_else(|| AppError::Internal("Invalid temp path".into()))?
         .to_owned();
     let count = {
         let conn = s.conn.lock().ae()?;
@@ -678,7 +703,7 @@ async fn export_full_backup_handler(
     let path = tmp
         .path()
         .to_str()
-        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .ok_or_else(|| AppError::Internal("Invalid temp path".into()))?
         .to_owned();
 
     {
@@ -712,7 +737,7 @@ async fn import_full_backup_handler(
     let path = tmp
         .path()
         .to_str()
-        .ok_or_else(|| AppError("Invalid temp path".into()))?
+        .ok_or_else(|| AppError::Internal("Invalid temp path".into()))?
         .to_owned();
 
     let ls = {
@@ -736,7 +761,7 @@ async fn upload_cover(
         .next_field()
         .await
         .ae()?
-        .ok_or_else(|| AppError("No file field in multipart".into()))?;
+        .ok_or_else(|| AppError::Internal("No file field in multipart".into()))?;
     let filename = field.file_name().unwrap_or("upload").to_owned();
     let ext = std::path::Path::new(&filename)
         .extension()
@@ -759,11 +784,11 @@ async fn serve_cover(
     let safe_name = std::path::Path::new(&filename)
         .file_name()
         .and_then(|n| n.to_str())
-        .ok_or_else(|| AppError("Invalid filename".into()))?
+        .ok_or_else(|| AppError::Internal("Invalid filename".into()))?
         .to_owned();
     let file_path = s.data_dir.join("covers").join(&safe_name);
     if !file_path.exists() {
-        return Err(AppError("Cover not found".into()));
+        return Err(AppError::Internal("Cover not found".into()));
     }
     let bytes = std::fs::read(&file_path).ae()?;
     let content_type = match file_path
@@ -899,7 +924,7 @@ async fn field_to_tempfile(multipart: &mut Multipart) -> HandlerResult<tempfile:
         .next_field()
         .await
         .ae()?
-        .ok_or_else(|| AppError("No file in multipart".into()))?;
+        .ok_or_else(|| AppError::Internal("No file in multipart".into()))?;
     let bytes = field.bytes().await.ae()?;
     let mut tmp = tempfile::NamedTempFile::new().ae()?;
     tmp.write_all(&bytes).ae()?;

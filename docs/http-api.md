@@ -53,8 +53,8 @@ These endpoints are available in both `automation` and `full` scope.
 | `POST /api/profiles/initialize` | Initialize the user database when no profile database exists. | `curl -s -X POST "$BASE/api/profiles/initialize" -H 'Content-Type: application/json' -d '{"fallback_username":"$USER"}'` |
 | `GET /api/profile-picture` | Read the stored profile picture metadata and base64 data. | `curl -s "$BASE/api/profile-picture"` |
 | `GET /api/media` | List all media. | `curl -s "$BASE/api/media"` |
-| `POST /api/media` | Add media. Returns the new ID. | `curl -s -X POST "$BASE/api/media" -H 'Content-Type: application/json' -d '{"id":null,"title":"Example Book","media_type":"Reading","status":"Active","language":"Japanese","description":"","cover_image":"","extra_data":"{}","content_type":"Novel","tracking_status":"Ongoing"}'` |
-| `PUT /api/media/:id` | Replace media by ID. The URL ID is authoritative. | `curl -s -X PUT "$BASE/api/media/1" -H 'Content-Type: application/json' -d '{"id":1,"title":"Example Book","media_type":"Reading","status":"Active","language":"Japanese","description":"Updated","cover_image":"","extra_data":"{}","content_type":"Novel","tracking_status":"Ongoing"}'` |
+| `POST /api/media` | Add media. Returns the new ID. | `curl -s -X POST "$BASE/api/media" -H 'Content-Type: application/json' -d '{"id":null,"title":"Example Book","default_activity_type":"Reading","status":"Active","language":"Japanese","description":"","cover_image":"","extra_data":"{}","content_type":"Novel","tracking_status":"Ongoing"}'` |
+| `PUT /api/media/:id` | Replace media by ID. The URL ID is authoritative. | `curl -s -X PUT "$BASE/api/media/1" -H 'Content-Type: application/json' -d '{"id":1,"title":"Example Book","default_activity_type":"Reading","status":"Active","language":"Japanese","description":"Updated","cover_image":"","extra_data":"{}","content_type":"Novel","tracking_status":"Ongoing"}'` |
 | `DELETE /api/media/:id` | Delete media by ID. | `curl -s -X DELETE "$BASE/api/media/1"` |
 | `GET /api/logs` | List activity logs. | `curl -s "$BASE/api/logs"` |
 | `POST /api/logs` | Add an activity log. Returns the new ID. | `curl -s -X POST "$BASE/api/logs" -H 'Content-Type: application/json' -d '{"id":null,"media_id":1,"duration_minutes":30,"characters":0,"date":"2026-05-07","activity_type":"Reading"}'` |
@@ -82,7 +82,7 @@ These endpoints are available only when API Scope is set to `full`.
 | `POST /api/import/activities` | Import activity logs from CSV. | `curl -s -X POST "$BASE/api/import/activities" -F "file=@activities.csv"` |
 | `GET /api/export/activities` | Export activity logs as CSV. Optional `start` and `end` query parameters filter by date. | `curl -s "$BASE/api/export/activities?start=2026-01-01&end=2026-01-31" -o activities.csv` |
 | `POST /api/import/media/analyze` | Analyze a media-library CSV and return conflicts. | `curl -s -X POST "$BASE/api/import/media/analyze" -F "file=@media_library.csv"` |
-| `POST /api/import/media/apply` | Apply approved media CSV rows. | `curl -s -X POST "$BASE/api/import/media/apply" -H 'Content-Type: application/json' -d '[{"Title":"New Media","Media Type":"Reading","Status":"Active","Language":"Japanese","Description":"","Content Type":"Novel","Extra Data":"{}","Cover Image (Base64)":"","Variant":"Light Novel"}]'` |
+| `POST /api/import/media/apply` | Apply approved media CSV rows. | `curl -s -X POST "$BASE/api/import/media/apply" -H 'Content-Type: application/json' -d '[{"Title":"New Media","Default Activity Type":"Reading","Status":"Active","Language":"Japanese","Description":"","Content Type":"Novel","Extra Data":"{}","Cover Image (Base64)":"","Variant":"Light Novel"}]'` |
 | `GET /api/export/media` | Export the media library as CSV. | `curl -s "$BASE/api/export/media" -o media_library.csv` |
 | `POST /api/import/milestones` | Import milestones from CSV. | `curl -s -X POST "$BASE/api/import/milestones" -F "file=@milestones.csv"` |
 | `GET /api/export/milestones` | Export milestones as CSV. | `curl -s "$BASE/api/export/milestones" -o milestones.csv` |
@@ -102,6 +102,7 @@ Media payloads use these fields:
 {
   "id": null,
   "title": "Example Book",
+  "default_activity_type": "Reading",
   "media_type": "Reading",
   "status": "Active",
   "language": "Japanese",
@@ -112,6 +113,8 @@ Media payloads use these fields:
   "tracking_status": "Ongoing"
 }
 ```
+
+`default_activity_type` is the canonical media field. For compatibility, media responses also include the deprecated `media_type` alias, and requests may still provide that alias. If a request supplies both fields with different non-blank values, it is rejected with `400 Bad Request`.
 
 Activity log payloads use these fields:
 
@@ -125,6 +128,8 @@ Activity log payloads use these fields:
   "activity_type": "Reading"
 }
 ```
+
+Activity-summary responses use `activity_type` for the value recorded on the individual log. They also include a deprecated `media_type` alias with the same value for older HTTP clients.
 
 Milestone payloads use these fields:
 
@@ -144,6 +149,6 @@ Milestone payloads use these fields:
 
 Unmatched `/api` routes return `404` with `API route not found`.
 
-Handler failures return `500` with a plain-text error message. Host-header validation failures return `403`.
+Invalid media activity-type aliases return `400` with a plain-text error message. Other handler failures return `500`. Host-header validation failures return `403`.
 
 Mutating endpoints mark the current sync profile dirty when cloud sync is configured, so changes made through the HTTP API are picked up by later sync runs.

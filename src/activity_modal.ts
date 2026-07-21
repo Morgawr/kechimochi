@@ -98,12 +98,12 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
             typeof activityType === 'string' && ACTIVITY_TYPES.includes(activityType as ActivityType);
 
         const getDefaultActivityTypeForTitle = (title: string): ActivityType | undefined => {
-            const defaultActivityType = findMediaByTitle(title)?.media_type;
+            const defaultActivityType = findMediaByTitle(title)?.default_activity_type;
             return isActivityType(defaultActivityType) ? defaultActivityType : undefined;
         };
 
         // Determine the default activity type
-        const defaultActivityType = editLog?.media_type || getDefaultActivityTypeForTitle(editLog?.title || prefillMediaTitle || '') || 'Reading';
+        const defaultActivityType = editLog?.activity_type || getDefaultActivityTypeForTitle(editLog?.title || prefillMediaTitle || '') || 'Reading';
             
         overlay.innerHTML = `
             <div class="modal-content" style="width: 450px;">
@@ -289,7 +289,7 @@ export async function showLogActivityModal(prefillMediaTitle?: string, editLog?:
             
             return await addMedia({ 
                 title, 
-                media_type: typeResp, 
+                default_activity_type: typeResp,
                 status: "Active", 
                 language: "Japanese", 
                 description: "", 

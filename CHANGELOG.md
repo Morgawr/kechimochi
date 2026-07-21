@@ -14,9 +14,17 @@ The format is based on Keep a Changelog, with one section per released version.
  - When browsing media entries, left and right buttons now cycle through entries according to any previously-applied media filters
  - Reworked the "Monthly" view to show daily amounts instead of weeks, because weeks were inconsistent and not accurate.
  - Renamed "Weekly", "Monthly", and "Yearly" options to "Week", "Month", and "Year"
+ - Renamed the media-level "Media Type" field to "Default Activity Type" across the database, API, and CSV exports, while retaining compatibility with legacy imports and API clients.
 
-## Fixed
- - Activity CSV now exports Media Type that reflects the media’s default while Activity Type preserves individual log override
+### Fixed
+ - Activity types are now stored on every activity log, so changing a media default no longer reclassifies historical activity; This also retroactively applies to historical blank activities.
+ - Activity CSV now exports Default Activity Type for the media default while Activity Type preserves each individual log override.
+
+### Special Notes:
+
+For apps and tools developers, or for people who make use of csv import/export scripts, some of the csv fields have changed to match a more robust media/activity tagging system. The documentation has been updated at https://github.com/Morgawr/kechimochi/blob/main/docs/csv-formats.md to reflect these changes.
+
+Legacy formats should still be supported but it is strongly recommended you migrate to the new format as soon as possible.
 
 ## [0.2.11] - 2026-07-20
 

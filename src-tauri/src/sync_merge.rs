@@ -360,12 +360,12 @@ fn merge_media_three_way(
         &remote.variant,
         &mut conflicts,
     );
-    let media_type = merge_scalar_field(
+    let default_activity_type = merge_scalar_field(
         uid,
         "media_type",
-        Some(&base.media_type),
-        &local.media_type,
-        &remote.media_type,
+        Some(&base.default_activity_type),
+        &local.default_activity_type,
+        &remote.default_activity_type,
         &mut conflicts,
     );
     let status = merge_scalar_field(
@@ -441,7 +441,7 @@ fn merge_media_three_way(
         uid: uid.to_string(),
         title,
         variant,
-        media_type,
+        default_activity_type,
         status,
         language,
         description,
@@ -488,12 +488,12 @@ fn merge_media_created_on_both(
         &remote.variant,
         &mut conflicts,
     );
-    let media_type = merge_scalar_field(
+    let default_activity_type = merge_scalar_field(
         uid,
         "media_type",
         None,
-        &local.media_type,
-        &remote.media_type,
+        &local.default_activity_type,
+        &remote.default_activity_type,
         &mut conflicts,
     );
     let status = merge_scalar_field(
@@ -561,7 +561,7 @@ fn merge_media_created_on_both(
         uid: uid.to_string(),
         title,
         variant,
-        media_type,
+        default_activity_type,
         status,
         language,
         description,
@@ -1083,7 +1083,7 @@ fn media_content_eq_ignoring_meta(
     left.uid == right.uid
         && left.title == right.title
         && left.variant == right.variant
-        && left.media_type == right.media_type
+        && left.default_activity_type == right.default_activity_type
         && left.status == right.status
         && left.language == right.language
         && left.description == right.description
@@ -1143,7 +1143,7 @@ mod tests {
             uid: uid.to_string(),
             title: format!("Title {}", uid),
             variant: String::new(),
-            media_type: "Reading".to_string(),
+            default_activity_type: "Reading".to_string(),
             status: "Active".to_string(),
             language: "Japanese".to_string(),
             description: String::new(),

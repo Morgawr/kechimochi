@@ -14,7 +14,7 @@ function makeMedia(overrides: Partial<Media> & { id: number; title: string }): M
     return {
         id: overrides.id,
         title: overrides.title,
-        media_type: overrides.media_type ?? 'Reading',
+        default_activity_type: overrides.default_activity_type ?? 'Reading',
         status: overrides.status ?? 'In Progress',
         language: overrides.language ?? 'Japanese',
         description: overrides.description ?? '',
@@ -31,7 +31,7 @@ function makeLog(overrides: Partial<ActivitySummary> & { id: number; media_id: n
         id: overrides.id,
         media_id: overrides.media_id,
         title: overrides.title ?? `Media ${overrides.media_id}`,
-        media_type: overrides.media_type ?? 'Reading',
+        activity_type: overrides.activity_type ?? 'Reading',
         duration_minutes: overrides.duration_minutes ?? 0,
         characters: overrides.characters ?? 0,
         date: overrides.date,
@@ -51,24 +51,24 @@ async function flushPromises(): Promise<void> {
 
 function weeklyMedia(): Media[] {
     return [
-        makeMedia({ id: 1, title: 'Novel A', media_type: 'Reading', content_type: 'Novel', cover_image: 'novel-a.jpg' }),
-        makeMedia({ id: 2, title: 'Anime B', media_type: 'Watching', content_type: 'Anime' }),
-        makeMedia({ id: 3, title: 'Manga C', media_type: 'Reading', content_type: 'Manga' }),
-        makeMedia({ id: 4, title: 'Game D', media_type: 'Playing', content_type: 'Game' }),
-        makeMedia({ id: 5, title: 'Audio E', media_type: 'Listening', content_type: 'Audio' }),
+        makeMedia({ id: 1, title: 'Novel A', default_activity_type: 'Reading', content_type: 'Novel', cover_image: 'novel-a.jpg' }),
+        makeMedia({ id: 2, title: 'Anime B', default_activity_type: 'Watching', content_type: 'Anime' }),
+        makeMedia({ id: 3, title: 'Manga C', default_activity_type: 'Reading', content_type: 'Manga' }),
+        makeMedia({ id: 4, title: 'Game D', default_activity_type: 'Playing', content_type: 'Game' }),
+        makeMedia({ id: 5, title: 'Audio E', default_activity_type: 'Listening', content_type: 'Audio' }),
     ];
 }
 
 function weeklyLogs(): ActivitySummary[] {
     return [
-        makeLog({ id: 1, media_id: 1, title: 'Novel A', media_type: 'Reading', date: '2026-06-08', duration_minutes: 60, characters: 1000 }),
-        makeLog({ id: 2, media_id: 1, title: 'Novel A', media_type: 'Reading', date: '2026-06-09', duration_minutes: 30, characters: 2000 }),
-        makeLog({ id: 3, media_id: 2, title: 'Anime B', media_type: 'Watching', date: '2026-06-10', duration_minutes: 120, characters: 0 }),
-        makeLog({ id: 4, media_id: 3, title: 'Manga C', media_type: 'Reading', date: '2026-06-11', duration_minutes: 20, characters: 5000 }),
-        makeLog({ id: 5, media_id: 4, title: 'Game D', media_type: 'Playing', date: '2026-06-12', duration_minutes: 15, characters: 0 }),
-        makeLog({ id: 6, media_id: 99, title: 'Mystery', media_type: 'Mystery', date: '2026-06-12', duration_minutes: 10, characters: 0 }),
-        makeLog({ id: 7, media_id: 5, title: 'Audio E', media_type: 'Listening', date: '2026-06-13', duration_minutes: 5, characters: 0 }),
-        makeLog({ id: 8, media_id: 1, title: 'Novel A', media_type: 'Reading', date: '2026-06-01', duration_minutes: 999, characters: 9999 }),
+        makeLog({ id: 1, media_id: 1, title: 'Novel A', activity_type: 'Reading', date: '2026-06-08', duration_minutes: 60, characters: 1000 }),
+        makeLog({ id: 2, media_id: 1, title: 'Novel A', activity_type: 'Reading', date: '2026-06-09', duration_minutes: 30, characters: 2000 }),
+        makeLog({ id: 3, media_id: 2, title: 'Anime B', activity_type: 'Watching', date: '2026-06-10', duration_minutes: 120, characters: 0 }),
+        makeLog({ id: 4, media_id: 3, title: 'Manga C', activity_type: 'Reading', date: '2026-06-11', duration_minutes: 20, characters: 5000 }),
+        makeLog({ id: 5, media_id: 4, title: 'Game D', activity_type: 'Playing', date: '2026-06-12', duration_minutes: 15, characters: 0 }),
+        makeLog({ id: 6, media_id: 99, title: 'Mystery', activity_type: 'Mystery', date: '2026-06-12', duration_minutes: 10, characters: 0 }),
+        makeLog({ id: 7, media_id: 5, title: 'Audio E', activity_type: 'Listening', date: '2026-06-13', duration_minutes: 5, characters: 0 }),
+        makeLog({ id: 8, media_id: 1, title: 'Novel A', activity_type: 'Reading', date: '2026-06-01', duration_minutes: 999, characters: 9999 }),
     ];
 }
 
@@ -194,7 +194,7 @@ describe('ActivityTotals', () => {
         const component = new ActivityTotals(container, {
             logs: [
                 ...logs,
-                makeLog({ id: 9, media_id: 2, title: 'Anime B', media_type: 'Watching', date: '2026-06-30', duration_minutes: 45, characters: 0 }),
+                makeLog({ id: 9, media_id: 2, title: 'Anime B', activity_type: 'Watching', date: '2026-06-30', duration_minutes: 45, characters: 0 }),
             ],
             mediaList: weeklyMedia(),
             timeRangeDays: 7,
@@ -227,11 +227,11 @@ describe('ActivityTotals', () => {
             logs: [
                 makeLog({ id: 1, media_id: 1, title: 'Novel A', date: '2025-12-31', duration_minutes: 30, characters: 0 }),
                 makeLog({ id: 2, media_id: 1, title: 'Novel A', date: '2026-01-02', duration_minutes: 60, characters: 1000 }),
-                makeLog({ id: 3, media_id: 2, title: 'Anime B', media_type: 'Watching', date: '2026-06-10', duration_minutes: 90, characters: 0 }),
+                makeLog({ id: 3, media_id: 2, title: 'Anime B', activity_type: 'Watching', date: '2026-06-10', duration_minutes: 90, characters: 0 }),
             ],
             mediaList: [
                 makeMedia({ id: 1, title: 'Novel A', content_type: 'Novel' }),
-                makeMedia({ id: 2, title: 'Anime B', media_type: 'Watching', content_type: 'Anime' }),
+                makeMedia({ id: 2, title: 'Anime B', default_activity_type: 'Watching', content_type: 'Anime' }),
             ],
             timeRangeDays: 365,
             timeRangeOffset: 0,

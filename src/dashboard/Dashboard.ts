@@ -21,7 +21,7 @@ interface DashboardState {
     chartParams: {
         timeRangeDays: number;
         timeRangeOffset: number;
-        groupByMode: 'media_type' | 'log_name';
+        groupByMode: 'activity_type' | 'log_name';
         chartType: 'bar' | 'line';
         metric: 'minutes' | 'characters';
         weekStartDay: number;
@@ -60,7 +60,7 @@ export class Dashboard extends Component<DashboardState> {
             chartParams: {
                 timeRangeDays: 7,
                 timeRangeOffset: 0,
-                groupByMode: 'media_type',
+                groupByMode: 'activity_type',
                 chartType: 'bar',
                 metric: 'minutes',
                 weekStartDay: 1
@@ -87,8 +87,15 @@ export class Dashboard extends Component<DashboardState> {
             if (savedChartType === 'bar' || savedChartType === 'line') {
                 chartParams.chartType = savedChartType;
             }
-            if (savedGroupBy === 'media_type' || savedGroupBy === 'log_name') {
+            if (savedGroupBy === 'activity_type' || savedGroupBy === 'log_name') {
                 chartParams.groupByMode = savedGroupBy;
+            } else if (savedGroupBy === 'media_type') {
+                chartParams.groupByMode = 'activity_type';
+                try {
+                    await setSetting(SETTING_KEYS.DASHBOARD_GROUP_BY, 'activity_type');
+                } catch (error) {
+                    Logger.error("Failed to migrate dashboard group by setting", error);
+                }
             }
             const parsedWeekStartDay = Number.parseInt(savedWeekStartDay || '', 10);
             if (Number.isInteger(parsedWeekStartDay) && parsedWeekStartDay >= 0 && parsedWeekStartDay <= 6) {
@@ -445,7 +452,7 @@ export class Dashboard extends Component<DashboardState> {
 
         list.innerHTML = pagedLogs.map(log => {
             const escapedProfile = escapeHTML(currentProfile);
-            const escapedMediaType = escapeHTML(log.media_type);
+            const escapedActivityType = escapeHTML(log.activity_type);
             const escapedTitle = escapeHTML(log.title);
             const escapedDate = escapeHTML(log.date);
             const mediaVariant = this.state.mediaList.find(media => media.id === log.media_id)?.variant?.trim() || '';
@@ -469,7 +476,7 @@ export class Dashboard extends Component<DashboardState> {
                             <span style="color: var(--accent-green); font-weight: 500;">${escapedProfile}</span>
                             <span style="color: var(--text-secondary);">logged</span>
                             ${activityDesc}
-                            <span style="color: var(--text-secondary);">of ${escapedMediaType}</span>
+                            <span style="color: var(--text-secondary);">of ${escapedActivityType}</span>
                         </div>
                         <div class="dashboard-activity-title-row" style="display: inline; align-items: center; gap: 0.35rem; min-width: 0;">
                             <a class="dashboard-media-link dashboard-activity-title" data-media-id="${log.media_id}" style="display: inline; color: var(--text-primary); font-weight: 600; cursor: pointer; text-decoration: underline; text-decoration-color: var(--accent-blue); min-width: 0;">${escapedTitle}</a>

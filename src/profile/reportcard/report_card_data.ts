@@ -26,7 +26,7 @@ const EXCLUDED_ACTIVITY_LABELS = new Set(['', 'None']);
  * Aggregates all-time minutes per category for the requested dimension.
  *
  * - `activity`: groups by activity type (Reading / Watching / Playing / Listening),
- *   which `ActivitySummary.media_type` already holds; drops `None`/empty buckets.
+ *   which `ActivitySummary.activity_type` already holds; drops `None`/empty buckets.
  * - `content`: groups by the media's content type (joined via `media_id`, with the
  *   same fallback chain the dashboard uses), then keeps the top
  *   `MAX_CONTENT_CATEGORIES` and rolls any remaining categories into "Other".
@@ -47,11 +47,11 @@ export function aggregateTimeByCategory(
     for (const log of logs) {
         let label: string;
         if (dimension === 'activity') {
-            label = (log.media_type || '').trim();
+            label = (log.activity_type || '').trim();
             if (EXCLUDED_ACTIVITY_LABELS.has(label)) continue;
         } else {
             const media = mediaById.get(log.media_id);
-            label = (media?.content_type || media?.media_type || log.media_type || 'Unknown').trim() || 'Unknown';
+            label = (media?.content_type || media?.default_activity_type || log.activity_type || 'Unknown').trim() || 'Unknown';
         }
         minutesByLabel.set(label, (minutesByLabel.get(label) ?? 0) + log.duration_minutes);
     }

@@ -616,7 +616,7 @@ mod tests {
                 uid: None,
                 title: "Backup Notes Media".to_string(),
                 variant: "Novel".to_string(),
-                media_type: "Reading".to_string(),
+                default_activity_type: "Reading".to_string(),
                 status: "Active".to_string(),
                 language: "Japanese".to_string(),
                 description: String::new(),

@@ -11,7 +11,7 @@ import { logActivityFromDetail } from '../../helpers/media-detail.js';
 const ACTIVITY_CSV_HEADERS = [
   'Date',
   'Log Name',
-  'Media Type',
+  'Default Activity Type',
   'Duration',
   'Language',
   'Characters',
@@ -101,7 +101,7 @@ describe('CUJ: Data Management (CSV Export)', () => {
     expect(await verifyActiveView('media')).toBe(true);
     await clickMediaItem('呪術廻戦');
 
-    const defaultActivityType = await $('#media-type').getValue();
+    const defaultActivityType = await $('#default-activity-type').getValue();
     expect(defaultActivityType).toBe('Reading');
     await logActivityFromDetail('呪術廻戦', '37', '0', 'Watching');
 
@@ -140,7 +140,7 @@ describe('CUJ: Data Management (CSV Export)', () => {
       && record['Activity Type'] === 'Watching'
     );
     expect(override).toBeDefined();
-    expect(override?.['Media Type']).toBe('Reading');
+    expect(override?.['Default Activity Type']).toBe('Reading');
     expect(records.length).toBeGreaterThan(10);
   });
 

@@ -284,7 +284,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
             const newId = await addMedia({
                 title: result.title,
                 variant: result.variant,
-                media_type: result.type,
+                default_activity_type: result.type,
                 status: MEDIA_STATUS.ACTIVE,
                 language: 'Japanese',
                 description: '',

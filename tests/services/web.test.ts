@@ -68,7 +68,7 @@ describe('WebServices', () => {
     const sampleMedia: Media = {
         id: 42,
         title: 'Example',
-        media_type: 'Book',
+        default_activity_type: 'Book',
         status: 'reading',
         language: 'Japanese',
         description: '',
@@ -244,7 +244,7 @@ describe('WebServices', () => {
         const records: MediaCsvRow[] = [{
             Title: 'Example',
             Variant: 'Manga',
-            'Media Type': 'Book',
+            'Default Activity Type': 'Book',
             Status: 'reading',
             Language: 'Japanese',
             Description: '',
