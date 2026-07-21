@@ -24,6 +24,7 @@ commands.allow = [
     "get_logs_for_media",
     "upload_cover_image",
     "read_file_bytes",
+    "save_binary_file",
     "fetch_remote_bytes",
     "fetch_external_json",
     "download_and_save_image",

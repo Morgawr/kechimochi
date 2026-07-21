@@ -66,7 +66,7 @@ describe('CUJ: User Personalization', () => {
     await verifyViewNotBroken();
   });
 
-  it('should change the theme to Molokai and verify visually', async () => {
+  it('should change the theme to Molokai and capture a diagnostic visual diff', async () => {
     const themeSelect = await $('#profile-select-theme');
     await themeSelect.waitForDisplayed({ timeout: 5000 });
 

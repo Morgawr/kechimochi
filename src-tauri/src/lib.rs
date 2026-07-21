@@ -3,6 +3,7 @@ pub mod backup;
 pub mod csv_import;
 pub mod db;
 pub mod http_api;
+pub mod instance_lock;
 pub mod models;
 pub mod profile_picture;
 pub mod sync_auth;
@@ -736,9 +737,9 @@ fn get_timeline_events(state: State<DbState>) -> Result<Vec<TimelineEvent>, Stri
 }
 
 #[tauri::command]
-fn get_milestones(state: State<DbState>, media_title: String) -> Result<Vec<Milestone>, String> {
+fn get_milestones(state: State<DbState>, media_uid: String) -> Result<Vec<Milestone>, String> {
     with_conn(&state, |conn| {
-        db::get_milestones_for_media(conn, &media_title).map_err(|e| e.to_string())
+        db::get_milestones_for_media_uid(conn, &media_uid).map_err(|e| e.to_string())
     })
 }
 
@@ -772,11 +773,11 @@ fn delete_milestone(
 fn delete_milestones_for_media(
     app_handle: tauri::AppHandle,
     state: State<DbState>,
-    media_title: String,
+    media_uid: String,
 ) -> Result<(), String> {
     run_dirty_command(&app_handle, || {
         with_conn(&state, |conn| {
-            db::delete_milestones_for_media(conn, &media_title).map_err(|e| e.to_string())
+            db::delete_milestones_for_media_uid(conn, &media_uid).map_err(|e| e.to_string())
         })
     })
 }
@@ -835,6 +836,11 @@ fn upload_cover_image(
 #[tauri::command]
 fn read_file_bytes(app_handle: tauri::AppHandle, path: String) -> Result<Vec<u8>, String> {
     app_file_io::read_input_bytes(&app_handle, &path)
+}
+
+#[tauri::command]
+fn save_binary_file(file_path: String, bytes: Vec<u8>) -> Result<(), String> {
+    std::fs::write(&file_path, &bytes).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1009,12 +1015,10 @@ fn clear_activities(app_handle: tauri::AppHandle, state: State<DbState>) -> Resu
 
 #[tauri::command]
 fn wipe_everything(app_handle: tauri::AppHandle, state: State<DbState>) -> Result<(), String> {
-    {
-        let mut conn_guard = state.conn.lock().unwrap();
-        *conn_guard = rusqlite::Connection::open_in_memory().unwrap();
-    }
-
     let app_dir = db::get_data_dir(&app_handle);
+    let _sync_guard = sync_state::acquire_sync_lock(&app_dir)?;
+    let mut conn_guard = state.conn.lock().map_err(|e| e.to_string())?;
+    *conn_guard = rusqlite::Connection::open_in_memory().map_err(|e| e.to_string())?;
     sync_state::clear_sync_runtime_files(&app_dir)?;
     db::wipe_everything(app_dir)
 }
@@ -1340,7 +1344,7 @@ async fn force_publish_local_as_remote(
 #[tauri::command]
 fn get_sync_conflicts(
     app_handle: tauri::AppHandle,
-) -> Result<Vec<sync_merge::SyncConflict>, String> {
+) -> Result<Vec<sync_orchestrator::SyncConflictView>, String> {
     let app_dir = db::get_data_dir(&app_handle);
     sync_orchestrator::get_sync_conflicts(&app_dir)
 }
@@ -1350,6 +1354,7 @@ async fn resolve_sync_conflict(
     app_handle: tauri::AppHandle,
     state: State<'_, DbState>,
     conflict_index: usize,
+    conflict_token: String,
     resolution: sync_orchestrator::SyncConflictResolution,
 ) -> Result<sync_orchestrator::SyncActionResult, String> {
     with_sync_db_command(
@@ -1365,6 +1370,7 @@ async fn resolve_sync_conflict(
                 &config,
                 token_store.as_ref(),
                 conflict_index,
+                conflict_token,
                 resolution,
             )
             .await
@@ -1376,6 +1382,7 @@ async fn resolve_sync_conflict(
 #[tauri::command]
 fn disconnect_google_drive(app_handle: tauri::AppHandle) -> Result<(), String> {
     let app_dir = db::get_data_dir(&app_handle);
+    let _sync_guard = sync_state::acquire_sync_lock(&app_dir)?;
     let token_store = sync_token_store();
     #[cfg(target_os = "android")]
     if let Some(access_token) = sync_auth::load_google_access_token(token_store.as_ref())? {
@@ -1387,7 +1394,7 @@ fn disconnect_google_drive(app_handle: tauri::AppHandle) -> Result<(), String> {
             );
         }
     }
-    sync_auth::disconnect_google_drive_data(&app_dir, token_store.as_ref())
+    sync_auth::disconnect_google_drive_data_locked(&app_dir, token_store.as_ref())
 }
 
 #[tauri::command]
@@ -1434,7 +1441,28 @@ pub fn run() {
         .setup(|app| {
             let app_dir = db::get_data_dir(app.handle());
             let user_db_path = app_dir.join("kechimochi_user.db");
-            let (conn, startup_error) = if user_db_path.exists() {
+
+            #[cfg(desktop)]
+            let lock_startup_error =
+                match instance_lock::acquire_instance_lock(
+                    &app_dir,
+                    instance_lock::InstanceKind::Desktop,
+                ) {
+                    Ok(guard) => {
+                        app.manage(guard);
+                        None
+                    }
+                    Err(error) => Some(error.to_string()),
+                };
+            #[cfg(not(desktop))]
+            let lock_startup_error: Option<String> = None;
+
+            let (conn, startup_error) = if let Some(error) = lock_startup_error {
+                (
+                    rusqlite::Connection::open_in_memory().unwrap(),
+                    Some(error),
+                )
+            } else if user_db_path.exists() {
                 match db::init_db(app_dir, None) {
                     Ok(conn) => (conn, None),
                     Err(err) => {
@@ -1454,6 +1482,7 @@ pub fn run() {
                 // The frontend will force the user to create an initial profile and call initialize_user_db.
                 (rusqlite::Connection::open_in_memory().unwrap(), None)
             };
+            let startup_blocked = startup_error.is_some();
             let db_conn = Arc::new(Mutex::new(conn));
             app.manage(DbState {
                 conn: db_conn.clone(),
@@ -1461,7 +1490,11 @@ pub fn run() {
             app.manage(StartupState {
                 error: startup_error,
             });
-            let local_http_api_config = load_local_http_api_config(app.handle());
+            let local_http_api_config = if startup_blocked {
+                LocalHttpApiConfig::default()
+            } else {
+                load_local_http_api_config(app.handle())
+            };
             let local_http_api_state = LocalHttpApiState::new(local_http_api_config.clone());
             let local_http_api_inner = local_http_api_state.inner.clone();
             app.manage(local_http_api_state);
@@ -1551,6 +1584,7 @@ pub fn run() {
             delete_milestones_for_media,
             upload_cover_image,
             read_file_bytes,
+            save_binary_file,
             fetch_remote_bytes,
             fetch_external_json,
             download_and_save_image,

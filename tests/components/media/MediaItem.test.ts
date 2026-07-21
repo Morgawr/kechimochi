@@ -18,11 +18,13 @@ describe('MediaItem', () => {
     });
 
     it('should render title and placeholder initially', () => {
-        const media = { title: 'Test Media', status: 'Active', content_type: 'Anime', tracking_status: 'Untracked' };
+        const media = { title: 'Test Media', variant: 'TV Series', status: 'Active', content_type: 'Anime', tracking_status: 'Untracked' };
         const component = new MediaItem(container, media as unknown as Media, vi.fn());
         component.render();
 
         expect(container.textContent).toContain('Test Media');
+        expect(container.textContent).toContain('TV Series');
+        expect(container.title).toBe('Test Media — TV Series');
         expect(container.textContent).toContain('No Image');
     });
 

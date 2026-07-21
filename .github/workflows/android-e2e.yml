@@ -48,7 +48,10 @@ jobs:
           cache: 'npm'
 
       - name: install node dependencies
-        run: npm ci
+        run: |
+          npm ci --ignore-scripts
+          # The fixture seeder imports better-sqlite3.
+          npm rebuild better-sqlite3
 
       - name: seed e2e databases
         run: npm run e2e:seed
@@ -100,8 +103,8 @@ jobs:
 
       - name: install Appium
         run: |
-          npm install -g appium
-          appium driver install uiautomator2
+          npm install --global --ignore-scripts appium@3.5.2
+          npm_config_ignore_scripts=true appium driver install uiautomator2@8.1.0
 
       - name: run Android E2E tests
         uses: reactivecircus/android-emulator-runner@e89f39f1abbbd05b1113a29cf4db69e7540cae5a # v2

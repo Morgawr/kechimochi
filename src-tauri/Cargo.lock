@@ -2173,7 +2173,7 @@ dependencies = [
 
 [[package]]
 name = "kechimochi"
-version = "0.2.11"
+version = "0.2.12"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -2198,6 +2198,7 @@ dependencies = [
  "tauri-plugin-window-state",
  "tempfile",
  "tokio",
+ "tower",
  "tower-http 0.5.2",
  "url",
  "uuid",

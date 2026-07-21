@@ -52,7 +52,7 @@ export class MediaLog extends Component<MediaLogState> {
 
             entry.querySelector('.edit-log-btn')?.addEventListener('click', async (e) => {
                 e.stopPropagation();
-                const success = await showLogActivityModal(log.title, log);
+                const success = await showLogActivityModal(log.media_id, log);
                 if (success) {
                     // This is a bit hacky but we need to notify the parent to refresh
                     // Or we re-fetch ourselves if we had the mediaId. 

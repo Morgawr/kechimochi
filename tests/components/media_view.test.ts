@@ -116,6 +116,7 @@ describe('MediaView', () => {
         vi.mocked(api.getSetting).mockImplementation(async (key: string) => {
             if (key === SETTING_KEYS.GRID_HIDE_ARCHIVED) return 'true';
             if (key === SETTING_KEYS.LIBRARY_LAYOUT_MODE) return 'list';
+            if (key === SETTING_KEYS.LIBRARY_GRID_ZOOM) return '80';
             return null;
         });
 
@@ -128,6 +129,7 @@ describe('MediaView', () => {
             typeFilters: [],
             hideArchived: true,
             preferredLayout: 'list',
+            gridZoom: 80,
             isGridSupported: true,
         }));
     });
@@ -255,7 +257,7 @@ describe('MediaView', () => {
         await renderAndWaitForBrowser(component);
 
         const onSelect = vi.mocked(MediaLibraryBrowser).mock.calls[0][2];
-        onSelect(2);
+        onSelect({ mediaId: 2, navigationIds: [1, 2] });
 
         await vi.waitFor(() => {
             // @ts-expect-error - accessing private state for assertions
@@ -264,6 +266,100 @@ describe('MediaView', () => {
             expect(component.state.currentIndex).toBe(1);
         });
         expect(MediaDetail).toHaveBeenCalled();
+    });
+
+    it('uses the visible library order as the complete detail navigation context', async () => {
+        const mockMedia = [
+            { id: 10, title: 'Excluded First' },
+            { id: 20, title: 'Visible Last' },
+            { id: 30, title: 'Visible First' },
+            { id: 40, title: 'Excluded Last' },
+        ];
+        vi.mocked(api.getAllMedia).mockResolvedValue(mockMedia as unknown as Media[]);
+        vi.mocked(api.getLogsForMedia).mockResolvedValue([]);
+
+        const component = new MediaView(container);
+        await renderAndWaitForBrowser(component);
+
+        const onSelect = vi.mocked(MediaLibraryBrowser).mock.calls[0][2];
+        onSelect({ mediaId: 30, navigationIds: [30, 20] });
+
+        await vi.waitFor(() => {
+            const detailProps = vi.mocked(MediaDetail).mock.calls.at(-1);
+            expect(detailProps?.[1]).toEqual(expect.objectContaining({ id: 30 }));
+            expect((detailProps?.[3] as Media[]).map((media) => media.id)).toEqual([30, 20]);
+            expect(detailProps?.[4]).toBe(0);
+        });
+        expect(api.getAllMedia).toHaveBeenCalledTimes(1);
+
+        const detailCallbacks = vi.mocked(MediaDetail).mock.calls.at(-1)?.[5];
+        detailCallbacks.onNext();
+        await vi.waitFor(() => expect(api.getLogsForMedia).toHaveBeenLastCalledWith(20));
+
+        const nextDetailCallbacks = vi.mocked(MediaDetail).mock.calls.at(-1)?.[5];
+        nextDetailCallbacks.onNext();
+        await vi.waitFor(() => expect(api.getLogsForMedia).toHaveBeenLastCalledWith(30));
+
+        expect(api.getLogsForMedia).not.toHaveBeenCalledWith(10);
+        expect(api.getLogsForMedia).not.toHaveBeenCalledWith(40);
+
+        const wrappedDetailCallbacks = vi.mocked(MediaDetail).mock.calls.at(-1)?.[5];
+        wrappedDetailCallbacks.onBackToLibrary();
+        await vi.waitFor(() => {
+            const browserProps = vi.mocked(MediaLibraryBrowser).mock.calls.at(-1)?.[1];
+            expect((browserProps?.mediaList as Media[]).map((media) => media.id)).toEqual([10, 20, 30, 40]);
+        });
+    });
+
+    it('preserves the detail navigation snapshot and selected identity across data refreshes', async () => {
+        const initialMedia = [
+            { id: 10, title: 'Visible Current' },
+            { id: 20, title: 'Excluded' },
+            { id: 30, title: 'Visible Previous' },
+        ];
+        vi.mocked(api.getAllMedia).mockResolvedValue(initialMedia as unknown as Media[]);
+        vi.mocked(api.getLogsForMedia).mockResolvedValue([]);
+
+        const component = new MediaView(container);
+        await renderAndWaitForBrowser(component);
+
+        const onSelect = vi.mocked(MediaLibraryBrowser).mock.calls[0][2];
+        onSelect({ mediaId: 10, navigationIds: [30, 10] });
+        await vi.waitFor(() => expect(MediaDetail).toHaveBeenCalled());
+
+        vi.mocked(api.getAllMedia).mockResolvedValue([
+            { id: 20, title: 'Excluded Refreshed' },
+            { id: 10, title: 'Visible Current Refreshed' },
+            { id: 30, title: 'Visible Previous Refreshed' },
+        ] as unknown as Media[]);
+        await component.loadData();
+
+        const detailProps = vi.mocked(MediaDetail).mock.calls.at(-1);
+        expect(detailProps?.[1]).toEqual(expect.objectContaining({ id: 10, title: 'Visible Current Refreshed' }));
+        expect((detailProps?.[3] as Media[]).map((media) => media.id)).toEqual([30, 10]);
+        expect(detailProps?.[4]).toBe(1);
+    });
+
+    it('returns to the library if a refresh removes the selected detail entry', async () => {
+        const initialMedia = [{ id: 10, title: 'Removed' }, { id: 20, title: 'Remaining' }];
+        vi.mocked(api.getAllMedia).mockResolvedValue(initialMedia as unknown as Media[]);
+        vi.mocked(api.getLogsForMedia).mockResolvedValue([]);
+
+        const component = new MediaView(container);
+        await renderAndWaitForBrowser(component);
+
+        const onSelect = vi.mocked(MediaLibraryBrowser).mock.calls[0][2];
+        onSelect({ mediaId: 10, navigationIds: [10, 20] });
+        await vi.waitFor(() => {
+            // @ts-expect-error - accessing private state for assertions
+            expect(component.state.viewMode).toBe('detail');
+        });
+
+        vi.mocked(api.getAllMedia).mockResolvedValue([{ id: 20, title: 'Remaining' }] as unknown as Media[]);
+        await component.loadData();
+
+        // @ts-expect-error - accessing private state for assertions
+        expect(component.state.viewMode).toBe('grid');
     });
 
     it('supports browser jump callbacks and detail callbacks', async () => {
@@ -316,7 +412,7 @@ describe('MediaView', () => {
             id: 1,
             media_id: 10,
             title: 'Old',
-            media_type: 'Reading',
+            activity_type: 'Reading',
             duration_minutes: 30,
             characters: 1000,
             date: '2026-01-01',
@@ -326,7 +422,7 @@ describe('MediaView', () => {
             id: 2,
             media_id: 20,
             title: 'New',
-            media_type: 'Reading',
+            activity_type: 'Reading',
             duration_minutes: 45,
             characters: 2000,
             date: '2026-01-02',
@@ -341,7 +437,7 @@ describe('MediaView', () => {
         await renderAndWaitForBrowser(component);
 
         const onSelect = vi.mocked(MediaLibraryBrowser).mock.calls[0][2];
-        onSelect(10);
+        onSelect({ mediaId: 10, navigationIds: [10, 20] });
 
         await vi.waitFor(() => {
             const detailProps = vi.mocked(MediaDetail).mock.calls.at(-1);
@@ -371,7 +467,9 @@ describe('MediaView', () => {
         // @ts-expect-error - accessing private state for assertions
         component.state.viewMode = 'detail';
         // @ts-expect-error - accessing private state for assertions
-        component.state.currentMediaList = mockMedia as unknown as Media[];
+        component.state.libraryMediaList = mockMedia as unknown as Media[];
+        // @ts-expect-error - accessing private state for assertions
+        component.state.detailMediaList = mockMedia as unknown as Media[];
         // @ts-expect-error - accessing private state for assertions
         component.state.currentIndex = 0;
         component.render();
@@ -403,6 +501,8 @@ describe('MediaView', () => {
 
         // @ts-expect-error - accessing private state for assertions
         component.state.viewMode = 'detail';
+        // @ts-expect-error - accessing private state for assertions
+        component.state.detailMediaList = [{ id: 1, title: 'Mouse' }] as unknown as Media[];
         component.render();
 
         const preventDefault = vi.fn();
@@ -514,6 +614,19 @@ describe('MediaView', () => {
                 }),
             }));
         });
+    });
+
+    it('stores the grid zoom when the user changes the cover size', async () => {
+        vi.mocked(api.getAllMedia).mockResolvedValue([]);
+        const component = new MediaView(container);
+        await renderAndWaitForBrowser(component);
+
+        const onGridZoomChange = vi.mocked(MediaLibraryBrowser).mock.calls[0][6];
+        onGridZoomChange(70);
+
+        expect(api.setSetting).toHaveBeenCalledWith(SETTING_KEYS.LIBRARY_GRID_ZOOM, '70');
+        // @ts-expect-error - accessing private state for assertions
+        expect(component.state.gridZoom).toBe(70);
     });
 
     it('loads list metrics after switching from grid to list and aggregates first/last dates', async () => {
@@ -650,6 +763,8 @@ describe('MediaView', () => {
         expect(component.state.viewMode).toBe('detail');
         // @ts-expect-error - accessing private state for assertions
         expect(component.state.currentIndex).toBe(1);
+        const detailProps = vi.mocked(MediaDetail).mock.calls.at(-1);
+        expect((detailProps?.[3] as Media[]).map((media) => media.id)).toEqual([10, 20]);
     });
 
     it('logs load-data failures and clears the loading state', async () => {
@@ -676,7 +791,7 @@ describe('MediaView', () => {
         // @ts-expect-error - accessing private state for assertions
         component.state.viewMode = 'detail';
         // @ts-expect-error - accessing private state for assertions
-        component.state.currentMediaList = [];
+        component.state.libraryMediaList = [];
         // @ts-expect-error - accessing private state for assertions
         component.state.isInitialized = true;
 

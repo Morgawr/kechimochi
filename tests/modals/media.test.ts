@@ -31,10 +31,12 @@ describe('modals/media.ts', () => {
             await vi.waitFor(() => document.querySelector('#add-media-confirm'));
             
             const titleInput = document.querySelector('#add-media-title') as HTMLInputElement;
+            const variantInput = document.querySelector('#add-media-variant') as HTMLInputElement;
             const typeSelect = document.querySelector('#add-media-type') as HTMLSelectElement;
             const contentSelect = document.querySelector('#add-media-content-type') as HTMLSelectElement;
             
             titleInput.value = 'New Manga';
+            variantInput.value = '  Print Edition  ';
             typeSelect.value = 'Reading';
             typeSelect.dispatchEvent(new Event('change'));
             contentSelect.value = 'Manga';
@@ -42,7 +44,7 @@ describe('modals/media.ts', () => {
             (document.querySelector('#add-media-confirm') as HTMLElement).click();
             
             const result = await promise;
-            expect(result).toEqual({ title: 'New Manga', type: 'Reading', contentType: 'Manga' });
+            expect(result).toEqual({ title: 'New Manga', variant: 'Print Edition', type: 'Reading', contentType: 'Manga' });
         });
 
         it('should resolve null on cancel', async () => {
@@ -142,6 +144,34 @@ describe('modals/media.ts', () => {
             const result = await promise;
             expect(result).toHaveLength(1);
             expect(result![0]["Status"]).toBe("Ongoing");
+        });
+
+        it('escapes incoming CSV titles and statuses before rendering conflicts', async () => {
+            const browserWindow = window as typeof window & { csvConflictInjected?: boolean };
+            browserWindow.csvConflictInjected = false;
+            const title = '<img id="csv-title-injection" src="invalid" onerror="window.csvConflictInjected=true">';
+            const existingStatus = '<svg id="csv-existing-status-injection" onload="window.csvConflictInjected=true"></svg>';
+            const incomingStatus = '<button id="csv-incoming-status-injection" onclick="window.csvConflictInjected=true">Owned</button>';
+            const conflicts = [{
+                incoming: { "Title": title, "Status": incomingStatus },
+                existing: { title, variant: '', status: existingStatus },
+            }];
+
+            const promise = showMediaCsvConflictModal(conflicts as unknown as MediaConflict[]);
+            await vi.waitFor(() => document.querySelector('#conflict-cancel'));
+
+            const modalText = document.querySelector('.modal-content')?.textContent ?? '';
+            expect(modalText).toContain(title);
+            expect(modalText).toContain(existingStatus);
+            expect(modalText).toContain(incomingStatus);
+            expect(document.querySelector('#csv-title-injection')).toBeNull();
+            expect(document.querySelector('#csv-existing-status-injection')).toBeNull();
+            expect(document.querySelector('#csv-incoming-status-injection')).toBeNull();
+            expect(browserWindow.csvConflictInjected).toBe(false);
+
+            (document.querySelector('#conflict-cancel') as HTMLElement).click();
+            await expect(promise).resolves.toBeNull();
+            delete browserWindow.csvConflictInjected;
         });
     });
 

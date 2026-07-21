@@ -20,7 +20,7 @@ describe('MediaGrid', () => {
             { id: 1, title: 'Item 1', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' },
             { id: 2, title: 'Item 2', status: 'Active', content_type: 'Manga', tracking_status: 'Complete' },
         ];
-        const component = new MediaGrid(env.container, { rows: toLibraryItemRows(mediaList as Media[]) }, vi.fn());
+        const component = new MediaGrid(env.container, { rows: toLibraryItemRows(mediaList as Media[]), gridZoom: 100 }, vi.fn());
 
         component.render();
         vi.runAllTimers();
@@ -31,7 +31,7 @@ describe('MediaGrid', () => {
     });
 
     it('shows the empty state when no media is available', () => {
-        const component = new MediaGrid(env.container, { rows: [] }, vi.fn());
+        const component = new MediaGrid(env.container, { rows: [], gridZoom: 100 }, vi.fn());
 
         component.render();
 
@@ -41,7 +41,7 @@ describe('MediaGrid', () => {
 
     it('renders additional batches for long grids', () => {
         const mediaList = createCollectionMediaList(22);
-        const component = new MediaGrid(env.container, { rows: toLibraryItemRows(mediaList) }, vi.fn());
+        const component = new MediaGrid(env.container, { rows: toLibraryItemRows(mediaList), gridZoom: 100 }, vi.fn());
 
         component.render();
         expect(MediaItem).toHaveBeenCalledTimes(15);
@@ -60,7 +60,7 @@ describe('MediaGrid', () => {
             { kind: 'header', contentType: 'Manga', label: 'Manga' },
             ...toLibraryItemRows(mediaList as Media[]),
         ];
-        const component = new MediaGrid(env.container, { rows }, vi.fn());
+        const component = new MediaGrid(env.container, { rows, gridZoom: 100 }, vi.fn());
 
         component.render();
         vi.runAllTimers();
@@ -70,5 +70,48 @@ describe('MediaGrid', () => {
         expect(headerElement).not.toBeNull();
         expect(headerElement.textContent).toBe('Manga');
         expect(headerElement.style.gridColumn).toBe('1 / -1');
+    });
+
+    it('scales the grid tracks and intrinsic item size with the selected zoom', () => {
+        const component = new MediaGrid(
+            env.container,
+            { rows: toLibraryItemRows(createCollectionMediaList(1)), gridZoom: 70 },
+            vi.fn(),
+        );
+
+        component.render();
+
+        const grid = env.container.querySelector<HTMLElement>('#media-grid-container');
+        const item = env.container.querySelector<HTMLElement>('.media-item-wrapper');
+        expect(grid?.style.gridTemplateColumns).toContain('minmax(126px, 1fr)');
+        expect(grid?.style.getPropertyValue('--library-card-height')).toBe('224px');
+        expect(item?.style.containIntrinsicSize).toBe('126px 224px');
+    });
+
+    it('keeps grid rows sized to their content so header rows can collapse', () => {
+        const component = new MediaGrid(
+            env.container,
+            { rows: toLibraryItemRows(createCollectionMediaList(1)), gridZoom: 70 },
+            vi.fn(),
+        );
+
+        component.render();
+
+        const grid = env.container.querySelector<HTMLElement>('#media-grid-container');
+        expect(grid?.style.gridAutoRows).toBe('min-content');
+    });
+
+    it('normalizes out-of-range zoom values before rendering', () => {
+        const component = new MediaGrid(
+            env.container,
+            { rows: toLibraryItemRows(createCollectionMediaList(1)), gridZoom: 1000 },
+            vi.fn(),
+        );
+
+        component.render();
+
+        const grid = env.container.querySelector<HTMLElement>('#media-grid-container');
+        expect(grid?.style.gridTemplateColumns).toContain('minmax(234px, 1fr)');
+        expect(grid?.style.getPropertyValue('--library-card-height')).toBe('416px');
     });
 });

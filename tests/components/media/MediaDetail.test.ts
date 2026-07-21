@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MediaDetail } from '../../../src/media/MediaDetail';
 import { MediaCoverLoader } from '../../../src/media/cover_loader';
+import { Logger } from '../../../src/logger';
 import * as api from '../../../src/api';
 
 vi.mock('../../../src/api', () => ({
@@ -77,9 +78,10 @@ describe('MediaDetail', () => {
     let container: HTMLElement;
     const mockMedia = {
         id: 1,
+        uid: 'uid-test-media',
         title: 'Test Media',
         status: 'Active',
-        media_type: 'Reading',
+        default_activity_type: 'Reading',
         content_type: 'Novel',
         tracking_status: 'Ongoing',
         language: 'Japanese',
@@ -118,6 +120,165 @@ describe('MediaDetail', () => {
 
         expect(container.textContent).toContain('Author');
         expect(container.textContent).toContain('Writer');
+        expect(container.querySelector('#media-variant')?.textContent)
+            .toBe('(Optional) Describe variant...');
+    });
+
+    it('should render and edit the media variant', async () => {
+        vi.mocked(api.getMilestones).mockResolvedValue([]);
+        vi.mocked(api.updateMedia).mockResolvedValue(undefined);
+        const component = new MediaDetail(
+            container,
+            { ...mockMedia, variant: 'Manga' } as unknown as Media,
+            [],
+            [{ ...mockMedia, variant: 'Manga' } as unknown as Media],
+            0,
+            mockCallbacks
+        );
+        component.render();
+
+        const variant = container.querySelector('#media-variant') as HTMLElement;
+        expect(variant.textContent).toBe('Manga');
+        variant.dispatchEvent(new Event('dblclick'));
+
+        const input = container.querySelector('.edit-input') as HTMLInputElement;
+        input.value = 'Anime';
+        input.dispatchEvent(new Event('blur'));
+
+        await vi.waitFor(() => expect(api.updateMedia).toHaveBeenCalledWith(
+            expect.objectContaining({ variant: 'Anime' })
+        ));
+    });
+
+    it('rejects an in-app variant rename that would collide with an existing title-variant pair', async () => {
+        const anime = { ...mockMedia, variant: 'Anime' } as Media;
+        const manga = { ...mockMedia, id: 2, uid: 'uid-manga', variant: 'Manga' } as Media;
+        const component = new MediaDetail(container, anime, [], [anime, manga], 0, mockCallbacks);
+        component.render();
+
+        (container.querySelector('#media-variant') as HTMLElement).dispatchEvent(new Event('dblclick'));
+        const input = container.querySelector('.edit-input') as HTMLInputElement;
+        input.value = 'Manga';
+        input.dispatchEvent(new Event('blur'));
+
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
+            'Media Already Exists',
+            expect.stringContaining('"Test Media" with variant "Manga"'),
+        ));
+        expect(api.updateMedia).not.toHaveBeenCalled();
+        // @ts-expect-error - accessing private state for regression coverage
+        expect(component.state.media.variant).toBe('Anime');
+        expect(container.querySelector('#media-variant')?.textContent).toBe('Anime');
+    });
+
+    it('rejects a title rename that would collide when both variants are blank', async () => {
+        const current = { ...mockMedia, title: 'Title A', variant: '' } as Media;
+        const existing = { ...mockMedia, id: 2, uid: 'uid-title-b', title: 'Title B', variant: '' } as Media;
+        const component = new MediaDetail(container, current, [], [current, existing], 0, mockCallbacks);
+        component.render();
+
+        (container.querySelector('#media-title') as HTMLElement).dispatchEvent(new Event('dblclick'));
+        const input = container.querySelector('.edit-input') as HTMLInputElement;
+        input.value = 'Title B';
+        input.dispatchEvent(new Event('blur'));
+
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
+            'Media Already Exists',
+            expect.stringContaining('"Title B" with no variant'),
+        ));
+        expect(api.updateMedia).not.toHaveBeenCalled();
+        // @ts-expect-error - accessing private state for regression coverage
+        expect(component.state.media.title).toBe('Title A');
+        expect(container.querySelector('#media-title')?.textContent).toBe('Title A');
+    });
+
+    it('allows the same title when the resulting variant remains distinct', async () => {
+        vi.mocked(api.updateMedia).mockResolvedValue(undefined);
+        const current = { ...mockMedia, title: 'Other Title', variant: 'Manga' } as Media;
+        const existing = { ...mockMedia, id: 2, uid: 'uid-anime', variant: 'Anime' } as Media;
+        const component = new MediaDetail(container, current, [], [current, existing], 0, mockCallbacks);
+        component.render();
+
+        (container.querySelector('#media-title') as HTMLElement).dispatchEvent(new Event('dblclick'));
+        const input = container.querySelector('.edit-input') as HTMLInputElement;
+        input.value = 'Test Media';
+        input.dispatchEvent(new Event('blur'));
+
+        await vi.waitFor(() => expect(api.updateMedia).toHaveBeenCalledWith(
+            expect.objectContaining({ title: 'Test Media', variant: 'Manga' })
+        ));
+        expect(modals.customAlert).not.toHaveBeenCalledWith('Media Already Exists', expect.anything());
+    });
+
+    it('rolls back an identity edit if the database rejects a concurrent collision', async () => {
+        vi.mocked(api.updateMedia).mockRejectedValueOnce(new Error('Media already exists with that title and variant'));
+        vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
+        const media = { ...mockMedia, variant: 'Anime' } as Media;
+        const component = new MediaDetail(
+            container,
+            media,
+            [],
+            [media],
+            0,
+            mockCallbacks,
+        );
+        component.render();
+
+        (container.querySelector('#media-title') as HTMLElement).dispatchEvent(new Event('dblclick'));
+        const input = container.querySelector('.edit-input') as HTMLInputElement;
+        input.value = 'Concurrent Title';
+        input.dispatchEvent(new Event('blur'));
+
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
+            'Unable to Save Media',
+            expect.stringContaining('was not changed'),
+        ));
+        // @ts-expect-error - accessing private state for regression coverage
+        expect(component.state.media.title).toBe('Test Media');
+        expect(media.title).toBe('Test Media');
+        expect(container.querySelector('#media-title')?.textContent).toBe('Test Media');
+    });
+
+    it('loads same-title milestones by media UID so variants remain isolated', async () => {
+        vi.mocked(api.getMilestones).mockResolvedValue([]);
+        const anime = { ...mockMedia, uid: 'uid-anime', variant: 'Anime' } as Media;
+        const manga = { ...mockMedia, id: 2, uid: 'uid-manga', variant: 'Manga' } as Media;
+
+        const animeDetail = new MediaDetail(container, anime, [], [anime, manga], 0, mockCallbacks);
+        animeDetail.triggerMount();
+        await vi.waitFor(() => expect(api.getMilestones).toHaveBeenCalledWith('uid-anime'));
+        animeDetail.destroy();
+
+        const mangaContainer = document.createElement('div');
+        const mangaDetail = new MediaDetail(mangaContainer, manga, [], [anime, manga], 1, mockCallbacks);
+        mangaDetail.triggerMount();
+        await vi.waitFor(() => expect(api.getMilestones).toHaveBeenCalledWith('uid-manga'));
+        mangaDetail.destroy();
+
+        expect(api.getMilestones).not.toHaveBeenCalledWith('Test Media');
+    });
+
+    it('persists changes to the default activity type', async () => {
+        vi.mocked(api.getMilestones).mockResolvedValue([]);
+        vi.mocked(api.updateMedia).mockResolvedValue(undefined);
+        const component = new MediaDetail(
+            container,
+            { ...mockMedia } as unknown as Media,
+            [],
+            [{ ...mockMedia } as unknown as Media],
+            0,
+            mockCallbacks
+        );
+        component.render();
+        const activityType = container.querySelector('#default-activity-type') as HTMLSelectElement;
+
+        expect(activityType.value).toBe('Reading');
+        activityType.value = 'Watching';
+        activityType.dispatchEvent(new Event('change'));
+
+        await vi.waitFor(() => expect(api.updateMedia).toHaveBeenCalledWith(
+            expect.objectContaining({ default_activity_type: 'Watching' })
+        ));
     });
 
     it('should load web cover images via services when not on desktop', async () => {
@@ -157,8 +318,8 @@ describe('MediaDetail', () => {
         const milestones = [{ id: 1, name: 'M1', duration: 100, characters: 5000 }];
         vi.mocked(api.getMilestones).mockResolvedValue(milestones as unknown as Milestone[]);
         const mockLogs = [
-            { id: 1, duration_minutes: 60, characters: 1000, date: '2024-03-01', media_id: 1, title: 'T1', media_type: 'Reading', language: 'Japanese' },
-            { id: 2, duration_minutes: 30, characters: 500, date: '2024-03-02', media_id: 1, title: 'T1', media_type: 'Reading', language: 'Japanese' }
+            { id: 1, duration_minutes: 60, characters: 1000, date: '2024-03-01', media_id: 1, title: 'T1', activity_type: 'Reading', language: 'Japanese' },
+            { id: 2, duration_minutes: 30, characters: 500, date: '2024-03-02', media_id: 1, title: 'T1', activity_type: 'Reading', language: 'Japanese' }
         ] as unknown as api.ActivitySummary[];
         vi.mocked(api.getLogsForMedia).mockResolvedValue(mockLogs);
 
@@ -217,7 +378,7 @@ describe('MediaDetail', () => {
             extra_data: '{"CHARACTER COUNT":"10,000"}'
         };
         const mockLogs = [
-            { id: 1, duration_minutes: 60, characters: 1000, date: '2024-03-01', media_id: 1, title: 'T1', media_type: 'Reading', language: 'Japanese' }
+            { id: 1, duration_minutes: 60, characters: 1000, date: '2024-03-01', media_id: 1, title: 'T1', activity_type: 'Reading', language: 'Japanese' }
         ] as unknown as api.ActivitySummary[];
 
         const component = new MediaDetail(container, completedMedia as unknown as Media, mockLogs, [completedMedia as unknown as Media], 0, mockCallbacks);
@@ -291,8 +452,8 @@ describe('MediaDetail', () => {
         const newMilestone = { name: 'M1', duration: 100 };
         vi.mocked(modals.showAddMilestoneModal).mockResolvedValue(newMilestone as unknown as Milestone);
         const logs = [
-            { id: 1, duration_minutes: 40, characters: 200, date: '2024-03-01', media_id: 1, title: 'T1', media_type: 'Reading', language: 'Japanese' },
-            { id: 2, duration_minutes: 20, characters: 300, date: '2024-03-02', media_id: 1, title: 'T1', media_type: 'Reading', language: 'Japanese' }
+            { id: 1, duration_minutes: 40, characters: 200, date: '2024-03-01', media_id: 1, title: 'T1', activity_type: 'Reading', language: 'Japanese' },
+            { id: 2, duration_minutes: 20, characters: 300, date: '2024-03-02', media_id: 1, title: 'T1', activity_type: 'Reading', language: 'Japanese' }
         ] as unknown as api.ActivitySummary[];
 
         const component = new MediaDetail(container, { ...mockMedia } as unknown as Media, logs, [mockMedia as unknown as Media], 0, mockCallbacks);
@@ -303,7 +464,7 @@ describe('MediaDetail', () => {
         addBtn.click();
 
         await vi.waitFor(() => {
-            expect(modals.showAddMilestoneModal).toHaveBeenCalledWith('Test Media', { duration: 60, characters: 500 });
+            expect(modals.showAddMilestoneModal).toHaveBeenCalledWith('Test Media', 'uid-test-media', { duration: 60, characters: 500 });
             expect(api.addMilestone).toHaveBeenCalledWith(newMilestone);
         });
     });
@@ -323,7 +484,7 @@ describe('MediaDetail', () => {
         editBtn.click();
 
         await vi.waitFor(() => {
-            expect(modals.showAddMilestoneModal).toHaveBeenCalledWith('Test Media', milestones[0]);
+            expect(modals.showAddMilestoneModal).toHaveBeenCalledWith('Test Media', 'uid-test-media', milestones[0]);
             expect(api.updateMilestone).toHaveBeenCalledWith(updatedMilestone);
         });
     });
@@ -495,7 +656,7 @@ describe('MediaDetail', () => {
             id: 99,
             title: 'Updated',
             media_id: 1,
-            media_type: 'Reading',
+            activity_type: 'Reading',
             language: 'Japanese',
             date: '2024-03-02',
             duration_minutes: 45,
@@ -512,7 +673,7 @@ describe('MediaDetail', () => {
     });
 
     it('should automatically update content type if Unknown during metadata import', async () => {
-        const unknownMedia = { ...mockMedia, content_type: 'Unknown', media_type: 'None' };
+        const unknownMedia = { ...mockMedia, content_type: 'Unknown', default_activity_type: 'None' };
         vi.mocked(api.getMilestones).mockResolvedValue([]);
         const mockScraped = {
             title: 'Scraped',
@@ -537,7 +698,7 @@ describe('MediaDetail', () => {
 
         await vi.waitFor(() => expect(api.updateMedia).toHaveBeenCalledWith(expect.objectContaining({
             content_type: 'Anime',
-            media_type: 'Watching'
+            default_activity_type: 'Watching'
         })));
     });
 
@@ -646,7 +807,7 @@ describe('MediaDetail', () => {
         const clearMilestonesBtn = container.querySelector('#btn-clear-milestones') as HTMLElement;
         clearMilestonesBtn.click();
 
-        await vi.waitFor(() => expect(api.clearMilestones).toHaveBeenCalled());
+        await vi.waitFor(() => expect(api.clearMilestones).toHaveBeenCalledWith('uid-test-media'));
     });
 
     it('should handle individual milestone deletion', async () => {
@@ -673,7 +834,7 @@ describe('MediaDetail', () => {
         const logBtn = container.querySelector('#btn-new-media-entry') as HTMLElement;
         logBtn.click();
 
-        await vi.waitFor(() => expect(modals.showLogActivityModal).toHaveBeenCalledWith(mockMedia.title));
+        await vi.waitFor(() => expect(modals.showLogActivityModal).toHaveBeenCalledWith(mockMedia.id));
     });
 
     it('should handle milestone deletion error', async () => {

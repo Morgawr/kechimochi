@@ -10,7 +10,7 @@ const defaultActivitySummary: ActivitySummary = {
     duration_minutes: 0,
     title: 'T',
     media_id: 1,
-    media_type: 'M',
+    activity_type: 'M',
     language: 'Japanese',
 };
 

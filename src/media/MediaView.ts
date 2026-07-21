@@ -1,11 +1,17 @@
 import { Component } from '../component';
 import { html } from '../html';
 import { Media, ActivitySummary, LibraryActivityMetricsRow, getAllMedia, getLibraryActivityMetrics, getLogsForMedia, getSetting, setSetting } from '../api';
-import { MediaLibraryBrowser } from './MediaLibraryBrowser';
+import { MediaLibraryBrowser, type LibraryMediaSelection } from './MediaLibraryBrowser';
 import { MediaDetail } from './MediaDetail';
 import { Logger } from '../logger';
 import { SETTING_KEYS, EVENTS, VIEW_NAMES, CONTENT_TYPES, TRACKING_STATUSES } from '../constants';
-import { GRID_LAYOUT_MEDIA_QUERY, type LibraryActivityMetrics, type LibraryLayoutMode } from './library_types';
+import {
+    GRID_LAYOUT_MEDIA_QUERY,
+    LIBRARY_GRID_ZOOM,
+    normalizeLibraryGridZoom,
+    type LibraryActivityMetrics,
+    type LibraryLayoutMode,
+} from './library_types';
 import { resolveDisplayContentType } from './content_type';
 import {
     buildExtraDataIndex,
@@ -38,13 +44,15 @@ interface MediaViewLibraryFilters {
 
 interface MediaViewState {
     viewMode: 'grid' | 'detail';
-    currentMediaList: Media[];
+    libraryMediaList: Media[];
+    detailMediaList: Media[];
     currentLogs: ActivitySummary[];
     currentIndex: number;
     libraryFilters: MediaViewLibraryFilters;
     contentTypeOrder: string[];
     trackingStatusOrder: string[];
     preferredLayout: LibraryLayoutMode;
+    gridZoom: number;
     isGridSupported: boolean;
     listMetricsByMediaId: Record<number, LibraryActivityMetrics>;
     isListMetricsLoaded: boolean;
@@ -69,7 +77,8 @@ export class MediaView extends Component<MediaViewState> {
     constructor(container: HTMLElement) {
         super(container, {
             viewMode: 'grid',
-            currentMediaList: [],
+            libraryMediaList: [],
+            detailMediaList: [],
             currentLogs: [],
             currentIndex: 0,
             libraryFilters: {
@@ -85,6 +94,7 @@ export class MediaView extends Component<MediaViewState> {
             contentTypeOrder: [...CONTENT_TYPES],
             trackingStatusOrder: [...TRACKING_STATUSES],
             preferredLayout: 'grid',
+            gridZoom: LIBRARY_GRID_ZOOM.DEFAULT,
             isGridSupported: MediaView.isGridLayoutSupported(),
             listMetricsByMediaId: {},
             isListMetricsLoaded: false,
@@ -216,20 +226,24 @@ export class MediaView extends Component<MediaViewState> {
     }
 
     private async navigateDetail(direction: number) {
-        const { currentMediaList, currentIndex } = this.state;
-        if (currentMediaList.length === 0) return;
+        const { detailMediaList, currentIndex } = this.state;
+        if (detailMediaList.length === 0) return;
 
-        const nextIndex = (currentIndex + direction + currentMediaList.length) % currentMediaList.length;
+        const nextIndex = (currentIndex + direction + detailMediaList.length) % detailMediaList.length;
         await this.navigateToDetailIndex(nextIndex);
     }
 
     private async navigateToDetailIndex(nextIndex: number) {
-        const media = this.state.currentMediaList[nextIndex];
+        const media = this.state.detailMediaList[nextIndex];
         if (!media) return;
 
         const requestId = ++this.detailNavigationRequestId;
         this.setState({ currentIndex: nextIndex, currentLogs: [] });
 
+        await this.loadDetailLogs(media, requestId);
+    }
+
+    private async loadDetailLogs(media: Media, requestId: number) {
         if (typeof media.id !== 'number') return;
 
         try {
@@ -244,12 +258,44 @@ export class MediaView extends Component<MediaViewState> {
         }
     }
 
+    private async openLibraryDetail(selection: LibraryMediaSelection) {
+        const mediaById = new Map(
+            this.state.libraryMediaList.flatMap((media) => (
+                typeof media.id === 'number' ? [[media.id, media] as const] : []
+            )),
+        );
+        const detailMediaList = selection.navigationIds.flatMap((mediaId) => {
+            const media = mediaById.get(mediaId);
+            return media ? [media] : [];
+        });
+        const currentIndex = detailMediaList.findIndex((media) => media.id === selection.mediaId);
+        if (currentIndex === -1) {
+            Logger.warn('Selected media was not present in the visible library navigation context', selection.mediaId);
+            return;
+        }
+
+        const requestId = ++this.detailNavigationRequestId;
+        this.navigationSource = undefined;
+        this.setState({
+            detailMediaList,
+            currentIndex,
+            currentLogs: [],
+            viewMode: 'detail',
+        });
+        await this.loadDetailLogs(detailMediaList[currentIndex], requestId);
+    }
+
     private async exitDetail(shouldRefresh: boolean = false) {
         if (shouldRefresh) {
             await this.loadData();
         }
         this.navigationSource = undefined;
-        this.setState({ viewMode: 'grid' });
+        this.setState({
+            viewMode: 'grid',
+            detailMediaList: [],
+            currentLogs: [],
+            currentIndex: 0,
+        });
     }
 
 private async handleBack() {
@@ -270,7 +316,7 @@ private async handleBack() {
     }
     
     public async resetView() {
-        this.setState({ viewMode: 'grid' });
+        this.setState({ viewMode: 'grid', detailMediaList: [], currentLogs: [], currentIndex: 0 });
         await this.loadData();
     }
 
@@ -322,14 +368,16 @@ private async handleBack() {
         let nextPreferredLayout = this.state.preferredLayout;
         let nextContentTypeOrder = this.state.contentTypeOrder;
         let nextTrackingStatusOrder = this.state.trackingStatusOrder;
+        let nextGridZoom = this.state.gridZoom;
 
         if (this.state.isInitialized) {
-            return { nextFilters, nextPreferredLayout, nextContentTypeOrder, nextTrackingStatusOrder };
+            return { nextFilters, nextPreferredLayout, nextContentTypeOrder, nextTrackingStatusOrder, nextGridZoom };
         }
 
         const [
             hideArchivedStr,
             storedLayout,
+            storedGridZoom,
             sortStagesStr,
             groupByTypeStr,
             keepOngoingFirstStr,
@@ -339,6 +387,7 @@ private async handleBack() {
         ] = await Promise.all([
             getSetting(SETTING_KEYS.GRID_HIDE_ARCHIVED),
             getSetting(SETTING_KEYS.LIBRARY_LAYOUT_MODE),
+            getSetting(SETTING_KEYS.LIBRARY_GRID_ZOOM),
             getSetting(SETTING_KEYS.LIBRARY_SORT_STAGES),
             getSetting(SETTING_KEYS.LIBRARY_GROUP_BY_TYPE),
             getSetting(SETTING_KEYS.LIBRARY_KEEP_ONGOING_FIRST),
@@ -363,23 +412,49 @@ private async handleBack() {
 
         nextContentTypeOrder = reconcileEnumOrder(contentTypeOrderStr, CONTENT_TYPES);
         nextTrackingStatusOrder = reconcileEnumOrder(trackingStatusOrderStr, TRACKING_STATUSES);
+        nextGridZoom = normalizeLibraryGridZoom(storedGridZoom);
 
-        return { nextFilters, nextPreferredLayout, nextContentTypeOrder, nextTrackingStatusOrder };
+        return { nextFilters, nextPreferredLayout, nextContentTypeOrder, nextTrackingStatusOrder, nextGridZoom };
     }
 
-    private resolveSelectedMedia(mediaList: Media[], jumpToId?: number) {
+    private resolveDetailState(mediaList: Media[], jumpToId?: number) {
         const targetId = jumpToId ?? this.targetMediaId;
-        let finalNextIndex = this.state.currentIndex;
 
         if (targetId !== null && targetId !== undefined) {
-            const idx = mediaList.findIndex((media) => media.id === targetId);
-            if (idx !== -1) {
-                finalNextIndex = idx;
-            }
             this.targetMediaId = null;
+            const currentIndex = mediaList.findIndex((media) => media.id === targetId);
+            return {
+                targetId,
+                detailMediaList: currentIndex === -1 ? [] : mediaList,
+                currentIndex: Math.max(currentIndex, 0),
+            };
         }
 
-        return { targetId, finalNextIndex };
+        if (this.state.viewMode !== 'detail') {
+            return { targetId, detailMediaList: [], currentIndex: 0 };
+        }
+
+        const currentMediaId = this.state.detailMediaList[this.state.currentIndex]?.id;
+        const mediaById = new Map(
+            mediaList.flatMap((media) => (
+                typeof media.id === 'number' ? [[media.id, media] as const] : []
+            )),
+        );
+        const detailMediaList = this.state.detailMediaList.flatMap((media) => {
+            if (typeof media.id !== 'number') return [];
+            const refreshedMedia = mediaById.get(media.id);
+            return refreshedMedia ? [refreshedMedia] : [];
+        });
+        const refreshedIndex = detailMediaList.findIndex((media) => media.id === currentMediaId);
+        if (refreshedIndex === -1) {
+            return { targetId, detailMediaList: [], currentIndex: 0 };
+        }
+
+        return {
+            targetId,
+            detailMediaList,
+            currentIndex: Math.max(refreshedIndex, 0),
+        };
     }
 
     async loadData(jumpToId?: number) {
@@ -392,6 +467,7 @@ private async handleBack() {
             const nextPreferredLayout = initialPreferences.nextPreferredLayout;
             const nextContentTypeOrder = initialPreferences.nextContentTypeOrder;
             const nextTrackingStatusOrder = initialPreferences.nextTrackingStatusOrder;
+            const nextGridZoom = initialPreferences.nextGridZoom;
 
             // Metrics are bounded by logged-media count (post step-5), so firing them alongside
             // getAllMedia costs ~0 wall clock; only await below when the active sort needs them.
@@ -409,11 +485,12 @@ private async handleBack() {
             };
 
             let currentLogs: ActivitySummary[] = [];
-            const { targetId, finalNextIndex } = this.resolveSelectedMedia(mediaList, jumpToId);
+            const { targetId, detailMediaList, currentIndex } = this.resolveDetailState(mediaList, jumpToId);
 
-            const viewMode = targetId !== null && targetId !== undefined ? 'detail' : this.state.viewMode;
-            if (viewMode === 'detail' && mediaList[finalNextIndex]) {
-                currentLogs = await getLogsForMedia(mediaList[finalNextIndex].id!);
+            const requestedViewMode = targetId !== null && targetId !== undefined ? 'detail' : this.state.viewMode;
+            const viewMode = requestedViewMode === 'detail' && detailMediaList.length > 0 ? 'detail' : 'grid';
+            if (viewMode === 'detail' && detailMediaList[currentIndex]) {
+                currentLogs = await getLogsForMedia(detailMediaList[currentIndex].id!);
             }
 
             // Seeded from current state so a reload keeps showing the metrics it already has
@@ -438,13 +515,15 @@ private async handleBack() {
             }
 
             this.setState({
-                currentMediaList: mediaList,
+                libraryMediaList: mediaList,
+                detailMediaList,
                 currentLogs,
-                currentIndex: finalNextIndex,
+                currentIndex,
                 libraryFilters: nextFilters,
                 contentTypeOrder: nextContentTypeOrder,
                 trackingStatusOrder: nextTrackingStatusOrder,
                 preferredLayout: nextPreferredLayout,
+                gridZoom: nextGridZoom,
                 isGridSupported: MediaView.isGridLayoutSupported(),
                 listMetricsByMediaId,
                 isListMetricsLoaded,
@@ -502,17 +581,18 @@ private async handleBack() {
         this.activeSubComponent = new MediaLibraryBrowser(
             root,
             {
-                mediaList: this.state.currentMediaList,
+                mediaList: this.state.libraryMediaList,
                 ...this.state.libraryFilters,
                 contentTypeOrder: this.state.contentTypeOrder,
                 trackingStatusOrder: this.state.trackingStatusOrder,
                 preferredLayout: this.state.preferredLayout,
+                gridZoom: this.state.gridZoom,
                 isGridSupported: this.state.isGridSupported,
                 listMetricsByMediaId: this.state.listMetricsByMediaId,
                 isListMetricsLoading: this.state.isListMetricsLoading,
             },
-            (id) => {
-                this.loadData(id).catch((err) => Logger.error('Failed to load media detail', err));
+            (selection) => {
+                this.openLibraryDetail(selection).catch((err) => Logger.error('Failed to load media detail', err));
             },
             async (jumpToId) => {
                 await this.loadData(jumpToId).catch((err) => Logger.error('Failed to jump to media', err));
@@ -566,12 +646,19 @@ private async handleBack() {
                     'Failed to persist library layout preference',
                 );
             },
+            (gridZoom) => {
+                this.setState({ gridZoom });
+                this.runAsync(
+                    setSetting(SETTING_KEYS.LIBRARY_GRID_ZOOM, gridZoom.toString()),
+                    'Failed to persist library grid zoom',
+                );
+            },
         );
         this.activeSubComponent.render();
     }
 
     private renderDetail(root: HTMLElement) {
-        const media = this.state.currentMediaList[this.state.currentIndex];
+        const media = this.state.detailMediaList[this.state.currentIndex];
         if (!media) {
             this.setState({ viewMode: 'grid' });
             return;
@@ -581,7 +668,7 @@ private async handleBack() {
             root,
             media,
             this.state.currentLogs,
-            this.state.currentMediaList,
+            this.state.detailMediaList,
             this.state.currentIndex,
             {
                 onBack: () => { this.runAsync(this.handleBack(), 'Failed to handle back navigation'); },

@@ -1,13 +1,84 @@
 /**
  * Dashboard-specific helpers.
  */
-import { clickTopmostOverlayChild, confirmAction, performActivityEdit, safeClick, getTopmostVisibleOverlay, waitForOverlayToDisappear, waitForNoActiveOverlays, selectActivityDate } from './common.js';
+import { clickTopmostOverlayChild, confirmAction, performActivityEdit, safeClick, getTopmostVisibleOverlay, waitForNoActiveOverlays, selectActivityDate } from './common.js';
 import { setText, setSelect } from './form-controls.js';
+
+async function waitForActivitySubmissionResult(timeout = 5000): Promise<void> {
+    await browser.waitUntil(async () => {
+        return browser.execute(() => {
+            const form = document.querySelector('#add-activity-form');
+            if (!form) {
+                return true;
+            }
+
+            const formOverlay = form.closest('.modal-overlay');
+            if (!(formOverlay instanceof HTMLElement) || !formOverlay.classList.contains('active')) {
+                return true;
+            }
+
+            return Array.from(document.querySelectorAll('.modal-overlay')).some((overlay) => {
+                if (!(overlay instanceof HTMLElement) || !overlay.classList.contains('active')) {
+                    return false;
+                }
+
+                return overlay.querySelector('#alert-ok, #prompt-input') !== null;
+            });
+        });
+    }, {
+        timeout,
+        interval: 100,
+        timeoutMsg: 'Activity submission did not close the form or show a validation prompt',
+    });
+}
+
+export async function waitForActivityFormToDisappear(timeout = 5000): Promise<void> {
+    await browser.waitUntil(async () => {
+        return browser.execute(() => document.querySelector('#add-activity-form') === null);
+    }, {
+        timeout,
+        interval: 100,
+        timeoutMsg: 'Activity form did not disappear in time',
+    });
+}
+
+async function selectExistingActivityMedia(title: string, variant?: string): Promise<void> {
+    const outcome = await browser.execute((expectedTitle, expectedVariant) => {
+        const exactTitleMatches = Array.from(document.querySelectorAll<HTMLButtonElement>('.activity-media-suggestion'))
+            .filter(button => button.dataset.mediaTitle === expectedTitle);
+        const matches = expectedVariant === null
+            ? exactTitleMatches
+            : exactTitleMatches.filter(button => (button.dataset.mediaVariant || '') === expectedVariant);
+        if (matches.length === 1) {
+            matches[0].click();
+            return 'selected';
+        }
+        if (matches.length > 1 || (expectedVariant === null && exactTitleMatches.length > 1)) {
+            return 'ambiguous';
+        }
+        return 'new';
+    }, title, variant ?? null);
+
+    if (outcome === 'ambiguous') {
+        throw new Error(`Activity media "${title}" is ambiguous; provide its variant.`);
+    }
+    if (variant !== undefined && outcome !== 'selected') {
+        throw new Error(`Activity media "${title}" with variant "${variant}" was not selectable.`);
+    }
+}
 
 /**
  * High-level helper to log an activity from the dashboard
  */
-export async function logActivity(title: string, duration: string, characters: string = "0", date?: string, activityType?: string): Promise<void> {
+export async function logActivity(
+    title: string,
+    duration: string,
+    characters: string = "0",
+    date?: string,
+    activityType?: string,
+    notes?: string,
+    mediaVariant?: string,
+): Promise<void> {
     await waitForNoActiveOverlays();
     const addActivityBtn = $('#btn-add-activity');
     await addActivityBtn.waitForClickable({ timeout: 5000 });
@@ -18,6 +89,7 @@ export async function logActivity(title: string, duration: string, characters: s
     // Dynamically fetch and wait for elements to avoid StaleElementReferenceException from UI updates
     await browser.waitUntil(async () => await overlay.$('#activity-media').isDisplayed().catch(() => false), { timeout: 10000 });
     await setText('#activity-media', title);
+    await selectExistingActivityMedia(title, mediaVariant);
 
     await browser.waitUntil(async () => await overlay.$('#activity-duration').isDisplayed().catch(() => false), { timeout: 5000 });
     await setText('#activity-duration', duration);
@@ -32,6 +104,10 @@ export async function logActivity(title: string, duration: string, characters: s
         }
     }
 
+    if (notes !== undefined && await overlay.$('#activity-notes').isExisting()) {
+        await setText('#activity-notes', notes);
+    }
+
     if (date) {
         await selectActivityDate(date);
     }
@@ -40,8 +116,11 @@ export async function logActivity(title: string, duration: string, characters: s
     await submitBtn.waitForClickable({ timeout: 5000 });
     await submitBtn.click();
 
-    // Wait for the modal to close so it doesn't bleed into the next test
-    await waitForOverlayToDisappear(overlay, 5000).catch(() => {});
+    // Query the DOM on every poll. Holding or recreating a WebDriver element
+    // handle while the dashboard rerenders can itself race with Wry and become
+    // stale. A prompt or alert is also a valid submission result for callers
+    // that intentionally exercise those flows.
+    await waitForActivitySubmissionResult();
 }
 
 /**
@@ -102,8 +181,19 @@ export async function deleteMostRecentLog(): Promise<void> {
 /**
  * Clicks the edit button for the most recent log in the dashboard timeline and updates it.
  */
-export async function editMostRecentLog(newDuration: string, newCharacters: string = "0"): Promise<void> {
-    await performActivityEdit('.dashboard-activity-item .edit-log-btn', newDuration, newCharacters);
+export async function editMostRecentLog(
+    newDuration: string,
+    newCharacters: string = "0",
+    newNotes?: string,
+    newActivityType?: string,
+): Promise<void> {
+    await performActivityEdit(
+        '.dashboard-activity-item .edit-log-btn',
+        newDuration,
+        newCharacters,
+        newNotes,
+        newActivityType,
+    );
 }
 
 /**
@@ -148,7 +238,7 @@ export async function clickHeatmapCell(date: string): Promise<void> {
     await safeClick(cell);
 }
 
-export async function selectActivityChartTimeRange(days: '7' | '30' | '365'): Promise<void> {
+export async function selectActivityChartTimeRange(days: '0' | '7' | '30' | '365'): Promise<void> {
     await setSelect('#select-time-range', { value: days });
 }
 
@@ -181,11 +271,12 @@ export async function getActivityChartRangeMetadata(): Promise<{
 /**
  * Logs activity using the global (+) button in the navbar.
  */
-export async function logActivityGlobal(mediaTitle: string, minutes: number, characters: number = 0, activityType?: string): Promise<void> {
+export async function logActivityGlobal(mediaTitle: string, minutes: number, characters: number = 0, activityType?: string, mediaVariant?: string): Promise<void> {
     const logBtn = $('#btn-add-activity');
     await safeClick(logBtn);
     
     await setText('#activity-media', mediaTitle);
+    await selectExistingActivityMedia(mediaTitle, mediaVariant);
     await setText('#activity-duration', String(minutes));
     if (await $('#activity-characters').isExisting()) {
         await setText('#activity-characters', String(characters));
@@ -196,7 +287,7 @@ export async function logActivityGlobal(mediaTitle: string, minutes: number, cha
     }
     
     const submitBtnSelector = '#add-activity-form button[type="submit"]';
-    const overlay = await getTopmostVisibleOverlay(submitBtnSelector);
+    await getTopmostVisibleOverlay(submitBtnSelector);
     await clickTopmostOverlayChild(submitBtnSelector);
-    await waitForOverlayToDisappear(overlay, 5000);
+    await waitForActivitySubmissionResult();
 }

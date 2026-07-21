@@ -36,6 +36,7 @@ export const SETTING_KEYS = {
     STATS_REPORT_TIMESTAMP: 'stats_report_timestamp',
     GRID_HIDE_ARCHIVED: 'grid_hide_archived',
     LIBRARY_LAYOUT_MODE: 'library_layout_mode',
+    LIBRARY_GRID_ZOOM: 'library_grid_zoom',
     LIBRARY_SORT_STAGES: 'library_sort_stages',
     LIBRARY_GROUP_BY_TYPE: 'library_group_by_type',
     LIBRARY_KEEP_ONGOING_FIRST: 'library_keep_ongoing_first',

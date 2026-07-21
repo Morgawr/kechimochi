@@ -42,7 +42,8 @@ const GOOGLE_OPENID_SCOPE: &str = "openid";
 const GOOGLE_USERINFO_EMAIL_SCOPE: &str = "https://www.googleapis.com/auth/userinfo.email";
 const GOOGLE_USERINFO_PROFILE_SCOPE: &str = "https://www.googleapis.com/auth/userinfo.profile";
 const ANDROID_ACCESS_TOKEN_LIFETIME_SECS: i64 = 3600;
-const ANDROID_ACCESS_TOKEN_SENTINEL_REFRESH_TOKEN: &str = "__android_google_identity_access_token__";
+const ANDROID_ACCESS_TOKEN_SENTINEL_REFRESH_TOKEN: &str =
+    "__android_google_identity_access_token__";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GoogleOAuthClientConfig {
@@ -152,13 +153,12 @@ impl GoogleOAuthClientConfig {
     }
 
     pub fn from_env() -> Result<Self, String> {
-        let client_id = Self::configured_runtime_client_id()
-            .ok_or_else(|| {
-                format!(
-                    "Missing Google OAuth client ID in {}",
-                    Self::active_client_id_env()
-                )
-            })?;
+        let client_id = Self::configured_runtime_client_id().ok_or_else(|| {
+            format!(
+                "Missing Google OAuth client ID in {}",
+                Self::active_client_id_env()
+            )
+        })?;
         let client_secret = Self::configured_client_secret_override();
         let auth_endpoint =
             std::env::var(ENV_AUTH_ENDPOINT).unwrap_or_else(|_| DEFAULT_AUTH_ENDPOINT.to_string());
@@ -497,7 +497,8 @@ pub async fn persist_google_drive_android_access_token(
 
     tokens.refresh_token = ANDROID_ACCESS_TOKEN_SENTINEL_REFRESH_TOKEN.to_string();
     tokens.access_token = Some(access_token.to_string());
-    tokens.access_token_expires_at = Some(compute_expiry_timestamp(ANDROID_ACCESS_TOKEN_LIFETIME_SECS));
+    tokens.access_token_expires_at =
+        Some(compute_expiry_timestamp(ANDROID_ACCESS_TOKEN_LIFETIME_SECS));
     tokens.scope = Some(format!(
         "{} {} {} {}",
         GOOGLE_DRIVE_APPDATA_SCOPE,
@@ -601,7 +602,9 @@ pub fn load_google_account_email(
 pub fn load_google_access_token(
     token_store: &dyn SecureTokenStore,
 ) -> Result<Option<String>, String> {
-    Ok(token_store.load_tokens()?.and_then(|tokens| tokens.access_token))
+    Ok(token_store
+        .load_tokens()?
+        .and_then(|tokens| tokens.access_token))
 }
 
 pub fn has_google_drive_tokens(token_store: &dyn SecureTokenStore) -> Result<bool, String> {
@@ -609,6 +612,14 @@ pub fn has_google_drive_tokens(token_store: &dyn SecureTokenStore) -> Result<boo
 }
 
 pub fn disconnect_google_drive_data(
+    app_dir: &Path,
+    token_store: &dyn SecureTokenStore,
+) -> Result<(), String> {
+    let _sync_guard = sync_state::acquire_sync_lock(app_dir)?;
+    disconnect_google_drive_data_locked(app_dir, token_store)
+}
+
+pub(crate) fn disconnect_google_drive_data_locked(
     app_dir: &Path,
     token_store: &dyn SecureTokenStore,
 ) -> Result<(), String> {
@@ -862,7 +873,9 @@ async fn load_google_account_email_from_access_token(
     if !status.is_success() {
         let body = response.text().await.unwrap_or_default();
         if body.trim().is_empty() {
-            return Err(format!("Google user info request failed with status {status}."));
+            return Err(format!(
+                "Google user info request failed with status {status}."
+            ));
         }
         return Err(format!("Google user info request failed: {body}"));
     }
@@ -1273,5 +1286,45 @@ mod tests {
         assert!(!sync_state::sync_config_path(temp_dir.path()).exists());
         assert!(!sync_state::base_snapshot_path(temp_dir.path()).exists());
         assert!(!sync_state::pending_conflicts_path(temp_dir.path()).exists());
+    }
+
+    #[test]
+    fn disconnect_refuses_active_sync_without_clearing_tokens_or_runtime() {
+        let temp_dir = TempDir::new().unwrap();
+        sync_state::save_sync_config(
+            temp_dir.path(),
+            &sync_state::SyncConfig {
+                sync_profile_id: "prof_1".to_string(),
+                profile_name: "Morg".to_string(),
+                google_account_email: Some("user@example.com".to_string()),
+                remote_manifest_name: "manifest.json".to_string(),
+                last_confirmed_snapshot_id: Some("snap_1".to_string()),
+                last_sync_at: Some("2026-04-02T00:00:00Z".to_string()),
+                last_sync_status: sync_state::SyncLifecycleStatus::Clean,
+                device_name: "Laptop".to_string(),
+            },
+        )
+        .unwrap();
+        fs::write(sync_state::base_snapshot_path(temp_dir.path()), "snapshot").unwrap();
+
+        let token_store = MemoryTokenStore::default();
+        token_store
+            .save_tokens(&StoredGoogleTokens {
+                refresh_token: "refresh-1".to_string(),
+                access_token: None,
+                access_token_expires_at: None,
+                scope: None,
+                token_type: None,
+                google_account_email: None,
+            })
+            .unwrap();
+        let _sync_guard = sync_state::acquire_sync_lock(temp_dir.path()).unwrap();
+
+        let error = disconnect_google_drive_data(temp_dir.path(), &token_store).unwrap_err();
+
+        assert_eq!(error, sync_state::SYNC_OPERATION_IN_PROGRESS_ERROR);
+        assert!(token_store.load_tokens().unwrap().is_some());
+        assert!(sync_state::sync_config_path(temp_dir.path()).exists());
+        assert!(sync_state::base_snapshot_path(temp_dir.path()).exists());
     }
 }

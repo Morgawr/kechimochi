@@ -5,7 +5,12 @@ import { showAddMediaModal } from './modal';
 import { CONTENT_TYPES, EVENTS, FILTERS, TRACKING_STATUSES, MEDIA_STATUS } from '../constants';
 import { MediaGrid } from './MediaGrid';
 import { MediaList } from './MediaList';
-import type { LibraryActivityMetrics, LibraryLayoutMode } from './library_types';
+import {
+    LIBRARY_GRID_ZOOM,
+    normalizeLibraryGridZoom,
+    type LibraryActivityMetrics,
+    type LibraryLayoutMode,
+} from './library_types';
 import { resolveDisplayContentType } from './content_type';
 import {
     applyLibrarySort,
@@ -31,6 +36,7 @@ interface MediaLibraryBrowserState {
     statusFilters: string[];
     hideArchived: boolean;
     preferredLayout: LibraryLayoutMode;
+    gridZoom: number;
     isGridSupported: boolean;
     listMetricsByMediaId: Record<number, LibraryActivityMetrics>;
     isListMetricsLoading: boolean;
@@ -88,11 +94,17 @@ const LIBRARY_BUILTIN_SORT_LABELS: Record<LibraryBuiltinSortKey, string> = {
 
 const LIBRARY_SORT_TIEBREAKER_NOTE = 'Ties broken by last activity (newest first)';
 
+export interface LibraryMediaSelection {
+    mediaId: number;
+    navigationIds: readonly number[];
+}
+
 export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
-    private readonly onMediaClick: (mediaId: number) => void;
+    private readonly onMediaClick: (selection: LibraryMediaSelection) => void;
     private readonly onDataChange: (jumpToId?: number) => Promise<void>;
     private readonly onFilterChange?: (filters: MediaLibraryFilters) => void;
     private readonly onLayoutChange?: (layout: LibraryLayoutMode) => void;
+    private readonly onGridZoomChange?: (gridZoom: number) => void;
     private activeLayoutComponent: Component | null = null;
     private shellRendered = false;
     private memoizedExtraDataMediaList: Media[] | null = null;
@@ -102,15 +114,17 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
     constructor(
         container: HTMLElement,
         initialState: MediaLibraryBrowserInitialState,
-        onMediaClick: (mediaId: number) => void,
+        onMediaClick: (selection: LibraryMediaSelection) => void,
         onDataChange: (jumpToId?: number) => Promise<void>,
         onFilterChange?: (filters: MediaLibraryFilters) => void,
         onLayoutChange?: (layout: LibraryLayoutMode) => void,
+        onGridZoomChange?: (gridZoom: number) => void,
     ) {
         super(container, {
             ...initialState,
             typeFilters: [...new Set(initialState.typeFilters)],
             statusFilters: [...new Set(initialState.statusFilters)],
+            gridZoom: normalizeLibraryGridZoom(initialState.gridZoom),
             filtersExpanded: false,
             sortStages: initialState.sortStages ?? [],
             groupByType: initialState.groupByType ?? false,
@@ -124,6 +138,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         this.onDataChange = onDataChange;
         this.onFilterChange = onFilterChange;
         this.onLayoutChange = onLayoutChange;
+        this.onGridZoomChange = onGridZoomChange;
     }
 
     public override destroy() {
@@ -167,10 +182,12 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         ).sort((a, b) => a.localeCompare(b));
     }
 
-    private getFilteredMediaList(): Media[] {
+    private getVisibleMediaList(): Media[] {
         const { mediaList, searchQuery, typeFilters, statusFilters, hideArchived } = this.state;
+        const normalizedQuery = searchQuery.toLowerCase();
         const filteredList = mediaList.filter((media) => {
-            const matchesQuery = media.title.toLowerCase().includes(searchQuery.toLowerCase());
+            const matchesQuery = media.title.toLowerCase().includes(normalizedQuery)
+                || (media.variant || '').toLowerCase().includes(normalizedQuery);
             const mediaType = resolveDisplayContentType(media);
             const typeMatch = typeFilters.length === 0 || typeFilters.includes(mediaType);
             const statusMatch = statusFilters.length === 0 || statusFilters.includes(media.tracking_status);
@@ -342,6 +359,40 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         `;
     }
 
+    private renderGridZoomControl(): string {
+        const gridZoomDisabled = this.getActiveLayout() !== 'grid';
+        const disabledAttribute = (isDisabled: boolean) => (isDisabled ? 'disabled' : '');
+
+        return `
+            <div class="media-grid-zoom" role="group" aria-label="Library cover size">
+                <button
+                    type="button"
+                    class="media-grid-zoom-button"
+                    id="btn-grid-zoom-out"
+                    aria-label="Show more, smaller library covers"
+                    title="Show more covers"
+                    ${disabledAttribute(gridZoomDisabled || this.state.gridZoom <= LIBRARY_GRID_ZOOM.MIN)}
+                >−</button>
+                <button
+                    type="button"
+                    class="media-grid-zoom-value"
+                    id="btn-grid-zoom-reset"
+                    aria-label="Reset library cover size to 100%"
+                    title="Reset cover size"
+                    ${disabledAttribute(gridZoomDisabled)}
+                >${this.state.gridZoom}%</button>
+                <button
+                    type="button"
+                    class="media-grid-zoom-button"
+                    id="btn-grid-zoom-in"
+                    aria-label="Show fewer, larger library covers"
+                    title="Show larger covers"
+                    ${disabledAttribute(gridZoomDisabled || this.state.gridZoom >= LIBRARY_GRID_ZOOM.MAX)}
+                >+</button>
+            </div>
+        `;
+    }
+
     private renderHeader(container: HTMLElement) {
         container.innerHTML = '';
 
@@ -406,6 +457,8 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
                             ${rawHtml(compactHint)}
                         </div>
 
+                        ${rawHtml(this.renderGridZoomControl())}
+
                         <button class="media-grid-filters-toggle" id="btn-toggle-filters" aria-expanded="${this.state.filtersExpanded}" aria-controls="media-grid-filter-panel">
                             <span>Filters</span>
                             ${rawHtml(filterCountBadge)}
@@ -467,13 +520,27 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         layoutRoot.style.cssText = 'display: flex; flex: 1; min-height: 0; min-width: 0;';
         container.appendChild(layoutRoot);
 
-        const sortedList = this.getFilteredMediaList();
+        const sortedList = this.getVisibleMediaList();
         const rows: LibraryRow[] = this.state.groupByType
             ? flattenLibraryRows(groupMediaByType(sortedList, this.state.contentTypeOrder))
             : toLibraryItemRows(sortedList);
 
+        // Navigation order is taken from the rendered rows rather than the sorted list, so the
+        // detail view's prev/next follows what is actually on screen once type grouping reorders
+        // items into sections.
+        const navigationIds = rows.flatMap((row) => (
+            row.kind === 'item' && typeof row.media.id === 'number' ? [row.media.id] : []
+        ));
+        const onVisibleMediaClick = (mediaId: number) => {
+            this.onMediaClick({ mediaId, navigationIds: [...navigationIds] });
+        };
+
         if (this.getActiveLayout() === 'grid') {
-            this.activeLayoutComponent = new MediaGrid(layoutRoot, { rows }, this.onMediaClick);
+            this.activeLayoutComponent = new MediaGrid(
+                layoutRoot,
+                { rows, gridZoom: this.state.gridZoom },
+                onVisibleMediaClick,
+            );
         } else {
             this.activeLayoutComponent = new MediaList(
                 layoutRoot,
@@ -482,7 +549,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
                     metricsByMediaId: this.state.listMetricsByMediaId,
                     isMetricsLoading: this.state.isListMetricsLoading,
                 },
-                this.onMediaClick,
+                onVisibleMediaClick,
             );
         }
 
@@ -496,7 +563,8 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
 
             const newId = await addMedia({
                 title: result.title,
-                media_type: result.type,
+                variant: result.variant,
+                default_activity_type: result.type,
                 status: MEDIA_STATUS.ACTIVE,
                 language: 'Japanese',
                 description: '',
@@ -565,6 +633,18 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
 
         header.querySelector('#btn-layout-list')?.addEventListener('click', () => {
             this.setLayout('list');
+        });
+
+        header.querySelector('#btn-grid-zoom-out')?.addEventListener('click', () => {
+            this.setGridZoom(this.state.gridZoom - LIBRARY_GRID_ZOOM.STEP);
+        });
+
+        header.querySelector('#btn-grid-zoom-reset')?.addEventListener('click', () => {
+            this.setGridZoom(LIBRARY_GRID_ZOOM.DEFAULT);
+        });
+
+        header.querySelector('#btn-grid-zoom-in')?.addEventListener('click', () => {
+            this.setGridZoom(this.state.gridZoom + LIBRARY_GRID_ZOOM.STEP);
         });
 
         const groupByType = header.querySelector<HTMLInputElement>('#sort-group-by-type');
@@ -663,6 +743,22 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         this.renderHeader(this.container.querySelector<HTMLElement>('#media-library-header')!);
         this.renderContent(this.container.querySelector<HTMLElement>('#media-library-content')!);
         this.onLayoutChange?.(layout);
+    }
+
+    private setGridZoom(gridZoom: number) {
+        if (this.getActiveLayout() !== 'grid') {
+            return;
+        }
+
+        const nextGridZoom = normalizeLibraryGridZoom(gridZoom);
+        if (this.state.gridZoom === nextGridZoom) {
+            return;
+        }
+
+        this.state.gridZoom = nextGridZoom;
+        this.renderHeader(this.container.querySelector<HTMLElement>('#media-library-header')!);
+        this.renderContent(this.container.querySelector<HTMLElement>('#media-library-content')!);
+        this.onGridZoomChange?.(nextGridZoom);
     }
 
     private toggleFiltersPanel() {

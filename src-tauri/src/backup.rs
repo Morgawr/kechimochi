@@ -200,9 +200,10 @@ pub fn import_full_backup(
     file_path: String,
 ) -> Result<String, String> {
     let app_dir = db::get_data_dir(&app_handle);
+    let _sync_guard = sync_state::acquire_sync_lock(&app_dir)?;
     let zip_file = app_file_io::open_input_file(&app_handle, &file_path)?;
     let import_result = {
-        let mut conn_guard = state.conn.lock().unwrap();
+        let mut conn_guard = state.conn.lock().map_err(|e| e.to_string())?;
         import_full_backup_from_reader_internal(&app_dir, &mut conn_guard, zip_file)
     }?;
     sync_state::clear_sync_runtime_files(&app_dir)?;
@@ -601,7 +602,7 @@ mod tests {
     }
 
     #[test]
-    fn test_backup_export_import_preserves_activity_notes() {
+    fn test_backup_export_import_preserves_activity_notes_and_media_variant() {
         let source_dir = unique_temp_dir("backup_notes_source");
         let target_dir = unique_temp_dir("backup_notes_target");
         fs::create_dir_all(&source_dir).unwrap();
@@ -615,7 +616,8 @@ mod tests {
                 id: None,
                 uid: None,
                 title: "Backup Notes Media".to_string(),
-                media_type: "Reading".to_string(),
+                variant: "Novel".to_string(),
+                default_activity_type: "Reading".to_string(),
                 status: "Active".to_string(),
                 language: "Japanese".to_string(),
                 description: String::new(),
@@ -659,6 +661,7 @@ mod tests {
         assert_eq!(logs.len(), 1);
         assert_eq!(logs[0].notes, "backup note content");
         assert_eq!(logs[0].title, "Backup Notes Media");
+        assert_eq!(db::get_all_media(&target_conn).unwrap()[0].variant, "Novel");
 
         fs::remove_dir_all(source_dir).ok();
         fs::remove_dir_all(target_dir).ok();

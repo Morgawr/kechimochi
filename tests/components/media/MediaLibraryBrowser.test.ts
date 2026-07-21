@@ -45,6 +45,7 @@ const createState = (overrides: Partial<{
     statusFilters: string[];
     hideArchived: boolean;
     preferredLayout: LibraryLayoutMode;
+    gridZoom: number;
     isGridSupported: boolean;
     listMetricsByMediaId: Record<number, { firstActivityDate: string | null; lastActivityDate: string | null; totalMinutes: number; totalCharacters: number }>;
     isListMetricsLoading: boolean;
@@ -55,6 +56,7 @@ const createState = (overrides: Partial<{
     statusFilters: [],
     hideArchived: false,
     preferredLayout: 'grid' as LibraryLayoutMode,
+    gridZoom: 100,
     isGridSupported: true,
     listMetricsByMediaId: {},
     isListMetricsLoading: false,
@@ -91,6 +93,7 @@ describe('MediaLibraryBrowser', () => {
     });
 
     it('passes the same filtered dataset to grid and list layouts', () => {
+        const onGridMediaClick = vi.fn();
         const mediaList = [
             { id: 1, title: 'Alpha', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' },
             { id: 2, title: 'Beta', status: 'Archived', content_type: 'Manga', tracking_status: 'Paused' },
@@ -106,7 +109,7 @@ describe('MediaLibraryBrowser', () => {
                 statusFilters: ['Ongoing', 'Complete'],
                 preferredLayout: 'grid',
             }),
-            vi.fn(),
+            onGridMediaClick,
             vi.fn(),
         );
         gridComponent.render();
@@ -120,9 +123,15 @@ describe('MediaLibraryBrowser', () => {
         const gridRows = latestGridRows();
         expect(gridRows.every((row) => row.kind === 'item')).toBe(true);
         expect(gridRows.map((row) => (row as { media: Media }).media.title)).toEqual(expectedTitles);
+        expect((vi.mocked(MediaGrid).mock.calls[0][1] as { gridZoom: number }).gridZoom).toBe(100);
+
+        const onVisibleGridMediaClick = vi.mocked(MediaGrid).mock.calls[0][2];
+        onVisibleGridMediaClick(3);
+        expect(onGridMediaClick).toHaveBeenCalledWith({ mediaId: 3, navigationIds: [1, 3] });
 
         vi.clearAllMocks();
         listInstances.length = 0;
+        const onListMediaClick = vi.fn();
 
         const listComponent = new MediaLibraryBrowser(
             container,
@@ -133,13 +142,17 @@ describe('MediaLibraryBrowser', () => {
                 statusFilters: ['Ongoing', 'Complete'],
                 preferredLayout: 'list',
             }),
-            vi.fn(),
+            onListMediaClick,
             vi.fn(),
         );
         listComponent.render();
 
         const listRows = latestListRows();
         expect(listRows.map((row) => (row as { media: Media }).media.title)).toEqual(expectedTitles);
+
+        const onVisibleListMediaClick = vi.mocked(MediaList).mock.calls[0][2];
+        onVisibleListMediaClick(1);
+        expect(onListMediaClick).toHaveBeenCalledWith({ mediaId: 1, navigationIds: [1, 3] });
     });
 
     it('sorts by the passed-in content type and tracking status order instead of the declaration order', () => {
@@ -219,7 +232,7 @@ describe('MediaLibraryBrowser', () => {
     });
 
     it('reuses shared add and refresh actions from the browser toolbar', async () => {
-        vi.mocked(showAddMediaModal).mockResolvedValue({ title: 'New Media', type: 'Anime', contentType: 'Anime' });
+        vi.mocked(showAddMediaModal).mockResolvedValue({ title: 'New Media', variant: 'TV Series', type: 'Anime', contentType: 'Anime' });
         vi.mocked(api.addMedia).mockResolvedValue(123);
         const onDataChange = vi.fn().mockResolvedValue(undefined);
 
@@ -234,7 +247,7 @@ describe('MediaLibraryBrowser', () => {
         (container.querySelector('#btn-add-media-grid') as HTMLButtonElement).click();
 
         await vi.waitFor(() => expect(onDataChange).toHaveBeenCalledWith(123));
-        expect(api.addMedia).toHaveBeenCalledWith(expect.objectContaining({ title: 'New Media' }));
+        expect(api.addMedia).toHaveBeenCalledWith(expect.objectContaining({ title: 'New Media', variant: 'TV Series' }));
 
         (container.querySelector('#btn-refresh-grid') as HTMLButtonElement).click();
         await vi.waitFor(() => expect(onDataChange).toHaveBeenCalledWith());
@@ -260,6 +273,25 @@ describe('MediaLibraryBrowser', () => {
         expect(onDataChange).not.toHaveBeenCalled();
     });
 
+    it('includes variants in library search', () => {
+        const component = new MediaLibraryBrowser(
+            container,
+            createState({
+                mediaList: [
+                    { id: 1, title: 'Horimiya', variant: 'Manga', status: 'Active', content_type: 'Manga', tracking_status: 'Ongoing' } as Media,
+                    { id: 2, title: 'Horimiya Anime', variant: '', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' } as Media,
+                ],
+                searchQuery: 'manga',
+            }),
+            vi.fn(),
+            vi.fn(),
+        );
+
+        component.render();
+
+        expect(latestGridRows().map((row) => (row as { media: Media }).media.id)).toEqual([1]);
+    });
+
     it('disables the grid toggle and renders list mode when the viewport is too small', () => {
         const onLayoutChange = vi.fn();
         const component = new MediaLibraryBrowser(
@@ -282,6 +314,8 @@ describe('MediaLibraryBrowser', () => {
         expect(gridButton.disabled).toBe(true);
         expect(listButton.getAttribute('aria-pressed')).toBe('true');
         expect(container.textContent).toContain('Grid re-enables when the window is wider.');
+        expect((container.querySelector('#btn-grid-zoom-out') as HTMLButtonElement).disabled).toBe(true);
+        expect((container.querySelector('#btn-grid-zoom-in') as HTMLButtonElement).disabled).toBe(true);
         expect(MediaList).toHaveBeenCalled();
         expect(MediaGrid).not.toHaveBeenCalled();
 
@@ -314,6 +348,42 @@ describe('MediaLibraryBrowser', () => {
         expect(onLayoutChange).toHaveBeenCalledWith('grid');
         expect(MediaGrid).toHaveBeenCalledTimes(1);
         expect(listInstances[0]?.destroy).toHaveBeenCalled();
+    });
+
+    it('adjusts, resets, and bounds the grid zoom', () => {
+        const onGridZoomChange = vi.fn();
+        const component = new MediaLibraryBrowser(
+            container,
+            createState({
+                mediaList: [{ id: 1, title: 'Alpha', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' } as Media],
+            }),
+            vi.fn(),
+            vi.fn(),
+            vi.fn(),
+            vi.fn(),
+            onGridZoomChange,
+        );
+
+        component.render();
+        (container.querySelector('#btn-grid-zoom-out') as HTMLButtonElement).click();
+
+        expect(onGridZoomChange).toHaveBeenLastCalledWith(90);
+        expect(container.querySelector('#btn-grid-zoom-reset')?.textContent).toBe('90%');
+        expect(vi.mocked(MediaGrid).mock.calls.at(-1)?.[1]).toEqual(expect.objectContaining({ gridZoom: 90 }));
+
+        (container.querySelector('#btn-grid-zoom-reset') as HTMLButtonElement).click();
+        expect(onGridZoomChange).toHaveBeenLastCalledWith(100);
+        expect(container.querySelector('#btn-grid-zoom-reset')?.textContent).toBe('100%');
+
+        for (let zoom = 110; zoom <= 130; zoom += 10) {
+            (container.querySelector('#btn-grid-zoom-in') as HTMLButtonElement).click();
+            expect(onGridZoomChange).toHaveBeenLastCalledWith(zoom);
+        }
+
+        const zoomIn = container.querySelector('#btn-grid-zoom-in') as HTMLButtonElement;
+        expect(zoomIn.disabled).toBe(true);
+        zoomIn.click();
+        expect(onGridZoomChange).toHaveBeenCalledTimes(5);
     });
 
     it('toggles the filter tray open and closed and cleans up animated styles', () => {

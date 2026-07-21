@@ -2,7 +2,7 @@
 FROM node:22-slim AS frontend
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --ignore-scripts
 COPY index.html tsconfig.json vite.config.ts CHANGELOG.md ./
 COPY scripts/ scripts/
 COPY src/ src/
@@ -23,14 +23,14 @@ WORKDIR /app
 # tauri-build (in build.rs) detects Tauri platform libs via pkg-config even when
 # building only the web_server binary; these are build-time only deps.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        pkg-config \
-        libwebkit2gtk-4.1-dev \
-        libgtk-3-dev \
         libayatana-appindicator3-dev \
+        libgtk-3-dev \
         librsvg2-dev \
+        libwebkit2gtk-4.1-dev \
+        pkg-config \
     && rm -rf /var/lib/apt/lists/*
 COPY src-tauri/ src-tauri/
-RUN cargo build --manifest-path src-tauri/Cargo.toml --bin web_server --release
+RUN cargo build --locked --manifest-path src-tauri/Cargo.toml --bin web_server --release
 
 # ── Stage 3: Minimal runtime image ───────────────────────────────────────────
 FROM debian:bookworm-slim

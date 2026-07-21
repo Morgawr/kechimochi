@@ -10,6 +10,7 @@ import {
   waitForHeatmapReady,
   selectActivityChartTimeRange,
   getActivityChartRangeMetadata,
+  getStatValue,
 } from '../../helpers/dashboard.js';
 
 describe('Dashboard CUJ', () => {
@@ -34,15 +35,18 @@ describe('Dashboard CUJ', () => {
   });
 
   it('should display stats cards with fixture data', async () => {
-    const statsCards = $$('.card');
-    expect(await statsCards.length).toBeGreaterThan(0);
+    expect(await getStatValue('stat-total-logs')).toBeGreaterThan(0);
+    expect(await getStatValue('stat-total-media')).toBeGreaterThan(0);
+    expect(await getStatValue('stat-max-streak')).toBeGreaterThan(0);
+    expect(await getStatValue('stat-total-hours')).toBeGreaterThan(0);
+    expect(await $('#stat-total-chars').isExisting()).toBe(false);
   });
 
   it('should have a functional view with no broken state', async () => {
     await verifyViewNotBroken();
   });
 
-  it('should match the baseline screenshot', async () => {
+  it('should capture a non-blocking dashboard visual diff', async () => {
     await takeAndCompareScreenshot('dashboard-initial');
   });
 
@@ -54,6 +58,26 @@ describe('Dashboard CUJ', () => {
     expect(monthlyRange.timeRangeDays).toBe('30');
     expect(monthlyRange.rangeStart).toBe('2024-03-01');
     expect(monthlyRange.rangeEnd).toBe(MOCK_DATE);
+
+    const monthlyStats = await browser.execute(() => {
+      const cards = Array.from(document.querySelectorAll<HTMLElement>('.dashboard-totals-card'));
+      const card = cards.find(candidate => candidate.querySelector('.dashboard-totals-title')?.textContent?.includes('Monthly Stats'));
+      const rows = Array.from(card?.querySelectorAll<HTMLElement>('[data-dashboard-total-index]') ?? []);
+
+      return {
+        rowCount: rows.length,
+        firstRow: rows[0]?.textContent ?? '',
+        lastRow: rows.at(-1)?.textContent ?? '',
+        containsWeekBucket: rows.some(row => row.textContent?.includes('Week ')),
+        selectorLabels: Array.from(document.querySelectorAll<HTMLOptionElement>('#select-time-range option')).map(option => option.textContent ?? ''),
+      };
+    });
+
+    expect(monthlyStats.rowCount).toBe(31);
+    expect(monthlyStats.firstRow).toContain('01/03');
+    expect(monthlyStats.lastRow).toContain('31/03');
+    expect(monthlyStats.containsWeekBucket).toBe(false);
+    expect(monthlyStats.selectorLabels).toEqual(['Week', 'Month', 'Year', 'All Time']);
 
     await clickHeatmapCell('2024-03-07');
 

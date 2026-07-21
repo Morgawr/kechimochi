@@ -39,6 +39,7 @@ type RemoteManifest = {
 type SnapshotMedia = JsonObject & {
     uid: string;
     title: string;
+    variant: string;
     description: string;
     extra_data: string;
     updated_at: string;
@@ -63,6 +64,7 @@ type SyncSnapshot = JsonObject & {
 
 type SeedRemoteMedia = {
     title: string;
+    variant?: string;
     description?: string;
     mediaType?: string;
     status?: string;
@@ -581,6 +583,7 @@ export function seedRemoteSyncProfile(options?: {
         library[mediaUid] = {
             uid: mediaUid,
             title: entry.title,
+            variant: entry.variant ?? '',
             media_type: entry.mediaType ?? 'Reading',
             status: entry.status ?? 'Active',
             language: entry.language ?? 'Japanese',
@@ -598,7 +601,7 @@ export function seedRemoteSyncProfile(options?: {
 
     const snapshot: SyncSnapshot = {
         sync_protocol_version: 1,
-        db_schema_version: 3,
+        db_schema_version: 4,
         snapshot_id: snapshotId,
         created_at: createdAt,
         created_by_device_id: REMOTE_DEVICE_ID,
@@ -733,6 +736,33 @@ export function setRemoteExtraDataEntry(
         media.updated_at = snapshot.created_at;
         media.updated_by_device_id = REMOTE_DEVICE_ID;
     });
+}
+
+export function addRemoteMediaWithIndependentUid(
+    profileId: string,
+    entry: SeedRemoteMedia,
+): string {
+    const mediaUid = `uid_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    commitRemoteProfileMutation(profileId, (snapshot) => {
+        snapshot.library[mediaUid] = {
+            uid: mediaUid,
+            title: entry.title,
+            variant: entry.variant ?? '',
+            media_type: entry.mediaType ?? 'Reading',
+            status: entry.status ?? 'Active',
+            language: entry.language ?? 'Japanese',
+            description: entry.description ?? '',
+            content_type: entry.contentType ?? 'Novel',
+            tracking_status: entry.trackingStatus ?? 'Ongoing',
+            extra_data: JSON.stringify(entry.extraData ?? {}),
+            cover_blob_sha256: null,
+            updated_at: snapshot.created_at,
+            updated_by_device_id: REMOTE_DEVICE_ID,
+            activities: [],
+            milestones: [],
+        };
+    });
+    return mediaUid;
 }
 
 export function getRemoteMedia(profileId: string, title: string): SnapshotMedia {

@@ -124,9 +124,10 @@ async function normalizeWindowSize(): Promise<void> {
  */
 export async function waitForAppReady(
   timeout = 30000,
-  options: { seedLocalProfile?: boolean } = {},
+  options: { seedLocalProfile?: boolean; normalizeWindow?: boolean } = {},
 ): Promise<void> {
   const seedLocalProfile = options.seedLocalProfile ?? true;
+  const shouldNormalizeWindow = options.normalizeWindow ?? true;
   const startTimestamp = Date.now();
   const reserveMs = 1000;
   const timeLeft = () => Math.max(0, timeout - (Date.now() - startTimestamp));
@@ -151,7 +152,7 @@ export async function waitForAppReady(
   }
 
   // Keep visual snapshots deterministic across different host DPI settings.
-  await normalizeWindowSize();
+  if (shouldNormalizeWindow) await normalizeWindowSize();
 
   // 1. First, wait for the window to have a valid origin and the DOM to be somewhat ready.
   // We check document.readyState to ensure we aren't on about:blank or a transitional state.
@@ -218,7 +219,7 @@ export async function waitForAppReady(
   }
 
   // Some environments reset zoom/window metrics after refresh.
-  await normalizeWindowSize();
+  if (shouldNormalizeWindow) await normalizeWindowSize();
 
   // 4. Poll for final app readiness.
   // Some flows can land on initial profile prompt or non-dashboard views first,

@@ -7,20 +7,56 @@ The format is based on Keep a Changelog, with one section per released version.
 ## [Unreleased]
 
 ### Added
- - Added a Notes field to activity log entries (editable in the log modal, shown on the media detail page, included in sync and CSV export).
- - The desktop app now remembers its window size, position, and maximized state between launches.
+ - Added an optional media variant tag, editable from the library detail view and shown when choosing or logging media.
+ - Media, activity, and milestone CSV exports now include optional variant tag.
+ - You can now zoom in/out in the library grid view.
+ - Media entries can now share the same title as long as they have different variant tags (including empty variant)
  - Library sorting. A new Sort panel lets you order both by premade data and your custom tags at multiple levels of sorting.
  - Optional grouping of the library into sections by media type, with a section heading per type.
- - Your sortand group settings are remembered between launches.
+ - Your sort and group settings are remembered between launches.
  - New "Library Ordering" settings card to put content types and tracking statuses in whatever order you prefer.
 
 ### Changed
- - UI aggregate metrics now report hours with proper breakdown of minutes rather than confusing decimals
+ - When browsing media entries, left and right buttons now cycle through entries according to any previously-applied media filters
  - Opening the library is faster on large collections: activity totals are now summarised by the database instead of loading every activity log into the app.
+ - Reworked the "Monthly" view to show daily amounts instead of weeks, because weeks were inconsistent and not accurate.
+ - Renamed "Weekly", "Monthly", and "Yearly" options to "Week", "Month", and "Year"
+ - Renamed the media-level "Media Type" field to "Default Activity Type" across the database, API, and CSV exports, while retaining compatibility with legacy imports and API clients.
+ - Cloud sync now asks whether to combine entries or rename one and keep both when local and remote media have the same title and variant but different internal identities.
+ - CSV imports now identify media using the exact title and variant pair. Legacy CSVs without a variant column remain supported when the title identifies only one media entry.
+ - Introduced a global lock that prevents multiple kechimochi instances from running on the same device.
 
 ### Fixed
- - Improbe stability of rows in list view, less jumping and resizing as data finished loading.
+ - Activity types are now stored on every activity log, so changing a media default no longer reclassifies historical activity; This also retroactively applies to historical blank activities.
+ - Activity CSV now exports Default Activity Type for the media default while Activity Type preserves each individual log override.
+ - Renaming a media entry can no longer create a duplicate title and variant pair. Rejected changes leave the original entry unchanged.
+ - CSV imports now fail without applying any rows when media identity is ambiguous or rows disagree about the default activity type of a new media entry.
+ - Cloud sync no longer automatically merges separate media entries that happen to have the same title and variant.
+ - Interrupted sync recovery no longer overwrites newer local changes by replaying an already-applied snapshot.
+ - Factory reset, backup restore, and Google Drive disconnect can no longer race with an active sync or retain sync state belonging to the previous database.
+ - Newer unsupported database versions are rejected before the app creates companion database files or applies persistent database settings.
+ - Improved stability of rows in list view, less jumping and resizing as data finished loading.
  - Expandable settings sections, such as the HTTP API's "Advanced settings", no longer snap shut when you change an unrelated setting.
+
+### Special Notes:
+
+For apps and tools developers, or for people who make use of csv import/export scripts, some of the csv fields have changed to match a more robust media/activity tagging system. The documentation has been updated at https://github.com/Morgawr/kechimochi/blob/main/docs/csv-formats.md to reflect these changes.
+
+Legacy formats should still be supported but it is strongly recommended you migrate to the new format as soon as possible.
+
+It is STRONGLY recommended to perform a full backup export before updating, as this new version makes a lot of changes to the internal database that could cause data mismatch. In case of failure to update, you should delete your local files, rollback the app version, restore from a backup, and file a bug report at https://github.com/Morgawr/kechimochi/issues
+
+## [0.2.11] - 2026-07-20
+
+### Added
+ - Added a Notes field to activity log entries (editable in the log modal, shown on the media detail page, included in sync and CSV export).
+ - The desktop app now remembers its window size, position, and maximized state between launches.
+ - Shareable profile "report cards" - save a PNG of your stats from the Profile page, as either time spent per activity type or per content type, each with a matching donut chart.
+
+### Changed
+ - UI aggregate metrics now report hours with proper breakdown of minutes rather than confusing decimals
+
+### Fixed
  - The tracking heatmap now colors days that have characters logged but no time tracked, in addition to days with time tracked. Cell intensity reflects whichever of the two is higher, so days tracked with both time and characters are not artificially brighter.
  - Milestones on the same media and same date now appear in creation order (oldest at the bottom, newest at the top) instead of alphabetically by name.
  - Default window no longer opens larger than the screen / under the taskbar, which could hide the update dialog's close button.

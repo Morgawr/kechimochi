@@ -95,11 +95,11 @@ export function makeConfig(
         baselineFolder: path.join(__dirname, '..', 'screenshots', 'baseline'),
         formatImageName: '{tag}',
         savePerInstance: false,
-        autoSaveBaseline: true,
+        autoSaveBaseline: false,
         blockOutStatusBar: true,
         blockOutToolBar: true,
         clearRuntimeFolder: false,
-        misMatchTolerance: 10,
+        misMatchTolerance: 5,
         compareOptions: {
           threshold: 0.5,
           includeAA: true,
@@ -143,6 +143,14 @@ export function makeConfig(
       });
       process.env.KECHIMOCHI_DATA_DIR = testDirectory;
 
+      if (setup.instanceLockOwner) {
+        const { writeFileSync } = await import('node:fs');
+        writeFileSync(
+          path.join(testDirectory, '.kechimochi.instance.owner'),
+          setup.instanceLockOwner,
+        );
+      }
+
       if (setup.needsSyncBackupFixture) {
         await seedSyncBackupFixture(testDirectory);
       }
@@ -151,6 +159,13 @@ export function makeConfig(
       let sessionEnv: Record<string, string> = {
         KECHIMOCHI_DATA_DIR: testDirectory,
       };
+
+      if (setup.instanceLockOwner) {
+        sessionEnv = {
+          ...sessionEnv,
+          KECHIMOCHI_E2E_FORCE_INSTANCE_LOCK_CONTENTION: '1',
+        };
+      }
 
       if (setup.needsTokenStoreOverride || setup.needsSyncBackupFixture) {
         sessionEnv = {

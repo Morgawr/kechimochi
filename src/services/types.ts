@@ -96,7 +96,7 @@ export interface AppServices {
     replaceLocalFromRemote(): Promise<SyncActionResult>;
     forcePublishLocalAsRemote(): Promise<SyncActionResult>;
     getSyncConflicts(): Promise<SyncConflict[]>;
-    resolveSyncConflict(conflictIndex: number, resolution: SyncConflictResolution): Promise<SyncActionResult>;
+    resolveSyncConflict(conflictIndex: number, conflictToken: string, resolution: SyncConflictResolution): Promise<SyncActionResult>;
     subscribeSyncProgress(listener: (update: SyncProgressUpdate) => void): Promise<() => void>;
     clearSyncBackups(): Promise<void>;
 
@@ -121,13 +121,17 @@ export interface AppServices {
     pickAndImportFullBackup(): Promise<string | null>;
 
     // ── Milestone operations ────────────────────────────────────────────────
-    getMilestones(mediaTitle: string): Promise<Milestone[]>;
+    getMilestones(mediaUid: string): Promise<Milestone[]>;
     addMilestone(milestone: Milestone): Promise<number>;
     updateMilestone(milestone: Milestone): Promise<void>;
     deleteMilestone(id: number): Promise<void>;
-    clearMilestones(mediaTitle: string): Promise<void>;
+    clearMilestones(mediaUid: string): Promise<void>;
     exportMilestonesCsv(filePath: string): Promise<number>;
     importMilestonesCsv(filePath: string): Promise<number>;
+
+    // ── Report card operations ────────────────────────────────────────────────
+    /** Picks a destination or triggers browser download and saves the report card PNG. */
+    saveReportCardImage(imageBlob: Blob, defaultFileName: string): Promise<boolean>;
 
     // ── Profile picture operations ────────────────────────────────────────────
     /** Opens a file picker, validates/uploads the image, and returns the stored profile picture. */
@@ -165,4 +169,6 @@ export interface AppServices {
     supportsLocalHttpApi(): boolean;
     /** True when the runtime exposes desktop-style window chrome controls. */
     supportsWindowControls(): boolean;
+    /** True when this runtime can save the report card PNG (unsupported on Android). */
+    supportsReportCardExport(): boolean;
 }

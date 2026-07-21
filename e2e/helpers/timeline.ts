@@ -3,6 +3,7 @@
  */
 import { navigateTo, verifyActiveView } from './navigation.js';
 import { setText, setSelect } from './form-controls.js';
+import { waitForSelectorDisplayed } from './common.js';
 
 export interface TimelineEntrySnapshot {
     kind: string;
@@ -56,4 +57,11 @@ export async function getTimelineEntrySnapshots(limit?: number): Promise<Timelin
                 text: entry.textContent?.replaceAll(/\s+/g, ' ').trim() ?? '',
             }));
     }, limit);
+}
+
+export async function openTimelineMedia(title: string): Promise<void> {
+    const link = $(`.timeline-media-link*=${title}`);
+    await link.waitForDisplayed({ timeout: 5000 });
+    await link.click();
+    await waitForSelectorDisplayed('#media-detail-header', 8000);
 }

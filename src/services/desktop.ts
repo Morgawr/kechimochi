@@ -107,8 +107,8 @@ export class DesktopServices implements AppServices {
     replaceLocalFromRemote():               Promise<SyncActionResult> { return invoke('replace_local_from_remote'); }
     forcePublishLocalAsRemote():            Promise<SyncActionResult> { return invoke('force_publish_local_as_remote'); }
     getSyncConflicts():                      Promise<SyncConflict[]>   { return invoke('get_sync_conflicts'); }
-    resolveSyncConflict(conflictIndex: number, resolution: SyncConflictResolution): Promise<SyncActionResult> {
-        return invoke('resolve_sync_conflict', { conflictIndex, resolution });
+    resolveSyncConflict(conflictIndex: number, conflictToken: string, resolution: SyncConflictResolution): Promise<SyncActionResult> {
+        return invoke('resolve_sync_conflict', { conflictIndex, conflictToken, resolution });
     }
     subscribeSyncProgress(listener: (update: SyncProgressUpdate) => void): Promise<() => void> {
         return listen<SyncProgressUpdate>('sync-progress', (event) => {
@@ -177,8 +177,8 @@ export class DesktopServices implements AppServices {
     }
 
     // ── Milestone operations ─────────────────────────────────────────────────
-    getMilestones(mediaTitle: string): Promise<Milestone[]> {
-        return invoke('get_milestones', { mediaTitle });
+    getMilestones(mediaUid: string): Promise<Milestone[]> {
+        return invoke('get_milestones', { mediaUid });
     }
 
     addMilestone(milestone: Milestone): Promise<number> {
@@ -193,8 +193,8 @@ export class DesktopServices implements AppServices {
         return invoke('delete_milestone', { id });
     }
 
-    clearMilestones(mediaTitle: string): Promise<void> {
-        return invoke('delete_milestones_for_media', { mediaTitle });
+    clearMilestones(mediaUid: string): Promise<void> {
+        return invoke('delete_milestones_for_media', { mediaUid });
     }
 
     exportMilestonesCsv(filePath: string): Promise<number> {
@@ -224,6 +224,18 @@ export class DesktopServices implements AppServices {
             if (!selected || typeof selected !== 'string') return 0;
             return invoke<number>('import_milestones_csv', { filePath: selected });
         });
+    }
+
+    // ── Report card operations ────────────────────────────────────────────────
+    async saveReportCardImage(imageBlob: Blob, defaultFileName: string): Promise<boolean> {
+        const savePath = this.getMockSavePath() ?? await tauriSave({
+            filters: [{ name: 'PNG', extensions: ['png'] }],
+            defaultPath: defaultFileName,
+        });
+        if (!savePath) return false;
+        const bytes = Array.from(new Uint8Array(await imageBlob.arrayBuffer()));
+        await invoke('save_binary_file', { filePath: savePath, bytes });
+        return true;
     }
 
     // ── Profile picture operations ────────────────────────────────────────────
@@ -280,7 +292,13 @@ export class DesktopServices implements AppServices {
             Promise.resolve(this.getWin().minimize()).catch(() => undefined);
             return;
         }
-        Promise.resolve(this.getWin().close()).catch(() => undefined);
+        // Persist immediately before closing. The plugin also saves on the
+        // application Exit event, but some window managers terminate the
+        // WebView before that event can finish writing the state file.
+        Promise.resolve(invoke('plugin:window-state|save_window_state', { flags: null }))
+            .catch(() => undefined)
+            .then(() => this.getWin().close())
+            .catch(() => undefined);
     }
     subscribeSystemBack(handler: () => void | Promise<void>): Promise<() => void> {
         if (!this.isAndroidRuntime()) {
@@ -298,4 +316,5 @@ export class DesktopServices implements AppServices {
     isDesktop(): boolean { return true; }
     supportsLocalHttpApi(): boolean { return !this.isAndroidRuntime(); }
     supportsWindowControls(): boolean { return this.supportsDesktopWindowControls(); }
+    supportsReportCardExport(): boolean { return !this.isAndroidRuntime(); }
 }

@@ -56,6 +56,12 @@ export interface SpecSetupDescriptor {
    * (only used by fresh-install flows that must not see a pre-existing profile).
    */
   skipLegacyLocalProfileMigration?: boolean;
+
+  /**
+   * Debug-only owner record used to make startup exercise the lock-contention
+   * warning. The OS-level exclusion itself is covered by Rust tests.
+   */
+  instanceLockOwner?: string;
 }
 
 const DEFAULT_DESCRIPTOR: Required<SpecSetupDescriptor> = {
@@ -66,6 +72,7 @@ const DEFAULT_DESCRIPTOR: Required<SpecSetupDescriptor> = {
   needsSyncBackupFixture: false,
   needsTokenStoreOverride: false,
   skipLegacyLocalProfileMigration: false,
+  instanceLockOwner: '',
 };
 
 /**
@@ -103,6 +110,18 @@ const SPEC_SETUP_REGISTRY: Record<string, SpecSetupDescriptor> = {
   // Fixture DBs with a far-future schema version.
   'startup-schema-mismatch': {
     overrideSchemaVersion: 999,
+  },
+
+  // A readable owner record plus a debug-only forced contention signal lets
+  // both desktop and web assert the user-facing diagnostic path.
+  'startup-instance-lock': {
+    instanceLockOwner: [
+      'version=1',
+      'pid=4242',
+      'kind=e2e-lock-holder',
+      'started_at=2026-07-21T13:42:09Z',
+      '',
+    ].join('\n'),
   },
 
   // Token store override + pre-seeded backup ZIPs.
