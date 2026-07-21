@@ -40,6 +40,7 @@ export type SortValueKind = 'numeric' | 'text';
 interface BuiltinSortDefinition {
     valueKind: SortValueKind;
     resolve: (media: Media, options: LibrarySortOptions) => ResolvedSortValue;
+    resolveTiebreak?: (media: Media) => string;
 }
 
 const BUILTIN_SORT_DEFINITIONS: Record<LibraryBuiltinSortKey, BuiltinSortDefinition> = {
@@ -50,6 +51,7 @@ const BUILTIN_SORT_DEFINITIONS: Record<LibraryBuiltinSortKey, BuiltinSortDefinit
     title: {
         valueKind: 'text',
         resolve: media => media.title,
+        resolveTiebreak: media => media.variant ?? '',
     },
     contentType: {
         valueKind: 'numeric',
@@ -181,6 +183,7 @@ interface ResolvedStage {
     direction: LibrarySortDirection;
     valueKind: SortValueKind;
     resolveValue: (media: Media) => ResolvedSortValue;
+    resolveTiebreakValue?: (media: Media) => string;
 }
 
 function resolveExtraStage(
@@ -210,10 +213,12 @@ function resolveStage(stage: LibrarySortStage, mediaList: Media[], options: Libr
     const field = stage.field;
 
     if (field.kind === 'builtin') {
+        const definition = BUILTIN_SORT_DEFINITIONS[field.key];
         return {
             direction: stage.direction,
-            valueKind: BUILTIN_SORT_DEFINITIONS[field.key].valueKind,
+            valueKind: definition.valueKind,
             resolveValue: media => resolveBuiltinValue(field.key, media, options),
+            resolveTiebreakValue: definition.resolveTiebreak,
         };
     }
 
@@ -236,6 +241,11 @@ function compareResolvedValues(a: ResolvedSortValue, b: ResolvedSortValue, value
     return direction === 'ascending' ? rawComparison : -rawComparison;
 }
 
+function compareTiebreakValues(a: string, b: string, direction: LibrarySortDirection): number {
+    const rawComparison = a.localeCompare(b, undefined, { numeric: true });
+    return direction === 'ascending' ? rawComparison : -rawComparison;
+}
+
 function computeArchivedRank(media: Media): number {
     return media.status === MEDIA_STATUS.ARCHIVED ? 1 : 0;
 }
@@ -249,6 +259,7 @@ interface DecoratedRow {
     archivedRank: number;
     ongoingRank: number;
     stageValues: ResolvedSortValue[];
+    stageTiebreakValues: (string | null)[];
 }
 
 export function applyLibrarySort(mediaList: Media[], options: LibrarySortOptions): Media[] {
@@ -259,6 +270,7 @@ export function applyLibrarySort(mediaList: Media[], options: LibrarySortOptions
         archivedRank: computeArchivedRank(media),
         ongoingRank: computeOngoingRank(media),
         stageValues: resolvedStages.map(resolvedStage => resolvedStage.resolveValue(media)),
+        stageTiebreakValues: resolvedStages.map(resolvedStage => resolvedStage.resolveTiebreakValue?.(media) ?? null),
     }));
 
     decoratedRows.sort((a, b) => {
@@ -281,6 +293,13 @@ export function applyLibrarySort(mediaList: Media[], options: LibrarySortOptions
                 resolvedStage.direction,
             );
             if (stageComparison !== 0) return stageComparison;
+
+            const aTiebreak = a.stageTiebreakValues[stageIndex];
+            const bTiebreak = b.stageTiebreakValues[stageIndex];
+            if (aTiebreak !== null && bTiebreak !== null) {
+                const tiebreakComparison = compareTiebreakValues(aTiebreak, bTiebreak, resolvedStage.direction);
+                if (tiebreakComparison !== 0) return tiebreakComparison;
+            }
         }
 
         return 0;

@@ -15,7 +15,7 @@ function makeMedia(overrides: Partial<Media> & { id: number }): Media {
     return {
         uid: `uid-${overrides.id}`,
         title: 'Untitled',
-        media_type: 'Book',
+        default_activity_type: 'Reading',
         status: 'Active',
         language: 'Japanese',
         description: '',
@@ -444,5 +444,73 @@ describe('applyLibrarySort - tier stages', () => {
         }));
 
         expect(sorted.map(media => media.title)).toEqual(['Ongoing', 'Archived']);
+    });
+});
+describe('applyLibrarySort - variant tiebreak', () => {
+    it('should order entries sharing a title by variant, with the base entry first', () => {
+        const mediaList = [
+            makeMedia({ id: 1, title: 'Umineko', variant: 'Manga' }),
+            makeMedia({ id: 2, title: 'Umineko', variant: '' }),
+            makeMedia({ id: 3, title: 'Umineko', variant: 'Anime' }),
+        ];
+
+        const sorted = applyLibrarySort(mediaList, baseSortOptions({
+            stages: [{ field: { kind: 'builtin', key: 'title' }, direction: 'ascending' }],
+        }));
+
+        expect(sorted.map(media => media.variant)).toEqual(['', 'Anime', 'Manga']);
+    });
+
+    it('should reverse the variant order when the title sort is descending', () => {
+        const mediaList = [
+            makeMedia({ id: 1, title: 'Umineko', variant: '' }),
+            makeMedia({ id: 2, title: 'Umineko', variant: 'Manga' }),
+            makeMedia({ id: 3, title: 'Umineko', variant: 'Anime' }),
+        ];
+
+        const sorted = applyLibrarySort(mediaList, baseSortOptions({
+            stages: [{ field: { kind: 'builtin', key: 'title' }, direction: 'descending' }],
+        }));
+
+        expect(sorted.map(media => media.variant)).toEqual(['Manga', 'Anime', '']);
+    });
+
+    it('should not let the variant outrank the title', () => {
+        const mediaList = [
+            makeMedia({ id: 1, title: 'Beta', variant: 'Anime' }),
+            makeMedia({ id: 2, title: 'Alpha', variant: 'Manga' }),
+        ];
+
+        const sorted = applyLibrarySort(mediaList, baseSortOptions({
+            stages: [{ field: { kind: 'builtin', key: 'title' }, direction: 'ascending' }],
+        }));
+
+        expect(sorted.map(media => media.title)).toEqual(['Alpha', 'Beta']);
+    });
+
+    it('should treat a missing variant as an empty one', () => {
+        const mediaList = [
+            makeMedia({ id: 1, title: 'Umineko', variant: 'Manga' }),
+            makeMedia({ id: 2, title: 'Umineko' }),
+        ];
+
+        const sorted = applyLibrarySort(mediaList, baseSortOptions({
+            stages: [{ field: { kind: 'builtin', key: 'title' }, direction: 'ascending' }],
+        }));
+
+        expect(sorted.map(media => media.id)).toEqual([2, 1]);
+    });
+
+    it('should leave incoming order untouched when a non-title sort ties', () => {
+        const mediaList = [
+            makeMedia({ id: 1, title: 'Umineko', variant: 'Manga', content_type: 'Manga' }),
+            makeMedia({ id: 2, title: 'Umineko', variant: '', content_type: 'Manga' }),
+        ];
+
+        const sorted = applyLibrarySort(mediaList, baseSortOptions({
+            stages: [{ field: { kind: 'builtin', key: 'contentType' }, direction: 'ascending' }],
+        }));
+
+        expect(sorted.map(media => media.id)).toEqual([1, 2]);
     });
 });
