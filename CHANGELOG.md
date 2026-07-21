@@ -18,7 +18,7 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## Fixed
  - Activity CSV now exports Media Type that reflects the media’s default while Activity Type preserves individual log override
- - Windows: Kechimochi no longer loses its pinned taskbar icon when updating via the MSI installer.
+ - Windows: Kechimochi now declares an explicit AppUserModelID, which *should* (experimental) keep pinned taskbar shortcuts working across updates.
 
 ## [0.2.11] - 2026-07-20
 
