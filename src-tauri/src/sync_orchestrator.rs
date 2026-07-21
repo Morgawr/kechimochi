@@ -116,6 +116,26 @@ struct PublishSnapshotRequest<'a> {
     progress: Option<&'a SyncProgressReporter>,
 }
 
+struct JournaledConflictResolutionRequest<'a> {
+    conflict_index: usize,
+    conflict_token: &'a str,
+    resolution: SyncConflictResolution,
+}
+
+struct ReplaceLocalRecoveryRequest<'a> {
+    recovered_at: &'a str,
+    operation_id: Option<String>,
+    database_applied: bool,
+    progress: Option<&'a SyncProgressReporter>,
+}
+
+struct MaterializeCoverBlobsRequest<'a> {
+    snapshot: &'a SyncSnapshot,
+    cas_baseline: Option<&'a SyncSnapshot>,
+    operation: SyncProgressOperation,
+    progress: Option<&'a SyncProgressReporter>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SyncProgressOperation {
@@ -1471,10 +1491,12 @@ async fn resolve_sync_conflict_with_client<T: DriveTransport>(
         conn,
         client,
         token_store,
-        conflict_index,
-        conflict_token,
-        resolution,
         &mut pending,
+        JournaledConflictResolutionRequest {
+            conflict_index,
+            conflict_token,
+            resolution,
+        },
     )
     .await
 }
@@ -1529,11 +1551,14 @@ async fn resolve_journaled_sync_conflict<T: DriveTransport>(
     conn: &Arc<Mutex<Connection>>,
     client: &GoogleDriveClient<T>,
     token_store: &dyn SecureTokenStore,
-    conflict_index: usize,
-    requested_conflict_token: &str,
-    resolution: SyncConflictResolution,
     pending: &mut sync_state::PendingSyncState,
+    request: JournaledConflictResolutionRequest<'_>,
 ) -> Result<SyncActionResult, String> {
+    let JournaledConflictResolutionRequest {
+        conflict_index,
+        conflict_token: requested_conflict_token,
+        resolution,
+    } = request;
     if conflict_index >= pending.conflicts.len() {
         return Err(format!("Conflict index {conflict_index} is out of bounds"));
     }
@@ -1916,7 +1941,7 @@ fn refresh_rebased_conflicts(
                 if &current == remote_picture.as_ref() {
                     false
                 } else {
-                    *local_picture = Box::new(current);
+                    **local_picture = current;
                     true
                 }
             }
@@ -1929,8 +1954,8 @@ fn refresh_rebased_conflicts(
             } => {
                 if let Some(current) = snapshot.library.get(media_uid) {
                     match deleted_side {
-                        MergeSide::Remote => *local_media = Box::new(Some(current.clone())),
-                        MergeSide::Local => *remote_media = Box::new(Some(current.clone())),
+                        MergeSide::Remote => **local_media = Some(current.clone()),
+                        MergeSide::Local => **remote_media = Some(current.clone()),
                     }
                 } else if *deleted_side == MergeSide::Remote {
                     // The local restore candidate was deleted while the
@@ -2275,12 +2300,14 @@ async fn recover_pending_snapshot_apply<T: DriveTransport>(
             materialize_snapshot_cover_blobs_with_client(
                 conn,
                 app_dir.join("covers").as_path(),
-                &pending.merged_snapshot,
-                Some(&pending.local_baseline),
                 client,
                 token_store,
-                operation.clone(),
-                progress,
+                MaterializeCoverBlobsRequest {
+                    snapshot: &pending.merged_snapshot,
+                    cas_baseline: Some(&pending.local_baseline),
+                    operation: operation.clone(),
+                    progress,
+                },
             )
             .await?;
             report_progress(
@@ -2341,10 +2368,12 @@ async fn recover_pending_snapshot_apply<T: DriveTransport>(
                 client,
                 token_store,
                 &mut pending,
-                &recovered_at,
-                operation_id,
-                database_applied,
-                progress,
+                ReplaceLocalRecoveryRequest {
+                    recovered_at: &recovered_at,
+                    operation_id,
+                    database_applied,
+                    progress,
+                },
             )
             .await?;
             Ok(PendingRecoveryOutcome {
@@ -2444,11 +2473,14 @@ async fn recover_replace_local_from_remote<T: DriveTransport>(
     client: &GoogleDriveClient<T>,
     token_store: &dyn SecureTokenStore,
     pending: &mut sync_state::PendingSyncState,
-    recovered_at: &str,
-    operation_id: Option<String>,
-    database_applied: bool,
-    progress: Option<&SyncProgressReporter>,
+    request: ReplaceLocalRecoveryRequest<'_>,
 ) -> Result<(), String> {
+    let ReplaceLocalRecoveryRequest {
+        recovered_at,
+        operation_id,
+        database_applied,
+        progress,
+    } = request;
     let remote_target = pending.remote_base_snapshot.clone();
     let device_id = sync_state::get_or_create_device_id(app_dir)?;
     let operation_id = operation_id.unwrap_or_else(|| generate_prefixed_id("replace"));
@@ -2510,12 +2542,14 @@ async fn recover_replace_local_from_remote<T: DriveTransport>(
     materialize_snapshot_cover_blobs_with_client(
         conn,
         app_dir.join("covers").as_path(),
-        &pending.merged_snapshot,
-        Some(&pending.local_baseline),
         client,
         token_store,
-        SyncProgressOperation::ReplaceLocalFromRemote,
-        progress,
+        MaterializeCoverBlobsRequest {
+            snapshot: &pending.merged_snapshot,
+            cas_baseline: Some(&pending.local_baseline),
+            operation: SyncProgressOperation::ReplaceLocalFromRemote,
+            progress,
+        },
     )
     .await?;
 
@@ -3755,13 +3789,16 @@ async fn upload_cover_blob_with_retry<T: DriveTransport>(
 async fn materialize_snapshot_cover_blobs_with_client<T: DriveTransport>(
     conn: &Arc<Mutex<Connection>>,
     covers_dir: &Path,
-    snapshot: &SyncSnapshot,
-    cas_baseline: Option<&SyncSnapshot>,
     client: &GoogleDriveClient<T>,
     token_store: &dyn SecureTokenStore,
-    operation: SyncProgressOperation,
-    progress: Option<&SyncProgressReporter>,
+    request: MaterializeCoverBlobsRequest<'_>,
 ) -> Result<(), String> {
+    let MaterializeCoverBlobsRequest {
+        snapshot,
+        cas_baseline,
+        operation,
+        progress,
+    } = request;
     let mut local_hash_cache = build_local_cover_hash_cache(conn)?;
     let existing_media = {
         let conn_guard = conn.lock().map_err(|e| e.to_string())?;
@@ -5149,12 +5186,14 @@ mod tests {
         materialize_snapshot_cover_blobs_with_client(
             &conn,
             temp_dir.path().join("covers").as_path(),
-            &snapshot,
-            None,
             &client,
             &token_store,
-            SyncProgressOperation::RunSync,
-            None,
+            MaterializeCoverBlobsRequest {
+                snapshot: &snapshot,
+                cas_baseline: None,
+                operation: SyncProgressOperation::RunSync,
+                progress: None,
+            },
         )
         .await
         .unwrap();
@@ -5213,12 +5252,14 @@ mod tests {
         materialize_snapshot_cover_blobs_with_client(
             &conn,
             temp_dir.path().join("covers").as_path(),
-            &snapshot,
-            None,
             &client,
             &token_store,
-            SyncProgressOperation::RunSync,
-            None,
+            MaterializeCoverBlobsRequest {
+                snapshot: &snapshot,
+                cas_baseline: None,
+                operation: SyncProgressOperation::RunSync,
+                progress: None,
+            },
         )
         .await
         .unwrap();
@@ -5243,12 +5284,14 @@ mod tests {
         materialize_snapshot_cover_blobs_with_client(
             &deleted_conn,
             deleted_dir.path().join("covers").as_path(),
-            &deleted_snapshot,
-            None,
             &client,
             &token_store,
-            SyncProgressOperation::RunSync,
-            None,
+            MaterializeCoverBlobsRequest {
+                snapshot: &deleted_snapshot,
+                cas_baseline: None,
+                operation: SyncProgressOperation::RunSync,
+                progress: None,
+            },
         )
         .await
         .unwrap();
@@ -5286,12 +5329,14 @@ mod tests {
         materialize_snapshot_cover_blobs_with_client(
             &conn,
             temp_dir.path().join("covers").as_path(),
-            &target,
-            Some(&baseline),
             &client,
             &token_store,
-            SyncProgressOperation::RunSync,
-            None,
+            MaterializeCoverBlobsRequest {
+                snapshot: &target,
+                cas_baseline: Some(&baseline),
+                operation: SyncProgressOperation::RunSync,
+                progress: None,
+            },
         )
         .await
         .unwrap();
@@ -5346,12 +5391,14 @@ mod tests {
         let error = materialize_snapshot_cover_blobs_with_client(
             &conn,
             temp_dir.path().join("covers").as_path(),
-            &snapshot,
-            None,
             &client,
             &token_store,
-            SyncProgressOperation::RunSync,
-            None,
+            MaterializeCoverBlobsRequest {
+                snapshot: &snapshot,
+                cas_baseline: None,
+                operation: SyncProgressOperation::RunSync,
+                progress: None,
+            },
         )
         .await
         .unwrap_err();

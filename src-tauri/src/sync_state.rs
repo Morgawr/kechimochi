@@ -546,6 +546,7 @@ pub fn acquire_sync_lock(app_dir: &Path) -> Result<SyncLockGuard, String> {
     let path = sync_lock_path(app_dir);
     let mut file = OpenOptions::new()
         .create(true)
+        .truncate(false)
         .read(true)
         .write(true)
         .open(path)
