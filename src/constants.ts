@@ -35,6 +35,7 @@ export const SETTING_KEYS = {
     STATS_REPORT_TIMESTAMP: 'stats_report_timestamp',
     GRID_HIDE_ARCHIVED: 'grid_hide_archived',
     LIBRARY_LAYOUT_MODE: 'library_layout_mode',
+    LIBRARY_GRID_ZOOM: 'library_grid_zoom',
     DASHBOARD_CHART_TYPE: 'dashboard_chart_type',
     DASHBOARD_GROUP_BY: 'dashboard_group_by',
     WEEK_START_DAY: 'week_start_day',

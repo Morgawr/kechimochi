@@ -1800,6 +1800,59 @@ input:focus, select:focus {
   font-size: 0.72rem;
 }
 
+.media-grid-zoom {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.media-grid-zoom-button,
+.media-grid-zoom-value {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  line-height: 1;
+  border-radius: var(--radius-full);
+  transition: background-color var(--transition-fast), color var(--transition-fast), opacity var(--transition-fast);
+}
+
+.media-grid-zoom-button {
+  width: 1.8rem;
+  height: 1.8rem;
+  font-size: 1rem;
+}
+
+.media-grid-zoom-value {
+  min-width: 3.25rem;
+  padding: 0.45rem 0.35rem;
+  font-size: 0.72rem;
+}
+
+.media-grid-zoom-button:hover:not(:disabled),
+.media-grid-zoom-value:hover:not(:disabled) {
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+}
+
+.media-grid-zoom-button:focus-visible,
+.media-grid-zoom-value:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent-green) 60%, white 40%);
+  outline-offset: 1px;
+}
+
+.media-grid-zoom-button:disabled,
+.media-grid-zoom-value:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
 .media-grid-archive-toggle {
   display: flex;
   align-items: center;
@@ -3657,6 +3710,10 @@ input:checked + .slider:before {
   }
 
   .media-layout-toggle-shell {
+    display: none;
+  }
+
+  .media-grid-zoom {
     display: none;
   }
 

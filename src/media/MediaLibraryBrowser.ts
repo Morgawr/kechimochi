@@ -5,7 +5,12 @@ import { showAddMediaModal } from './modal';
 import { EVENTS, FILTERS, TRACKING_STATUSES, MEDIA_STATUS } from '../constants';
 import { MediaGrid } from './MediaGrid';
 import { MediaList } from './MediaList';
-import type { LibraryActivityMetrics, LibraryLayoutMode } from './library_types';
+import {
+    LIBRARY_GRID_ZOOM,
+    normalizeLibraryGridZoom,
+    type LibraryActivityMetrics,
+    type LibraryLayoutMode,
+} from './library_types';
 
 interface MediaLibraryBrowserState {
     mediaList: Media[];
@@ -14,6 +19,7 @@ interface MediaLibraryBrowserState {
     statusFilters: string[];
     hideArchived: boolean;
     preferredLayout: LibraryLayoutMode;
+    gridZoom: number;
     isGridSupported: boolean;
     listMetricsByMediaId: Record<number, LibraryActivityMetrics>;
     isListMetricsLoading: boolean;
@@ -39,6 +45,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
     private readonly onDataChange: (jumpToId?: number) => Promise<void>;
     private readonly onFilterChange?: (filters: MediaLibraryFilters) => void;
     private readonly onLayoutChange?: (layout: LibraryLayoutMode) => void;
+    private readonly onGridZoomChange?: (gridZoom: number) => void;
     private activeLayoutComponent: Component | null = null;
     private shellRendered = false;
 
@@ -49,17 +56,20 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         onDataChange: (jumpToId?: number) => Promise<void>,
         onFilterChange?: (filters: MediaLibraryFilters) => void,
         onLayoutChange?: (layout: LibraryLayoutMode) => void,
+        onGridZoomChange?: (gridZoom: number) => void,
     ) {
         super(container, {
             ...initialState,
             typeFilters: [...new Set(initialState.typeFilters)],
             statusFilters: [...new Set(initialState.statusFilters)],
+            gridZoom: normalizeLibraryGridZoom(initialState.gridZoom),
             filtersExpanded: false,
         });
         this.onMediaClick = onMediaClick;
         this.onDataChange = onDataChange;
         this.onFilterChange = onFilterChange;
         this.onLayoutChange = onLayoutChange;
+        this.onGridZoomChange = onGridZoomChange;
     }
 
     public override destroy() {
@@ -152,6 +162,10 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
 
         const uniqueTypes = this.getUniqueTypes();
         const activeLayout = this.getActiveLayout();
+        const gridZoomDisabled = activeLayout !== 'grid';
+        const zoomOutDisabled = gridZoomDisabled || this.state.gridZoom <= LIBRARY_GRID_ZOOM.MIN;
+        const zoomResetDisabled = gridZoomDisabled;
+        const zoomInDisabled = gridZoomDisabled || this.state.gridZoom >= LIBRARY_GRID_ZOOM.MAX;
         const activeFilterCount = this.getActiveFilterCount();
         const filterCountBadge = activeFilterCount > 0
             ? `<span class="media-grid-filter-count" aria-label="${activeFilterCount} active library filters">${activeFilterCount}</span>`
@@ -202,6 +216,33 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
                                 </button>
                             </div>
                             ${rawHtml(compactHint)}
+                        </div>
+
+                        <div class="media-grid-zoom" role="group" aria-label="Library cover size">
+                            <button
+                                type="button"
+                                class="media-grid-zoom-button"
+                                id="btn-grid-zoom-out"
+                                aria-label="Show more, smaller library covers"
+                                title="Show more covers"
+                                ${zoomOutDisabled ? 'disabled' : ''}
+                            >−</button>
+                            <button
+                                type="button"
+                                class="media-grid-zoom-value"
+                                id="btn-grid-zoom-reset"
+                                aria-label="Reset library cover size to 100%"
+                                title="Reset cover size"
+                                ${zoomResetDisabled ? 'disabled' : ''}
+                            >${this.state.gridZoom}%</button>
+                            <button
+                                type="button"
+                                class="media-grid-zoom-button"
+                                id="btn-grid-zoom-in"
+                                aria-label="Show fewer, larger library covers"
+                                title="Show larger covers"
+                                ${zoomInDisabled ? 'disabled' : ''}
+                            >+</button>
                         </div>
 
                         <button class="media-grid-filters-toggle" id="btn-toggle-filters" aria-expanded="${this.state.filtersExpanded}" aria-controls="media-grid-filter-panel">
@@ -260,7 +301,11 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         };
 
         if (this.getActiveLayout() === 'grid') {
-            this.activeLayoutComponent = new MediaGrid(layoutRoot, { mediaList: visibleList }, onVisibleMediaClick);
+            this.activeLayoutComponent = new MediaGrid(
+                layoutRoot,
+                { mediaList: visibleList, gridZoom: this.state.gridZoom },
+                onVisibleMediaClick,
+            );
         } else {
             this.activeLayoutComponent = new MediaList(
                 layoutRoot,
@@ -349,6 +394,18 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         header.querySelector('#btn-layout-list')?.addEventListener('click', () => {
             this.setLayout('list');
         });
+
+        header.querySelector('#btn-grid-zoom-out')?.addEventListener('click', () => {
+            this.setGridZoom(this.state.gridZoom - LIBRARY_GRID_ZOOM.STEP);
+        });
+
+        header.querySelector('#btn-grid-zoom-reset')?.addEventListener('click', () => {
+            this.setGridZoom(LIBRARY_GRID_ZOOM.DEFAULT);
+        });
+
+        header.querySelector('#btn-grid-zoom-in')?.addEventListener('click', () => {
+            this.setGridZoom(this.state.gridZoom + LIBRARY_GRID_ZOOM.STEP);
+        });
     }
 
     private setLayout(layout: LibraryLayoutMode) {
@@ -364,6 +421,22 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         this.renderHeader(this.container.querySelector<HTMLElement>('#media-library-header')!);
         this.renderContent(this.container.querySelector<HTMLElement>('#media-library-content')!);
         this.onLayoutChange?.(layout);
+    }
+
+    private setGridZoom(gridZoom: number) {
+        if (this.getActiveLayout() !== 'grid') {
+            return;
+        }
+
+        const nextGridZoom = normalizeLibraryGridZoom(gridZoom);
+        if (this.state.gridZoom === nextGridZoom) {
+            return;
+        }
+
+        this.state.gridZoom = nextGridZoom;
+        this.renderHeader(this.container.querySelector<HTMLElement>('#media-library-header')!);
+        this.renderContent(this.container.querySelector<HTMLElement>('#media-library-content')!);
+        this.onGridZoomChange?.(nextGridZoom);
     }
 
     private toggleFiltersPanel() {

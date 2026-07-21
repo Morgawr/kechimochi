@@ -116,6 +116,7 @@ describe('MediaView', () => {
         vi.mocked(api.getSetting).mockImplementation(async (key: string) => {
             if (key === SETTING_KEYS.GRID_HIDE_ARCHIVED) return 'true';
             if (key === SETTING_KEYS.LIBRARY_LAYOUT_MODE) return 'list';
+            if (key === SETTING_KEYS.LIBRARY_GRID_ZOOM) return '80';
             return null;
         });
 
@@ -128,8 +129,23 @@ describe('MediaView', () => {
             typeFilters: [],
             hideArchived: true,
             preferredLayout: 'list',
+            gridZoom: 80,
             isGridSupported: true,
         }));
+    });
+
+    it('uses the default grid zoom when the persisted value is malformed', async () => {
+        vi.mocked(api.getAllMedia).mockResolvedValue([]);
+        vi.mocked(api.getSetting).mockImplementation(async (key: string) => {
+            if (key === SETTING_KEYS.LIBRARY_GRID_ZOOM) return 'not-a-number';
+            return null;
+        });
+
+        const component = new MediaView(container);
+        await renderAndWaitForBrowser(component);
+
+        const browserProps = vi.mocked(MediaLibraryBrowser).mock.calls[0][1];
+        expect(browserProps).toEqual(expect.objectContaining({ gridZoom: 100 }));
     });
 
     it('supports missing matchMedia by treating grid as available', async () => {
@@ -476,6 +492,19 @@ describe('MediaView', () => {
         expect(api.setSetting).toHaveBeenCalledWith(SETTING_KEYS.LIBRARY_LAYOUT_MODE, 'list');
         // @ts-expect-error - accessing private state for assertions
         expect(component.state.preferredLayout).toBe('list');
+    });
+
+    it('stores the grid zoom when the user changes the cover size', async () => {
+        vi.mocked(api.getAllMedia).mockResolvedValue([]);
+        const component = new MediaView(container);
+        await renderAndWaitForBrowser(component);
+
+        const onGridZoomChange = vi.mocked(MediaLibraryBrowser).mock.calls[0][6];
+        onGridZoomChange(70);
+
+        expect(api.setSetting).toHaveBeenCalledWith(SETTING_KEYS.LIBRARY_GRID_ZOOM, '70');
+        // @ts-expect-error - accessing private state for assertions
+        expect(component.state.gridZoom).toBe(70);
     });
 
     it('loads list metrics after switching from grid to list and aggregates first/last dates', async () => {

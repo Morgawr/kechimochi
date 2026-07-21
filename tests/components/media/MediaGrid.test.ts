@@ -18,7 +18,7 @@ describe('MediaGrid', () => {
             { id: 1, title: 'Item 1', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' },
             { id: 2, title: 'Item 2', status: 'Active', content_type: 'Manga', tracking_status: 'Complete' },
         ];
-        const component = new MediaGrid(env.container, { mediaList: mediaList as Media[] }, vi.fn());
+        const component = new MediaGrid(env.container, { mediaList: mediaList as Media[], gridZoom: 100 }, vi.fn());
 
         component.render();
         vi.runAllTimers();
@@ -29,7 +29,7 @@ describe('MediaGrid', () => {
     });
 
     it('shows the empty state when no media is available', () => {
-        const component = new MediaGrid(env.container, { mediaList: [] }, vi.fn());
+        const component = new MediaGrid(env.container, { mediaList: [], gridZoom: 100 }, vi.fn());
 
         component.render();
 
@@ -39,7 +39,7 @@ describe('MediaGrid', () => {
 
     it('renders additional batches for long grids', () => {
         const mediaList = createCollectionMediaList(22);
-        const component = new MediaGrid(env.container, { mediaList }, vi.fn());
+        const component = new MediaGrid(env.container, { mediaList, gridZoom: 100 }, vi.fn());
 
         component.render();
         expect(MediaItem).toHaveBeenCalledTimes(15);
@@ -48,5 +48,35 @@ describe('MediaGrid', () => {
 
         expect(MediaItem).toHaveBeenCalledTimes(22);
         expect(env.requestAnimationFrameSpy).toHaveBeenCalled();
+    });
+
+    it('scales the grid tracks and intrinsic item size with the selected zoom', () => {
+        const component = new MediaGrid(
+            env.container,
+            { mediaList: createCollectionMediaList(1), gridZoom: 70 },
+            vi.fn(),
+        );
+
+        component.render();
+
+        const grid = env.container.querySelector<HTMLElement>('#media-grid-container');
+        const item = env.container.querySelector<HTMLElement>('.media-item-wrapper');
+        expect(grid?.style.gridTemplateColumns).toContain('minmax(126px, 1fr)');
+        expect(grid?.style.gridAutoRows).toBe('224px');
+        expect(item?.style.containIntrinsicSize).toBe('126px 224px');
+    });
+
+    it('normalizes out-of-range zoom values before rendering', () => {
+        const component = new MediaGrid(
+            env.container,
+            { mediaList: createCollectionMediaList(1), gridZoom: 1000 },
+            vi.fn(),
+        );
+
+        component.render();
+
+        const grid = env.container.querySelector<HTMLElement>('#media-grid-container');
+        expect(grid?.style.gridTemplateColumns).toContain('minmax(234px, 1fr)');
+        expect(grid?.style.gridAutoRows).toBe('416px');
     });
 });

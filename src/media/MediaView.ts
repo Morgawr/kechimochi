@@ -5,7 +5,13 @@ import { MediaLibraryBrowser, type LibraryMediaSelection } from './MediaLibraryB
 import { MediaDetail } from './MediaDetail';
 import { Logger } from '../logger';
 import { SETTING_KEYS, EVENTS, VIEW_NAMES } from '../constants';
-import { GRID_LAYOUT_MEDIA_QUERY, type LibraryActivityMetrics, type LibraryLayoutMode } from './library_types';
+import {
+    GRID_LAYOUT_MEDIA_QUERY,
+    LIBRARY_GRID_ZOOM,
+    normalizeLibraryGridZoom,
+    type LibraryActivityMetrics,
+    type LibraryLayoutMode,
+} from './library_types';
 
 interface MediaViewState {
     viewMode: 'grid' | 'detail';
@@ -20,6 +26,7 @@ interface MediaViewState {
         hideArchived: boolean;
     };
     preferredLayout: LibraryLayoutMode;
+    gridZoom: number;
     isGridSupported: boolean;
     listMetricsByMediaId: Record<number, LibraryActivityMetrics>;
     isListMetricsLoaded: boolean;
@@ -55,6 +62,7 @@ export class MediaView extends Component<MediaViewState> {
                 hideArchived: false,
             },
             preferredLayout: 'grid',
+            gridZoom: LIBRARY_GRID_ZOOM.DEFAULT,
             isGridSupported: MediaView.isGridLayoutSupported(),
             listMetricsByMediaId: {},
             isListMetricsLoaded: false,
@@ -321,14 +329,16 @@ private async handleBack() {
     private async loadInitialPreferences() {
         let nextFilters = this.state.libraryFilters;
         let nextPreferredLayout = this.state.preferredLayout;
+        let nextGridZoom = this.state.gridZoom;
 
         if (this.state.isInitialized) {
-            return { nextFilters, nextPreferredLayout };
+            return { nextFilters, nextPreferredLayout, nextGridZoom };
         }
 
-        const [hideArchivedStr, storedLayout] = await Promise.all([
+        const [hideArchivedStr, storedLayout, storedGridZoom] = await Promise.all([
             getSetting(SETTING_KEYS.GRID_HIDE_ARCHIVED),
             getSetting(SETTING_KEYS.LIBRARY_LAYOUT_MODE),
+            getSetting(SETTING_KEYS.LIBRARY_GRID_ZOOM),
         ]);
 
         if (hideArchivedStr != null) {
@@ -342,7 +352,9 @@ private async handleBack() {
             nextPreferredLayout = storedLayout;
         }
 
-        return { nextFilters, nextPreferredLayout };
+        nextGridZoom = normalizeLibraryGridZoom(storedGridZoom);
+
+        return { nextFilters, nextPreferredLayout, nextGridZoom };
     }
 
     private resolveDetailState(mediaList: Media[], jumpToId?: number) {
@@ -393,6 +405,7 @@ private async handleBack() {
             const initialPreferences = await this.loadInitialPreferences();
             let nextFilters = initialPreferences.nextFilters;
             const nextPreferredLayout = initialPreferences.nextPreferredLayout;
+            const nextGridZoom = initialPreferences.nextGridZoom;
 
             const mediaList = await getAllMedia();
             const availableTypes = new Set(mediaList.map((media) => (media.content_type || 'Unknown').trim() || 'Unknown'));
@@ -417,6 +430,7 @@ private async handleBack() {
                 currentIndex,
                 libraryFilters: nextFilters,
                 preferredLayout: nextPreferredLayout,
+                gridZoom: nextGridZoom,
                 isGridSupported: MediaView.isGridLayoutSupported(),
                 listMetricsByMediaId: {},
                 isListMetricsLoaded: false,
@@ -477,6 +491,7 @@ private async handleBack() {
                 mediaList: this.state.libraryMediaList,
                 ...this.state.libraryFilters,
                 preferredLayout: this.state.preferredLayout,
+                gridZoom: this.state.gridZoom,
                 isGridSupported: this.state.isGridSupported,
                 listMetricsByMediaId: this.state.listMetricsByMediaId,
                 isListMetricsLoading: this.state.isListMetricsLoading,
@@ -502,6 +517,13 @@ private async handleBack() {
                 this.runAsync(
                     setSetting(SETTING_KEYS.LIBRARY_LAYOUT_MODE, layout),
                     'Failed to persist library layout preference',
+                );
+            },
+            (gridZoom) => {
+                this.setState({ gridZoom });
+                this.runAsync(
+                    setSetting(SETTING_KEYS.LIBRARY_GRID_ZOOM, gridZoom.toString()),
+                    'Failed to persist library grid zoom',
                 );
             },
         );
