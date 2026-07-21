@@ -1,15 +1,16 @@
 /**
  * Import and conflict resolution helpers.
  */
-import { dismissAlert } from './common.js';
+import { dismissAlert, getTopmostVisibleOverlay, waitForOverlayToDisappear } from './common.js';
 import { setText } from './form-controls.js';
 
 /**
  * Handle the media import conflict modal.
  */
-export async function resolveConflicts(action: 'keep' | 'replace'): Promise<void> {
+export async function resolveConflicts(action: 'keep' | 'replace', expectSuccessAlert = true): Promise<void> {
     const modal = $('.modal-content');
     await modal.waitForDisplayed({ timeout: 5000 });
+    const overlay = await getTopmostVisibleOverlay('#conflict-confirm');
 
     for await (const radio of $$(`input[value="${action}"]`)) {
         await radio.waitForClickable({ timeout: 5000 });
@@ -21,9 +22,11 @@ export async function resolveConflicts(action: 'keep' | 'replace'): Promise<void
 
     // Click and wait for completion
     await confirmBtn.click();
+    await waitForOverlayToDisappear(overlay);
 
-    // Success alert follows
-    await dismissAlert(undefined, 10000);
+    if (expectSuccessAlert) {
+        await dismissAlert(undefined, 10000);
+    }
 }
 
 /**

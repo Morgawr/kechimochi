@@ -148,6 +148,29 @@ describe('MediaDetail', () => {
         ));
     });
 
+    it('persists changes to the default activity type', async () => {
+        vi.mocked(api.getMilestones).mockResolvedValue([]);
+        vi.mocked(api.updateMedia).mockResolvedValue(undefined);
+        const component = new MediaDetail(
+            container,
+            { ...mockMedia } as unknown as Media,
+            [],
+            [{ ...mockMedia } as unknown as Media],
+            0,
+            mockCallbacks
+        );
+        component.render();
+        const activityType = container.querySelector('#default-activity-type') as HTMLSelectElement;
+
+        expect(activityType.value).toBe('Reading');
+        activityType.value = 'Watching';
+        activityType.dispatchEvent(new Event('change'));
+
+        await vi.waitFor(() => expect(api.updateMedia).toHaveBeenCalledWith(
+            expect.objectContaining({ default_activity_type: 'Watching' })
+        ));
+    });
+
     it('should load web cover images via services when not on desktop', async () => {
         mockServices.isDesktop.mockReturnValue(false);
         vi.mocked(api.getMilestones).mockResolvedValue([]);

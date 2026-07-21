@@ -57,3 +57,10 @@ export async function getTimelineEntrySnapshots(limit?: number): Promise<Timelin
             }));
     }, limit);
 }
+
+export async function openTimelineMedia(title: string): Promise<void> {
+    const link = $(`.timeline-media-link*=${title}`);
+    await link.waitForDisplayed({ timeout: 5000 });
+    await link.click();
+    await $('#media-detail-header').waitForDisplayed({ timeout: 8000 });
+}

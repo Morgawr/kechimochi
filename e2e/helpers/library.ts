@@ -146,6 +146,13 @@ export async function addMedia(title: string, type: string, contentType?: string
         await navigateTo('media');
     }
 
+    // The media nav remains active while detail is open. Return to the browser
+    // before looking for the grid-only Add button.
+    if (await $('#media-detail-header').isDisplayed().catch(() => false)) {
+        await safeClickBySelector('#btn-back-grid');
+        await waitForLibraryDisplayed();
+    }
+
     await waitForNoActiveOverlays(5_000).catch(() => undefined);
 
     const addBtn = $('#btn-add-media-grid');

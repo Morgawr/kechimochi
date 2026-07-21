@@ -10,6 +10,7 @@ import {
   waitForHeatmapReady,
   selectActivityChartTimeRange,
   getActivityChartRangeMetadata,
+  getStatValue,
 } from '../../helpers/dashboard.js';
 
 describe('Dashboard CUJ', () => {
@@ -34,15 +35,18 @@ describe('Dashboard CUJ', () => {
   });
 
   it('should display stats cards with fixture data', async () => {
-    const statsCards = $$('.card');
-    expect(await statsCards.length).toBeGreaterThan(0);
+    expect(await getStatValue('stat-total-logs')).toBeGreaterThan(0);
+    expect(await getStatValue('stat-total-media')).toBeGreaterThan(0);
+    expect(await getStatValue('stat-max-streak')).toBeGreaterThan(0);
+    expect(await getStatValue('stat-total-hours')).toBeGreaterThan(0);
+    expect(await $('#stat-total-chars').isExisting()).toBe(false);
   });
 
   it('should have a functional view with no broken state', async () => {
     await verifyViewNotBroken();
   });
 
-  it('should match the baseline screenshot', async () => {
+  it('should capture a non-blocking dashboard visual diff', async () => {
     await takeAndCompareScreenshot('dashboard-initial');
   });
 

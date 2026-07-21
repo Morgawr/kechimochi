@@ -9,7 +9,8 @@ import {
     waitForOverlayToDisappear,
     safeClick,
     waitForNoActiveOverlays,
-    selectActivityDate
+    selectActivityDate,
+    setDialogMockPath,
 } from './common.js';
 import { getSelectValue, setText, setSelect } from './form-controls.js';
 import { type LibraryLayoutMode, waitForLibraryLayout, waitForLibraryDisplayed, isLayoutToggleAvailable } from './library.js';
@@ -476,10 +477,43 @@ export async function getMilestoneListText(): Promise<string> {
     return await list.getText();
 }
 
+/** Uploads a cover through the real desktop picker flow and waits for it to render. */
+export async function uploadCoverImage(imagePath: string): Promise<string> {
+    await setDialogMockPath(imagePath);
+    const cover = $('#media-cover-img');
+    await cover.waitForDisplayed({ timeout: 5000 });
+    await browser.execute(() => {
+        document.getElementById('media-cover-img')?.dispatchEvent(new MouseEvent('dblclick', {
+            bubbles: true,
+            cancelable: true,
+            detail: 2,
+            view: globalThis as unknown as Window,
+        }));
+    });
+
+    await browser.waitUntil(async () => {
+        const image = $('#media-cover-img');
+        if ((await image.getTagName().catch(() => '')) !== 'img') return false;
+        const src = await image.getAttribute('src').catch(() => '');
+        return Boolean(src && src !== '');
+    }, {
+        timeout: 10000,
+        timeoutMsg: 'Uploaded media cover did not render as an image',
+    });
+
+    return (await $('#media-cover-img').getAttribute('src')) || '';
+}
+
 /**
  * Logs an activity directly from the Media Detail view using the "+ New Entry" button.
  */
-export async function logActivityFromDetail(expectedTitle: string, duration: string, characters: string = "0", activityType?: string): Promise<void> {
+export async function logActivityFromDetail(
+    expectedTitle: string,
+    duration: string,
+    characters: string = "0",
+    activityType?: string,
+    notes?: string,
+): Promise<void> {
     await waitForNoActiveOverlays();
     await safeClick('#btn-new-media-entry');
 
@@ -513,6 +547,11 @@ export async function logActivityFromDetail(expectedTitle: string, duration: str
         }
     }
 
+
+    if (notes !== undefined && await overlay.$('#activity-notes').isExisting()) {
+        await setText('#activity-notes', notes);
+    }
+
     // Pick today in the calendar
     await selectActivityDate();
 
@@ -537,12 +576,23 @@ export async function logActivityFromDetail(expectedTitle: string, duration: str
 /**
  * Edits the most recent log in the Media Detail view.
  */
-export async function editMostRecentLogFromDetail(newDuration: string, newCharacters: string = "0"): Promise<void> {
+export async function editMostRecentLogFromDetail(
+    newDuration: string,
+    newCharacters: string = "0",
+    newNotes?: string,
+    newActivityType?: string,
+): Promise<void> {
     const logItem = $('.media-detail-log-item');
     await logItem.waitForDisplayed({ timeout: 5000 });
     const logId = await logItem.getAttribute('data-id');
 
-    await performActivityEdit('.media-detail-log-item .edit-log-btn', newDuration, newCharacters);
+    await performActivityEdit(
+        '.media-detail-log-item .edit-log-btn',
+        newDuration,
+        newCharacters,
+        newNotes,
+        newActivityType,
+    );
 
     await browser.waitUntil(async () => {
         const updatedItem = $(`.media-detail-log-item[data-id="${logId}"][data-duration-minutes="${newDuration}"][data-characters="${newCharacters}"]`);

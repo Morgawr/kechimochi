@@ -290,7 +290,13 @@ export class DesktopServices implements AppServices {
             Promise.resolve(this.getWin().minimize()).catch(() => undefined);
             return;
         }
-        Promise.resolve(this.getWin().close()).catch(() => undefined);
+        // Persist immediately before closing. The plugin also saves on the
+        // application Exit event, but some window managers terminate the
+        // WebView before that event can finish writing the state file.
+        Promise.resolve(invoke('plugin:window-state|save_window_state', { flags: null }))
+            .catch(() => undefined)
+            .then(() => this.getWin().close())
+            .catch(() => undefined);
     }
     subscribeSystemBack(handler: () => void | Promise<void>): Promise<() => void> {
         if (!this.isAndroidRuntime()) {

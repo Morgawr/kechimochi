@@ -3,6 +3,7 @@ import { waitForAppReady } from '../../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../../helpers/navigation.js';
 import { confirmAction, dismissAlert, safeClick } from '../../helpers/common.js';
 import { setText } from '../../helpers/form-controls.js';
+import { clickMediaItem, isMediaNotVisible, isMediaVisible } from '../../helpers/library.js';
 
 async function getFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -177,12 +178,96 @@ describe('HTTP API CUJ', () => {
     expect(media.length).toBeGreaterThan(0);
   });
 
+  it('creates and deletes user data through automation endpoints and reflects it in the app', async () => {
+    const title = 'HTTP API Automation Journey';
+    const jsonHeaders = { 'content-type': 'application/json' };
+    const mediaResponse = await fetchWithTimeout(`${baseUrl}/api/media`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        id: null,
+        title,
+        variant: 'API Edition',
+        default_activity_type: 'Reading',
+        status: 'Active',
+        language: 'Japanese',
+        description: 'Created through the local API',
+        cover_image: '',
+        extra_data: '{}',
+        content_type: 'Novel',
+        tracking_status: 'Ongoing',
+      }),
+    });
+    expect(mediaResponse.status).toBe(200);
+    const mediaId = await mediaResponse.json() as number;
+
+    const logResponse = await fetchWithTimeout(`${baseUrl}/api/logs`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        id: null,
+        media_id: mediaId,
+        duration_minutes: 29,
+        characters: 1800,
+        date: '2024-03-31',
+        activity_type: 'Watching',
+        notes: 'Written through API',
+      }),
+    });
+    expect(logResponse.status).toBe(200);
+    const logId = await logResponse.json() as number;
+
+    const milestoneResponse = await fetchWithTimeout(`${baseUrl}/api/milestones`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        id: null,
+        media_uid: null,
+        media_title: title,
+        name: 'API milestone',
+        duration: 29,
+        characters: 1800,
+        date: '2024-03-31',
+      }),
+    });
+    expect(milestoneResponse.status).toBe(200);
+    const milestoneId = await milestoneResponse.json() as number;
+
+    const settingResponse = await fetchWithTimeout(`${baseUrl}/api/settings/theme`, {
+      method: 'PUT',
+      headers: jsonHeaders,
+      body: JSON.stringify({ value: 'molokai' }),
+    });
+    expect(settingResponse.status).toBe(200);
+
+    await browser.refresh();
+    await waitForAppReady();
+    await navigateTo('media');
+    expect(await isMediaVisible(title)).toBe(true);
+    await clickMediaItem(title);
+    expect(await $('#media-description').getText()).toContain('Created through the local API');
+    expect(await $('#media-logs-container').getText()).toContain('29 Minutes');
+    expect(await $('#media-logs-container').getText()).toContain('Written through API');
+    expect(await $('#milestone-list-container').getText()).toContain('API milestone');
+    expect(await $('body').getAttribute('data-theme')).toBe('molokai');
+
+    expect((await fetchWithTimeout(`${baseUrl}/api/logs/${logId}`, { method: 'DELETE' })).status).toBe(200);
+    expect((await fetchWithTimeout(`${baseUrl}/api/milestones/${milestoneId}`, { method: 'DELETE' })).status).toBe(200);
+    expect((await fetchWithTimeout(`${baseUrl}/api/media/${mediaId}`, { method: 'DELETE' })).status).toBe(200);
+
+    await browser.refresh();
+    await waitForAppReady();
+    await navigateTo('media');
+    expect(await isMediaNotVisible(title)).toBe(true);
+  });
+
   it('verifies full-scope export endpoints are unavailable by default', async () => {
     const defaultFullScopeResponse = await fetchWithTimeout(`${baseUrl}/api/export/milestones`);
     expect(defaultFullScopeResponse.status).toBe(404);
   });
 
   it('enables full scope and verifies milestone export now works after restart', async () => {
+    await navigateTo('profile');
     await selectFullScopeAndSave();
     await waitForHttpApiUp(baseUrl);
 

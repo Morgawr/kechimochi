@@ -236,15 +236,16 @@ describe('DesktopServices', () => {
         expect(result).toBe(unlisten);
     });
 
-    it('caches the current window for window control methods', () => {
+    it('caches the current window and saves state before closing it', async () => {
         services.minimizeWindow();
         services.maximizeWindow();
         services.closeWindow();
 
+        await vi.waitFor(() => expect(close).toHaveBeenCalled());
         expect(getCurrentWindow).toHaveBeenCalledTimes(1);
         expect(minimize).toHaveBeenCalled();
         expect(toggleMaximize).toHaveBeenCalled();
-        expect(close).toHaveBeenCalled();
+        expect(invoke).toHaveBeenCalledWith('plugin:window-state|save_window_state', { flags: null });
     });
 
     it('minimizes the app when closing on Android', () => {

@@ -172,7 +172,7 @@ describe('Media Grid CUJ', () => {
     await verifyViewNotBroken();
   });
 
-  it('should match the baseline screenshot', async () => {
+  it('should capture a non-blocking library visual diff', async () => {
     await navigateTo('media');
     await takeAndCompareScreenshot('media-grid');
   });
