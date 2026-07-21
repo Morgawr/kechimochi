@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+    buildLibraryRows,
     flattenLibraryRows,
     groupMediaByType,
     toLibraryItemRows,
@@ -103,10 +104,10 @@ describe('grouping and flattening', () => {
         const rows = flattenLibraryRows(groups);
 
         expect(rows).toEqual([
-            { kind: 'header', contentType: 'Manga', label: 'Manga' },
+            { kind: 'header', contentType: 'Manga' },
             { kind: 'item', media: groups[0].items[0] },
             { kind: 'item', media: groups[0].items[1] },
-            { kind: 'header', contentType: 'Novel', label: 'Novel' },
+            { kind: 'header', contentType: 'Novel' },
             { kind: 'item', media: groups[1].items[0] },
         ]);
     });
@@ -135,5 +136,37 @@ describe('toLibraryItemRows', () => {
 
     it('should return an empty array for an empty media list', () => {
         expect(toLibraryItemRows([])).toEqual([]);
+    });
+});
+
+describe('buildLibraryRows', () => {
+    it('should return grouped rows with headers when grouping is on', () => {
+        const mediaList = [
+            makeMedia({ id: 1, title: 'A', content_type: 'Novel' }),
+            makeMedia({ id: 2, title: 'B', content_type: 'Manga' }),
+        ];
+
+        const rows = buildLibraryRows(mediaList, true, ['Manga', 'Novel']);
+
+        expect(rows).toEqual([
+            { kind: 'header', contentType: 'Manga' },
+            { kind: 'item', media: mediaList[1] },
+            { kind: 'header', contentType: 'Novel' },
+            { kind: 'item', media: mediaList[0] },
+        ]);
+    });
+
+    it('should return flat item rows with no headers when grouping is off', () => {
+        const mediaList = [
+            makeMedia({ id: 1, title: 'A', content_type: 'Novel' }),
+            makeMedia({ id: 2, title: 'B', content_type: 'Manga' }),
+        ];
+
+        const rows = buildLibraryRows(mediaList, false, ['Manga', 'Novel']);
+
+        expect(rows).toEqual([
+            { kind: 'item', media: mediaList[0] },
+            { kind: 'item', media: mediaList[1] },
+        ]);
     });
 });

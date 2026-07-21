@@ -41,51 +41,65 @@ interface BuiltinSortDefinition {
     valueKind: SortValueKind;
     resolve: (media: Media, options: LibrarySortOptions) => ResolvedSortValue;
     resolveTiebreak?: (media: Media) => string;
+    needsMetrics: boolean;
 }
 
 const BUILTIN_SORT_DEFINITIONS: Record<LibraryBuiltinSortKey, BuiltinSortDefinition> = {
     default: {
         valueKind: 'text',
         resolve: () => null,
+        needsMetrics: false,
     },
     title: {
         valueKind: 'text',
         resolve: media => media.title,
         resolveTiebreak: media => media.variant ?? '',
+        needsMetrics: false,
     },
     contentType: {
         valueKind: 'numeric',
         // Must use the same normalization as section grouping (resolveDisplayContentType), or
         // sorting by content type disagrees with what the section headers group media under.
         resolve: (media, options) => resolveEnumRank(resolveDisplayContentType(media), options.contentTypeOrder),
+        needsMetrics: false,
     },
     trackingStatus: {
         valueKind: 'numeric',
         resolve: (media, options) => resolveEnumRank(media.tracking_status, options.trackingStatusOrder),
+        needsMetrics: false,
     },
     dateAdded: {
         valueKind: 'numeric',
         // Media carries no creation timestamp; this leans on rowids being monotonic in
         // insertion order. Anything that reuses or backfills ids breaks this ordering.
         resolve: media => media.id ?? null,
+        needsMetrics: false,
     },
     lastActivity: {
         valueKind: 'text',
         resolve: (media, options) => resolveMetric(media, options.metricsByMediaId, metrics => metrics.lastActivityDate),
+        needsMetrics: true,
     },
     firstActivity: {
         valueKind: 'text',
         resolve: (media, options) => resolveMetric(media, options.metricsByMediaId, metrics => metrics.firstActivityDate),
+        needsMetrics: true,
     },
     timeLogged: {
         valueKind: 'numeric',
         resolve: (media, options) => resolveMetric(media, options.metricsByMediaId, metrics => metrics.totalMinutes),
+        needsMetrics: true,
     },
     totalCharacters: {
         valueKind: 'numeric',
         resolve: (media, options) => resolveMetric(media, options.metricsByMediaId, metrics => metrics.totalCharacters),
+        needsMetrics: true,
     },
 };
+
+export function sortStagesNeedMetrics(stages: LibrarySortStage[]): boolean {
+    return stages.some((stage) => stage.field.kind === 'builtin' && BUILTIN_SORT_DEFINITIONS[stage.field.key].needsMetrics);
+}
 
 export function findCanonicalName(names: string[], target: string): string | undefined {
     const normalizedTarget = target.toLowerCase();

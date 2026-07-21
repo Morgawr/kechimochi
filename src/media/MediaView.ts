@@ -19,17 +19,24 @@ import {
     parseLibrarySortStages,
     serializeLibrarySortStages,
     reconcileEnumOrder,
-    type LibraryBuiltinSortKey,
+    sortStagesNeedMetrics,
     type LibrarySortStage,
 } from './sorting';
 
-const METRICS_DEPENDENT_SORT_KEYS: ReadonlySet<LibraryBuiltinSortKey> = new Set([
-    'lastActivity', 'firstActivity', 'timeLogged', 'totalCharacters',
-]);
+type BooleanLibraryFilterField = 'hideArchived' | 'groupByType' | 'keepOngoingFirst' | 'keepArchivedLast';
 
-function sortStagesNeedMetrics(stages: LibrarySortStage[]): boolean {
-    return stages.some((stage) => stage.field.kind === 'builtin' && METRICS_DEPENDENT_SORT_KEYS.has(stage.field.key));
+interface BooleanLibraryFilterSettingDescriptor {
+    key: string;
+    field: BooleanLibraryFilterField;
+    errorLabel: string;
 }
+
+const BOOLEAN_LIBRARY_FILTER_SETTINGS: readonly BooleanLibraryFilterSettingDescriptor[] = [
+    { key: SETTING_KEYS.GRID_HIDE_ARCHIVED, field: 'hideArchived', errorLabel: 'hide archived' },
+    { key: SETTING_KEYS.LIBRARY_GROUP_BY_TYPE, field: 'groupByType', errorLabel: 'group by type' },
+    { key: SETTING_KEYS.LIBRARY_KEEP_ONGOING_FIRST, field: 'keepOngoingFirst', errorLabel: 'keep ongoing first' },
+    { key: SETTING_KEYS.LIBRARY_KEEP_ARCHIVED_LAST, field: 'keepArchivedLast', errorLabel: 'keep archived last' },
+];
 
 interface MediaViewLibraryFilters {
     searchQuery: string;
@@ -127,10 +134,14 @@ export class MediaView extends Component<MediaViewState> {
         ]);
         if (this.isDestroyed) return;
 
-        this.setState({
+        this.setState(MediaView.reconcileLibraryEnumOrders(contentTypeOrderStr, trackingStatusOrderStr));
+    }
+
+    private static reconcileLibraryEnumOrders(contentTypeOrderStr: string | null, trackingStatusOrderStr: string | null) {
+        return {
             contentTypeOrder: reconcileEnumOrder(contentTypeOrderStr, CONTENT_TYPES),
             trackingStatusOrder: reconcileEnumOrder(trackingStatusOrderStr, TRACKING_STATUSES),
-        });
+        };
     }
 
     private static isGridLayoutSupported(): boolean {
@@ -375,43 +386,41 @@ private async handleBack() {
         }
 
         const [
-            hideArchivedStr,
             storedLayout,
             storedGridZoom,
             sortStagesStr,
-            groupByTypeStr,
-            keepOngoingFirstStr,
-            keepArchivedLastStr,
             contentTypeOrderStr,
             trackingStatusOrderStr,
+            booleanFilterSettingValues,
         ] = await Promise.all([
-            getSetting(SETTING_KEYS.GRID_HIDE_ARCHIVED),
             getSetting(SETTING_KEYS.LIBRARY_LAYOUT_MODE),
             getSetting(SETTING_KEYS.LIBRARY_GRID_ZOOM),
             getSetting(SETTING_KEYS.LIBRARY_SORT_STAGES),
-            getSetting(SETTING_KEYS.LIBRARY_GROUP_BY_TYPE),
-            getSetting(SETTING_KEYS.LIBRARY_KEEP_ONGOING_FIRST),
-            getSetting(SETTING_KEYS.LIBRARY_KEEP_ARCHIVED_LAST),
             getSetting(SETTING_KEYS.CONTENT_TYPE_ORDER),
             getSetting(SETTING_KEYS.TRACKING_STATUS_ORDER),
+            Promise.all(BOOLEAN_LIBRARY_FILTER_SETTINGS.map((descriptor) => getSetting(descriptor.key))),
         ]);
 
         if (storedLayout === 'grid' || storedLayout === 'list') {
             nextPreferredLayout = storedLayout;
         }
 
+        const booleanFilterUpdates: Partial<Record<BooleanLibraryFilterField, boolean>> = {};
+        BOOLEAN_LIBRARY_FILTER_SETTINGS.forEach((descriptor, index) => {
+            const storedValue = booleanFilterSettingValues[index];
+            booleanFilterUpdates[descriptor.field] = storedValue != null ? storedValue === 'true' : nextFilters[descriptor.field];
+        });
+
         nextFilters = {
             ...nextFilters,
-            hideArchived: hideArchivedStr != null ? hideArchivedStr === 'true' : nextFilters.hideArchived,
+            ...booleanFilterUpdates,
             // Validated with the real extra-field names once the media list is available (loadData).
             sortStages: parseLibrarySortStages(sortStagesStr ?? '[]', []),
-            groupByType: groupByTypeStr != null ? groupByTypeStr === 'true' : nextFilters.groupByType,
-            keepOngoingFirst: keepOngoingFirstStr != null ? keepOngoingFirstStr === 'true' : nextFilters.keepOngoingFirst,
-            keepArchivedLast: keepArchivedLastStr != null ? keepArchivedLastStr === 'true' : nextFilters.keepArchivedLast,
         };
 
-        nextContentTypeOrder = reconcileEnumOrder(contentTypeOrderStr, CONTENT_TYPES);
-        nextTrackingStatusOrder = reconcileEnumOrder(trackingStatusOrderStr, TRACKING_STATUSES);
+        const reconciledEnumOrders = MediaView.reconcileLibraryEnumOrders(contentTypeOrderStr, trackingStatusOrderStr);
+        nextContentTypeOrder = reconciledEnumOrders.contentTypeOrder;
+        nextTrackingStatusOrder = reconciledEnumOrders.trackingStatusOrder;
         nextGridZoom = normalizeLibraryGridZoom(storedGridZoom);
 
         return { nextFilters, nextPreferredLayout, nextContentTypeOrder, nextTrackingStatusOrder, nextGridZoom };
@@ -601,42 +610,25 @@ private async handleBack() {
                 const oldFilters = this.state.libraryFilters;
                 this.state.libraryFilters = { ...oldFilters, ...filters };
 
-                if (filters.hideArchived !== undefined && oldFilters.hideArchived !== filters.hideArchived) {
-                    this.runAsync(
-                        setSetting(SETTING_KEYS.GRID_HIDE_ARCHIVED, filters.hideArchived.toString()),
-                        'Failed to persist hide archived preference',
-                    );
+                for (const descriptor of BOOLEAN_LIBRARY_FILTER_SETTINGS) {
+                    const value = filters[descriptor.field];
+                    if (value !== undefined && oldFilters[descriptor.field] !== value) {
+                        this.runAsync(
+                            setSetting(descriptor.key, value.toString()),
+                            `Failed to persist ${descriptor.errorLabel} preference`,
+                        );
+                    }
                 }
 
                 if (filters.sortStages !== undefined) {
                     const serializedSortStages = serializeLibrarySortStages(filters.sortStages);
-                    if (serializedSortStages !== serializeLibrarySortStages(oldFilters.sortStages)) {
+                    const serializedOldSortStages = serializeLibrarySortStages(oldFilters.sortStages);
+                    if (serializedSortStages !== serializedOldSortStages) {
                         this.runAsync(
                             setSetting(SETTING_KEYS.LIBRARY_SORT_STAGES, serializedSortStages),
                             'Failed to persist library sort stages preference',
                         );
                     }
-                }
-
-                if (filters.groupByType !== undefined && oldFilters.groupByType !== filters.groupByType) {
-                    this.runAsync(
-                        setSetting(SETTING_KEYS.LIBRARY_GROUP_BY_TYPE, filters.groupByType.toString()),
-                        'Failed to persist group by type preference',
-                    );
-                }
-
-                if (filters.keepOngoingFirst !== undefined && oldFilters.keepOngoingFirst !== filters.keepOngoingFirst) {
-                    this.runAsync(
-                        setSetting(SETTING_KEYS.LIBRARY_KEEP_ONGOING_FIRST, filters.keepOngoingFirst.toString()),
-                        'Failed to persist keep ongoing first preference',
-                    );
-                }
-
-                if (filters.keepArchivedLast !== undefined && oldFilters.keepArchivedLast !== filters.keepArchivedLast) {
-                    this.runAsync(
-                        setSetting(SETTING_KEYS.LIBRARY_KEEP_ARCHIVED_LAST, filters.keepArchivedLast.toString()),
-                        'Failed to persist keep archived last preference',
-                    );
                 }
             },
             (layout) => {

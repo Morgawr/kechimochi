@@ -2,7 +2,7 @@ import type { Media } from '../../types';
 import { resolveDisplayContentType } from '../content_type';
 
 export type LibraryRow =
-    | { kind: 'header'; contentType: string; label: string }
+    | { kind: 'header'; contentType: string }
     | { kind: 'item'; media: Media };
 
 export interface LibraryTypeGroup {
@@ -41,7 +41,7 @@ export function flattenLibraryRows(groups: LibraryTypeGroup[]): LibraryRow[] {
     const rows: LibraryRow[] = [];
 
     for (const group of groups) {
-        rows.push({ kind: 'header', contentType: group.contentType, label: group.contentType });
+        rows.push({ kind: 'header', contentType: group.contentType });
         for (const media of group.items) {
             rows.push({ kind: 'item', media });
         }
@@ -52,4 +52,10 @@ export function flattenLibraryRows(groups: LibraryTypeGroup[]): LibraryRow[] {
 
 export function toLibraryItemRows(mediaList: Media[]): LibraryRow[] {
     return mediaList.map(media => ({ kind: 'item', media }));
+}
+
+export function buildLibraryRows(sortedList: Media[], groupByType: boolean, contentTypeOrder: string[]): LibraryRow[] {
+    return groupByType
+        ? flattenLibraryRows(groupMediaByType(sortedList, contentTypeOrder))
+        : toLibraryItemRows(sortedList);
 }

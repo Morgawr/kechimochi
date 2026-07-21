@@ -45,7 +45,7 @@ export class MediaList extends Component<MediaListState> {
             shouldContinue: () => !this.isDestroyed && renderId === this.currentRenderId,
             createItemWrapper: (row, index, isFirstBatch) => {
                 if (row.kind === 'header') {
-                    return createLibrarySectionHeaderWrapper(row.label, isFirstBatch ? index * 0.02 : 0, false);
+                    return createLibrarySectionHeaderWrapper(row.contentType, isFirstBatch ? index * 0.02 : 0, false);
                 }
 
                 const media = row.media;

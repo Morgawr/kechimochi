@@ -15,11 +15,9 @@ import { resolveDisplayContentType } from './content_type';
 import {
     applyLibrarySort,
     buildExtraDataIndex,
-    flattenLibraryRows,
+    buildLibraryRows,
     fromSortFieldOptionValue,
     getUniqueExtraFieldNames,
-    groupMediaByType,
-    toLibraryItemRows,
     toSortFieldOptionValue,
     LIBRARY_BUILTIN_SORT_KEYS,
     type LibraryBuiltinSortKey,
@@ -93,6 +91,60 @@ const LIBRARY_BUILTIN_SORT_LABELS: Record<LibraryBuiltinSortKey, string> = {
 };
 
 const LIBRARY_SORT_TIEBREAKER_NOTE = 'Ties broken by last activity (newest first)';
+
+interface SortSwitchConfig {
+    id: string;
+    label: string;
+    stateKey: 'groupByType' | 'keepOngoingFirst' | 'keepArchivedLast';
+    disabledWhenArchivedHidden: boolean;
+}
+
+const SORT_SWITCH_CONFIGS: readonly SortSwitchConfig[] = [
+    { id: 'sort-group-by-type', label: 'Group by type', stateKey: 'groupByType', disabledWhenArchivedHidden: false },
+    { id: 'sort-keep-ongoing-first', label: 'Keep ongoing first', stateKey: 'keepOngoingFirst', disabledWhenArchivedHidden: false },
+    { id: 'sort-keep-archived-last', label: 'Keep archived last', stateKey: 'keepArchivedLast', disabledWhenArchivedHidden: true },
+];
+
+function renderPaneToggleButton({ id, label, panelId, isExpanded, count, countLabel }: {
+    id: string;
+    label: string;
+    panelId: string;
+    isExpanded: boolean;
+    count: number;
+    countLabel: string;
+}): string {
+    const countBadge = count > 0
+        ? `<span class="media-grid-filter-count" aria-label="${count} ${countLabel}">${count}</span>`
+        : '';
+
+    return `
+        <button class="media-grid-filters-toggle" id="${id}" aria-expanded="${isExpanded}" aria-controls="${panelId}">
+            <span>${label}</span>
+            ${countBadge}
+            <svg class="media-grid-filters-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                <path d="M2.5 4.5L6 7.5L9.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
+            </svg>
+        </button>
+    `;
+}
+
+function renderCollapsiblePanel({ id, isExpanded, body }: {
+    id: string;
+    isExpanded: boolean;
+    body: string;
+}): string {
+    const panelStyle = isExpanded
+        ? 'style="height: auto; opacity: 1; transform: translateY(0); pointer-events: auto;"'
+        : 'style="height: 0; opacity: 0; transform: translateY(-8px); pointer-events: none;"';
+
+    return `
+        <div id="${id}" class="media-grid-filter-panel ${isExpanded ? 'is-expanded' : 'is-collapsed'}" aria-hidden="${isExpanded ? 'false' : 'true'}" ${panelStyle}>
+            <div class="media-grid-filter-panel-body">
+                ${body}
+            </div>
+        </div>
+    `;
+}
 
 export interface LibraryMediaSelection {
     mediaId: number;
@@ -261,29 +313,24 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
     private renderSortSwitches(): string {
         const archivedDisabled = this.state.hideArchived;
 
+        const switchesMarkup = SORT_SWITCH_CONFIGS.map(({ id, label, stateKey, disabledWhenArchivedHidden }) => {
+            const isDisabled = disabledWhenArchivedHidden && archivedDisabled;
+            const isChecked = this.state[stateKey];
+
+            return `
+                <label class="media-sort-switch ${isDisabled ? 'is-disabled' : ''}" id="${id}-switch">
+                    <span>${label}</span>
+                    <span class="switch">
+                        <input type="checkbox" id="${id}" ${isChecked ? 'checked' : ''} ${isDisabled ? 'disabled' : ''}>
+                        <span class="slider round"></span>
+                    </span>
+                </label>
+            `;
+        }).join('');
+
         return `
             <div class="media-sort-switch-group" role="group" aria-label="Library grouping and ordering switches">
-                <label class="media-sort-switch" id="sort-group-by-type-switch">
-                    <span>Group by type</span>
-                    <span class="switch">
-                        <input type="checkbox" id="sort-group-by-type" ${this.state.groupByType ? 'checked' : ''}>
-                        <span class="slider round"></span>
-                    </span>
-                </label>
-                <label class="media-sort-switch" id="sort-keep-ongoing-first-switch">
-                    <span>Keep ongoing first</span>
-                    <span class="switch">
-                        <input type="checkbox" id="sort-keep-ongoing-first" ${this.state.keepOngoingFirst ? 'checked' : ''}>
-                        <span class="slider round"></span>
-                    </span>
-                </label>
-                <label class="media-sort-switch ${archivedDisabled ? 'is-disabled' : ''}" id="sort-keep-archived-last-switch">
-                    <span>Keep archived last</span>
-                    <span class="switch">
-                        <input type="checkbox" id="sort-keep-archived-last" ${this.state.keepArchivedLast ? 'checked' : ''} ${archivedDisabled ? 'disabled' : ''}>
-                        <span class="slider round"></span>
-                    </span>
-                </label>
+                ${switchesMarkup}
             </div>
         `;
     }
@@ -399,22 +446,27 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         const uniqueTypes = this.getUniqueTypes();
         const activeLayout = this.getActiveLayout();
         const activeFilterCount = this.getActiveFilterCount();
-        const filterCountBadge = activeFilterCount > 0
-            ? `<span class="media-grid-filter-count" aria-label="${activeFilterCount} active library filters">${activeFilterCount}</span>`
-            : '';
-        const panelStyle = this.state.filtersExpanded
-            ? 'style="height: auto; opacity: 1; transform: translateY(0); pointer-events: auto;"'
-            : 'style="height: 0; opacity: 0; transform: translateY(-8px); pointer-events: none;"';
         const compactHint = this.state.isGridSupported
             ? ''
             : '<span class="media-layout-hint">Grid re-enables when the window is wider.</span>';
         const sortLevelCount = this.getSortLevelCount();
-        const sortCountBadge = sortLevelCount > 0
-            ? `<span class="media-grid-filter-count" aria-label="${sortLevelCount} active sort levels">${sortLevelCount}</span>`
-            : '';
-        const sortPanelStyle = this.state.sortExpanded
-            ? 'style="height: auto; opacity: 1; transform: translateY(0); pointer-events: auto;"'
-            : 'style="height: 0; opacity: 0; transform: translateY(-8px); pointer-events: none;"';
+
+        const filterTrayBody = `
+            <div id="media-grid-filter-tray" class="media-grid-filter-tray">
+                ${this.renderFilterChipGroup('Status', 'status', TRACKING_STATUSES, this.state.statusFilters)}
+                ${this.renderFilterChipGroup('Type', 'type', uniqueTypes, this.state.typeFilters)}
+                <div class="media-grid-filter-row">
+                    <div class="media-grid-filter-label">Other</div>
+                    <div class="media-grid-archive-toggle" style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span style="font-size: 0.85rem; color: var(--text-secondary);">Hide Archived</span>
+                        <label class="switch" style="font-size: 0.7rem;">
+                            <input type="checkbox" id="grid-hide-archived" ${this.state.hideArchived ? 'checked' : ''}>
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        `;
 
         const header = html`
             <div class="media-grid-toolbar-shell">
@@ -459,48 +511,37 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
 
                         ${rawHtml(this.renderGridZoomControl())}
 
-                        <button class="media-grid-filters-toggle" id="btn-toggle-filters" aria-expanded="${this.state.filtersExpanded}" aria-controls="media-grid-filter-panel">
-                            <span>Filters</span>
-                            ${rawHtml(filterCountBadge)}
-                            <svg class="media-grid-filters-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                                <path d="M2.5 4.5L6 7.5L9.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
-                            </svg>
-                        </button>
+                        ${rawHtml(renderPaneToggleButton({
+                            id: 'btn-toggle-filters',
+                            label: 'Filters',
+                            panelId: 'media-grid-filter-panel',
+                            isExpanded: this.state.filtersExpanded,
+                            count: activeFilterCount,
+                            countLabel: 'active library filters',
+                        }))}
 
-                        <button class="media-grid-filters-toggle" id="btn-toggle-sort" aria-expanded="${this.state.sortExpanded}" aria-controls="media-sort-panel">
-                            <span>Sort</span>
-                            ${rawHtml(sortCountBadge)}
-                            <svg class="media-grid-filters-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                                <path d="M2.5 4.5L6 7.5L9.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
-                            </svg>
-                        </button>
+                        ${rawHtml(renderPaneToggleButton({
+                            id: 'btn-toggle-sort',
+                            label: 'Sort',
+                            panelId: 'media-sort-panel',
+                            isExpanded: this.state.sortExpanded,
+                            count: sortLevelCount,
+                            countLabel: 'active sort levels',
+                        }))}
                     </div>
                 </div>
 
-                <div id="media-grid-filter-panel" class="media-grid-filter-panel ${this.state.filtersExpanded ? 'is-expanded' : 'is-collapsed'}" aria-hidden="${this.state.filtersExpanded ? 'false' : 'true'}" ${rawHtml(panelStyle)}>
-                    <div class="media-grid-filter-panel-body">
-                        <div id="media-grid-filter-tray" class="media-grid-filter-tray">
-                            ${rawHtml(this.renderFilterChipGroup('Status', 'status', TRACKING_STATUSES, this.state.statusFilters))}
-                            ${rawHtml(this.renderFilterChipGroup('Type', 'type', uniqueTypes, this.state.typeFilters))}
-                            <div class="media-grid-filter-row">
-                                <div class="media-grid-filter-label">Other</div>
-                                <div class="media-grid-archive-toggle" style="display: flex; align-items: center; gap: 0.5rem;">
-                                    <span style="font-size: 0.85rem; color: var(--text-secondary);">Hide Archived</span>
-                                    <label class="switch" style="font-size: 0.7rem;">
-                                        <input type="checkbox" id="grid-hide-archived" ${this.state.hideArchived ? 'checked' : ''}>
-                                        <span class="slider round"></span>
-                                    </label>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                ${rawHtml(renderCollapsiblePanel({
+                    id: 'media-grid-filter-panel',
+                    isExpanded: this.state.filtersExpanded,
+                    body: filterTrayBody,
+                }))}
 
-                <div id="media-sort-panel" class="media-grid-filter-panel ${this.state.sortExpanded ? 'is-expanded' : 'is-collapsed'}" aria-hidden="${this.state.sortExpanded ? 'false' : 'true'}" ${rawHtml(sortPanelStyle)}>
-                    <div class="media-grid-filter-panel-body">
-                        ${rawHtml(this.renderSortPanelBody())}
-                    </div>
-                </div>
+                ${rawHtml(renderCollapsiblePanel({
+                    id: 'media-sort-panel',
+                    isExpanded: this.state.sortExpanded,
+                    body: this.renderSortPanelBody(),
+                }))}
             </div>
         `;
 
@@ -521,9 +562,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         container.appendChild(layoutRoot);
 
         const sortedList = this.getVisibleMediaList();
-        const rows: LibraryRow[] = this.state.groupByType
-            ? flattenLibraryRows(groupMediaByType(sortedList, this.state.contentTypeOrder))
-            : toLibraryItemRows(sortedList);
+        const rows: LibraryRow[] = buildLibraryRows(sortedList, this.state.groupByType, this.state.contentTypeOrder);
 
         // Navigation order is taken from the rendered rows rather than the sorted list, so the
         // detail view's prev/next follows what is actually on screen once type grouping reorders
@@ -647,22 +686,12 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
             this.setGridZoom(this.state.gridZoom + LIBRARY_GRID_ZOOM.STEP);
         });
 
-        const groupByType = header.querySelector<HTMLInputElement>('#sort-group-by-type');
-        groupByType?.addEventListener('change', () => {
-            this.state.groupByType = groupByType.checked;
-            this.applySortStateChange();
-        });
-
-        const keepOngoingFirst = header.querySelector<HTMLInputElement>('#sort-keep-ongoing-first');
-        keepOngoingFirst?.addEventListener('change', () => {
-            this.state.keepOngoingFirst = keepOngoingFirst.checked;
-            this.applySortStateChange();
-        });
-
-        const keepArchivedLast = header.querySelector<HTMLInputElement>('#sort-keep-archived-last');
-        keepArchivedLast?.addEventListener('change', () => {
-            this.state.keepArchivedLast = keepArchivedLast.checked;
-            this.applySortStateChange();
+        SORT_SWITCH_CONFIGS.forEach(({ id, stateKey }) => {
+            const switchInput = header.querySelector<HTMLInputElement>(`#${id}`);
+            switchInput?.addEventListener('change', () => {
+                this.state[stateKey] = switchInput.checked;
+                this.applySortStateChange();
+            });
         });
 
         header.querySelectorAll<HTMLSelectElement>('.media-sort-level-select').forEach((select) => {

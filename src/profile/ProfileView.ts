@@ -1,6 +1,6 @@
 import { Logger } from '../logger';
 import { Component } from '../component';
-import { html, rawHtml, escapeHTML } from '../html';
+import { html, rawHtml, escapeHTML, escapeAttribute } from '../html';
 import {
     getAllMedia,
     getLogs,
@@ -108,6 +108,34 @@ const WEEK_START_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
 ];
 
 type LibraryOrderKind = 'contentType' | 'trackingStatus';
+
+interface LibraryOrderDescriptor {
+    kind: LibraryOrderKind;
+    label: string;
+    settingKey: string;
+    stateField: 'contentTypeOrder' | 'trackingStatusOrder';
+    detailsId: string;
+    listId: string;
+}
+
+const LIBRARY_ORDER_DESCRIPTORS: ReadonlyArray<LibraryOrderDescriptor> = [
+    {
+        kind: 'contentType',
+        label: 'Content type order',
+        settingKey: SETTING_KEYS.CONTENT_TYPE_ORDER,
+        stateField: 'contentTypeOrder',
+        detailsId: 'profile-content-type-order-details',
+        listId: 'profile-content-type-order-list',
+    },
+    {
+        kind: 'trackingStatus',
+        label: 'Tracking status order',
+        settingKey: SETTING_KEYS.TRACKING_STATUS_ORDER,
+        stateField: 'trackingStatusOrder',
+        detailsId: 'profile-tracking-status-order-details',
+        listId: 'profile-tracking-status-order-list',
+    },
+];
 
 interface ProfileState {
     currentProfile: string;
@@ -738,63 +766,63 @@ export class ProfileView extends Component<ProfileState> {
     }
 
     private renderLibraryOrderingCard() {
-        const { contentTypeOrder, trackingStatusOrder } = this.state;
+        const sectionsHtml = LIBRARY_ORDER_DESCRIPTORS
+            .map(descriptor => this.renderLibraryOrderSection(descriptor))
+            .join('');
+
         return html`
             <div class="card" style="display: flex; flex-direction: column; gap: 1rem;">
                 <h3>Library Ordering</h3>
                 <p style="color: var(--text-secondary); font-size: 0.9rem;">Set a custom order for content types and tracking statuses. Applies when sorting the library by these fields, and content type order also controls section order when grouping the library by media type.</p>
-
-                <details id="profile-content-type-order-details" style="border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 0.75rem 0.9rem;">
-                    <summary style="cursor: pointer; color: var(--text-primary); font-weight: 600;">Content type order</summary>
-                    <ol class="profile-order-list" id="profile-content-type-order-list" style="margin-top: 1rem;">
-                        ${this.renderLibraryOrderRows('contentType', contentTypeOrder)}
-                    </ol>
-                </details>
-
-                <details id="profile-tracking-status-order-details" style="border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 0.75rem 0.9rem;">
-                    <summary style="cursor: pointer; color: var(--text-primary); font-weight: 600;">Tracking status order</summary>
-                    <ol class="profile-order-list" id="profile-tracking-status-order-list" style="margin-top: 1rem;">
-                        ${this.renderLibraryOrderRows('trackingStatus', trackingStatusOrder)}
-                    </ol>
-                </details>
+                ${rawHtml(sectionsHtml)}
             </div>
         `;
     }
 
-    private renderLibraryOrderRows(kind: LibraryOrderKind, order: string[]) {
-        const rowsHtml = order.map((value, index) => {
+    private renderLibraryOrderSection(descriptor: LibraryOrderDescriptor): string {
+        const order = this.state[descriptor.stateField];
+        return `
+                <details id="${descriptor.detailsId}" style="border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 0.75rem 0.9rem;">
+                    <summary style="cursor: pointer; color: var(--text-primary); font-weight: 600;">${descriptor.label}</summary>
+                    <ol class="profile-order-list" id="${descriptor.listId}" style="margin-top: 1rem;">
+                        ${this.renderLibraryOrderRows(descriptor.kind, order)}
+                    </ol>
+                </details>
+            `;
+    }
+
+    private renderLibraryOrderRows(kind: LibraryOrderKind, order: string[]): string {
+        return order.map((value, index) => {
             const escapedValue = escapeHTML(value);
+            const escapedAttributeValue = escapeAttribute(value);
             const upDisabled = index === 0 ? 'disabled' : '';
             const downDisabled = index === order.length - 1 ? 'disabled' : '';
             return `
                 <li class="profile-order-row">
                     <span class="profile-order-row-label">${escapedValue}</span>
                     <div class="profile-order-row-buttons">
-                        <button type="button" class="profile-order-move-button" data-order-kind="${kind}" data-order-index="${index}" data-order-direction="up" aria-label="Move ${escapedValue} up" ${upDisabled}>&#9650;</button>
-                        <button type="button" class="profile-order-move-button" data-order-kind="${kind}" data-order-index="${index}" data-order-direction="down" aria-label="Move ${escapedValue} down" ${downDisabled}>&#9660;</button>
+                        <button type="button" class="profile-order-move-button" data-order-kind="${kind}" data-order-index="${index}" data-order-direction="up" aria-label="Move ${escapedAttributeValue} up" ${upDisabled}>&#9650;</button>
+                        <button type="button" class="profile-order-move-button" data-order-kind="${kind}" data-order-index="${index}" data-order-direction="down" aria-label="Move ${escapedAttributeValue} down" ${downDisabled}>&#9660;</button>
                     </div>
                 </li>
             `;
         }).join('');
-        return rawHtml(rowsHtml);
     }
 
     private async handleReorderLibraryOrder(kind: LibraryOrderKind, index: number, direction: 'up' | 'down') {
-        const currentOrder = kind === 'contentType' ? this.state.contentTypeOrder : this.state.trackingStatusOrder;
+        const descriptor = LIBRARY_ORDER_DESCRIPTORS.find(candidate => candidate.kind === kind);
+        if (!descriptor) return;
+
+        const currentOrder = this.state[descriptor.stateField];
         const targetIndex = direction === 'up' ? index - 1 : index + 1;
         if (targetIndex < 0 || targetIndex >= currentOrder.length) return;
 
         const nextOrder = [...currentOrder];
         [nextOrder[index], nextOrder[targetIndex]] = [nextOrder[targetIndex], nextOrder[index]];
 
-        const settingKey = kind === 'contentType' ? SETTING_KEYS.CONTENT_TYPE_ORDER : SETTING_KEYS.TRACKING_STATUS_ORDER;
-        await setSetting(settingKey, JSON.stringify(nextOrder));
+        await setSetting(descriptor.settingKey, JSON.stringify(nextOrder));
 
-        if (kind === 'contentType') {
-            this.setState({ contentTypeOrder: nextOrder });
-        } else {
-            this.setState({ trackingStatusOrder: nextOrder });
-        }
+        this.setState({ [descriptor.stateField]: nextOrder } as Partial<ProfileState>);
 
         globalThis.dispatchEvent(new CustomEvent(EVENTS.LIBRARY_PREFERENCES_CHANGED));
     }
@@ -1467,12 +1495,12 @@ export class ProfileView extends Component<ProfileState> {
 
         root.querySelectorAll<HTMLButtonElement>('.profile-order-move-button').forEach((button) => {
             button.addEventListener('click', () => {
-                const kind = button.dataset.orderKind as LibraryOrderKind | undefined;
+                const descriptor = LIBRARY_ORDER_DESCRIPTORS.find(candidate => candidate.kind === button.dataset.orderKind);
                 const index = Number(button.dataset.orderIndex);
                 const direction = button.dataset.orderDirection as 'up' | 'down' | undefined;
-                if (!kind || !direction || Number.isNaN(index)) return;
+                if (!descriptor || !direction || Number.isNaN(index)) return;
 
-                this.handleReorderLibraryOrder(kind, index, direction).catch(error => {
+                this.handleReorderLibraryOrder(descriptor.kind, index, direction).catch(error => {
                     Logger.error('Failed to reorder library ordering setting', error);
                 });
             });

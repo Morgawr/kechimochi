@@ -5,6 +5,7 @@ export {
     inferExtraFieldValueType,
     LIBRARY_BUILTIN_SORT_KEYS,
     parseLeadingNumber,
+    sortStagesNeedMetrics,
 } from './library_sort';
 export type {
     LibraryBuiltinSortKey,
@@ -22,8 +23,7 @@ export {
     toSortFieldOptionValue,
 } from './sort_settings';
 export {
-    flattenLibraryRows,
-    groupMediaByType,
+    buildLibraryRows,
     toLibraryItemRows,
 } from './library_rows';
-export type { LibraryRow, LibraryTypeGroup } from './library_rows';
+export type { LibraryRow } from './library_rows';

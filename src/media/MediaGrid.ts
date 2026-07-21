@@ -40,11 +40,6 @@ export class MediaGrid extends Component<MediaGridState> {
             items: this.state.rows,
             containerId: 'media-grid-container',
             containerClassName: 'media-grid-scroll-container',
-            // min-width:0 is required for flex children to shrink instead of overflowing horizontally.
-            // grid-auto-rows is min-content (not a fixed height) so header rows collapse to their
-            // content; the item height lives on .media-item-wrapper via --library-card-height.
-            // The height must travel as a custom property rather than an inline height on the
-            // wrapper, or it would outrank the mobile stylesheet's smaller card height.
             containerStyle: `display: grid; grid-template-columns: repeat(auto-fill, minmax(${cardMinWidth}px, 1fr)); grid-auto-rows: min-content; --library-card-height: ${cardHeight}px; gap: 1.5rem; overflow-y: auto; flex: 1; min-width: 0; padding: 0.5rem 1rem 2rem 1rem; align-content: flex-start;`,
             emptyStateMarkup: '<div style="grid-column: 1 / -1; text-align: center; color: var(--text-secondary); padding: 4rem;">No media matches your filters.</div>',
             initialBatchSize: 15,
@@ -54,7 +49,7 @@ export class MediaGrid extends Component<MediaGridState> {
             shouldContinue: () => !this.isDestroyed && renderId === this.currentRenderId,
             createItemWrapper: (row, index, isFirstBatch) => {
                 if (row.kind === 'header') {
-                    return createLibrarySectionHeaderWrapper(row.label, isFirstBatch ? index * 0.02 : 0, true);
+                    return createLibrarySectionHeaderWrapper(row.contentType, isFirstBatch ? index * 0.02 : 0, true);
                 }
 
                 const itemWrapper = createAnimatedCollectionItemWrapper(

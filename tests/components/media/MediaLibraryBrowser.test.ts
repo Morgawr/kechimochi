@@ -725,10 +725,10 @@ describe('MediaLibraryBrowser', () => {
             groupByType.dispatchEvent(new Event('change'));
 
             const rows = latestGridRows();
-            const headerRows = rows.filter((row) => row.kind === 'header') as Array<{ kind: 'header'; contentType: string; label: string }>;
+            const headerRows = rows.filter((row) => row.kind === 'header') as Array<{ kind: 'header'; contentType: string }>;
 
             expect(headerRows.map((row) => row.contentType)).toEqual(['Anime', 'Manga']);
-            expect(rows.map((row) => (row.kind === 'header' ? `header:${row.label}` : (row as { media: Media }).media.title))).toEqual([
+            expect(rows.map((row) => (row.kind === 'header' ? `header:${row.contentType}` : (row as { media: Media }).media.title))).toEqual([
                 'header:Anime',
                 'Anime Item',
                 'header:Manga',
@@ -751,10 +751,10 @@ describe('MediaLibraryBrowser', () => {
             groupByType.dispatchEvent(new Event('change'));
 
             const rows = latestGridRows();
-            const headerRows = rows.filter((row) => row.kind === 'header') as Array<{ kind: 'header'; contentType: string; label: string }>;
+            const headerRows = rows.filter((row) => row.kind === 'header') as Array<{ kind: 'header'; contentType: string }>;
 
             expect(headerRows.map((row) => row.contentType)).toContain('Unknown');
-            expect(rows.map((row) => (row.kind === 'header' ? `header:${row.label}` : (row as { media: Media }).media.title))).toContain('Legacy Item');
+            expect(rows.map((row) => (row.kind === 'header' ? `header:${row.contentType}` : (row as { media: Media }).media.title))).toContain('Legacy Item');
         });
 
         it('produces zero header rows and preserves order when grouping is off', () => {

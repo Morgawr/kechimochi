@@ -112,12 +112,35 @@ describe('MediaList', () => {
         expect(MediaListItem).toHaveBeenCalledTimes(18);
     });
 
+    it('stops queued batch rendering when superseded by a new render', () => {
+        const mediaList = createCollectionMediaList(25);
+
+        const component = new MediaList(
+            env.container,
+            { rows: toLibraryItemRows(mediaList), metricsByMediaId: {}, isMetricsLoading: false },
+            vi.fn(),
+        );
+
+        component.render();
+        expect(MediaListItem).toHaveBeenCalledTimes(18);
+
+        const supersedingMediaList = createCollectionMediaList(3);
+        component.setState({ rows: toLibraryItemRows(supersedingMediaList) });
+        expect(MediaListItem).toHaveBeenCalledTimes(18 + 3);
+
+        vi.runAllTimers();
+
+        expect(MediaListItem).toHaveBeenCalledTimes(18 + 3);
+        const listContainer = env.container.querySelector('#media-list-container');
+        expect(listContainer?.children).toHaveLength(3);
+    });
+
     it('renders a full-width header row without instantiating a list item', () => {
         const mediaList = [
             { id: 1, title: 'Item 1', status: 'Active', content_type: 'Manga', tracking_status: 'Ongoing' },
         ];
         const rows: LibraryRow[] = [
-            { kind: 'header', contentType: 'Manga', label: 'Manga' },
+            { kind: 'header', contentType: 'Manga' },
             ...toLibraryItemRows(mediaList as Media[]),
         ];
         const component = new MediaList(

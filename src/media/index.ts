@@ -14,16 +14,16 @@ export { resolveDisplayContentType } from './content_type';
 export {
     applyLibrarySort,
     buildExtraDataIndex,
-    flattenLibraryRows,
+    buildLibraryRows,
     fromSortFieldOptionValue,
     getUniqueExtraFieldNames,
-    groupMediaByType,
     inferExtraFieldValueType,
     LIBRARY_BUILTIN_SORT_KEYS,
     parseLeadingNumber,
     parseLibrarySortStages,
     reconcileEnumOrder,
     serializeLibrarySortStages,
+    sortStagesNeedMetrics,
     toLibraryItemRows,
     toSortFieldOptionValue,
 } from './sorting';
@@ -34,6 +34,5 @@ export type {
     LibrarySortField,
     LibrarySortOptions,
     LibrarySortStage,
-    LibraryTypeGroup,
 } from './sorting';
 export { createAnimatedCollectionItemWrapper, createLibrarySectionHeaderWrapper, renderIncrementalMediaCollection } from './render_incremental_collection';

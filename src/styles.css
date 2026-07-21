@@ -1715,6 +1715,48 @@ input:focus, select:focus {
   white-space: nowrap;
 }
 
+.grid-item-variant {
+  margin-top: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.grid-item-cover {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.image-placeholder {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 1.2rem 1rem;
+  color: var(--text-secondary);
+  text-align: center;
+  justify-content: space-between;
+}
+
+.grid-item-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+  line-height: 1.3;
+}
+
+.grid-item-placeholder-label {
+  font-size: 0.75rem;
+  opacity: 0.6;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
 .media-grid-toolbar-shell {
   display: flex;
   flex-direction: column;
@@ -2039,8 +2081,6 @@ input:focus, select:focus {
   color: var(--text-secondary);
   font-size: 1.7rem;
   font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .media-library-section-header::before,
@@ -2198,6 +2238,7 @@ input:focus, select:focus {
   margin: 0;
   color: var(--text-secondary);
   font-size: 0.76rem;
+  font-style: italic;
 }
 
 .profile-order-list {

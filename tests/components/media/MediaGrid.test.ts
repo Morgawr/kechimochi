@@ -52,12 +52,43 @@ describe('MediaGrid', () => {
         expect(env.requestAnimationFrameSpy).toHaveBeenCalled();
     });
 
+    it('keeps the first batch bounded across many sections', () => {
+        const contentTypes = ['Anime', 'Manga', 'Movie', 'Novel', 'Videogame'];
+        const rows: LibraryRow[] = [];
+        let id = 1;
+        for (const contentType of contentTypes) {
+            rows.push({ kind: 'header', contentType });
+            for (let i = 0; i < 6; i += 1) {
+                rows.push({
+                    kind: 'item',
+                    media: {
+                        id,
+                        title: `Item ${id}`,
+                        status: 'Active',
+                        content_type: contentType,
+                        tracking_status: 'Ongoing',
+                    } as Media,
+                });
+                id += 1;
+            }
+        }
+        const component = new MediaGrid(env.container, { rows, gridZoom: 100 }, vi.fn());
+
+        component.render();
+
+        expect(MediaItem).toHaveBeenCalledTimes(12);
+
+        vi.runAllTimers();
+
+        expect(MediaItem).toHaveBeenCalledTimes(30);
+    });
+
     it('renders a full-width header row without instantiating a media item', () => {
         const mediaList = [
             { id: 1, title: 'Item 1', status: 'Active', content_type: 'Manga', tracking_status: 'Ongoing' },
         ];
         const rows: LibraryRow[] = [
-            { kind: 'header', contentType: 'Manga', label: 'Manga' },
+            { kind: 'header', contentType: 'Manga' },
             ...toLibraryItemRows(mediaList as Media[]),
         ];
         const component = new MediaGrid(env.container, { rows, gridZoom: 100 }, vi.fn());
