@@ -3,6 +3,8 @@
 :root {
   /* Layout & Utilities (Common across themes) */
   --sidebar-width: 240px;
+  /* Default library grid card height; MediaGrid overrides this inline per zoom level. */
+  --library-card-height: 320px;
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 12px;
@@ -2048,7 +2050,7 @@ input:focus, select:focus {
 }
 
 .media-item-wrapper {
-  height: var(--library-card-height, 320px);
+  height: var(--library-card-height);
 }
 
 .media-grid-item {
