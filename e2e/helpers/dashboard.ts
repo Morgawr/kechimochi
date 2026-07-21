@@ -1,8 +1,46 @@
 /**
  * Dashboard-specific helpers.
  */
-import { clickTopmostOverlayChild, confirmAction, performActivityEdit, safeClick, getTopmostVisibleOverlay, waitForOverlayToDisappear, waitForNoActiveOverlays, selectActivityDate } from './common.js';
+import { clickTopmostOverlayChild, confirmAction, performActivityEdit, safeClick, getTopmostVisibleOverlay, waitForNoActiveOverlays, selectActivityDate } from './common.js';
 import { setText, setSelect } from './form-controls.js';
+
+async function waitForActivitySubmissionResult(timeout = 5000): Promise<void> {
+    await browser.waitUntil(async () => {
+        return browser.execute(() => {
+            const form = document.querySelector('#add-activity-form');
+            if (!form) {
+                return true;
+            }
+
+            const formOverlay = form.closest('.modal-overlay');
+            if (!(formOverlay instanceof HTMLElement) || !formOverlay.classList.contains('active')) {
+                return true;
+            }
+
+            return Array.from(document.querySelectorAll('.modal-overlay')).some((overlay) => {
+                if (!(overlay instanceof HTMLElement) || !overlay.classList.contains('active')) {
+                    return false;
+                }
+
+                return overlay.querySelector('#alert-ok, #prompt-input') !== null;
+            });
+        });
+    }, {
+        timeout,
+        interval: 100,
+        timeoutMsg: 'Activity submission did not close the form or show a validation prompt',
+    });
+}
+
+export async function waitForActivityFormToDisappear(timeout = 5000): Promise<void> {
+    await browser.waitUntil(async () => {
+        return browser.execute(() => document.querySelector('#add-activity-form') === null);
+    }, {
+        timeout,
+        interval: 100,
+        timeoutMsg: 'Activity form did not disappear in time',
+    });
+}
 
 async function selectExistingActivityMedia(title: string, variant?: string): Promise<void> {
     const outcome = await browser.execute((expectedTitle, expectedVariant) => {
@@ -78,8 +116,11 @@ export async function logActivity(
     await submitBtn.waitForClickable({ timeout: 5000 });
     await submitBtn.click();
 
-    // Wait for the modal to close so it doesn't bleed into the next test
-    await waitForOverlayToDisappear(overlay, 5000).catch(() => {});
+    // Query the DOM on every poll. Holding or recreating a WebDriver element
+    // handle while the dashboard rerenders can itself race with Wry and become
+    // stale. A prompt or alert is also a valid submission result for callers
+    // that intentionally exercise those flows.
+    await waitForActivitySubmissionResult();
 }
 
 /**
@@ -246,7 +287,7 @@ export async function logActivityGlobal(mediaTitle: string, minutes: number, cha
     }
     
     const submitBtnSelector = '#add-activity-form button[type="submit"]';
-    const overlay = await getTopmostVisibleOverlay(submitBtnSelector);
+    await getTopmostVisibleOverlay(submitBtnSelector);
     await clickTopmostOverlayChild(submitBtnSelector);
-    await waitForOverlayToDisappear(overlay, 5000);
+    await waitForActivitySubmissionResult();
 }

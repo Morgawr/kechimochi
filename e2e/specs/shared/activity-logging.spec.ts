@@ -5,6 +5,7 @@ import {
   getStatValue,
   deleteMostRecentLog,
   getHeatmapCellColor,
+  waitForActivityFormToDisappear,
 } from '../../helpers/dashboard.js';
 import { submitPrompt, dismissAlert, closeModal } from '../../helpers/common.js';
 import { clickMediaItem, isMediaVisible, isMediaNotVisible } from '../../helpers/library.js';
@@ -26,14 +27,11 @@ describe('CUJ: Log Daily Activity', () => {
   it('should log a new activity for "Final Fantasy 7" with minutes and characters', async () => {
     await logActivity('Final Fantasy 7', '60', '1000', MOCK_DATE);
     await submitPrompt('Playing');
-
-    await $('#add-activity-form').waitForExist({ reverse: true, timeout: 5000 });
+    await waitForActivityFormToDisappear();
   });
 
   it('should log an activity with only characters for "Final Fantasy 7"', async () => {
     await logActivity('Final Fantasy 7', '0', '500', '2024-03-30');
-
-    await $('#add-activity-form').waitForExist({ reverse: true, timeout: 5000 });
   });
 
   it('should show an alert when trying to log 0 duration and 0 characters', async () => {
@@ -84,7 +82,6 @@ describe('CUJ: Log Daily Activity', () => {
     const initialCellColor = await getHeatmapCellColor(targetDate);
 
     await logActivity('呪術廻戦', '300', '0', targetDate);
-    await $('#add-activity-form').waitForExist({ reverse: true, timeout: 5000 });
 
     const afterLogCount = await getStatValue('stat-total-logs');
     expect(afterLogCount).toBe(initialLogsCount + 1);

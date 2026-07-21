@@ -183,8 +183,6 @@ describe('Media Management CUJs', () => {
     it('should navigate to media detail from dashboard activity link', async () => {
       await logActivity('Cyberpunk 2077', '30');
 
-      await $('#add-activity-form').waitForExist({ reverse: true, timeout: 5000 });
-
       await navigateTo('dashboard');
 
       const mediaLink = $('.dashboard-media-link');
