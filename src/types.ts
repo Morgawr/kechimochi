@@ -68,6 +68,154 @@ export interface DailyHeatmap {
     total_characters: number;
 }
 
+export type DashboardBucket = 'day' | 'month' | 'year';
+export type DashboardGroupBy = 'activity_type' | 'log_name';
+
+export interface DashboardSnapshotRequest {
+    request_id: number;
+    today: string;
+    heatmap_year: number;
+    recent_offset: number;
+    recent_limit: number;
+}
+
+export interface DashboardRangeRequest {
+    request_id: number;
+    start_date: string;
+    end_date: string;
+    bucket: DashboardBucket;
+    group_by: DashboardGroupBy;
+}
+
+export interface DashboardHeatmapYearRequest {
+    request_id: number;
+    year: number;
+}
+
+export interface DashboardRecentLogsRequest {
+    request_id: number;
+    offset: number;
+    limit: number;
+}
+
+export interface DashboardMedia {
+    id: number;
+    title: string;
+    variant: string;
+    default_activity_type: string;
+    status: string;
+    cover_image: string;
+    content_type: string;
+    tracking_status: string;
+}
+
+export interface DashboardNamedTotals {
+    key: string;
+    label: string;
+    total_minutes: number;
+    total_characters: number;
+}
+
+export interface DashboardSummary {
+    total_logs: number;
+    total_media: number;
+    logged_days: number;
+    first_activity_date: string | null;
+    last_activity_date: string | null;
+    max_streak: number;
+    current_streak: number;
+    total_minutes: number;
+    total_characters: number;
+    activity_totals: DashboardNamedTotals[];
+}
+
+export interface DashboardRecentLog {
+    id: number;
+    media_id: number;
+    title: string;
+    variant: string;
+    activity_type: string;
+    duration_minutes: number;
+    characters: number;
+    date: string;
+    language: string;
+    notes: string;
+}
+
+export interface DashboardRecentPage {
+    request_id: number;
+    offset: number;
+    limit: number;
+    total_count: number;
+    items: DashboardRecentLog[];
+}
+
+export interface DashboardChartPoint {
+    bucket: string;
+    group_key: string;
+    group_label: string;
+    total_minutes: number;
+    total_characters: number;
+}
+
+export interface DashboardBucketTotals {
+    bucket: string;
+    total_minutes: number;
+    total_characters: number;
+}
+
+export type DashboardHighlightKind =
+    | 'most_time'
+    | 'most_characters'
+    | 'most_sessions'
+    | 'biggest_day'
+    | 'biggest_streak';
+
+export interface DashboardHighlight {
+    kind: DashboardHighlightKind;
+    media: DashboardMedia | null;
+    date: string | null;
+    total_minutes: number;
+    total_characters: number;
+    sessions: number;
+    streak_days: number;
+}
+
+export interface DashboardRangeResponse {
+    request_id: number;
+    start_date: string;
+    end_date: string;
+    bucket: DashboardBucket;
+    group_by: DashboardGroupBy;
+    series: DashboardChartPoint[];
+    bucket_totals: DashboardBucketTotals[];
+    category_totals: DashboardNamedTotals[];
+    highlights: DashboardHighlight[];
+}
+
+export interface DashboardHeatmapYearResponse {
+    request_id: number;
+    year: number;
+    days: DailyHeatmap[];
+}
+
+export interface DashboardSettings {
+    chart_type: 'bar' | 'line';
+    group_by: DashboardGroupBy;
+    week_start_day: number;
+    migrate_legacy_group_by: boolean;
+}
+
+export interface DashboardSnapshot {
+    request_id: number;
+    settings: DashboardSettings;
+    summary: DashboardSummary;
+    quick_log_media: DashboardMedia[];
+    recent_logs: DashboardRecentPage;
+    heatmap: DashboardHeatmapYearResponse;
+    range: DashboardRangeResponse;
+}
+
 export type TimelineEventKind =
     | 'started'
     | 'finished'

@@ -1,6 +1,7 @@
 pub mod app_file_io;
 pub mod backup;
 pub mod csv_import;
+pub mod dashboard_data;
 pub mod db;
 pub mod http_api;
 pub mod instance_lock;
@@ -26,7 +27,10 @@ use tauri::{Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 use models::{
-    ActivityLog, ActivitySummary, DailyHeatmap, Media, Milestone, ProfilePicture, TimelineEvent,
+    ActivityLog, ActivitySummary, DailyHeatmap, DashboardHeatmapYearRequest,
+    DashboardHeatmapYearResponse, DashboardRangeRequest, DashboardRangeResponse,
+    DashboardRecentLogsRequest, DashboardRecentPage, DashboardSnapshot, DashboardSnapshotRequest,
+    Media, Milestone, ProfilePicture, TimelineEvent,
 };
 
 // Database state
@@ -179,6 +183,31 @@ where
 {
     let mut conn = state.conn.lock().unwrap();
     operation(&mut conn)
+}
+
+/// Dashboard reads can scan several years of aggregates. Run them on Tauri's
+/// blocking pool so SQLite work cannot stall the desktop event loop. The same
+/// connection mutex remains held for the complete read transaction, including
+/// all attached profile databases.
+async fn run_dashboard_read<T, F>(
+    conn: Arc<Mutex<Connection>>,
+    operation: &'static str,
+    query: F,
+) -> Result<T, String>
+where
+    T: Serialize + Send + 'static,
+    F: FnOnce(&Connection) -> rusqlite::Result<dashboard_data::Measured<T>> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = conn
+            .lock()
+            .map_err(|_| "Database lock was poisoned".to_string())?;
+        let measured = query(&conn).map_err(|error| error.to_string())?;
+        dashboard_data::log_measured_response(operation, &measured);
+        Ok(measured.value)
+    })
+    .await
+    .map_err(|error| format!("Dashboard query task failed: {error}"))?
 }
 
 fn mark_sync_dirty(app_handle: &tauri::AppHandle) -> Result<(), String> {
@@ -707,6 +736,58 @@ fn get_heatmap(state: State<DbState>) -> Result<Vec<DailyHeatmap>, String> {
     with_conn(&state, |conn| {
         db::get_heatmap(conn).map_err(|e| e.to_string())
     })
+}
+
+#[tauri::command]
+async fn get_dashboard_snapshot(
+    state: State<'_, DbState>,
+    request: DashboardSnapshotRequest,
+) -> Result<DashboardSnapshot, String> {
+    dashboard_data::validate_snapshot_request(&request)?;
+    let conn = state.conn.clone();
+    run_dashboard_read(conn, "dashboard_snapshot", move |conn| {
+        dashboard_data::get_dashboard_snapshot(conn, &request)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn get_dashboard_range(
+    state: State<'_, DbState>,
+    request: DashboardRangeRequest,
+) -> Result<DashboardRangeResponse, String> {
+    dashboard_data::validate_range_request(&request)?;
+    let conn = state.conn.clone();
+    run_dashboard_read(conn, "dashboard_range", move |conn| {
+        dashboard_data::get_dashboard_range(conn, &request)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn get_dashboard_heatmap_year(
+    state: State<'_, DbState>,
+    request: DashboardHeatmapYearRequest,
+) -> Result<DashboardHeatmapYearResponse, String> {
+    dashboard_data::validate_heatmap_request(&request)?;
+    let conn = state.conn.clone();
+    run_dashboard_read(conn, "dashboard_heatmap_year", move |conn| {
+        dashboard_data::get_dashboard_heatmap_year(conn, &request)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn get_dashboard_recent_logs(
+    state: State<'_, DbState>,
+    request: DashboardRecentLogsRequest,
+) -> Result<DashboardRecentPage, String> {
+    dashboard_data::validate_recent_request(&request)?;
+    let conn = state.conn.clone();
+    run_dashboard_read(conn, "dashboard_recent_logs", move |conn| {
+        dashboard_data::get_dashboard_recent_logs(conn, &request)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -1554,6 +1635,10 @@ pub fn run() {
             update_log,
             get_logs,
             get_heatmap,
+            get_dashboard_snapshot,
+            get_dashboard_range,
+            get_dashboard_heatmap_year,
+            get_dashboard_recent_logs,
             import_csv,
             export_csv,
             export_media_csv,

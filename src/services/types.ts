@@ -4,6 +4,14 @@ import type {
     ActivitySummary,
     GoogleDriveAuthSession,
     DailyHeatmap,
+    DashboardHeatmapYearRequest,
+    DashboardHeatmapYearResponse,
+    DashboardRangeRequest,
+    DashboardRangeResponse,
+    DashboardRecentLogsRequest,
+    DashboardRecentPage,
+    DashboardSnapshot,
+    DashboardSnapshotRequest,
     TimelineEvent,
     MediaCsvRow,
     MediaConflict,
@@ -26,6 +34,14 @@ export type {
     ActivitySummary,
     GoogleDriveAuthSession,
     DailyHeatmap,
+    DashboardHeatmapYearRequest,
+    DashboardHeatmapYearResponse,
+    DashboardRangeRequest,
+    DashboardRangeResponse,
+    DashboardRecentLogsRequest,
+    DashboardRecentPage,
+    DashboardSnapshot,
+    DashboardSnapshotRequest,
     TimelineEvent,
     MediaCsvRow,
     MediaConflict,
@@ -64,6 +80,10 @@ export interface AppServices {
     deleteLog(id: number): Promise<void>;
     getLogs(): Promise<ActivitySummary[]>;
     getHeatmap(): Promise<DailyHeatmap[]>;
+    getDashboardSnapshot(request: DashboardSnapshotRequest): Promise<DashboardSnapshot>;
+    getDashboardRange(request: DashboardRangeRequest): Promise<DashboardRangeResponse>;
+    getDashboardHeatmapYear(request: DashboardHeatmapYearRequest): Promise<DashboardHeatmapYearResponse>;
+    getDashboardRecentLogs(request: DashboardRecentLogsRequest): Promise<DashboardRecentPage>;
     getLogsForMedia(mediaId: number): Promise<ActivitySummary[]>;
     getTimelineEvents(): Promise<TimelineEvent[]>;
 

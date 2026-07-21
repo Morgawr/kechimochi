@@ -59,6 +59,24 @@ describe('DesktopServices', () => {
         });
     });
 
+    it('routes bounded dashboard reads through dedicated IPC commands', async () => {
+        vi.mocked(invoke).mockResolvedValue({ request_id: 17 });
+        const snapshotRequest = { request_id: 17, today: '2026-07-21', heatmap_year: 2026, recent_offset: 0, recent_limit: 15 };
+        const rangeRequest = { request_id: 18, start_date: '2026-07-20', end_date: '2026-07-26', bucket: 'day' as const, group_by: 'activity_type' as const };
+        const yearRequest = { request_id: 19, year: 2025 };
+        const recentRequest = { request_id: 20, offset: 15, limit: 15 };
+
+        await services.getDashboardSnapshot(snapshotRequest);
+        await services.getDashboardRange(rangeRequest);
+        await services.getDashboardHeatmapYear(yearRequest);
+        await services.getDashboardRecentLogs(recentRequest);
+
+        expect(invoke).toHaveBeenNthCalledWith(1, 'get_dashboard_snapshot', { request: snapshotRequest });
+        expect(invoke).toHaveBeenNthCalledWith(2, 'get_dashboard_range', { request: rangeRequest });
+        expect(invoke).toHaveBeenNthCalledWith(3, 'get_dashboard_heatmap_year', { request: yearRequest });
+        expect(invoke).toHaveBeenNthCalledWith(4, 'get_dashboard_recent_logs', { request: recentRequest });
+    });
+
     it('formats dev and release app versions correctly', async () => {
         const globals = globalThis as Record<string, unknown>;
         globals.__APP_VERSION__ = '0.1.0-dev.hash123';

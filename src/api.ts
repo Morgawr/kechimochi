@@ -11,6 +11,17 @@ export type {
   ActivityLog,
   ActivitySummary,
   DailyHeatmap,
+  DashboardHeatmapYearRequest,
+  DashboardHeatmapYearResponse,
+  DashboardRangeRequest,
+  DashboardRangeResponse,
+  DashboardRecentLogsRequest,
+  DashboardRecentLog,
+  DashboardRecentPage,
+  DashboardSnapshot,
+  DashboardSnapshotRequest,
+  DashboardSummary,
+  DashboardMedia,
   GoogleDriveAuthSession,
   TimelineEventKind,
   TimelineEvent,
@@ -34,6 +45,14 @@ import type {
   ActivityLog,
   ActivitySummary,
   DailyHeatmap,
+  DashboardHeatmapYearRequest,
+  DashboardHeatmapYearResponse,
+  DashboardRangeRequest,
+  DashboardRangeResponse,
+  DashboardRecentLogsRequest,
+  DashboardRecentPage,
+  DashboardSnapshot,
+  DashboardSnapshotRequest,
   GoogleDriveAuthSession,
   TimelineEvent,
   MediaCsvRow,
@@ -75,6 +94,18 @@ export function updateLog(log: ActivityLog): Promise<void> { return getServices(
 export function deleteLog(id: number): Promise<void> { return getServices().deleteLog(id); }
 export function getLogs(): Promise<ActivitySummary[]> { return getServices().getLogs(); }
 export function getHeatmap(): Promise<DailyHeatmap[]> { return getServices().getHeatmap(); }
+export function getDashboardSnapshot(request: DashboardSnapshotRequest): Promise<DashboardSnapshot> {
+  return getServices().getDashboardSnapshot(request);
+}
+export function getDashboardRange(request: DashboardRangeRequest): Promise<DashboardRangeResponse> {
+  return getServices().getDashboardRange(request);
+}
+export function getDashboardHeatmapYear(request: DashboardHeatmapYearRequest): Promise<DashboardHeatmapYearResponse> {
+  return getServices().getDashboardHeatmapYear(request);
+}
+export function getDashboardRecentLogs(request: DashboardRecentLogsRequest): Promise<DashboardRecentPage> {
+  return getServices().getDashboardRecentLogs(request);
+}
 export function getLogsForMedia(mediaId: number): Promise<ActivitySummary[]> { return getServices().getLogsForMedia(mediaId); }
 export function getTimelineEvents(): Promise<TimelineEvent[]> { return getServices().getTimelineEvents(); }
 

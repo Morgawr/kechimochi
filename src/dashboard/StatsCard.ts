@@ -1,11 +1,12 @@
 import { Component } from '../component';
 import { html, rawHtml } from '../html';
-import { ActivitySummary, Media } from '../api';
+import { ActivitySummary, DashboardSummary, Media } from '../api';
 import { formatStatsDuration } from '../time';
 
 interface StatsCardState {
-    logs: ActivitySummary[];
-    mediaList: Media[];
+    summary?: DashboardSummary;
+    logs?: ActivitySummary[];
+    mediaList?: Media[];
 }
 
 export class StatsCard extends Component<StatsCardState> {
@@ -15,17 +16,36 @@ export class StatsCard extends Component<StatsCardState> {
 
     render() {
         this.clear();
-        const { logs, mediaList } = this.state;
-        
-        const totalLogs = logs.length;
-        const totalMedia = mediaList.length;
+        const logs = this.state.logs ?? [];
+        const mediaList = this.state.mediaList ?? [];
+        const summary = this.state.summary;
+        const totalLogs = summary?.total_logs ?? logs.length;
+        const totalMedia = summary?.total_media ?? mediaList.length;
 
-        const uniqueDates = Array.from(new Set(logs.map(l => l.date))).sort((a, b) => a.localeCompare(b));
-        const sinceDate = uniqueDates.length > 0 ? uniqueDates[0] : 'N/A';
-        const loggedDaysCount = uniqueDates.length || 1;
+        const uniqueDates = summary
+            ? []
+            : Array.from(new Set(logs.map(l => l.date))).sort((a, b) => a.localeCompare(b));
+        const sinceDate = summary?.first_activity_date ?? uniqueDates[0] ?? 'N/A';
+        const loggedDaysCount = Math.max(1, summary?.logged_days ?? uniqueDates.length);
 
-        const { maxStreak, currentStreak } = this.calculateStreaks(uniqueDates);
-        const { mediaBreakdown, totalAvgFormat, totalMins, totalChars, avgCharsFormat } = this.calculateBreakdown(logs, loggedDaysCount);
+        const legacyStreaks = summary ? null : this.calculateStreaks(uniqueDates);
+        const maxStreak = summary?.max_streak ?? legacyStreaks?.maxStreak ?? 0;
+        const currentStreak = summary?.current_streak ?? legacyStreaks?.currentStreak ?? 0;
+        const legacyBreakdown = summary ? null : this.calculateBreakdown(logs, loggedDaysCount);
+        const mediaBreakdown = summary
+            ? new Map(summary.activity_totals.map(total => [total.label, {
+                mins: total.total_minutes,
+                chars: total.total_characters,
+            }]))
+            : legacyBreakdown!.mediaBreakdown;
+        const totalMins = summary?.total_minutes ?? legacyBreakdown!.totalMins;
+        const totalChars = summary?.total_characters ?? legacyBreakdown!.totalChars;
+        const totalAvgFormat = summary
+            ? formatStatsDuration(totalMins / loggedDaysCount)
+            : legacyBreakdown!.totalAvgFormat;
+        const avgCharsFormat = summary
+            ? `${Math.round(totalChars / loggedDaysCount).toLocaleString()} chars`
+            : legacyBreakdown!.avgCharsFormat;
         const breakdownHtml = this.renderBreakdown(mediaBreakdown, loggedDaysCount);
 
         const content = html`

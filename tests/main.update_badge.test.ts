@@ -129,6 +129,6 @@ describe('App update badge', () => {
 
         badge.click();
         expect(manager.openAvailableUpdateModal).toHaveBeenCalled();
-        expect(api.initializeUserDb).toHaveBeenCalled();
+        expect(api.initializeUserDb).not.toHaveBeenCalled();
     });
 });

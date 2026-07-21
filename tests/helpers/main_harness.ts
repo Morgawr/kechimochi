@@ -2,6 +2,10 @@ import { vi } from 'vitest';
 import { STORAGE_KEYS, SETTING_KEYS } from '../../src/constants';
 
 type ActivitySummary = import('../../src/api').ActivitySummary;
+type DashboardSnapshotRequest = import('../../src/types').DashboardSnapshotRequest;
+type DashboardRangeRequest = import('../../src/types').DashboardRangeRequest;
+type DashboardHeatmapYearRequest = import('../../src/types').DashboardHeatmapYearRequest;
+type DashboardRecentLogsRequest = import('../../src/types').DashboardRecentLogsRequest;
 type ApiModule = typeof import('../../src/api');
 
 const defaultActivitySummary: ActivitySummary = {
@@ -26,6 +30,50 @@ const defaultLocalHttpApiStatus = {
     lastError: null,
 };
 
+function defaultDashboardSnapshot(request: DashboardSnapshotRequest) {
+    return {
+        request_id: request.request_id,
+        settings: {
+            chart_type: 'bar' as const,
+            group_by: 'activity_type' as const,
+            week_start_day: 1,
+            migrate_legacy_group_by: false,
+        },
+        summary: {
+            total_logs: 1,
+            total_media: 0,
+            logged_days: 1,
+            first_activity_date: '2024-01-01',
+            last_activity_date: '2024-01-01',
+            max_streak: 1,
+            current_streak: 0,
+            total_minutes: 0,
+            total_characters: 0,
+            activity_totals: [],
+        },
+        quick_log_media: [],
+        recent_logs: {
+            request_id: request.request_id,
+            offset: request.recent_offset,
+            limit: request.recent_limit,
+            total_count: 0,
+            items: [],
+        },
+        heatmap: { request_id: request.request_id, year: request.heatmap_year, days: [] },
+        range: {
+            request_id: request.request_id,
+            start_date: request.today,
+            end_date: request.today,
+            bucket: 'day' as const,
+            group_by: 'activity_type' as const,
+            series: [],
+            bucket_totals: [],
+            category_totals: [],
+            highlights: [],
+        },
+    };
+}
+
 export function createMainApiMock() {
     return {
         initializeUserDb: vi.fn(() => Promise.resolve()),
@@ -40,6 +88,20 @@ export function createMainApiMock() {
         getAllMedia: vi.fn(() => Promise.resolve([])),
         getTimelineEvents: vi.fn(() => Promise.resolve([])),
         getHeatmap: vi.fn(() => Promise.resolve([{ date: '2024-01-01', total_minutes: 10 }])),
+        getDashboardSnapshot: vi.fn((request: DashboardSnapshotRequest) => Promise.resolve(defaultDashboardSnapshot(request))),
+        getDashboardRange: vi.fn((request: DashboardRangeRequest) => Promise.resolve({
+            request_id: request.request_id,
+            start_date: request.start_date,
+            end_date: request.end_date,
+            bucket: request.bucket,
+            group_by: request.group_by,
+            series: [],
+            bucket_totals: [],
+            category_totals: [],
+            highlights: [],
+        })),
+        getDashboardHeatmapYear: vi.fn((request: DashboardHeatmapYearRequest) => Promise.resolve({ request_id: request.request_id, year: request.year, days: [] })),
+        getDashboardRecentLogs: vi.fn((request: DashboardRecentLogsRequest) => Promise.resolve({ request_id: request.request_id, offset: request.offset, limit: request.limit, total_count: 0, items: [] })),
         getMilestones: vi.fn(() => Promise.resolve([])),
         getAppVersion: vi.fn(() => Promise.resolve('1.0.0')),
         isDesktop: vi.fn(() => true),
@@ -165,6 +227,20 @@ export function resetMainApiMocks(mockedApi: ApiModule) {
     vi.mocked(mockedApi.getAllMedia).mockResolvedValue([]);
     vi.mocked(mockedApi.getTimelineEvents).mockResolvedValue([]);
     vi.mocked(mockedApi.getHeatmap).mockResolvedValue([{ date: '2024-01-01', total_minutes: 10 }]);
+    vi.mocked(mockedApi.getDashboardSnapshot).mockImplementation(async request => defaultDashboardSnapshot(request));
+    vi.mocked(mockedApi.getDashboardRange).mockImplementation(async request => ({
+        request_id: request.request_id,
+        start_date: request.start_date,
+        end_date: request.end_date,
+        bucket: request.bucket,
+        group_by: request.group_by,
+        series: [],
+        bucket_totals: [],
+        category_totals: [],
+        highlights: [],
+    }));
+    vi.mocked(mockedApi.getDashboardHeatmapYear).mockImplementation(async request => ({ request_id: request.request_id, year: request.year, days: [] }));
+    vi.mocked(mockedApi.getDashboardRecentLogs).mockImplementation(async request => ({ request_id: request.request_id, offset: request.offset, limit: request.limit, total_count: 0, items: [] }));
     vi.mocked(mockedApi.getMilestones).mockResolvedValue([]);
     vi.mocked(mockedApi.getAppVersion).mockResolvedValue('1.0.0');
     vi.mocked(mockedApi.isDesktop).mockReturnValue(true);

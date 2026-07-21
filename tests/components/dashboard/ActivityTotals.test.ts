@@ -135,6 +135,49 @@ describe('ActivityTotals', () => {
         expect(internals.renderHighlights([])).toContain('No activity for this timeframe.');
     });
 
+    it('renders bounded backend totals and highlights without raw logs or a media library', () => {
+        const component = new ActivityTotals(container, {
+            rangeData: {
+                request_id: 1,
+                start_date: '2026-06-08',
+                end_date: '2026-06-14',
+                bucket: 'day',
+                group_by: 'activity_type',
+                series: [],
+                bucket_totals: [{ bucket: '2026-06-10', total_minutes: 90, total_characters: 2500 }],
+                category_totals: [{ key: 'category:Novel', label: 'Novel', total_minutes: 90, total_characters: 2500 }],
+                highlights: [{
+                    kind: 'most_time',
+                    media: {
+                        id: 1,
+                        title: 'Novel A',
+                        variant: '',
+                        default_activity_type: 'Reading',
+                        status: 'Active',
+                        cover_image: '',
+                        content_type: 'Novel',
+                        tracking_status: 'Ongoing',
+                    },
+                    date: null,
+                    total_minutes: 90,
+                    total_characters: 2500,
+                    sessions: 2,
+                    streak_days: 0,
+                }],
+            },
+            timeRangeDays: 7,
+            timeRangeOffset: 0,
+            weekStartDay: 1,
+        });
+
+        component.render();
+        const text = textContent(container);
+        expect(text).toContain('Weekly Stats');
+        expect(text).toContain('Novel');
+        expect(text).toContain('Most Time Spent');
+        expect(text).toContain('Novel A');
+    });
+
     it('renders weekly totals, category totals, highlights, cover images, and selected day diffs', async () => {
         const component = new ActivityTotals(container, {
             logs: weeklyLogs(),

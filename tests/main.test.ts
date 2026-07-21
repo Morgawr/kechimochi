@@ -130,7 +130,7 @@ describe('main.ts initialization', () => {
     const bootApp = async () => {
         const { App } = await import('../src/main');
         await App.start();
-        await vi.waitFor(() => expect(api.initializeUserDb).toHaveBeenCalled());
+        await vi.waitFor(() => expect(api.getDashboardSnapshot).toHaveBeenCalled());
     };
 
     const clickView = async (view: 'dashboard' | 'media' | 'timeline' | 'profile') => {
@@ -155,6 +155,8 @@ describe('main.ts initialization', () => {
     it('should initialize the App', async () => {
         await bootApp();
         expect(localStorage.getItem).toHaveBeenCalled();
+        expect(api.initializeUserDb).not.toHaveBeenCalled();
+        expect(api.getSyncStatus).toHaveBeenCalledTimes(1);
     });
 
     it('continues startup when reading startup error state fails', async () => {
@@ -166,7 +168,7 @@ describe('main.ts initialization', () => {
             '[kechimochi] Failed to read startup error state, continuing normal startup.',
             expect.any(Error),
         );
-        expect(api.initializeUserDb).toHaveBeenCalled();
+        expect(api.initializeUserDb).not.toHaveBeenCalled();
     });
 
     it('logs and continues when update manager initialization fails', async () => {
@@ -306,7 +308,7 @@ describe('main.ts initialization', () => {
         };
 
         await App.start(manager as never);
-        await vi.waitFor(() => expect(api.initializeUserDb).toHaveBeenCalled());
+        await vi.waitFor(() => expect(api.getDashboardSnapshot).toHaveBeenCalled());
         expect(api.getSyncStatus).not.toHaveBeenCalled();
     });
 
@@ -384,7 +386,6 @@ describe('main.ts initialization', () => {
 
     it('refreshes sync chrome when the shell sync action cannot read status', async () => {
         vi.mocked(api.getSyncStatus)
-            .mockResolvedValueOnce(createSyncStatusMock())
             .mockResolvedValueOnce(createSyncStatusMock())
             .mockRejectedValueOnce(new Error('sync status failed'))
             .mockRejectedValueOnce(new Error('sync status failed'));

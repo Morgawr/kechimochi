@@ -331,6 +331,13 @@ export class ProfileView extends Component<ProfileState> {
     protected onMount(): void {
         if (!this.updateManager) return;
         this.removeUpdateListener = this.updateManager.subscribe(updateState => {
+            // The profile view is constructed while the dashboard is booting.
+            // Retain update state without rendering (and therefore loading the
+            // whole hidden profile view) until the user opens it.
+            if (!this.state.isInitialized) {
+                this.state = { ...this.state, updateState };
+                return;
+            }
             this.setState({ updateState });
         });
     }

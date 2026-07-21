@@ -24,7 +24,8 @@ use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
 
 use kechimochi_lib::{
-    csv_import, db, get_username_logic, instance_lock, models, profile_picture, sync_state,
+    csv_import, dashboard_data, db, get_username_logic, instance_lock, models, profile_picture,
+    sync_state,
 };
 
 // ── Error handling ────────────────────────────────────────────────────────────
@@ -204,6 +205,21 @@ fn build_app_router(state: Shared) -> Router {
         .route(
             "/api/logs/:id",
             put(update_log_handler).delete(delete_log_handler),
+        )
+        // Dashboard reads are POSTs because every request carries a client
+        // generation token and explicit date/profile-local bounds.
+        .route(
+            "/api/dashboard/snapshot",
+            post(get_dashboard_snapshot_handler),
+        )
+        .route("/api/dashboard/range", post(get_dashboard_range_handler))
+        .route(
+            "/api/dashboard/heatmap-year",
+            post(get_dashboard_heatmap_year_handler),
+        )
+        .route(
+            "/api/dashboard/recent-logs",
+            post(get_dashboard_recent_logs_handler),
         )
         .route("/api/timeline", get(get_timeline_events_handler))
         // Milestones
@@ -442,6 +458,50 @@ async fn delete_log_handler(
 async fn get_heatmap(State(s): State<Shared>) -> HandlerResult<Json<Vec<models::DailyHeatmap>>> {
     let conn = s.conn.lock().await;
     db::get_heatmap(&conn).ae().map(Json)
+}
+
+async fn get_dashboard_snapshot_handler(
+    State(s): State<Shared>,
+    Json(request): Json<models::DashboardSnapshotRequest>,
+) -> HandlerResult<Json<models::DashboardSnapshot>> {
+    dashboard_data::validate_snapshot_request(&request).map_err(AppError::BadRequest)?;
+    let conn = s.conn.lock().await;
+    let measured = dashboard_data::get_dashboard_snapshot(&conn, &request).ae()?;
+    dashboard_data::log_measured_response("dashboard_snapshot", &measured);
+    Ok(Json(measured.value))
+}
+
+async fn get_dashboard_range_handler(
+    State(s): State<Shared>,
+    Json(request): Json<models::DashboardRangeRequest>,
+) -> HandlerResult<Json<models::DashboardRangeResponse>> {
+    dashboard_data::validate_range_request(&request).map_err(AppError::BadRequest)?;
+    let conn = s.conn.lock().await;
+    let measured = dashboard_data::get_dashboard_range(&conn, &request).ae()?;
+    dashboard_data::log_measured_response("dashboard_range", &measured);
+    Ok(Json(measured.value))
+}
+
+async fn get_dashboard_heatmap_year_handler(
+    State(s): State<Shared>,
+    Json(request): Json<models::DashboardHeatmapYearRequest>,
+) -> HandlerResult<Json<models::DashboardHeatmapYearResponse>> {
+    dashboard_data::validate_heatmap_request(&request).map_err(AppError::BadRequest)?;
+    let conn = s.conn.lock().await;
+    let measured = dashboard_data::get_dashboard_heatmap_year(&conn, &request).ae()?;
+    dashboard_data::log_measured_response("dashboard_heatmap_year", &measured);
+    Ok(Json(measured.value))
+}
+
+async fn get_dashboard_recent_logs_handler(
+    State(s): State<Shared>,
+    Json(request): Json<models::DashboardRecentLogsRequest>,
+) -> HandlerResult<Json<models::DashboardRecentPage>> {
+    dashboard_data::validate_recent_request(&request).map_err(AppError::BadRequest)?;
+    let conn = s.conn.lock().await;
+    let measured = dashboard_data::get_dashboard_recent_logs(&conn, &request).ae()?;
+    dashboard_data::log_measured_response("dashboard_recent_logs", &measured);
+    Ok(Json(measured.value))
 }
 
 async fn get_logs_for_media(

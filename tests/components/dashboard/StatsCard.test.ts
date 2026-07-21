@@ -18,6 +18,30 @@ describe('StatsCard', () => {
         expect(container.querySelector('#stat-max-streak')?.textContent).toBe('0');
     });
 
+    it('renders the backend aggregate without needing lifetime log or media arrays', () => {
+        const component = new StatsCard(container, {
+            summary: {
+                total_logs: 2500,
+                total_media: 300,
+                logged_days: 500,
+                first_activity_date: '2020-01-01',
+                last_activity_date: '2026-07-21',
+                max_streak: 42,
+                current_streak: 7,
+                total_minutes: 6000,
+                total_characters: 1_500_000,
+                activity_totals: [{ key: 'activity:Reading', label: 'Reading', total_minutes: 6000, total_characters: 1_500_000 }],
+            },
+        });
+        component.render();
+
+        expect(container.querySelector('#stat-total-logs')?.textContent).toBe('2500');
+        expect(container.querySelector('#stat-total-media')?.textContent).toBe('300');
+        expect(container.querySelector('#stat-max-streak')?.textContent).toBe('42');
+        expect(container.textContent).toContain('Reading');
+        expect(container.textContent).toContain('1,500,000');
+    });
+
     it('should calculate and render streaks and averages correctly', () => {
         const logs: ActivitySummary[] = [
             { id: 1, media_id: 1, title: 'T1', activity_type: 'Reading', duration_minutes: 60, characters: 0, date: '2024-01-01', language: 'Japanese' },

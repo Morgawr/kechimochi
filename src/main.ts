@@ -173,6 +173,7 @@ export class App {
     private readonly mobileSyncButtonEl: HTMLButtonElement | null;
     private readonly mobileSyncDotEl: HTMLElement | null;
     private readonly navLinks: NodeListOf<HTMLElement>;
+    private syncChromeRefresh: Promise<void> | null = null;
 
     constructor(updateManager: UpdateManager = new UpdateManager()) {
         this.appRoot = document.getElementById('app')!;
@@ -263,7 +264,6 @@ export class App {
 
         const isFreshInstall = await this.initProfile();
         await this.loadTheme();
-        await this.refreshSyncChrome();
 
         await this.switchView(this.currentView);
         this.setBootState(APP_BOOT_STATES.READY);
@@ -308,7 +308,7 @@ export class App {
                 if (this.currentView === VIEW_NAMES.DASHBOARD) await this.dashboard.loadData();
                 else if (this.currentView === VIEW_NAMES.MEDIA) await this.mediaView.loadData();
                 else if (this.currentView === VIEW_NAMES.TIMELINE) await this.timelineView.loadData();
-                this.renderCurrentView();
+                if (this.currentView !== VIEW_NAMES.DASHBOARD) this.renderCurrentView();
                 await this.refreshSyncChrome();
             }
         });
@@ -362,8 +362,9 @@ export class App {
         }
         
         if (profileName) {
-            // DB is already initialized, just load it
-            await initializeUserDb();
+            // Both runtimes open an existing database before the frontend
+            // starts. Reinitializing here would close and reopen the same
+            // profile while dashboard reads are beginning.
             this.currentProfile = profileName;
             localStorage.setItem(STORAGE_KEYS.CURRENT_PROFILE, this.currentProfile);
             await this.refreshProfileChrome();
@@ -494,17 +495,33 @@ export class App {
             n.classList.toggle('active', dataView === view);
         });
 
-        // Always reload data when switching views to ensure freshness
-        if (view === 'dashboard') await this.dashboard.loadData();
-        else if (view === 'media') await this.mediaView.resetView();
-        else if (view === 'timeline') await this.timelineView.loadData();
-        else if (view === 'profile') await this.profileView.loadData();
-
-        this.renderCurrentView();
+        // Mount the dashboard shell first so its bounded snapshot and charts
+        // can render in stages. Other views retain their existing load-first
+        // lifecycle.
+        if (view === 'dashboard') {
+            this.renderCurrentView();
+            await this.dashboard.loadData();
+        } else {
+            if (view === 'media') await this.mediaView.resetView();
+            else if (view === 'timeline') await this.timelineView.loadData();
+            else if (view === 'profile') await this.profileView.loadData();
+            this.renderCurrentView();
+        }
         await this.refreshSyncChrome();
     }
 
-    private async refreshSyncChrome() {
+    private async refreshSyncChrome(): Promise<void> {
+        if (this.syncChromeRefresh) return this.syncChromeRefresh;
+        const refresh = this.refreshSyncChromeOnce();
+        this.syncChromeRefresh = refresh;
+        try {
+            await refresh;
+        } finally {
+            if (this.syncChromeRefresh === refresh) this.syncChromeRefresh = null;
+        }
+    }
+
+    private async refreshSyncChromeOnce(): Promise<void> {
         const buttons = [
             { button: this.navSyncButtonEl, dot: this.navSyncDotEl },
             { button: this.mobileSyncButtonEl, dot: this.mobileSyncDotEl },
@@ -581,7 +598,7 @@ export class App {
                 else if (this.currentView === VIEW_NAMES.TIMELINE) await this.timelineView.loadData();
                 else if (this.currentView === VIEW_NAMES.PROFILE) await this.profileView.loadData();
 
-                this.renderCurrentView();
+                if (this.currentView !== VIEW_NAMES.DASHBOARD) this.renderCurrentView();
                 await this.refreshSyncChrome();
                 return;
             }
