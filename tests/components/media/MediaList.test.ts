@@ -7,6 +7,7 @@ import { createCollectionMediaList, useCollectionRenderTestEnv } from './collect
 vi.mock('../../../src/media/MediaListItem', () => ({
     MediaListItem: vi.fn().mockImplementation(() => ({
         render: vi.fn(),
+        destroy: vi.fn(),
     })),
 }));
 
@@ -60,6 +61,8 @@ describe('MediaList', () => {
             metrics[1],
             true,
             expect.any(Function),
+            expect.anything(),
+            true,
         );
         expect(vi.mocked(MediaListItem)).toHaveBeenNthCalledWith(
             2,
@@ -68,6 +71,8 @@ describe('MediaList', () => {
             null,
             true,
             expect.any(Function),
+            expect.anything(),
+            true,
         );
 
         const firstClickHandler = vi.mocked(MediaListItem).mock.calls[0][4];

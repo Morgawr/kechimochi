@@ -38,15 +38,16 @@ export class MediaDetail extends Component<MediaDetailState> {
     private readonly onViewportResize: () => void;
     private readonly onGlobalPointerDown: (event: PointerEvent) => void;
     private readonly onGlobalKeyDown: (event: KeyboardEvent) => void;
-    private currentObjectUrl: string | null = null;
     private isDestroyed = false;
     private overflowMenuRoot: HTMLElement | null = null;
     private overflowMenu: HTMLElement | null = null;
     private overflowMenuButton: HTMLButtonElement | null = null;
     private readonly cleanupBackHandler: () => void;
 
-    private notifyLocalDataChanged() {
-        globalThis.dispatchEvent(new CustomEvent(EVENTS.LOCAL_DATA_CHANGED));
+    private notifyLocalDataChanged(coversChanged = false) {
+        globalThis.dispatchEvent(new CustomEvent(EVENTS.LOCAL_DATA_CHANGED, {
+            detail: { coversChanged },
+        }));
     }
 
     private requireMediaUid(): string {
@@ -103,13 +104,21 @@ export class MediaDetail extends Component<MediaDetailState> {
         this.loadMilestones().catch(e => Logger.error("Failed to load milestones", e));
     }
 
+    public updateLogs(mediaId: number, logs: ActivitySummary[]): boolean {
+        if (this.state.media.id !== mediaId || this.isDestroyed) {
+            return false;
+        }
+        this.state.logs = logs;
+        this.render();
+        return true;
+    }
+
     public override destroy() {
         this.isDestroyed = true;
         globalThis.removeEventListener('resize', this.onViewportResize);
         globalThis.removeEventListener('pointerdown', this.onGlobalPointerDown, true);
         globalThis.removeEventListener('keydown', this.onGlobalKeyDown);
         this.cleanupBackHandler();
-        this.revokeCurrentObjectUrl();
         super.destroy();
     }
 
@@ -127,7 +136,6 @@ export class MediaDetail extends Component<MediaDetailState> {
     private async loadImage() {
         const { cover_image } = this.state.media;
         if (!cover_image || cover_image.trim() === '') {
-            this.revokeCurrentObjectUrl();
             if (this.state.imgSrc !== null && !this.isDestroyed) {
                 this.setState({ imgSrc: null });
             }
@@ -142,15 +150,9 @@ export class MediaDetail extends Component<MediaDetailState> {
             return;
         }
 
-        const src = await MediaCoverLoader.load(cover_image, {
-            cache: false,
-            useCache: false,
-        });
+        const src = await MediaCoverLoader.load(cover_image);
         if (!src) return;
-        if (this.isDestroyed) {
-            MediaCoverLoader.revokeIfObjectUrl(src);
-            return;
-        }
+        if (this.isDestroyed) return;
 
         if (getServices().isDesktop()) {
             await this.applyDesktopImageSource(src);
@@ -162,17 +164,11 @@ export class MediaDetail extends Component<MediaDetailState> {
 
     private async applyDesktopImageSource(src: string) {
         await this.preloadImageSource(src);
-        if (this.isDestroyed) {
-            MediaCoverLoader.revokeIfObjectUrl(src);
-            return;
-        }
+        if (this.isDestroyed) return;
 
-        const previousObjectUrl = this.currentObjectUrl;
-        this.currentObjectUrl = src;
         if (this.state.imgSrc !== src) {
             this.updateCoverImage(src);
         }
-        MediaCoverLoader.revokeIfObjectUrl(previousObjectUrl);
     }
 
     private applyWebImageSource(src: string) {
@@ -225,12 +221,6 @@ export class MediaDetail extends Component<MediaDetailState> {
         current.replaceWith(image);
         this.attachCoverUploadListener(image);
         this.adjustDesktopCoverSize();
-    }
-
-    private revokeCurrentObjectUrl() {
-        if (!this.currentObjectUrl) return;
-        MediaCoverLoader.revokeIfObjectUrl(this.currentObjectUrl);
-        this.currentObjectUrl = null;
     }
 
     private getTrackingStatusClass(status: string): string {
@@ -924,7 +914,7 @@ export class MediaDetail extends Component<MediaDetailState> {
             const ok = await customConfirm("Delete Media", `Are you sure you want to permanently delete "${this.state.media.title}" and all its logs?`, "btn-danger", "Delete");
             if (ok) {
                 await deleteMedia(this.state.media.id!);
-                this.notifyLocalDataChanged();
+                this.notifyLocalDataChanged(true);
                 this.onDelete();
             }
         });
@@ -1049,7 +1039,11 @@ export class MediaDetail extends Component<MediaDetailState> {
                 const newPath = await getServices().pickAndUploadCover(this.state.media.id!);
                 if (newPath) {
                     this.state.media.cover_image = newPath;
+                    MediaCoverLoader.clear();
                     await this.loadImage();
+                    // The cache was invalidated before loading the replacement.
+                    // Do not clear again after the new object URL is committed.
+                    this.notifyLocalDataChanged();
                 }
             } catch (e) {
                 await customAlert("Error", "Failed to upload image: " + e);
@@ -1087,6 +1081,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                 try {
                     const newPath = await downloadAndSaveImage(this.state.media.id, merged.coverImageUrl);
                     this.state.media.cover_image = newPath;
+                    MediaCoverLoader.clear();
                     await this.loadImage(); // Reload blob URL for the new image
                 } catch (err) {
                     Logger.error("Failed to download new cover", err);

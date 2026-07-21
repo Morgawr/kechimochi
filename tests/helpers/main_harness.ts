@@ -6,6 +6,8 @@ type DashboardSnapshotRequest = import('../../src/types').DashboardSnapshotReque
 type DashboardRangeRequest = import('../../src/types').DashboardRangeRequest;
 type DashboardHeatmapYearRequest = import('../../src/types').DashboardHeatmapYearRequest;
 type DashboardRecentLogsRequest = import('../../src/types').DashboardRecentLogsRequest;
+type LibrarySnapshotRequest = import('../../src/types').LibrarySnapshotRequest;
+type TimelinePageRequest = import('../../src/types').TimelinePageRequest;
 type ApiModule = typeof import('../../src/api');
 
 const defaultActivitySummary: ActivitySummary = {
@@ -74,6 +76,34 @@ function defaultDashboardSnapshot(request: DashboardSnapshotRequest) {
     };
 }
 
+function defaultLibrarySnapshot(request: LibrarySnapshotRequest) {
+    return {
+        request_id: request.request_id,
+        settings: {
+            hide_archived: false,
+            preferred_layout: 'grid' as const,
+            grid_zoom: 100,
+        },
+        media: [],
+        metrics: [],
+    };
+}
+
+function defaultTimelinePage(request: TimelinePageRequest) {
+    return {
+        request_id: request.request_id,
+        offset: request.offset,
+        limit: request.limit,
+        total_count: 0,
+        all_event_count: 0,
+        has_more: false,
+        available_years: [],
+        ambiguous_titles: [],
+        summary: { total_minutes: 0, completed_titles: 0, total_characters: 0 },
+        events: [],
+    };
+}
+
 export function createMainApiMock() {
     return {
         initializeUserDb: vi.fn(() => Promise.resolve()),
@@ -87,6 +117,8 @@ export function createMainApiMock() {
         getLogsForMedia: vi.fn(() => Promise.resolve([])),
         getAllMedia: vi.fn(() => Promise.resolve([])),
         getTimelineEvents: vi.fn(() => Promise.resolve([])),
+        getLibrarySnapshot: vi.fn((request: LibrarySnapshotRequest) => Promise.resolve(defaultLibrarySnapshot(request))),
+        getTimelinePage: vi.fn((request: TimelinePageRequest) => Promise.resolve(defaultTimelinePage(request))),
         getHeatmap: vi.fn(() => Promise.resolve([{ date: '2024-01-01', total_minutes: 10 }])),
         getDashboardSnapshot: vi.fn((request: DashboardSnapshotRequest) => Promise.resolve(defaultDashboardSnapshot(request))),
         getDashboardRange: vi.fn((request: DashboardRangeRequest) => Promise.resolve({
@@ -226,6 +258,8 @@ export function resetMainApiMocks(mockedApi: ApiModule) {
     vi.mocked(mockedApi.getLogsForMedia).mockResolvedValue([]);
     vi.mocked(mockedApi.getAllMedia).mockResolvedValue([]);
     vi.mocked(mockedApi.getTimelineEvents).mockResolvedValue([]);
+    vi.mocked(mockedApi.getLibrarySnapshot).mockImplementation((request) => Promise.resolve(defaultLibrarySnapshot(request)));
+    vi.mocked(mockedApi.getTimelinePage).mockImplementation((request) => Promise.resolve(defaultTimelinePage(request)));
     vi.mocked(mockedApi.getHeatmap).mockResolvedValue([{ date: '2024-01-01', total_minutes: 10 }]);
     vi.mocked(mockedApi.getDashboardSnapshot).mockImplementation(async request => defaultDashboardSnapshot(request));
     vi.mocked(mockedApi.getDashboardRange).mockImplementation(async request => ({

@@ -77,6 +77,25 @@ describe('DesktopServices', () => {
         expect(invoke).toHaveBeenNthCalledWith(4, 'get_dashboard_recent_logs', { request: recentRequest });
     });
 
+    it('routes atomic library and bounded timeline reads through dedicated IPC commands', async () => {
+        vi.mocked(invoke).mockResolvedValue({ request_id: 31 });
+        const libraryRequest = { request_id: 31 };
+        const timelineRequest = {
+            request_id: 32,
+            year: null,
+            kind: null,
+            search_query: '',
+            offset: 0,
+            limit: 40,
+        };
+
+        await services.getLibrarySnapshot(libraryRequest);
+        await services.getTimelinePage(timelineRequest);
+
+        expect(invoke).toHaveBeenNthCalledWith(1, 'get_library_snapshot', { request: libraryRequest });
+        expect(invoke).toHaveBeenNthCalledWith(2, 'get_timeline_page', { request: timelineRequest });
+    });
+
     it('formats dev and release app versions correctly', async () => {
         const globals = globalThis as Record<string, unknown>;
         globals.__APP_VERSION__ = '0.1.0-dev.hash123';

@@ -12,7 +12,11 @@ import type {
     DashboardRecentPage,
     DashboardSnapshot,
     DashboardSnapshotRequest,
+    LibrarySnapshot,
+    LibrarySnapshotRequest,
     TimelineEvent,
+    TimelinePage,
+    TimelinePageRequest,
     MediaCsvRow,
     MediaConflict,
     Milestone,
@@ -42,7 +46,11 @@ export type {
     DashboardRecentPage,
     DashboardSnapshot,
     DashboardSnapshotRequest,
+    LibrarySnapshot,
+    LibrarySnapshotRequest,
     TimelineEvent,
+    TimelinePage,
+    TimelinePageRequest,
     MediaCsvRow,
     MediaConflict,
     Milestone,
@@ -84,8 +92,10 @@ export interface AppServices {
     getDashboardRange(request: DashboardRangeRequest): Promise<DashboardRangeResponse>;
     getDashboardHeatmapYear(request: DashboardHeatmapYearRequest): Promise<DashboardHeatmapYearResponse>;
     getDashboardRecentLogs(request: DashboardRecentLogsRequest): Promise<DashboardRecentPage>;
+    getLibrarySnapshot(request: LibrarySnapshotRequest): Promise<LibrarySnapshot>;
     getLogsForMedia(mediaId: number): Promise<ActivitySummary[]>;
     getTimelineEvents(): Promise<TimelineEvent[]>;
+    getTimelinePage(request: TimelinePageRequest): Promise<TimelinePage>;
 
     initializeUserDb(fallbackUsername?: string): Promise<void>;
     clearActivities(): Promise<void>;

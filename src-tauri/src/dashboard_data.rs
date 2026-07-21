@@ -5,12 +5,9 @@
 //! data; switching the active database therefore cannot blend dashboard data
 //! between profiles or between the desktop and web runtimes.
 
-use std::collections::{HashMap, HashSet};
-use std::time::{Duration, Instant};
-
 use chrono::{Datelike, Days, NaiveDate};
 use rusqlite::{params, Connection, Result};
-use serde::Serialize;
+use std::collections::{HashMap, HashSet};
 
 use crate::models::{
     DailyHeatmap, DashboardBucket, DashboardBucketTotals, DashboardChartPoint, DashboardGroupBy,
@@ -19,6 +16,7 @@ use crate::models::{
     DashboardRangeResponse, DashboardRecentLog, DashboardRecentLogsRequest, DashboardRecentPage,
     DashboardSettings, DashboardSnapshot, DashboardSnapshotRequest, DashboardSummary,
 };
+use crate::read_performance::{Measured, Timings};
 
 pub const MAX_RECENT_LOG_PAGE_SIZE: i64 = 50;
 const QUICK_LOG_LIMIT: i64 = 6;
@@ -26,61 +24,6 @@ const TOP_GROUPS_PER_METRIC: usize = 12;
 const MAX_DAY_BUCKETS: i64 = 62;
 const MAX_MONTH_BUCKET_DAYS: i64 = 731;
 const MAX_YEAR_BUCKETS: i32 = 1_000;
-
-#[derive(Debug)]
-pub struct Measured<T> {
-    pub value: T,
-    pub query_time: Duration,
-    pub aggregation_time: Duration,
-}
-
-#[derive(Default)]
-struct Timings {
-    query_time: Duration,
-    aggregation_time: Duration,
-}
-
-impl Timings {
-    fn query<T>(&mut self, operation: impl FnOnce() -> Result<T>) -> Result<T> {
-        let started = Instant::now();
-        let result = operation();
-        self.query_time += started.elapsed();
-        result
-    }
-
-    fn aggregate<T>(&mut self, operation: impl FnOnce() -> T) -> T {
-        let started = Instant::now();
-        let result = operation();
-        self.aggregation_time += started.elapsed();
-        result
-    }
-
-    fn finish<T>(self, value: T) -> Measured<T> {
-        Measured {
-            value,
-            query_time: self.query_time,
-            aggregation_time: self.aggregation_time,
-        }
-    }
-}
-
-pub fn log_measured_response<T: Serialize>(operation: &str, measured: &Measured<T>) {
-    // Backend measurements are useful during targeted profiling, but emitting
-    // them for every dashboard interaction makes normal desktop/web consoles
-    // noisy. Keep the probe opt-in and avoid serialization overhead otherwise.
-    if std::env::var("KECHIMOCHI_PERF_LOG").as_deref() != Ok("1") {
-        return;
-    }
-
-    let serialization_started = Instant::now();
-    let response_bytes = serde_json::to_vec(&measured.value).map_or(0, |bytes| bytes.len());
-    let serialization_ms = serialization_started.elapsed().as_secs_f64() * 1_000.0;
-    eprintln!(
-        "[kechimochi][perf] operation={operation} query_ms={:.3} aggregation_ms={:.3} serialization_ms={serialization_ms:.3} response_bytes={response_bytes}",
-        measured.query_time.as_secs_f64() * 1_000.0,
-        measured.aggregation_time.as_secs_f64() * 1_000.0,
-    );
-}
 
 pub fn validate_snapshot_request(
     request: &DashboardSnapshotRequest,

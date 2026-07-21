@@ -433,7 +433,7 @@ describe('MediaDetail', () => {
         expect(cleanupBackHandler).toHaveBeenCalledTimes(1);
     });
 
-    it('should revoke object URLs on destroy', async () => {
+    it('should preserve a loaded detail cover in the shared cache on destroy', async () => {
         vi.mocked(api.getMilestones).mockResolvedValue([]);
         vi.mocked(api.readFileBytes).mockResolvedValue([1, 2, 3]);
 
@@ -444,7 +444,12 @@ describe('MediaDetail', () => {
 
         component.destroy();
 
-        expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:abc');
+        expect(MediaCoverLoader.getCached('/path/to/img.jpg')).toBe('blob:abc');
+        expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+
+        vi.mocked(api.readFileBytes).mockClear();
+        await expect(MediaCoverLoader.load('/path/to/img.jpg')).resolves.toBe('blob:abc');
+        expect(api.readFileBytes).not.toHaveBeenCalled();
     });
 
     it('should handle adding a milestone', async () => {

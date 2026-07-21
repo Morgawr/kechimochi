@@ -2,7 +2,8 @@ import { Component } from '../component';
 import { Media } from '../api';
 import { MediaItem } from './MediaItem';
 import { normalizeLibraryGridZoom } from './library_types';
-import { createAnimatedCollectionItemWrapper, renderIncrementalMediaCollection } from './render_incremental_collection';
+import { createCollectionItemWrapper, renderIncrementalMediaCollection } from './render_incremental_collection';
+import { CoverVisibilityController } from './cover_visibility';
 
 interface MediaGridState {
     mediaList: Media[];
@@ -16,6 +17,8 @@ export class MediaGrid extends Component<MediaGridState> {
     private readonly onMediaClick: (mediaId: number) => void;
     private isDestroyed = false;
     private currentRenderId = 0;
+    private childItems: MediaItem[] = [];
+    private visibilityController: CoverVisibilityController | null = null;
 
     constructor(container: HTMLElement, initialState: MediaGridState, onMediaClick: (mediaId: number) => void) {
         super(container, initialState);
@@ -24,6 +27,7 @@ export class MediaGrid extends Component<MediaGridState> {
 
     public destroy() {
         this.isDestroyed = true;
+        this.destroyRenderedItems();
     }
 
     render() {
@@ -33,6 +37,8 @@ export class MediaGrid extends Component<MediaGridState> {
         const cardMinWidth = DEFAULT_CARD_MIN_WIDTH * gridZoom / 100;
         const cardHeight = DEFAULT_CARD_HEIGHT * gridZoom / 100;
 
+        this.destroyRenderedItems();
+        this.visibilityController = new CoverVisibilityController('320px 0px');
         this.clear();
 
         renderIncrementalMediaCollection({
@@ -48,10 +54,10 @@ export class MediaGrid extends Component<MediaGridState> {
             firstBatchDelayMs: 50,
             subsequentBatchDelayMs: 20,
             shouldContinue: () => !this.isDestroyed && renderId === this.currentRenderId,
-            createItemWrapper: (media, index, isFirstBatch) => {
-                const itemWrapper = createAnimatedCollectionItemWrapper(
+            performanceOperation: 'library_grid_batch',
+            createItemWrapper: (media, index) => {
+                const itemWrapper = createCollectionItemWrapper(
                     'media-item-wrapper',
-                    isFirstBatch ? index * 0.02 : 0,
                     `${cardMinWidth}px ${cardHeight}px`,
                 );
                 const mediaId = media.id;
@@ -60,10 +66,18 @@ export class MediaGrid extends Component<MediaGridState> {
                         return;
                     }
                     this.onMediaClick(mediaId);
-                });
+                }, this.visibilityController ?? undefined, index < 6);
+                this.childItems.push(item);
                 item.render();
                 return itemWrapper;
             },
         });
+    }
+
+    private destroyRenderedItems(): void {
+        this.visibilityController?.disconnect();
+        this.visibilityController = null;
+        this.childItems.forEach(item => item.destroy());
+        this.childItems = [];
     }
 }

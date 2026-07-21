@@ -14,18 +14,19 @@ use std::sync::Arc;
 use axum::{
     body::Body,
     extract::{rejection::JsonRejection, Multipart, Path, Query, State},
-    http::{header, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{any, get, post, put},
     Json, Router,
 };
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
 
 use kechimochi_lib::{
-    csv_import, dashboard_data, db, get_username_logic, instance_lock, models, profile_picture,
-    sync_state,
+    csv_import, dashboard_data, db, get_username_logic, instance_lock, library_data, models,
+    profile_picture, read_performance, sync_state, timeline_data,
 };
 
 // ── Error handling ────────────────────────────────────────────────────────────
@@ -221,7 +222,9 @@ fn build_app_router(state: Shared) -> Router {
             "/api/dashboard/recent-logs",
             post(get_dashboard_recent_logs_handler),
         )
+        .route("/api/library/snapshot", post(get_library_snapshot_handler))
         .route("/api/timeline", get(get_timeline_events_handler))
+        .route("/api/timeline/page", post(get_timeline_page_handler))
         // Milestones
         .route("/api/milestones", post(add_milestone_handler))
         .route(
@@ -467,7 +470,7 @@ async fn get_dashboard_snapshot_handler(
     dashboard_data::validate_snapshot_request(&request).map_err(AppError::BadRequest)?;
     let conn = s.conn.lock().await;
     let measured = dashboard_data::get_dashboard_snapshot(&conn, &request).ae()?;
-    dashboard_data::log_measured_response("dashboard_snapshot", &measured);
+    read_performance::log_measured_response("dashboard_snapshot", &measured);
     Ok(Json(measured.value))
 }
 
@@ -478,7 +481,7 @@ async fn get_dashboard_range_handler(
     dashboard_data::validate_range_request(&request).map_err(AppError::BadRequest)?;
     let conn = s.conn.lock().await;
     let measured = dashboard_data::get_dashboard_range(&conn, &request).ae()?;
-    dashboard_data::log_measured_response("dashboard_range", &measured);
+    read_performance::log_measured_response("dashboard_range", &measured);
     Ok(Json(measured.value))
 }
 
@@ -489,7 +492,7 @@ async fn get_dashboard_heatmap_year_handler(
     dashboard_data::validate_heatmap_request(&request).map_err(AppError::BadRequest)?;
     let conn = s.conn.lock().await;
     let measured = dashboard_data::get_dashboard_heatmap_year(&conn, &request).ae()?;
-    dashboard_data::log_measured_response("dashboard_heatmap_year", &measured);
+    read_performance::log_measured_response("dashboard_heatmap_year", &measured);
     Ok(Json(measured.value))
 }
 
@@ -500,7 +503,17 @@ async fn get_dashboard_recent_logs_handler(
     dashboard_data::validate_recent_request(&request).map_err(AppError::BadRequest)?;
     let conn = s.conn.lock().await;
     let measured = dashboard_data::get_dashboard_recent_logs(&conn, &request).ae()?;
-    dashboard_data::log_measured_response("dashboard_recent_logs", &measured);
+    read_performance::log_measured_response("dashboard_recent_logs", &measured);
+    Ok(Json(measured.value))
+}
+
+async fn get_library_snapshot_handler(
+    State(s): State<Shared>,
+    Json(request): Json<models::LibrarySnapshotRequest>,
+) -> HandlerResult<Json<models::LibrarySnapshot>> {
+    let conn = s.conn.lock().await;
+    let measured = library_data::get_library_snapshot(&conn, &request).ae()?;
+    read_performance::log_measured_response("library_snapshot", &measured);
     Ok(Json(measured.value))
 }
 
@@ -522,6 +535,17 @@ async fn get_timeline_events_handler(
 ) -> HandlerResult<Json<Vec<models::TimelineEvent>>> {
     let conn = s.conn.lock().await;
     db::get_timeline_events(&conn).ae().map(Json)
+}
+
+async fn get_timeline_page_handler(
+    State(s): State<Shared>,
+    Json(request): Json<models::TimelinePageRequest>,
+) -> HandlerResult<Json<models::TimelinePage>> {
+    timeline_data::validate_page_request(&request).map_err(AppError::BadRequest)?;
+    let conn = s.conn.lock().await;
+    let measured = timeline_data::get_timeline_page(&conn, &request).ae()?;
+    read_performance::log_measured_response("timeline_page", &measured);
+    Ok(Json(measured.value))
 }
 
 // ── Milestone handlers ───────────────────────────────────────────────────────
@@ -911,6 +935,7 @@ async fn upload_cover(
 async fn serve_cover(
     State(s): State<Shared>,
     Path(filename): Path<String>,
+    headers: HeaderMap,
 ) -> HandlerResult<Response> {
     // Prevent path traversal: only use the bare filename component.
     let safe_name = std::path::Path::new(&filename)
@@ -923,6 +948,19 @@ async fn serve_cover(
         return Err(AppError::Internal("Cover not found".into()));
     }
     let bytes = std::fs::read(&file_path).ae()?;
+    let etag = format!("\"{:x}\"", Sha256::digest(&bytes));
+    if headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+        == Some(etag.as_str())
+    {
+        return Response::builder()
+            .status(StatusCode::NOT_MODIFIED)
+            .header(header::ETAG, etag)
+            .header(header::CACHE_CONTROL, "private, no-cache")
+            .body(Body::empty())
+            .ae();
+    }
     let content_type = match file_path
         .extension()
         .and_then(|e| e.to_str())
@@ -935,6 +973,8 @@ async fn serve_cover(
     };
     Response::builder()
         .header(header::CONTENT_TYPE, content_type)
+        .header(header::ETAG, etag)
+        .header(header::CACHE_CONTROL, "private, no-cache")
         .body(Body::from(bytes))
         .ae()
 }
@@ -1413,12 +1453,80 @@ mod tests {
             .unwrap();
         }
 
-        let events = get_timeline_events_handler(State(state)).await.unwrap().0;
+        let events = get_timeline_events_handler(State(state.clone()))
+            .await
+            .unwrap()
+            .0;
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].kind, models::TimelineEventKind::Finished);
         assert_eq!(events[1].kind, models::TimelineEventKind::Milestone);
         assert_eq!(events[1].milestone_minutes, 45);
         assert_eq!(events[1].milestone_characters, 0);
+
+        let page = get_timeline_page_handler(
+            State(state.clone()),
+            Json(models::TimelinePageRequest {
+                request_id: 71,
+                year: Some(2024),
+                kind: None,
+                search_query: "Timeline Handler".to_string(),
+                offset: 0,
+                limit: 1,
+            }),
+        )
+        .await
+        .unwrap()
+        .0;
+        assert_eq!(page.request_id, 71);
+        assert_eq!(page.total_count, 2);
+        assert_eq!(page.events.len(), 1);
+        assert!(page.has_more);
+
+        let _ = std::fs::remove_dir_all(state_dir);
+    }
+
+    #[tokio::test]
+    async fn test_library_snapshot_handler_combines_settings_media_and_metrics() {
+        let state = setup_state();
+        let state_dir = state.data_dir.clone();
+        let media_id = add_media(
+            State(state.clone()),
+            Json(models::HttpMedia::from(sample_media("Library Snapshot"))),
+        )
+        .await
+        .unwrap()
+        .0;
+
+        {
+            let conn = state.conn.lock().await;
+            db::add_log(
+                &conn,
+                &models::ActivityLog {
+                    id: None,
+                    media_id,
+                    duration_minutes: 35,
+                    characters: 0,
+                    date: "2026-07-22".to_string(),
+                    activity_type: "Reading".to_string(),
+                    notes: "must stay out of the snapshot metrics".to_string(),
+                },
+            )
+            .unwrap();
+            db::set_setting(&conn, "library_layout_mode", "list").unwrap();
+        }
+
+        let snapshot = get_library_snapshot_handler(
+            State(state.clone()),
+            Json(models::LibrarySnapshotRequest { request_id: 72 }),
+        )
+        .await
+        .unwrap()
+        .0;
+        assert_eq!(snapshot.request_id, 72);
+        assert_eq!(snapshot.media.len(), 1);
+        assert_eq!(snapshot.settings.preferred_layout, "list");
+        assert_eq!(snapshot.metrics[0].media_id, media_id);
+        assert_eq!(snapshot.metrics[0].total_minutes, 35);
 
         let _ = std::fs::remove_dir_all(state_dir);
     }
@@ -1626,6 +1734,43 @@ mod tests {
         assert!(!sync_state::sync_config_path(&state.data_dir).exists());
         assert!(!sync_state::base_snapshot_path(&state.data_dir).exists());
         assert!(!sync_state::pending_conflicts_path(&state.data_dir).exists());
+
+        let _ = std::fs::remove_dir_all(state_dir);
+    }
+
+    #[tokio::test]
+    async fn test_cover_handler_revalidates_with_content_etags() {
+        let state = setup_state();
+        let state_dir = state.data_dir.clone();
+        let covers_dir = state.data_dir.join("covers");
+        std::fs::create_dir_all(&covers_dir).unwrap();
+        std::fs::write(covers_dir.join("etag.png"), b"cover bytes").unwrap();
+
+        let first = serve_cover(
+            State(state.clone()),
+            Path("etag.png".to_string()),
+            HeaderMap::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(first.status(), StatusCode::OK);
+        assert_eq!(
+            first.headers().get(header::CACHE_CONTROL).unwrap(),
+            "private, no-cache"
+        );
+        let etag = first.headers().get(header::ETAG).unwrap().clone();
+
+        let mut conditional_headers = HeaderMap::new();
+        conditional_headers.insert(header::IF_NONE_MATCH, etag.clone());
+        let revalidated = serve_cover(
+            State(state.clone()),
+            Path("etag.png".to_string()),
+            conditional_headers,
+        )
+        .await
+        .unwrap();
+        assert_eq!(revalidated.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(revalidated.headers().get(header::ETAG).unwrap(), &etag);
 
         let _ = std::fs::remove_dir_all(state_dir);
     }

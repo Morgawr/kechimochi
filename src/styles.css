@@ -808,6 +808,33 @@ input:focus, select:focus {
   padding-bottom: 2.5rem;
 }
 
+/*
+ * WebKit can spend seconds compositing the timeline when its initial fade,
+ * loading spinner, card transitions, and progressive cover transitions overlap.
+ * Keep this data-dense view visually stable; cover loading remains progressive,
+ * but swapping a decoded image into place no longer starts another animation.
+ */
+.timeline-root,
+.timeline-root * {
+  animation: none !important;
+  transition: none !important;
+}
+
+/*
+ * The library swaps and incrementally fills large DOM collections. Avoid
+ * compositor churn while those batches and decoded covers are entering view.
+ */
+#media-root,
+#media-root * {
+  transition: none !important;
+}
+
+/* Modal transitions can overlap a library render and stall Linux WebKit. */
+.modal-overlay,
+.modal-overlay * {
+  transition: none !important;
+}
+
 .timeline-stack {
   display: flex;
   flex-direction: column;
@@ -964,6 +991,21 @@ input:focus, select:focus {
   pointer-events: none;
   box-shadow: 0 0 18px color-mix(in srgb, var(--accent-blue) 10%, transparent);
   z-index: 0;
+}
+
+.timeline-page-sentinel {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 1rem;
+}
+
+.timeline-page-status {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
 }
 
 .timeline-wave {
@@ -1259,6 +1301,28 @@ input:focus, select:focus {
 
 .timeline-cover-image {
   object-fit: cover;
+}
+
+.progressive-cover-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transform: scale(1.015);
+  transition: opacity 160ms ease-out, transform 220ms ease-out;
+}
+
+.progressive-cover-image.is-loaded {
+  opacity: 1;
+  transform: scale(1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progressive-cover-image {
+    transition: none;
+    transform: none;
+  }
 }
 
 .timeline-cover-placeholder {

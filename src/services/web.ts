@@ -20,7 +20,11 @@ import type {
     DashboardRecentPage,
     DashboardSnapshot,
     DashboardSnapshotRequest,
+    LibrarySnapshot,
+    LibrarySnapshotRequest,
     TimelineEvent,
+    TimelinePage,
+    TimelinePageRequest,
     MediaCsvRow,
     MediaConflict,
     Milestone,
@@ -75,7 +79,7 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
     return parseJsonResponse<T>(res);
 }
 
-async function postDashboard<T>(path: string, body: unknown, operation: string): Promise<T> {
+async function postMeasured<T>(path: string, body: unknown, operation: string): Promise<T> {
     const started = performanceNow();
     let responseHeadersAt = started;
     try {
@@ -186,19 +190,25 @@ export class WebServices implements AppServices {
     getLogs():                              Promise<ActivitySummary[]> { return get('/logs'); }
     getHeatmap():                           Promise<DailyHeatmap[]>   { return get('/logs/heatmap'); }
     getDashboardSnapshot(request: DashboardSnapshotRequest): Promise<DashboardSnapshot> {
-        return postDashboard('/dashboard/snapshot', request, 'dashboard_snapshot');
+        return postMeasured('/dashboard/snapshot', request, 'dashboard_snapshot');
     }
     getDashboardRange(request: DashboardRangeRequest): Promise<DashboardRangeResponse> {
-        return postDashboard('/dashboard/range', request, 'dashboard_range');
+        return postMeasured('/dashboard/range', request, 'dashboard_range');
     }
     getDashboardHeatmapYear(request: DashboardHeatmapYearRequest): Promise<DashboardHeatmapYearResponse> {
-        return postDashboard('/dashboard/heatmap-year', request, 'dashboard_heatmap_year');
+        return postMeasured('/dashboard/heatmap-year', request, 'dashboard_heatmap_year');
     }
     getDashboardRecentLogs(request: DashboardRecentLogsRequest): Promise<DashboardRecentPage> {
-        return postDashboard('/dashboard/recent-logs', request, 'dashboard_recent_logs');
+        return postMeasured('/dashboard/recent-logs', request, 'dashboard_recent_logs');
+    }
+    getLibrarySnapshot(request: LibrarySnapshotRequest): Promise<LibrarySnapshot> {
+        return postMeasured('/library/snapshot', request, 'library_snapshot');
     }
     getLogsForMedia(mediaId: number):       Promise<ActivitySummary[]> { return get(`/logs/media/${mediaId}`); }
     getTimelineEvents():                    Promise<TimelineEvent[]>  { return get('/timeline'); }
+    getTimelinePage(request: TimelinePageRequest): Promise<TimelinePage> {
+        return postMeasured('/timeline/page', request, 'timeline_page');
+    }
 
     initializeUserDb(fallbackUsername?: string):Promise<void>            { return post('/profiles/initialize', { fallback_username: fallbackUsername }); }
     clearActivities():                       Promise<void>             { return post('/activities/clear'); }

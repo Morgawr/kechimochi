@@ -1,8 +1,8 @@
-import { Logger } from '../logger';
 import { Component } from '../component';
 import { html } from '../html';
 import { Media } from '../api';
 import { MediaCoverLoader } from './cover_loader';
+import { CoverVisibilityController } from './cover_visibility';
 
 interface MediaItemState {
     media: Media;
@@ -10,31 +10,72 @@ interface MediaItemState {
 }
 
 export class MediaItem extends Component<MediaItemState> {
-    constructor(container: HTMLElement, media: Media, onClick: () => void) {
-        super(container, { media, imgSrc: null });
+    private readonly ownVisibilityController: CoverVisibilityController | null;
+    private readonly stopObserving: () => void;
+    private isDestroyed = false;
+
+    constructor(
+        container: HTMLElement,
+        media: Media,
+        onClick: () => void,
+        visibilityController?: CoverVisibilityController,
+        eager = false,
+    ) {
+        super(container, {
+            media,
+            imgSrc: media.cover_image ? MediaCoverLoader.getCached(media.cover_image) : null,
+        });
         this.container.addEventListener('click', onClick);
-        
-        // Lazy load image when visible
-        const observer = new IntersectionObserver((entries) => {
-            if (entries[0].isIntersecting) {
-                this.loadImage();
-                observer.disconnect();
-            }
-        }, { rootMargin: '200px' });
-        observer.observe(this.container);
+        const visibility = visibilityController ?? new CoverVisibilityController('240px 0px');
+        this.ownVisibilityController = visibilityController ? null : visibility;
+        const task = () => {
+            this.loadImage().catch(() => undefined);
+        };
+        if (!media.cover_image || this.state.imgSrc) {
+            this.stopObserving = () => undefined;
+        } else if (eager) {
+            visibility.loadNow(this.container, task);
+            this.stopObserving = () => undefined;
+        } else {
+            this.stopObserving = visibility.observe(this.container, task);
+        }
     }
 
     private async loadImage() {
         const { cover_image } = this.state.media;
         if (!cover_image || cover_image.trim() === '') return;
 
-        try {
-            const src = await MediaCoverLoader.load(cover_image);
-            if (!src) return;
-            this.setState({ imgSrc: src });
-        } catch (e) {
-            Logger.error("Failed to load image", e);
+        const src = await MediaCoverLoader.load(cover_image);
+        if (!src || this.isDestroyed) return;
+        this.state.imgSrc = src;
+        this.commitImage(src);
+    }
+
+    private commitImage(src: string): void {
+        const existing = this.container.querySelector<HTMLImageElement>('img.media-grid-cover-image');
+        if (existing) {
+            if (existing.src !== src) existing.src = src;
+            return;
         }
+
+        const placeholder = this.container.querySelector<HTMLElement>('.image-placeholder');
+        if (!placeholder) return;
+        const image = document.createElement('img');
+        image.className = 'media-grid-cover-image progressive-cover-image';
+        image.alt = this.state.media.title;
+        image.loading = 'lazy';
+        image.decoding = 'async';
+        image.addEventListener('load', () => image.classList.add('is-loaded'), { once: true });
+        image.src = src;
+        placeholder.replaceWith(image);
+        if (image.complete) requestAnimationFrame(() => image.classList.add('is-loaded'));
+    }
+
+    public override destroy(): void {
+        this.isDestroyed = true;
+        this.stopObserving();
+        this.ownVisibilityController?.disconnect();
+        super.destroy();
     }
 
     private getTrackingStatusClass(status: string): string {
@@ -66,7 +107,7 @@ export class MediaItem extends Component<MediaItemState> {
             ? html`<div class="grid-item-variant" style="margin-top: 0.35rem; font-size: 0.78rem; color: var(--text-secondary);">${media.variant}</div>`
             : '';
         const content = imgSrc
-            ? html`<img src="${imgSrc}" style="width: 100%; height: 100%; object-fit: cover; display: block;" alt="${media.title}" />`
+            ? html`<img class="media-grid-cover-image progressive-cover-image is-loaded" src="${imgSrc}" loading="lazy" decoding="async" alt="${media.title}" />`
             : html`
                 <div class="image-placeholder" style="flex: 1; display: flex; flex-direction: column; padding: 1.2rem 1rem; color: var(--text-secondary); text-align: center; justify-content: space-between;">
                     <div>

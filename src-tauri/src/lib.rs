@@ -5,8 +5,10 @@ pub mod dashboard_data;
 pub mod db;
 pub mod http_api;
 pub mod instance_lock;
+pub mod library_data;
 pub mod models;
 pub mod profile_picture;
+pub mod read_performance;
 pub mod sync_auth;
 pub mod sync_cover_blobs;
 pub mod sync_drive;
@@ -14,6 +16,7 @@ pub mod sync_merge;
 pub mod sync_orchestrator;
 pub mod sync_snapshot;
 pub mod sync_state;
+pub mod timeline_data;
 
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -30,7 +33,8 @@ use models::{
     ActivityLog, ActivitySummary, DailyHeatmap, DashboardHeatmapYearRequest,
     DashboardHeatmapYearResponse, DashboardRangeRequest, DashboardRangeResponse,
     DashboardRecentLogsRequest, DashboardRecentPage, DashboardSnapshot, DashboardSnapshotRequest,
-    Media, Milestone, ProfilePicture, TimelineEvent,
+    LibrarySnapshot, LibrarySnapshotRequest, Media, Milestone, ProfilePicture, TimelineEvent,
+    TimelinePage, TimelinePageRequest,
 };
 
 // Database state
@@ -189,25 +193,25 @@ where
 /// blocking pool so SQLite work cannot stall the desktop event loop. The same
 /// connection mutex remains held for the complete read transaction, including
 /// all attached profile databases.
-async fn run_dashboard_read<T, F>(
+async fn run_measured_read<T, F>(
     conn: Arc<Mutex<Connection>>,
     operation: &'static str,
     query: F,
 ) -> Result<T, String>
 where
     T: Serialize + Send + 'static,
-    F: FnOnce(&Connection) -> rusqlite::Result<dashboard_data::Measured<T>> + Send + 'static,
+    F: FnOnce(&Connection) -> rusqlite::Result<read_performance::Measured<T>> + Send + 'static,
 {
     tauri::async_runtime::spawn_blocking(move || {
         let conn = conn
             .lock()
             .map_err(|_| "Database lock was poisoned".to_string())?;
         let measured = query(&conn).map_err(|error| error.to_string())?;
-        dashboard_data::log_measured_response(operation, &measured);
+        read_performance::log_measured_response(operation, &measured);
         Ok(measured.value)
     })
     .await
-    .map_err(|error| format!("Dashboard query task failed: {error}"))?
+    .map_err(|error| format!("Read query task failed: {error}"))?
 }
 
 fn mark_sync_dirty(app_handle: &tauri::AppHandle) -> Result<(), String> {
@@ -745,7 +749,7 @@ async fn get_dashboard_snapshot(
 ) -> Result<DashboardSnapshot, String> {
     dashboard_data::validate_snapshot_request(&request)?;
     let conn = state.conn.clone();
-    run_dashboard_read(conn, "dashboard_snapshot", move |conn| {
+    run_measured_read(conn, "dashboard_snapshot", move |conn| {
         dashboard_data::get_dashboard_snapshot(conn, &request)
     })
     .await
@@ -758,7 +762,7 @@ async fn get_dashboard_range(
 ) -> Result<DashboardRangeResponse, String> {
     dashboard_data::validate_range_request(&request)?;
     let conn = state.conn.clone();
-    run_dashboard_read(conn, "dashboard_range", move |conn| {
+    run_measured_read(conn, "dashboard_range", move |conn| {
         dashboard_data::get_dashboard_range(conn, &request)
     })
     .await
@@ -771,7 +775,7 @@ async fn get_dashboard_heatmap_year(
 ) -> Result<DashboardHeatmapYearResponse, String> {
     dashboard_data::validate_heatmap_request(&request)?;
     let conn = state.conn.clone();
-    run_dashboard_read(conn, "dashboard_heatmap_year", move |conn| {
+    run_measured_read(conn, "dashboard_heatmap_year", move |conn| {
         dashboard_data::get_dashboard_heatmap_year(conn, &request)
     })
     .await
@@ -784,8 +788,20 @@ async fn get_dashboard_recent_logs(
 ) -> Result<DashboardRecentPage, String> {
     dashboard_data::validate_recent_request(&request)?;
     let conn = state.conn.clone();
-    run_dashboard_read(conn, "dashboard_recent_logs", move |conn| {
+    run_measured_read(conn, "dashboard_recent_logs", move |conn| {
         dashboard_data::get_dashboard_recent_logs(conn, &request)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn get_library_snapshot(
+    state: State<'_, DbState>,
+    request: LibrarySnapshotRequest,
+) -> Result<LibrarySnapshot, String> {
+    let conn = state.conn.clone();
+    run_measured_read(conn, "library_snapshot", move |conn| {
+        library_data::get_library_snapshot(conn, &request)
     })
     .await
 }
@@ -805,6 +821,19 @@ fn get_timeline_events(state: State<DbState>) -> Result<Vec<TimelineEvent>, Stri
     with_conn(&state, |conn| {
         db::get_timeline_events(conn).map_err(|e| e.to_string())
     })
+}
+
+#[tauri::command]
+async fn get_timeline_page(
+    state: State<'_, DbState>,
+    request: TimelinePageRequest,
+) -> Result<TimelinePage, String> {
+    timeline_data::validate_page_request(&request)?;
+    let conn = state.conn.clone();
+    run_measured_read(conn, "timeline_page", move |conn| {
+        timeline_data::get_timeline_page(conn, &request)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -1639,6 +1668,7 @@ pub fn run() {
             get_dashboard_range,
             get_dashboard_heatmap_year,
             get_dashboard_recent_logs,
+            get_library_snapshot,
             import_csv,
             export_csv,
             export_media_csv,
@@ -1649,6 +1679,7 @@ pub fn run() {
             wipe_everything,
             get_logs_for_media,
             get_timeline_events,
+            get_timeline_page,
             get_milestones,
             add_milestone,
             delete_milestone,

@@ -216,6 +216,30 @@ export interface DashboardSnapshot {
     range: DashboardRangeResponse;
 }
 
+export interface LibrarySnapshotRequest {
+    request_id: number;
+}
+
+export interface LibrarySettings {
+    hide_archived: boolean;
+    preferred_layout: 'grid' | 'list';
+    grid_zoom: number;
+}
+
+export interface LibraryActivityMetricsDto {
+    media_id: number;
+    first_activity_date: string | null;
+    last_activity_date: string | null;
+    total_minutes: number;
+}
+
+export interface LibrarySnapshot {
+    request_id: number;
+    settings: LibrarySettings;
+    media: Media[];
+    metrics: LibraryActivityMetricsDto[];
+}
+
 export type TimelineEventKind =
     | 'started'
     | 'finished'
@@ -242,6 +266,34 @@ export interface TimelineEvent {
     milestoneMinutes: number;
     milestoneCharacters: number;
     sameDayTerminal: boolean;
+}
+
+export interface TimelinePageRequest {
+    request_id: number;
+    year: number | null;
+    kind: TimelineEventKind | null;
+    search_query: string;
+    offset: number;
+    limit: number;
+}
+
+export interface TimelineSummary {
+    total_minutes: number;
+    completed_titles: number;
+    total_characters: number;
+}
+
+export interface TimelinePage {
+    request_id: number;
+    offset: number;
+    limit: number;
+    total_count: number;
+    all_event_count: number;
+    has_more: boolean;
+    available_years: number[];
+    ambiguous_titles: string[];
+    summary: TimelineSummary;
+    events: TimelineEvent[];
 }
 
 export interface Milestone {

@@ -7,6 +7,7 @@ import { createCollectionMediaList, useCollectionRenderTestEnv } from './collect
 vi.mock('../../../src/media/MediaItem', () => ({
     MediaItem: vi.fn().mockImplementation(() => ({
         render: vi.fn(),
+        destroy: vi.fn(),
     })),
 }));
 
@@ -24,7 +25,13 @@ describe('MediaGrid', () => {
         vi.runAllTimers();
 
         expect(MediaItem).toHaveBeenCalledTimes(2);
-        expect(vi.mocked(MediaItem)).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ title: 'Item 1' }), expect.any(Function));
+        expect(vi.mocked(MediaItem)).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ title: 'Item 1' }),
+            expect.any(Function),
+            expect.anything(),
+            true,
+        );
         expect(env.container.querySelector('#media-grid-container')).not.toBeNull();
     });
 

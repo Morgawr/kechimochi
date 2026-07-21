@@ -22,9 +22,13 @@ export type {
   DashboardSnapshotRequest,
   DashboardSummary,
   DashboardMedia,
+  LibrarySnapshot,
+  LibrarySnapshotRequest,
   GoogleDriveAuthSession,
   TimelineEventKind,
   TimelineEvent,
+  TimelinePage,
+  TimelinePageRequest,
   MediaCsvRow,
   MediaConflict,
   Milestone,
@@ -53,8 +57,12 @@ import type {
   DashboardRecentPage,
   DashboardSnapshot,
   DashboardSnapshotRequest,
+  LibrarySnapshot,
+  LibrarySnapshotRequest,
   GoogleDriveAuthSession,
   TimelineEvent,
+  TimelinePage,
+  TimelinePageRequest,
   MediaCsvRow,
   MediaConflict,
   Milestone,
@@ -106,8 +114,14 @@ export function getDashboardHeatmapYear(request: DashboardHeatmapYearRequest): P
 export function getDashboardRecentLogs(request: DashboardRecentLogsRequest): Promise<DashboardRecentPage> {
   return getServices().getDashboardRecentLogs(request);
 }
+export function getLibrarySnapshot(request: LibrarySnapshotRequest): Promise<LibrarySnapshot> {
+  return getServices().getLibrarySnapshot(request);
+}
 export function getLogsForMedia(mediaId: number): Promise<ActivitySummary[]> { return getServices().getLogsForMedia(mediaId); }
 export function getTimelineEvents(): Promise<TimelineEvent[]> { return getServices().getTimelineEvents(); }
+export function getTimelinePage(request: TimelinePageRequest): Promise<TimelinePage> {
+  return getServices().getTimelinePage(request);
+}
 
 export function initializeUserDb(fallbackUsername?: string): Promise<void> { return getServices().initializeUserDb(fallbackUsername); }
 export function clearActivities(): Promise<void> { return getServices().clearActivities(); }

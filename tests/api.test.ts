@@ -95,6 +95,25 @@ describe('api.ts', () => {
       expect(invoke).toHaveBeenCalledWith('get_timeline_events');
     });
 
+    it('library snapshots and timeline pages preserve request tokens across IPC', async () => {
+      const libraryRequest = { request_id: 21 };
+      const timelineRequest = {
+        request_id: 22,
+        year: 2026,
+        kind: 'finished' as const,
+        search_query: 'novel',
+        offset: 40,
+        limit: 40,
+      };
+      vi.mocked(invoke).mockResolvedValue({ request_id: 21 });
+
+      await api.getLibrarySnapshot(libraryRequest);
+      await api.getTimelinePage(timelineRequest);
+
+      expect(invoke).toHaveBeenNthCalledWith(1, 'get_library_snapshot', { request: libraryRequest });
+      expect(invoke).toHaveBeenNthCalledWith(2, 'get_timeline_page', { request: timelineRequest });
+    });
+
     it('clearActivities should call invoke', async () => {
       await api.clearActivities();
       expect(invoke).toHaveBeenCalledWith('clear_activities');

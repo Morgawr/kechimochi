@@ -3,6 +3,7 @@ export type PerformancePhase =
     | 'fetch'
     | 'aggregation'
     | 'render'
+    | 'image_load'
     | 'chart_import'
     | 'chart_construction';
 
@@ -57,7 +58,7 @@ export function measureSynchronous<T>(
     }
 }
 
-export async function measureDashboardTransport<T>(
+export async function measureTransport<T>(
     phase: 'ipc' | 'fetch',
     operation: string,
     callback: () => Promise<T>,
@@ -72,3 +73,7 @@ export async function measureDashboardTransport<T>(
         throw error;
     }
 }
+
+// Kept for compatibility with the dashboard callers while other views share
+// the generic transport probe.
+export const measureDashboardTransport = measureTransport;

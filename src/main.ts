@@ -18,6 +18,7 @@ import { customAlert } from './modal_base';
 import { configureBackStack } from './back_stack';
 import { syncAppShell } from './app_shell';
 import { initServices, getServices } from './services';
+import { MediaCoverLoader } from './media/cover_loader';
 import { Logger } from './logger';
 import { formatBuildBadge } from './app_version';
 import { escapeHTML } from './html';
@@ -47,7 +48,6 @@ try {
 }
 
 if (mockDateStr) {
-    Logger.info(`[kechimochi] Mocking system date to: ${mockDateStr}`);
     const originalDate = Date;
     const frozenTimestamp = new Date(mockDateStr + "T12:00:00Z").getTime();
 
@@ -266,6 +266,7 @@ export class App {
         await this.loadTheme();
 
         await this.switchView(this.currentView);
+        await this.refreshSyncChrome();
         this.setBootState(APP_BOOT_STATES.READY);
 
         try {
@@ -308,7 +309,6 @@ export class App {
                 if (this.currentView === VIEW_NAMES.DASHBOARD) await this.dashboard.loadData();
                 else if (this.currentView === VIEW_NAMES.MEDIA) await this.mediaView.loadData();
                 else if (this.currentView === VIEW_NAMES.TIMELINE) await this.timelineView.loadData();
-                if (this.currentView !== VIEW_NAMES.DASHBOARD) this.renderCurrentView();
                 await this.refreshSyncChrome();
             }
         });
@@ -327,8 +327,10 @@ export class App {
             const detail = (e as CustomEvent).detail;
             if (detail?.view) {
                 if (detail.view === VIEW_NAMES.MEDIA && detail.focusMediaId !== undefined) {
-                    this.switchView(VIEW_NAMES.MEDIA);
-                    this.mediaView.jumpToMedia(detail.focusMediaId, detail.source);
+                    this.switchView(VIEW_NAMES.MEDIA, {
+                        mediaId: detail.focusMediaId,
+                        source: detail.source,
+                    });
                 } else if (detail.view === VIEW_NAMES.DASHBOARD) {
                     this.switchView(VIEW_NAMES.DASHBOARD);
                 }
@@ -341,7 +343,10 @@ export class App {
             await this.refreshSyncChrome();
         });
 
-        globalThis.addEventListener(EVENTS.LOCAL_DATA_CHANGED, async () => {
+        globalThis.addEventListener(EVENTS.LOCAL_DATA_CHANGED, async (event) => {
+            if ((event as CustomEvent<{ coversChanged?: boolean }>).detail?.coversChanged) {
+                MediaCoverLoader.clear();
+            }
             await this.refreshSyncChrome();
         });
     }
@@ -357,8 +362,8 @@ export class App {
         let profileName: string | null = null;
         try {
             profileName = await getSetting(SETTING_KEYS.PROFILE_NAME);
-        } catch (e) {
-            Logger.info('[kechimochi] DB uninitialized (no settings table found), proceeding with fallback.', e);
+        } catch {
+            // A missing settings table is the expected first-run path.
         }
         
         if (profileName) {
@@ -487,7 +492,10 @@ export class App {
         }
     }
 
-    private async switchView(view: ViewType) {
+    private async switchView(
+        view: ViewType,
+        mediaTarget?: { mediaId: number; source?: 'dashboard' | 'timeline' },
+    ) {
         this.currentView = view;
 
         this.navLinks.forEach(n => {
@@ -495,19 +503,26 @@ export class App {
             n.classList.toggle('active', dataView === view);
         });
 
-        // Mount the dashboard shell first so its bounded snapshot and charts
-        // can render in stages. Other views retain their existing load-first
-        // lifecycle.
-        if (view === 'dashboard') {
-            this.renderCurrentView();
-            await this.dashboard.loadData();
+        // Mount data-heavy view shells first so their bounded reads and
+        // rendering can progress without holding navigation on a full render.
+        if (view === 'dashboard' || view === 'timeline' || view === 'media') {
+            const forceMediaRender = view === 'media' && !mediaTarget
+                ? this.mediaView.prepareLibraryView()
+                : false;
+            this.renderCurrentView(forceMediaRender);
+            if (view === 'dashboard') {
+                await this.dashboard.loadData();
+            } else if (view === 'timeline') {
+                await this.timelineView.loadData();
+            } else if (mediaTarget) {
+                await this.mediaView.jumpToMedia(mediaTarget.mediaId, mediaTarget.source);
+            } else {
+                await this.mediaView.loadData();
+            }
         } else {
-            if (view === 'media') await this.mediaView.resetView();
-            else if (view === 'timeline') await this.timelineView.loadData();
-            else if (view === 'profile') await this.profileView.loadData();
+            if (view === 'profile') await this.profileView.loadData();
             this.renderCurrentView();
         }
-        await this.refreshSyncChrome();
     }
 
     private async refreshSyncChrome(): Promise<void> {
@@ -598,7 +613,6 @@ export class App {
                 else if (this.currentView === VIEW_NAMES.TIMELINE) await this.timelineView.loadData();
                 else if (this.currentView === VIEW_NAMES.PROFILE) await this.profileView.loadData();
 
-                if (this.currentView !== VIEW_NAMES.DASHBOARD) this.renderCurrentView();
                 await this.refreshSyncChrome();
                 return;
             }
@@ -611,15 +625,21 @@ export class App {
         }
     }
 
-    private renderCurrentView() {
+    private renderCurrentView(forceMediaRender = false) {
         this.dashboardContainer.style.display = this.currentView === VIEW_NAMES.DASHBOARD ? 'block' : 'none';
         this.mediaContainer.style.display = this.currentView === VIEW_NAMES.MEDIA ? 'block' : 'none';
         this.timelineContainer.style.display = this.currentView === VIEW_NAMES.TIMELINE ? 'block' : 'none';
         this.profileContainer.style.display = this.currentView === VIEW_NAMES.PROFILE ? 'block' : 'none';
 
         if (this.currentView === VIEW_NAMES.DASHBOARD) this.dashboard.render();
-        else if (this.currentView === VIEW_NAMES.MEDIA) this.mediaView.render();
-        else if (this.currentView === VIEW_NAMES.TIMELINE) this.timelineView.render();
+        else if (
+            this.currentView === VIEW_NAMES.MEDIA
+            && (forceMediaRender || !this.mediaContainer.querySelector('#media-root'))
+        ) this.mediaView.render();
+        else if (
+            this.currentView === VIEW_NAMES.TIMELINE
+            && !this.timelineContainer.querySelector('#timeline-root')
+        ) this.timelineView.render();
         else if (this.currentView === VIEW_NAMES.PROFILE) this.profileView.render();
     }
 }

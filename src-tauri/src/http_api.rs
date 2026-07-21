@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use axum::{
     body::Body,
     extract::{rejection::JsonRejection, Multipart, Path, Query, State},
-    http::{header, HeaderValue, Method, Request, StatusCode},
+    http::{header, HeaderMap, HeaderValue, Method, Request, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{any, get, post, put},
@@ -14,6 +14,7 @@ use axum::{
 };
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tower_http::cors::{Any, CorsLayer};
 
 use crate::{backup, csv_import, db, get_username_logic, models, profile_picture, sync_state};
@@ -836,6 +837,7 @@ async fn upload_cover(
 async fn serve_cover(
     State(s): State<SharedApiState>,
     Path(filename): Path<String>,
+    headers: HeaderMap,
 ) -> HandlerResult<Response> {
     let safe_name = std::path::Path::new(&filename)
         .file_name()
@@ -847,6 +849,19 @@ async fn serve_cover(
         return Err(AppError::Internal("Cover not found".into()));
     }
     let bytes = std::fs::read(&file_path).ae()?;
+    let etag = format!("\"{:x}\"", Sha256::digest(&bytes));
+    if headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+        == Some(etag.as_str())
+    {
+        return Response::builder()
+            .status(StatusCode::NOT_MODIFIED)
+            .header(header::ETAG, etag)
+            .header(header::CACHE_CONTROL, "private, no-cache")
+            .body(Body::empty())
+            .ae();
+    }
     let content_type = match file_path
         .extension()
         .and_then(|e| e.to_str())
@@ -859,6 +874,8 @@ async fn serve_cover(
     };
     Response::builder()
         .header(header::CONTENT_TYPE, content_type)
+        .header(header::ETAG, etag)
+        .header(header::CACHE_CONTROL, "private, no-cache")
         .body(Body::from(bytes))
         .ae()
 }

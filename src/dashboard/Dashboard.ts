@@ -172,7 +172,7 @@ export class Dashboard extends Component<DashboardState> {
 
         measureSynchronous('render', 'dashboard_layout', () => {
             this.clear();
-            const root = html`<div class="dashboard-root animate-fade-in" style="display: flex; flex-direction: column; gap: 2rem;"></div>`;
+            const root = html`<div class="dashboard-root" style="display: flex; flex-direction: column; gap: 2rem;"></div>`;
             this.container.appendChild(root);
 
             const topRow = html`<div id="dashboard-top-row" style="display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 2rem; align-items: start;"></div>`;

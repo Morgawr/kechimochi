@@ -18,10 +18,13 @@ export async function openTimeline(): Promise<void> {
 }
 
 export async function waitForTimelineReady(): Promise<void> {
-    const root = $('#timeline-root');
-    await root.waitForDisplayed({ timeout: 10000 });
+    await waitForSelectorDisplayed('#timeline-root', 10000);
 
     await browser.waitUntil(async () => {
+        const root = $('#timeline-root');
+        if (await root.getAttribute('aria-busy').catch(() => 'true') === 'true') {
+            return false;
+        }
         const loading = await $('.timeline-loading').isDisplayed().catch(() => false);
         if (loading) {
             return false;

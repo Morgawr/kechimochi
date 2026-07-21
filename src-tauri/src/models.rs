@@ -357,6 +357,34 @@ pub struct DashboardSnapshot {
     pub range: DashboardRangeResponse,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LibrarySnapshotRequest {
+    pub request_id: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct LibrarySettings {
+    pub hide_archived: bool,
+    pub preferred_layout: String,
+    pub grid_zoom: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct LibraryActivityMetrics {
+    pub media_id: i64,
+    pub first_activity_date: Option<String>,
+    pub last_activity_date: Option<String>,
+    pub total_minutes: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LibrarySnapshot {
+    pub request_id: u64,
+    pub settings: LibrarySettings,
+    pub media: Vec<Media>,
+    pub metrics: Vec<LibraryActivityMetrics>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum TimelineEventKind {
@@ -365,6 +393,38 @@ pub enum TimelineEventKind {
     Paused,
     Dropped,
     Milestone,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TimelinePageRequest {
+    pub request_id: u64,
+    pub year: Option<i32>,
+    pub kind: Option<TimelineEventKind>,
+    #[serde(default)]
+    pub search_query: String,
+    pub offset: i64,
+    pub limit: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct TimelineSummary {
+    pub total_minutes: i64,
+    pub completed_titles: i64,
+    pub total_characters: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TimelinePage {
+    pub request_id: u64,
+    pub offset: i64,
+    pub limit: i64,
+    pub total_count: i64,
+    pub all_event_count: i64,
+    pub has_more: bool,
+    pub available_years: Vec<i32>,
+    pub ambiguous_titles: Vec<String>,
+    pub summary: TimelineSummary,
+    pub events: Vec<TimelineEvent>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]

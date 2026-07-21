@@ -22,7 +22,11 @@ import type {
     DashboardRecentPage,
     DashboardSnapshot,
     DashboardSnapshotRequest,
+    LibrarySnapshot,
+    LibrarySnapshotRequest,
     TimelineEvent,
+    TimelinePage,
+    TimelinePageRequest,
     MediaCsvRow,
     MediaConflict,
     Milestone,
@@ -40,7 +44,7 @@ import type {
 } from '../types';
 import { getBuildVersion } from '../app_version';
 import { getMockExternalJsonResponse } from './external_mocks';
-import { measureDashboardTransport } from '../performance';
+import { measureDashboardTransport, measureTransport } from '../performance';
 
 export class DesktopServices implements AppServices {
     private win: ReturnType<typeof getCurrentWindow> | null = null;
@@ -100,8 +104,16 @@ export class DesktopServices implements AppServices {
         return measureDashboardTransport('ipc', 'dashboard_recent_logs', () =>
             invoke('get_dashboard_recent_logs', { request }));
     }
+    getLibrarySnapshot(request: LibrarySnapshotRequest): Promise<LibrarySnapshot> {
+        return measureTransport('ipc', 'library_snapshot', () =>
+            invoke('get_library_snapshot', { request }));
+    }
     getLogsForMedia(mediaId: number):       Promise<ActivitySummary[]>{ return invoke('get_logs_for_media', { mediaId }); }
     getTimelineEvents():                    Promise<TimelineEvent[]> { return invoke('get_timeline_events'); }
+    getTimelinePage(request: TimelinePageRequest): Promise<TimelinePage> {
+        return measureTransport('ipc', 'timeline_page', () =>
+            invoke('get_timeline_page', { request }));
+    }
 
     initializeUserDb(fallbackUsername?: string):Promise<void>            { return invoke('initialize_user_db', { fallbackUsername }); }
     clearActivities():                       Promise<void>            { return invoke('clear_activities'); }

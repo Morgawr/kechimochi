@@ -1,19 +1,30 @@
-import { getTimelineEvents, type TimelineEvent } from '../api';
+import {
+    getTimelinePage,
+    type TimelineEvent,
+} from '../api';
 import { VIEW_NAMES, EVENTS } from '../constants';
 import { Component } from '../component';
 import { html, escapeHTML } from '../html';
 import { Logger } from '../logger';
-import { getServices } from '../services';
-import type { TimelineEventKind } from '../types';
+import type { TimelineEventKind, TimelineSummary } from '../types';
 import { formatHhMm, formatStatsDuration } from '../time';
+import { MediaCoverLoader } from '../media/cover_loader';
+import { CoverVisibilityController } from '../media/cover_visibility';
+import { measureSynchronous } from '../performance';
 
 interface TimelineState {
     events: TimelineEvent[];
-    coverUrls: Record<number, string>;
+    availableYears: number[];
+    ambiguousTitles: string[];
+    summary: TimelineSummary;
+    totalCount: number;
+    allEventCount: number;
+    hasMore: boolean;
     searchQuery: string;
     selectedYear: string;
     selectedKind: 'all' | TimelineEventKind;
     isLoading: boolean;
+    isLoadingMore: boolean;
     isInitialized: boolean;
 }
 
@@ -42,22 +53,31 @@ const DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
 });
 
 const SMALL_TIMELINE_MEDIA_QUERY = '(max-width: 1024px)';
+const TIMELINE_PAGE_SIZE = 40;
+const TIMELINE_SEARCH_DEBOUNCE_MS = 180;
 
 export class TimelineView extends Component<TimelineState> {
-    private static readonly coverCache = new Map<string, string | null>();
-    private static readonly coverRequestCache = new Map<string, Promise<string | null>>();
-    private coverObserver: IntersectionObserver | null = null;
-    private coverLoadToken = 0;
+    private coverVisibility: CoverVisibilityController | null = null;
+    private paginationObserver: IntersectionObserver | null = null;
+    private requestId = 0;
+    private renderToken = 0;
+    private searchTimer: ReturnType<typeof setTimeout> | null = null;
     private waveFrame: number | null = null;
 
     constructor(container: HTMLElement) {
         super(container, {
             events: [],
-            coverUrls: {},
+            availableYears: [],
+            ambiguousTitles: [],
+            summary: { total_minutes: 0, completed_titles: 0, total_characters: 0 },
+            totalCount: 0,
+            allEventCount: 0,
+            hasMore: false,
             searchQuery: '',
             selectedYear: 'all',
             selectedKind: 'all',
             isLoading: false,
+            isLoadingMore: false,
             isInitialized: false,
         });
     }
@@ -66,51 +86,131 @@ export class TimelineView extends Component<TimelineState> {
         if (this.state.isLoading) {
             return;
         }
+        await this.loadPage(true);
+    }
 
-        this.setState({ isLoading: true });
+    private markPageLoading(reset: boolean, isInitialLoad: boolean): void {
+        if (isInitialLoad) {
+            this.state.isLoading = true;
+            const root = this.container.querySelector<HTMLElement>('#timeline-root');
+            if (root) {
+                root.setAttribute('aria-busy', 'true');
+            } else {
+                this.render();
+            }
+            return;
+        }
+        if (reset) {
+            this.state.isLoading = true;
+            this.container.querySelector('#timeline-root')?.setAttribute('aria-busy', 'true');
+            this.updateLoadingIndicator('Updating timeline…');
+            return;
+        }
+        this.state.isLoadingMore = true;
+        this.container.querySelector('#timeline-root')?.setAttribute('aria-busy', 'true');
+        this.updateLoadingIndicator('Loading more events…');
+    }
 
-        try {
-            const events = await getTimelineEvents();
-            const coverLoadToken = ++this.coverLoadToken;
-            this.setState({
-                events,
-                coverUrls: {},
-                isLoading: false,
-                isInitialized: true,
-            });
-            this.runBackgroundTask(
-                this.prefetchRecentCovers(events, coverLoadToken),
-                'Failed to prefetch recent timeline covers',
-                'warn',
-            );
-        } catch (error) {
-            Logger.error('Failed to load timeline events', error);
+    private handlePageLoadError(error: unknown, requestId: number, isInitialLoad: boolean): void {
+        if (requestId !== this.requestId) return;
+        Logger.error('Failed to load timeline events', error);
+        if (isInitialLoad) {
             this.setState({
                 events: [],
-                coverUrls: {},
+                availableYears: [],
+                ambiguousTitles: [],
+                summary: { total_minutes: 0, completed_titles: 0, total_characters: 0 },
+                totalCount: 0,
+                allEventCount: 0,
+                hasMore: false,
                 isLoading: false,
+                isLoadingMore: false,
                 isInitialized: true,
             });
+            return;
+        }
+        this.state.isLoading = false;
+        this.state.isLoadingMore = false;
+        this.container.querySelector('#timeline-root')?.setAttribute('aria-busy', 'false');
+        this.updateLoadingIndicator('Could not load timeline events');
+    }
+
+    private async loadPage(reset: boolean): Promise<void> {
+        if (!reset && (this.state.isLoading || this.state.isLoadingMore || !this.state.hasMore)) {
+            return;
+        }
+
+        const requestId = ++this.requestId;
+        const isInitialLoad = !this.state.isInitialized;
+        const offset = reset ? 0 : this.state.events.length;
+        this.markPageLoading(reset, isInitialLoad);
+
+        try {
+            const response = await getTimelinePage({
+                request_id: requestId,
+                year: this.state.selectedYear === 'all' ? null : Number.parseInt(this.state.selectedYear, 10),
+                kind: this.state.selectedKind === 'all' ? null : this.state.selectedKind,
+                search_query: this.state.searchQuery,
+                offset,
+                limit: TIMELINE_PAGE_SIZE,
+            });
+            if (requestId !== this.requestId || response.request_id !== requestId) {
+                return;
+            }
+
+            const events = reset ? response.events : [...this.state.events, ...response.events];
+            this.setState({
+                events,
+                availableYears: response.available_years,
+                ambiguousTitles: response.ambiguous_titles,
+                summary: response.summary,
+                totalCount: response.total_count,
+                allEventCount: response.all_event_count,
+                hasMore: response.has_more,
+                isLoading: false,
+                isLoadingMore: false,
+                isInitialized: true,
+            });
+        } catch (error) {
+            this.handlePageLoadError(error, requestId, isInitialLoad);
         }
     }
 
-    render(): void {
-        if (!this.state.isInitialized && !this.state.isLoading) {
-            this.runBackgroundTask(this.loadData(), 'Failed to load timeline data');
-        }
+    private updateLoadingIndicator(label: string): void {
+        const indicator = this.container.querySelector<HTMLElement>('#timeline-page-status');
+        if (indicator) indicator.textContent = label;
+        const button = this.container.querySelector<HTMLButtonElement>('#timeline-load-more');
+        if (button) button.disabled = this.state.isLoading || this.state.isLoadingMore;
+    }
 
-        this.coverObserver?.disconnect();
-        this.coverObserver = null;
+    private getOrCreateRoot(): HTMLElement {
+        const existing = this.container.querySelector<HTMLElement>('#timeline-root');
+        if (existing) return existing;
+
+        this.clear();
+        const root = html`<div id="timeline-root" class="timeline-root"></div>`;
+        this.container.appendChild(root);
+        return root;
+    }
+
+    render(): void {
+        this.coverVisibility?.disconnect();
+        this.coverVisibility = null;
+        this.paginationObserver?.disconnect();
+        this.paginationObserver = null;
         if (this.waveFrame !== null) {
             globalThis.cancelAnimationFrame(this.waveFrame);
             this.waveFrame = null;
         }
 
-        this.clear();
-        const root = html`<div id="timeline-root" class="timeline-root animate-fade-in"></div>`;
-        this.container.appendChild(root);
+        // Keep the view root stable across async page/filter responses. This
+        // avoids a detach/reattach layout flash and preserves interaction
+        // targets while only the timeline contents are updated.
+        const root = this.getOrCreateRoot();
+        root.setAttribute('aria-busy', String(this.state.isLoading || this.state.isLoadingMore));
 
-        if (this.state.isLoading && !this.state.isInitialized) {
+        if (!this.state.isInitialized) {
+            root.setAttribute('aria-busy', 'true');
             root.innerHTML = `
                 <div class="timeline-loading">
                     <div class="timeline-loading-spinner" aria-hidden="true"></div>
@@ -120,47 +220,27 @@ export class TimelineView extends Component<TimelineState> {
             return;
         }
 
-        const visibleEvents = this.getVisibleEvents();
-        const groups = this.groupEventsByMonth(visibleEvents);
-        root.innerHTML = this.renderContent(visibleEvents, groups);
+        const visibleEvents = this.state.events;
+        const groups = measureSynchronous(
+            'aggregation',
+            'timeline_groups',
+            () => this.groupEventsByMonth(visibleEvents),
+            { event_count: visibleEvents.length },
+        );
+        root.innerHTML = measureSynchronous(
+            'render',
+            'timeline_markup',
+            () => this.renderContent(visibleEvents, groups),
+            { event_count: visibleEvents.length },
+        );
         this.setupListeners(root);
         this.setupCoverLoading(root);
+        this.setupPagination(root);
         this.renderTimelineWave(root, visibleEvents);
     }
 
-    private getVisibleEvents(): TimelineEvent[] {
-        const query = this.state.searchQuery.trim().toLowerCase();
-
-        return this.state.events.filter(event => {
-            if (this.state.selectedYear !== 'all' && !event.date.startsWith(this.state.selectedYear)) {
-                return false;
-            }
-
-            if (this.state.selectedKind !== 'all' && event.kind !== this.state.selectedKind) {
-                return false;
-            }
-
-            if (query.length === 0) {
-                return true;
-            }
-
-            return [
-                event.mediaTitle,
-                event.mediaVariant,
-                event.milestoneName ?? '',
-                event.activityType,
-                event.contentType,
-            ]
-                .join(' ')
-                .toLowerCase()
-                .includes(query);
-        });
-    }
-
     private getYearOptions(): string[] {
-        return Array.from(new Set(this.state.events.map(event => event.date.slice(0, 4)))).sort((left, right) =>
-            right.localeCompare(left),
-        );
+        return this.state.availableYears.map(String);
     }
 
     private groupEventsByMonth(events: TimelineEvent[]): TimelineGroup[] {
@@ -190,9 +270,9 @@ export class TimelineView extends Component<TimelineState> {
     }
 
     private renderContent(visibleEvents: TimelineEvent[], groups: TimelineGroup[]): string {
-        const summaryItems = this.getSummaryItems(visibleEvents);
+        const summaryItems = this.getSummaryItems();
         const yearOptions = this.getYearOptions();
-        const hasAnyEvents = this.state.events.length > 0;
+        const hasAnyEvents = this.state.allEventCount > 0;
         let timelineContent = groups.map((group, groupIndex) => this.renderGroup(group, groupIndex)).join('');
 
         if (!hasAnyEvents) {
@@ -207,6 +287,17 @@ export class TimelineView extends Component<TimelineState> {
                 <div class="timeline-empty card">
                     <h3>No matching events</h3>
                     <p>Try a different search, year, or event kind.</p>
+                </div>
+            `;
+        } else if (this.state.hasMore || this.state.totalCount > visibleEvents.length) {
+            timelineContent += `
+                <div class="timeline-page-sentinel" id="timeline-page-sentinel">
+                    <button type="button" class="btn btn-ghost" id="timeline-load-more">
+                        Load more
+                    </button>
+                    <span id="timeline-page-status" class="timeline-page-status" aria-live="polite">
+                        Showing ${visibleEvents.length.toLocaleString()} of ${this.state.totalCount.toLocaleString()} events
+                    </span>
                 </div>
             `;
         }
@@ -361,19 +452,20 @@ export class TimelineView extends Component<TimelineState> {
             return '';
         }
 
-        const coverUrl = this.state.coverUrls[event.mediaId];
+        const coverUrl = MediaCoverLoader.getCached(event.coverImage);
         const mediaLabel = this.getMediaDisplayTitle(event);
         return `
             <div
                 class="timeline-cover-shell"
                 data-cover-media-id="${event.mediaId}"
                 data-cover-ref="${escapeHTML(event.coverImage)}"
+                data-cover-alt="${escapeHTML(`${mediaLabel} cover`)}"
             >
                 ${
                     coverUrl
-                        ? `<img class="timeline-cover-image" src="${escapeHTML(coverUrl)}" alt="${escapeHTML(
+                        ? `<img class="timeline-cover-image progressive-cover-image is-loaded" src="${escapeHTML(coverUrl)}" alt="${escapeHTML(
                               mediaLabel,
-                          )} cover" loading="lazy" />`
+                          )} cover" loading="lazy" decoding="async" />`
                         : '<span class="timeline-cover-placeholder"></span>'
                 }
             </div>
@@ -414,12 +506,7 @@ export class TimelineView extends Component<TimelineState> {
     }
 
     private getMediaDisplayTitle(event: TimelineEvent): string {
-        const mediaIdsForTitle = new Set(
-            this.state.events
-                .filter(candidate => candidate.mediaTitle === event.mediaTitle)
-                .map(candidate => candidate.mediaId),
-        );
-        if (mediaIdsForTitle.size <= 1) {
+        if (!this.state.ambiguousTitles.includes(event.mediaTitle)) {
             return event.mediaTitle;
         }
 
@@ -534,23 +621,34 @@ export class TimelineView extends Component<TimelineState> {
     private setupListeners(root: HTMLElement): void {
         const searchInput = root.querySelector('#timeline-search') as HTMLInputElement | null;
         searchInput?.addEventListener('input', event => {
-            this.setState({ searchQuery: (event.target as HTMLInputElement).value });
+            this.state.searchQuery = (event.target as HTMLInputElement).value;
+            // Invalidate an already-running filter request immediately rather
+            // than allowing it to flash old results during the debounce.
+            this.requestId += 1;
+            root.setAttribute('aria-busy', 'true');
+            if (this.searchTimer !== null) {
+                globalThis.clearTimeout(this.searchTimer);
+            }
+            this.searchTimer = globalThis.setTimeout(() => {
+                this.searchTimer = null;
+                this.runBackgroundTask(this.loadPage(true), 'Failed to filter timeline');
+            }, TIMELINE_SEARCH_DEBOUNCE_MS);
         });
 
         const yearFilter = root.querySelector('#timeline-year-filter') as HTMLSelectElement | null;
         yearFilter?.addEventListener('change', event => {
-            const selectedYear = (event.target as HTMLSelectElement).value;
-            globalThis.setTimeout(() => {
-                this.setState({ selectedYear });
-            }, 0);
+            this.state.selectedYear = (event.target as HTMLSelectElement).value;
+            this.runBackgroundTask(this.loadPage(true), 'Failed to filter timeline by year');
         });
 
         const kindFilter = root.querySelector('#timeline-kind-filter') as HTMLSelectElement | null;
         kindFilter?.addEventListener('change', event => {
-            const selectedKind = (event.target as HTMLSelectElement).value as TimelineState['selectedKind'];
-            globalThis.setTimeout(() => {
-                this.setState({ selectedKind });
-            }, 0);
+            this.state.selectedKind = (event.target as HTMLSelectElement).value as TimelineState['selectedKind'];
+            this.runBackgroundTask(this.loadPage(true), 'Failed to filter timeline by kind');
+        });
+
+        root.querySelector('#timeline-load-more')?.addEventListener('click', () => {
+            this.runBackgroundTask(this.loadPage(false), 'Failed to load more timeline events');
         });
 
         root.querySelectorAll<HTMLButtonElement>('.timeline-media-link').forEach(button => {
@@ -563,66 +661,26 @@ export class TimelineView extends Component<TimelineState> {
         });
     }
 
-    private getSummaryItems(events: TimelineEvent[]): TimelineSummaryItem[] {
-        const mediaTotals = new Map<number, { totalMinutes: number; totalCharacters: number }>();
-
-        for (const event of events) {
-            if (mediaTotals.has(event.mediaId)) {
-                continue;
-            }
-
-            mediaTotals.set(event.mediaId, {
-                totalMinutes: event.totalMinutes,
-                totalCharacters: event.totalCharacters,
-            });
-        }
-
-        const completedTitles = new Set(
-            events.filter(event => event.kind === 'finished').map(event => event.mediaId),
-        ).size;
-        const totalMinutes = Array.from(mediaTotals.values()).reduce((sum, totals) => sum + totals.totalMinutes, 0);
-        const totalCharacters = Array.from(mediaTotals.values()).reduce(
-            (sum, totals) => sum + totals.totalCharacters,
-            0,
-        );
-
+    private getSummaryItems(): TimelineSummaryItem[] {
         const items: TimelineSummaryItem[] = [
             {
                 label: 'Total time',
-                value: formatStatsDuration(totalMinutes),
+                value: formatStatsDuration(this.state.summary.total_minutes),
             },
             {
                 label: 'Completed titles',
-                value: completedTitles.toLocaleString(),
+                value: this.state.summary.completed_titles.toLocaleString(),
             },
         ];
 
-        if (totalCharacters > 0) {
+        if (this.state.summary.total_characters > 0) {
             items.push({
                 label: 'Characters tracked',
-                value: totalCharacters.toLocaleString(),
+                value: this.state.summary.total_characters.toLocaleString(),
             });
         }
 
         return items;
-    }
-
-    private async prefetchRecentCovers(events: TimelineEvent[], token: number): Promise<void> {
-        const recentCoverEntries = Array.from(
-            new Map(
-                events
-                    .filter(event => event.coverImage && event.coverImage.trim().length > 0)
-                    .map(event => [event.mediaId, event.coverImage]),
-            ).entries(),
-        ).slice(0, 8);
-
-        if (recentCoverEntries.length === 0) {
-            return;
-        }
-
-        await Promise.all(
-            recentCoverEntries.map(([mediaId, coverRef]) => this.ensureCoverLoaded(mediaId, coverRef, token)),
-        );
     }
 
     private setupCoverLoading(root: HTMLElement): void {
@@ -631,11 +689,16 @@ export class TimelineView extends Component<TimelineState> {
             return;
         }
 
-        const token = this.coverLoadToken;
+        const token = ++this.renderToken;
+        this.coverVisibility = new CoverVisibilityController('420px 0px');
         const loadNodeCover = (node: HTMLElement) => {
             const mediaId = Number.parseInt(node.dataset.coverMediaId || '', 10);
             const coverRef = node.dataset.coverRef || '';
-            if (!Number.isFinite(mediaId) || coverRef.trim().length === 0 || this.state.coverUrls[mediaId]) {
+            if (
+                !Number.isFinite(mediaId)
+                || coverRef.trim().length === 0
+                || node.querySelector('img.timeline-cover-image')
+            ) {
                 return;
             }
             this.runBackgroundTask(
@@ -645,87 +708,55 @@ export class TimelineView extends Component<TimelineState> {
             );
         };
 
-        coverNodes.slice(0, 6).forEach(loadNodeCover);
-
-        if (typeof IntersectionObserver === 'undefined') {
-            coverNodes.slice(6, 18).forEach(loadNodeCover);
-            return;
-        }
-
-        this.coverObserver = new IntersectionObserver(
-            entries => {
-                for (const entry of entries) {
-                    if (!entry.isIntersecting) {
-                        continue;
-                    }
-
-                    const node = entry.target as HTMLElement;
-                    this.coverObserver?.unobserve?.(node);
-                    loadNodeCover(node);
-                }
-            },
-            {
-                rootMargin: '280px 0px',
-                threshold: 0.01,
-            },
-        );
-
-        coverNodes.forEach(node => {
-            const mediaId = Number.parseInt(node.dataset.coverMediaId || '', 10);
-            if (!Number.isFinite(mediaId) || this.state.coverUrls[mediaId]) {
-                return;
+        coverNodes.forEach((node, index) => {
+            if (node.querySelector('img.timeline-cover-image')) return;
+            if (index < 4) {
+                this.coverVisibility?.loadNow(node, () => loadNodeCover(node));
+            } else {
+                this.coverVisibility?.observe(node, () => loadNodeCover(node));
             }
-            this.coverObserver?.observe(node);
         });
     }
 
     private async ensureCoverLoaded(mediaId: number, coverRef: string, token: number): Promise<void> {
-        if (token !== this.coverLoadToken || this.state.coverUrls[mediaId]) {
+        const coverUrl = await MediaCoverLoader.load(coverRef);
+        if (!coverUrl || token !== this.renderToken) return;
+
+        const matchingNodes = Array.from(
+            this.container.querySelectorAll<HTMLElement>('[data-cover-media-id][data-cover-ref]'),
+        ).filter(node => (
+            Number.parseInt(node.dataset.coverMediaId || '', 10) === mediaId
+            && node.dataset.coverRef === coverRef
+        ));
+
+        for (const node of matchingNodes) {
+            if (node.querySelector('img.timeline-cover-image')) continue;
+            const image = document.createElement('img');
+            image.className = 'timeline-cover-image progressive-cover-image';
+            image.alt = node.dataset.coverAlt || 'Media cover';
+            image.loading = 'lazy';
+            image.decoding = 'async';
+            image.addEventListener('load', () => image.classList.add('is-loaded'), { once: true });
+            image.src = coverUrl;
+            node.replaceChildren(image);
+            if (image.complete) requestAnimationFrame(() => image.classList.add('is-loaded'));
+        }
+    }
+
+    private setupPagination(root: HTMLElement): void {
+        if (!this.state.hasMore || this.state.isLoadingMore || typeof IntersectionObserver === 'undefined') {
             return;
         }
+        const sentinel = root.querySelector<HTMLElement>('#timeline-page-sentinel');
+        if (!sentinel) return;
 
-        const cachedCover = TimelineView.coverCache.get(coverRef);
-        if (cachedCover !== undefined) {
-            if (cachedCover) {
-                this.setState({
-                    coverUrls: {
-                        ...this.state.coverUrls,
-                        [mediaId]: cachedCover,
-                    },
-                });
-            }
-            return;
-        }
-
-        let coverPromise = TimelineView.coverRequestCache.get(coverRef);
-        if (!coverPromise) {
-            coverPromise = getServices()
-                .loadCoverImage(coverRef)
-                .then(coverUrl => {
-                    TimelineView.coverCache.set(coverRef, coverUrl);
-                    TimelineView.coverRequestCache.delete(coverRef);
-                    return coverUrl;
-                })
-                .catch(error => {
-                    Logger.warn(`Failed to load timeline cover for media ${mediaId}`, error);
-                    TimelineView.coverCache.set(coverRef, null);
-                    TimelineView.coverRequestCache.delete(coverRef);
-                    return null;
-                });
-            TimelineView.coverRequestCache.set(coverRef, coverPromise);
-        }
-
-        const coverUrl = await coverPromise;
-        if (!coverUrl || token !== this.coverLoadToken || this.state.coverUrls[mediaId]) {
-            return;
-        }
-
-        this.setState({
-            coverUrls: {
-                ...this.state.coverUrls,
-                [mediaId]: coverUrl,
-            },
-        });
+        this.paginationObserver = new IntersectionObserver(entries => {
+            if (!entries.some(entry => entry.isIntersecting)) return;
+            this.paginationObserver?.disconnect();
+            this.paginationObserver = null;
+            this.runBackgroundTask(this.loadPage(false), 'Failed to load more timeline events');
+        }, { rootMargin: '800px 0px', threshold: 0.01 });
+        this.paginationObserver.observe(sentinel);
     }
 
     private renderTimelineWave(root: HTMLElement, visibleEvents: TimelineEvent[]): void {
@@ -973,7 +1004,16 @@ export class TimelineView extends Component<TimelineState> {
     }
 
     public override destroy(): void {
-        this.coverObserver?.disconnect();
+        this.requestId += 1;
+        this.renderToken += 1;
+        this.coverVisibility?.disconnect();
+        this.coverVisibility = null;
+        this.paginationObserver?.disconnect();
+        this.paginationObserver = null;
+        if (this.searchTimer !== null) {
+            globalThis.clearTimeout(this.searchTimer);
+            this.searchTimer = null;
+        }
         if (this.waveFrame !== null) {
             globalThis.cancelAnimationFrame(this.waveFrame);
             this.waveFrame = null;
