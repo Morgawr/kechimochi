@@ -146,7 +146,7 @@ describe('buildLibraryRows', () => {
             makeMedia({ id: 2, title: 'B', content_type: 'Manga' }),
         ];
 
-        const rows = buildLibraryRows(mediaList, true, ['Manga', 'Novel']);
+        const rows = buildLibraryRows(mediaList, ['Manga', 'Novel']);
 
         expect(rows).toEqual([
             { kind: 'header', contentType: 'Manga' },
@@ -162,7 +162,7 @@ describe('buildLibraryRows', () => {
             makeMedia({ id: 2, title: 'B', content_type: 'Manga' }),
         ];
 
-        const rows = buildLibraryRows(mediaList, false, ['Manga', 'Novel']);
+        const rows = buildLibraryRows(mediaList, null);
 
         expect(rows).toEqual([
             { kind: 'item', media: mediaList[0] },

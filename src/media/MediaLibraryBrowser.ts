@@ -562,7 +562,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         container.appendChild(layoutRoot);
 
         const sortedList = this.getVisibleMediaList();
-        const rows: LibraryRow[] = buildLibraryRows(sortedList, this.state.groupByType, this.state.contentTypeOrder);
+        const rows: LibraryRow[] = buildLibraryRows(sortedList, this.state.groupByType ? this.state.contentTypeOrder : null);
 
         // Navigation order is taken from the rendered rows rather than the sorted list, so the
         // detail view's prev/next follows what is actually on screen once type grouping reorders

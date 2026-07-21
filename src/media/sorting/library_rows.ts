@@ -54,8 +54,9 @@ export function toLibraryItemRows(mediaList: Media[]): LibraryRow[] {
     return mediaList.map(media => ({ kind: 'item', media }));
 }
 
-export function buildLibraryRows(sortedList: Media[], groupByType: boolean, contentTypeOrder: string[]): LibraryRow[] {
-    return groupByType
+// A null contentTypeOrder means "do not group": the library renders one flat run of item rows.
+export function buildLibraryRows(sortedList: Media[], contentTypeOrder: string[] | null): LibraryRow[] {
+    return contentTypeOrder
         ? flattenLibraryRows(groupMediaByType(sortedList, contentTypeOrder))
         : toLibraryItemRows(sortedList);
 }

@@ -584,7 +584,7 @@ describe('MediaLibraryBrowser', () => {
             (container.querySelector('#btn-add-sort-level') as HTMLButtonElement).click();
 
             expect(container.querySelector('#btn-toggle-sort .media-grid-filter-count')?.textContent).toBe('1');
-            expect(container.querySelectorAll('.media-sort-level-row').length).toBe(1);
+            expect(container.querySelectorAll('.media-sort-level-row')).toHaveLength(1);
         });
 
         it('adds multiple levels and removes one, updating the badge count', () => {
@@ -594,12 +594,12 @@ describe('MediaLibraryBrowser', () => {
             (container.querySelector('#btn-add-sort-level') as HTMLButtonElement).click();
 
             expect(container.querySelector('#btn-toggle-sort .media-grid-filter-count')?.textContent).toBe('2');
-            expect(container.querySelectorAll('.media-sort-level-row').length).toBe(2);
+            expect(container.querySelectorAll('.media-sort-level-row')).toHaveLength(2);
 
             (container.querySelector('.media-sort-level-remove[data-level-index="0"]') as HTMLButtonElement).click();
 
             expect(container.querySelector('#btn-toggle-sort .media-grid-filter-count')?.textContent).toBe('1');
-            expect(container.querySelectorAll('.media-sort-level-row').length).toBe(1);
+            expect(container.querySelectorAll('.media-sort-level-row')).toHaveLength(1);
         });
 
         it('shows the tiebreaker footnote with zero sort levels', () => {

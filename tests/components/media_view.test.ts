@@ -198,7 +198,7 @@ describe('MediaView', () => {
         await vi.waitFor(() => expect(vi.mocked(MediaLibraryBrowser).mock.calls.at(-1)?.[1]).toEqual(
             expect.objectContaining({ contentTypeOrder: expectedOrder })
         ));
-        expect(vi.mocked(api.getAllMedia).mock.calls.length).toBe(mediaFetchesBefore);
+        expect(vi.mocked(api.getAllMedia).mock.calls).toHaveLength(mediaFetchesBefore);
 
         component.destroy();
     });
