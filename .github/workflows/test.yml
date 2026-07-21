@@ -73,6 +73,8 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             xvfb \
+            openbox \
+            wmctrl \
             webkit2gtk-driver \
             fonts-noto-cjk
 
@@ -134,7 +136,19 @@ jobs:
       - name: run desktop e2e tests
         env:
           E2E_MAX_INSTANCES: 2
-        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" npm run e2e:test:desktop
+        run: |
+          # Xvfb provides a display server, but native maximize/restore needs a window manager.
+          xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" bash -c '
+            openbox >/tmp/openbox.log 2>&1 &
+            for _ in {1..50}; do
+              if wmctrl -m >/dev/null 2>&1; then
+                exec npm run e2e:test:desktop
+              fi
+              sleep 0.1
+            done
+            cat /tmp/openbox.log
+            exit 1
+          '
 
       - name: upload e2e logs
         if: failure()
