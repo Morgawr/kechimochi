@@ -139,10 +139,6 @@ export class MediaView extends Component<MediaViewState> {
         this.setState(enumOrders);
     }
 
-    private async loadLibraryEnumOrders(isInitialLoad: boolean) {
-        return isInitialLoad ? MediaView.fetchLibraryEnumOrders() : null;
-    }
-
     private static isGridLayoutSupported(): boolean {
         if (typeof globalThis.matchMedia !== 'function') {
             return true;
@@ -625,7 +621,7 @@ private async handleBack() {
         try {
             const [snapshot, enumOrders] = await Promise.all([
                 getLibrarySnapshot({ request_id: requestId }),
-                this.loadLibraryEnumOrders(isInitialLoad),
+                isInitialLoad ? MediaView.fetchLibraryEnumOrders() : null,
             ]);
             if (this.isStaleLoad(requestId) || snapshot.request_id !== requestId) return;
             const nextState = await this.buildSnapshotState(snapshot, requestId, isInitialLoad, jumpToId);
