@@ -81,6 +81,36 @@ describe('ActivityCharts', () => {
         expect((container.querySelector('#btn-chart-next') as HTMLButtonElement).disabled).toBe(false);
     });
 
+    it('marks chart data ready only after constructing the current snapshot generation', async () => {
+        const component = new ActivityCharts(
+            container,
+            {
+                logs: [],
+                timeRangeDays: 7,
+                timeRangeOffset: 0,
+                groupByMode: 'activity_type',
+                chartType: 'bar',
+                metric: 'minutes',
+                snapshotRequestId: 41,
+            },
+            onParamChange,
+        );
+
+        component.render();
+        const layout = container.querySelector<HTMLElement>('#activity-charts-grid');
+        expect(layout?.dataset.dashboardRequestId).toBeUndefined();
+        await waitForChartConstruction();
+        expect(layout?.dataset.dashboardRequestId).toBe('41');
+
+        component.updatePendingParams({ timeRangeDays: 30 });
+        expect(layout?.dataset.dashboardRequestId).toBeUndefined();
+
+        vi.clearAllMocks();
+        component.setState({ snapshotRequestId: 42 });
+        await waitForChartConstruction();
+        expect(layout?.dataset.dashboardRequestId).toBe('42');
+    });
+
     it('should trigger param change on UI interaction', () => {
         const component = new ActivityCharts(
             container,

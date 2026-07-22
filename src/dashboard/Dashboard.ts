@@ -292,6 +292,7 @@ export class Dashboard extends Component<DashboardState> {
         const componentState = {
             rangeData: this.state.rangeData,
             ...this.state.chartParams,
+            snapshotRequestId: this.activeSnapshotRequest,
         };
         if (this.activeChartsComponent) {
             this.activeChartsComponent.setState(componentState);

@@ -263,6 +263,50 @@ export async function waitForHeatmapCellMinutes(date: string, expected: number, 
     return expected;
 }
 
+interface PieChartData {
+    labels: string[];
+    values: number[];
+}
+
+export async function waitForCurrentPieChartData(
+    expected: PieChartData,
+    timeout = 10000,
+): Promise<PieChartData> {
+    let data: PieChartData | null = null;
+    await browser.waitUntil(async () => {
+        data = await readCurrentPieChartData();
+        return data !== null
+            && JSON.stringify(data.labels) === JSON.stringify(expected.labels)
+            && JSON.stringify(data.values) === JSON.stringify(expected.values);
+    }, {
+        timeout,
+        interval: 100,
+        timeoutMsg: `Current dashboard pie chart did not reach ${JSON.stringify(expected)}`,
+    });
+    return data ?? expected;
+}
+
+async function readCurrentPieChartData(): Promise<PieChartData | null> {
+    return browser.execute(() => {
+        const root = document.querySelector<HTMLElement>('.dashboard-root');
+        const charts = document.querySelector<HTMLElement>('#activity-charts-grid');
+        const currentRequestId = root?.dataset.dashboardRequestId;
+        if (!currentRequestId || charts?.dataset.dashboardRequestId !== currentRequestId) return null;
+
+        const canvas = charts.querySelector<HTMLCanvasElement>('#pieChart');
+        if (!canvas?.dataset.labels || !canvas.dataset.values) return null;
+        try {
+            const labels: unknown = JSON.parse(canvas.dataset.labels);
+            const values: unknown = JSON.parse(canvas.dataset.values);
+            if (!Array.isArray(labels) || !labels.every(label => typeof label === 'string')) return null;
+            if (!Array.isArray(values) || !values.every(value => typeof value === 'number')) return null;
+            return { labels, values };
+        } catch {
+            return null;
+        }
+    }).catch(() => null);
+}
+
 async function readCurrentHeatmapCellMinutes(date: string): Promise<number | null> {
     return browser.execute((targetDate) => {
         const root = document.querySelector<HTMLElement>('.dashboard-root');

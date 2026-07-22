@@ -208,6 +208,11 @@ describe('Dashboard', () => {
         expect(root?.dataset.dashboardRequestId).toBe(request.request_id.toString());
         expect(root?.dataset.dashboardPrimaryRequestId).toBe(request.request_id.toString());
         expect(root?.dataset.dashboardHeatmapRequestId).toBe(request.request_id.toString());
+        expect(ActivityCharts).toHaveBeenCalledWith(
+            expect.any(HTMLElement),
+            expect.objectContaining({ snapshotRequestId: request.request_id }),
+            expect.any(Function),
+        );
         // @ts-expect-error state is intentionally inspected as component contract coverage
         expect(dashboard.state.isInitialized).toBe(true);
         expect(ActivityCharts).toHaveBeenCalledTimes(1);

@@ -23,6 +23,7 @@ interface ActivityChartsState {
     chartType: 'bar' | 'line';
     metric: 'minutes' | 'characters';
     weekStartDay?: number;
+    snapshotRequestId?: number;
 }
 
 interface ChartGroup {
@@ -228,11 +229,17 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         this.renderGeneration++;
         const layout = this.container.querySelector<HTMLElement>('#activity-charts-grid');
         if (!layout) return;
+        delete layout.dataset.dashboardRequestId;
         this.syncControlState(layout);
     }
 
     private async renderCharts(layout: HTMLElement): Promise<void> {
         const generation = ++this.renderGeneration;
+        const snapshotRequestId = this.state.snapshotRequestId;
+        // The mounted canvases can still contain data from an earlier snapshot
+        // while Chart.js is being imported. Clear the completion marker until
+        // both charts have been constructed for this render generation.
+        delete layout.dataset.dashboardRequestId;
         const pieCanvas = layout.querySelector<HTMLCanvasElement>('#pieChart')!;
         const barCanvas = layout.querySelector<HTMLCanvasElement>('#barChart')!;
         if (!pieCanvas || !barCanvas) return;
@@ -263,6 +270,9 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         this.destroyChartInstances();
         this.createPieChart(Chart, pieCanvas, colors, timeRange);
         this.createBarChart(Chart, barCanvas, colors, timeRange);
+        if (snapshotRequestId !== undefined) {
+            layout.dataset.dashboardRequestId = snapshotRequestId.toString();
+        }
     }
 
     private getChartColors(): string[] {
