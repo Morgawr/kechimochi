@@ -224,7 +224,7 @@ fn query_weekday_distribution(
 fn average_and_median(values: &mut [i64]) -> (f64, f64) {
     values.sort_unstable();
     let total: i64 = values.iter().sum();
-    let median = if values.len() % 2 == 0 {
+    let median = if values.len().is_multiple_of(2) {
         (values[values.len() / 2 - 1] + values[values.len() / 2]) as f64 / 2.0
     } else {
         values[values.len() / 2] as f64
