@@ -17,6 +17,7 @@ The format is based on Keep a Changelog, with one section per released version.
  - New "Library Ordering" settings card to put content types and tracking statuses in whatever order you prefer.
  - You can now add "boolean" tags to media items. They work like any other tag but only have a key with an empty value and they look different in the UI.
  - Spider chart showing weekly average and median distribution of activities
+ - Added a Windows .exe (NSIS) installer alongside the existing MSI installer.
 
 ### Changed
  - When browsing media entries, left and right buttons now cycle through entries according to any previously-applied media filters
@@ -40,6 +41,7 @@ The format is based on Keep a Changelog, with one section per released version.
  - Newer unsupported database versions are rejected before the app creates companion database files or applies persistent database settings.
  - Improved stability of rows in list view, less jumping and resizing as data finished loading.
  - Expandable settings sections, such as the HTTP API's "Advanced settings", no longer snap shut when you change an unrelated setting.
+ - Windows: Kechimochi now declares an explicit AppUserModelID, which *should* (experimental) keep pinned taskbar shortcuts working across updates.
 
 ### Special Notes:
 

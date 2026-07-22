@@ -60,7 +60,7 @@ jobs:
           toolchain: stable
 
       - name: cache rust dependencies
-        uses: swatinem/rust-cache@aa7c1c80a07a27a84c0aa76d0cef0aad3830e330 # v2.7.8
+        uses: swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
         with:
           workspaces: './src-tauri -> target'
 
@@ -123,7 +123,7 @@ jobs:
           toolchain: stable
 
       - name: cache rust dependencies
-        uses: swatinem/rust-cache@aa7c1c80a07a27a84c0aa76d0cef0aad3830e330 # v2.7.8
+        uses: swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
         with:
           workspaces: './src-tauri -> target'
 
@@ -175,7 +175,7 @@ jobs:
           toolchain: stable
 
       - name: cache rust dependencies
-        uses: swatinem/rust-cache@aa7c1c80a07a27a84c0aa76d0cef0aad3830e330 # v2.7.8
+        uses: swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
         with:
           workspaces: './src-tauri -> target'
 
@@ -229,7 +229,7 @@ jobs:
           toolchain: stable
 
       - name: cache rust dependencies
-        uses: swatinem/rust-cache@aa7c1c80a07a27a84c0aa76d0cef0aad3830e330 # v2.7.8
+        uses: swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
         with:
           workspaces: './src-tauri -> target'
 
@@ -297,7 +297,7 @@ jobs:
           toolchain: stable
 
       - name: cache rust dependencies
-        uses: swatinem/rust-cache@aa7c1c80a07a27a84c0aa76d0cef0aad3830e330 # v2.7.8
+        uses: swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
         with:
           workspaces: './src-tauri -> target'
 
@@ -308,13 +308,15 @@ jobs:
           VITE_APP_VERSION: ${{ needs.prepare.outputs.display_version }}
           VITE_APP_CHANNEL: dev
           VITE_RELEASE_STAGE: beta
-        run: npm run tauri build -- --bundles msi --verbose
+        run: npm run tauri build -- --bundles msi,nsis --verbose
 
       - name: upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: kechimochi-windows-${{ needs.prepare.outputs.display_version }}
-          path: src-tauri/target/release/bundle/msi/*.msi
+          path: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*-setup.exe
 
   publish-macos:
     runs-on: macos-latest
@@ -343,7 +345,7 @@ jobs:
           targets: aarch64-apple-darwin, x86_64-apple-darwin
 
       - name: cache rust dependencies
-        uses: swatinem/rust-cache@aa7c1c80a07a27a84c0aa76d0cef0aad3830e330 # v2.7.8
+        uses: swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
         with:
           workspaces: './src-tauri -> target'
 
@@ -397,7 +399,7 @@ jobs:
           targets: aarch64-linux-android
 
       - name: cache rust dependencies
-        uses: swatinem/rust-cache@aa7c1c80a07a27a84c0aa76d0cef0aad3830e330 # v2.7.8
+        uses: swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
         with:
           workspaces: './src-tauri -> target'
 

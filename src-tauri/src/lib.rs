@@ -1550,8 +1550,19 @@ pub fn get_username_logic() -> String {
         .unwrap_or_else(|_| "User".to_string())
 }
 
+#[cfg(windows)]
+fn set_app_user_model_id(id: &str) {
+    use windows::core::HSTRING;
+    use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
+    let _ = unsafe { SetCurrentProcessExplicitAppUserModelID(&HSTRING::from(id)) };
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let context = tauri::generate_context!();
+    #[cfg(windows)]
+    set_app_user_model_id(context.config().identifier.as_str());
+
     let mut builder = tauri::Builder::default()
         .plugin(init_google_auth_mobile_plugin())
         .plugin(tauri_plugin_dialog::init())
@@ -1747,7 +1758,7 @@ pub fn run() {
             backup::export_full_backup,
             backup::import_full_backup
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running tauri application");
 }
 
