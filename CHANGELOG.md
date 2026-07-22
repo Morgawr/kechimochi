@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-23
+
 ### Added
  - Added an optional media variant tag, editable from the library detail view and shown when choosing or logging media.
  - Media, activity, and milestone CSV exports now include optional variant tag.
