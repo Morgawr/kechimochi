@@ -63,7 +63,7 @@ jobs:
           targets: aarch64-linux-android
 
       - name: cache rust dependencies
-        uses: swatinem/rust-cache@aa7c1c80a07a27a84c0aa76d0cef0aad3830e330 # v2.7.8
+        uses: swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
         with:
           workspaces: './src-tauri -> target'
 

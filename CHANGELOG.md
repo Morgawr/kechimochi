@@ -13,6 +13,7 @@ The format is based on Keep a Changelog, with one section per released version.
  - Media entries can now share the same title as long as they have different variant tags (including empty variant)
  - You can now add "boolean" tags to media items. They work like any other tag but only have a key with an empty value and they look different in the UI.
  - Spider chart showing weekly average and median distribution of activities
+ - Added a Windows .exe (NSIS) installer alongside the existing MSI installer.
 
 ### Changed
  - When browsing media entries, left and right buttons now cycle through entries according to any previously-applied media filters
@@ -34,6 +35,7 @@ The format is based on Keep a Changelog, with one section per released version.
  - Interrupted sync recovery no longer overwrites newer local changes by replaying an already-applied snapshot.
  - Factory reset, backup restore, and Google Drive disconnect can no longer race with an active sync or retain sync state belonging to the previous database.
  - Newer unsupported database versions are rejected before the app creates companion database files or applies persistent database settings.
+ - Windows: Kechimochi now declares an explicit AppUserModelID, which *should* (experimental) keep pinned taskbar shortcuts working across updates.
 
 ### Special Notes:
 
