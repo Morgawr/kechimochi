@@ -4,9 +4,24 @@ import type {
     ActivitySummary,
     GoogleDriveAuthSession,
     DailyHeatmap,
+    DashboardHeatmapYearRequest,
+    DashboardHeatmapYearResponse,
+    DashboardRangeRequest,
+    DashboardRangeResponse,
+    DashboardRecentLogsRequest,
+    DashboardRecentPage,
+    DashboardSnapshot,
+    DashboardSnapshotRequest,
+    LibrarySnapshot,
+    LibrarySnapshotRequest,
     TimelineEvent,
+    TimelinePage,
+    TimelinePageRequest,
     MediaCsvRow,
     MediaConflict,
+    ActivityCsvAnalysis,
+    ActivityCsvImportRequest,
+    ActivityCsvImportResult,
     Milestone,
     ProfilePicture,
     LocalHttpApiConfig,
@@ -26,9 +41,26 @@ export type {
     ActivitySummary,
     GoogleDriveAuthSession,
     DailyHeatmap,
+    DashboardHeatmapYearRequest,
+    DashboardHeatmapYearResponse,
+    DashboardRangeRequest,
+    DashboardRangeResponse,
+    DashboardWeekdayDistribution,
+    DashboardWeekdayStats,
+    DashboardRecentLogsRequest,
+    DashboardRecentPage,
+    DashboardSnapshot,
+    DashboardSnapshotRequest,
+    LibrarySnapshot,
+    LibrarySnapshotRequest,
     TimelineEvent,
+    TimelinePage,
+    TimelinePageRequest,
     MediaCsvRow,
     MediaConflict,
+    ActivityCsvAnalysis,
+    ActivityCsvImportRequest,
+    ActivityCsvImportResult,
     Milestone,
     ProfilePicture,
     LocalHttpApiConfig,
@@ -64,8 +96,14 @@ export interface AppServices {
     deleteLog(id: number): Promise<void>;
     getLogs(): Promise<ActivitySummary[]>;
     getHeatmap(): Promise<DailyHeatmap[]>;
+    getDashboardSnapshot(request: DashboardSnapshotRequest): Promise<DashboardSnapshot>;
+    getDashboardRange(request: DashboardRangeRequest): Promise<DashboardRangeResponse>;
+    getDashboardHeatmapYear(request: DashboardHeatmapYearRequest): Promise<DashboardHeatmapYearResponse>;
+    getDashboardRecentLogs(request: DashboardRecentLogsRequest): Promise<DashboardRecentPage>;
+    getLibrarySnapshot(request: LibrarySnapshotRequest): Promise<LibrarySnapshot>;
     getLogsForMedia(mediaId: number): Promise<ActivitySummary[]>;
     getTimelineEvents(): Promise<TimelineEvent[]>;
+    getTimelinePage(request: TimelinePageRequest): Promise<TimelinePage>;
 
     initializeUserDb(fallbackUsername?: string): Promise<void>;
     clearActivities(): Promise<void>;
@@ -102,8 +140,10 @@ export interface AppServices {
     saveLocalHttpApiConfig(config: LocalHttpApiConfig): Promise<LocalHttpApiStatus>;
 
     // ── File-based operations (no filesystem paths exposed to callers) ────────
-    /** Opens a file picker and imports the selected activities CSV. */
-    pickAndImportActivities(): Promise<number | null>;
+    /** Opens a file picker and analyzes an activities CSV without writing data. */
+    analyzeActivitiesCsvFromPick(): Promise<ActivityCsvAnalysis | null>;
+    /** Applies a fully reviewed activities CSV import. */
+    applyActivityImport(request: ActivityCsvImportRequest): Promise<ActivityCsvImportResult>;
     /** Picks a destination (or triggers browser download) and exports activity logs. */
     exportActivities(startDate?: string, endDate?: string): Promise<number | null>;
     /** Opens a file picker and analyses the selected media library CSV for conflicts. */

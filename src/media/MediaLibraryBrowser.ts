@@ -11,6 +11,7 @@ import {
     type LibraryActivityMetrics,
     type LibraryLayoutMode,
 } from './library_types';
+import { measureSynchronous } from '../performance';
 
 interface MediaLibraryBrowserState {
     mediaList: Media[];
@@ -48,6 +49,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
     private readonly onGridZoomChange?: (gridZoom: number) => void;
     private activeLayoutComponent: Component | null = null;
     private shellRendered = false;
+    private searchRenderTimer: ReturnType<typeof setTimeout> | null = null;
 
     constructor(
         container: HTMLElement,
@@ -73,6 +75,10 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
     }
 
     public override destroy() {
+        if (this.searchRenderTimer !== null) {
+            globalThis.clearTimeout(this.searchRenderTimer);
+            this.searchRenderTimer = null;
+        }
         this.activeLayoutComponent?.destroy?.();
         super.destroy();
     }
@@ -87,6 +93,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
 
             const contentContainer = document.createElement('div');
             contentContainer.id = 'media-library-content';
+            contentContainer.setAttribute('aria-busy', 'false');
             // Allow the library content to shrink in flex layouts; otherwise long children can
             // force horizontal overflow which then gets clipped by the app shell.
             contentContainer.style.cssText = 'display: flex; flex: 1; min-height: 0; min-width: 0;';
@@ -292,7 +299,12 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         layoutRoot.style.cssText = 'display: flex; flex: 1; min-height: 0; min-width: 0;';
         container.appendChild(layoutRoot);
 
-        const visibleList = this.getVisibleMediaList();
+        const visibleList = measureSynchronous(
+            'aggregation',
+            'library_filter',
+            () => this.getVisibleMediaList(),
+            { media_count: this.state.mediaList.length },
+        );
         const navigationIds = visibleList.flatMap((media) => (
             typeof media.id === 'number' ? [media.id] : []
         ));
@@ -355,8 +367,19 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         const searchFilter = header.querySelector<HTMLInputElement>('#grid-search-filter');
         searchFilter?.addEventListener('input', () => {
             this.state.searchQuery = searchFilter.value;
-            this.renderContent(this.container.querySelector<HTMLElement>('#media-library-content')!);
-            this.notifyFilterChange();
+            this.container.querySelector<HTMLElement>('#media-library-content')
+                ?.setAttribute('aria-busy', 'true');
+            if (this.searchRenderTimer !== null) {
+                globalThis.clearTimeout(this.searchRenderTimer);
+            }
+            this.searchRenderTimer = globalThis.setTimeout(() => {
+                this.searchRenderTimer = null;
+                const content = this.container.querySelector<HTMLElement>('#media-library-content');
+                if (!content) return;
+                this.renderContent(content);
+                content.setAttribute('aria-busy', 'false');
+                this.notifyFilterChange();
+            }, 120);
         });
 
         header.querySelector('#btn-toggle-filters')?.addEventListener('click', () => {
@@ -453,57 +476,18 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         panel.classList.toggle('is-collapsed', !nextExpanded);
 
         if (nextExpanded) {
-            this.animateFilterPanelOpen(panel);
-        } else {
-            this.animateFilterPanelClose(panel);
-        }
-    }
-
-    private animateFilterPanelOpen(panel: HTMLElement) {
-        panel.style.pointerEvents = 'none';
-        panel.style.overflow = 'hidden';
-        panel.style.height = '0px';
-        panel.style.opacity = '0';
-        panel.style.transform = 'translateY(-8px)';
-
-        requestAnimationFrame(() => {
-            const nextHeight = panel.scrollHeight;
-            panel.style.height = `${nextHeight}px`;
+            panel.style.height = 'auto';
             panel.style.opacity = '1';
             panel.style.transform = 'translateY(0)';
-        });
-
-        const finishOpen = (event: TransitionEvent) => {
-            if (event.propertyName !== 'height') return;
-            panel.style.height = 'auto';
             panel.style.overflow = 'visible';
             panel.style.pointerEvents = 'auto';
-            panel.removeEventListener('transitionend', finishOpen);
-        };
-
-        panel.addEventListener('transitionend', finishOpen);
-    }
-
-    private animateFilterPanelClose(panel: HTMLElement) {
-        panel.style.pointerEvents = 'none';
-        panel.style.overflow = 'hidden';
-        panel.style.height = `${panel.scrollHeight}px`;
-        panel.style.opacity = '1';
-        panel.style.transform = 'translateY(0)';
-
-        requestAnimationFrame(() => {
+        } else {
             panel.style.height = '0px';
             panel.style.opacity = '0';
             panel.style.transform = 'translateY(-8px)';
-        });
-
-        const finishClose = (event: TransitionEvent) => {
-            if (event.propertyName !== 'height') return;
             panel.style.overflow = 'hidden';
-            panel.removeEventListener('transitionend', finishClose);
-        };
-
-        panel.addEventListener('transitionend', finishClose);
+            panel.style.pointerEvents = 'none';
+        }
     }
 
     private updateMultiFilter(key: 'statusFilters' | 'typeFilters', value: string, availableValues: string[]) {
@@ -516,6 +500,13 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
             nextValues = currentValues.filter((currentValue) => currentValue !== value);
         } else {
             nextValues = [...currentValues, value].sort((a, b) => availableValues.indexOf(a) - availableValues.indexOf(b));
+        }
+
+        if (
+            nextValues.length === currentValues.length
+            && nextValues.every((currentValue, index) => currentValue === currentValues[index])
+        ) {
+            return;
         }
 
         if (key === 'statusFilters') {

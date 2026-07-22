@@ -10,4 +10,4 @@ export { MediaLog } from './MediaLog';
 export { MediaCoverLoader } from './cover_loader';
 export { GRID_LAYOUT_MEDIA_QUERY } from './library_types';
 export type { LibraryActivityMetrics, LibraryLayoutMode } from './library_types';
-export { createAnimatedCollectionItemWrapper, renderIncrementalMediaCollection } from './render_incremental_collection';
+export { createCollectionItemWrapper, renderIncrementalMediaCollection } from './render_incremental_collection';

@@ -239,21 +239,21 @@ export async function addExtraField(key: string, value: string): Promise<void> {
  * Edits an extra field value via double-click.
  */
 export async function editExtraField(key: string, newValue: string): Promise<void> {
-    const card = $(`.card[data-ekey="${key}"]`);
+    const card = $(`[data-ekey="${key}"]`);
     await card.waitForDisplayed({ timeout: 5000 });
 
     const el = card.$(`.editable-extra[data-key="${key}"]`);
     await el.waitForDisplayed({ timeout: 5000 });
     await el.scrollIntoView();
 
-    const inputSelector = `.card[data-ekey="${key}"] .edit-input`;
+    const inputSelector = `[data-ekey="${key}"] .edit-input`;
 
     // Perform double click to open edit mode with retries
     await browser.waitUntil(async () => {
         const input = $(inputSelector);
         if (await input.isExisting() && await input.isDisplayed()) return true;
 
-        const label = $(`.card[data-ekey="${key}"] .editable-extra[data-key="${key}"]`);
+        const label = $(`[data-ekey="${key}"] .editable-extra[data-key="${key}"]`);
         if (await label.isExisting()) {
             await label.scrollIntoView();
             await label.doubleClick();
@@ -282,7 +282,7 @@ export async function editExtraField(key: string, newValue: string): Promise<voi
     await input.waitForDisplayed({ reverse: true, timeout: 5000 });
 
     // Additional verification: ensure the label text eventually matches the new value
-    const labelSelector = `.card[data-ekey="${key}"] .editable-extra[data-key="${key}"]`;
+    const labelSelector = `[data-ekey="${key}"] .editable-extra[data-key="${key}"]`;
     await browser.waitUntil(async () => {
         return (await $(labelSelector).getText()) === newValue;
     }, { timeout: 5000, timeoutMsg: `Extra field "${key}" value did not update in UI to "${newValue}"` });

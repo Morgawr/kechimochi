@@ -1,11 +1,14 @@
 pub mod app_file_io;
 pub mod backup;
 pub mod csv_import;
+pub mod dashboard_data;
 pub mod db;
 pub mod http_api;
 pub mod instance_lock;
+pub mod library_data;
 pub mod models;
 pub mod profile_picture;
+pub mod read_performance;
 pub mod sync_auth;
 pub mod sync_cover_blobs;
 pub mod sync_drive;
@@ -13,6 +16,7 @@ pub mod sync_merge;
 pub mod sync_orchestrator;
 pub mod sync_snapshot;
 pub mod sync_state;
+pub mod timeline_data;
 
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -26,7 +30,11 @@ use tauri::{Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 use models::{
-    ActivityLog, ActivitySummary, DailyHeatmap, Media, Milestone, ProfilePicture, TimelineEvent,
+    ActivityLog, ActivitySummary, DailyHeatmap, DashboardHeatmapYearRequest,
+    DashboardHeatmapYearResponse, DashboardRangeRequest, DashboardRangeResponse,
+    DashboardRecentLogsRequest, DashboardRecentPage, DashboardSnapshot, DashboardSnapshotRequest,
+    LibrarySnapshot, LibrarySnapshotRequest, Media, Milestone, ProfilePicture, TimelineEvent,
+    TimelinePage, TimelinePageRequest,
 };
 
 // Database state
@@ -179,6 +187,31 @@ where
 {
     let mut conn = state.conn.lock().unwrap();
     operation(&mut conn)
+}
+
+/// Dashboard reads can scan several years of aggregates. Run them on Tauri's
+/// blocking pool so SQLite work cannot stall the desktop event loop. The same
+/// connection mutex remains held for the complete read transaction, including
+/// all attached profile databases.
+async fn run_measured_read<T, F>(
+    conn: Arc<Mutex<Connection>>,
+    operation: &'static str,
+    query: F,
+) -> Result<T, String>
+where
+    T: Serialize + Send + 'static,
+    F: FnOnce(&Connection) -> rusqlite::Result<read_performance::Measured<T>> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = conn
+            .lock()
+            .map_err(|_| "Database lock was poisoned".to_string())?;
+        let measured = query(&conn).map_err(|error| error.to_string())?;
+        read_performance::log_measured_response(operation, &measured);
+        Ok(measured.value)
+    })
+    .await
+    .map_err(|error| format!("Read query task failed: {error}"))?
 }
 
 fn mark_sync_dirty(app_handle: &tauri::AppHandle) -> Result<(), String> {
@@ -710,6 +743,70 @@ fn get_heatmap(state: State<DbState>) -> Result<Vec<DailyHeatmap>, String> {
 }
 
 #[tauri::command]
+async fn get_dashboard_snapshot(
+    state: State<'_, DbState>,
+    request: DashboardSnapshotRequest,
+) -> Result<DashboardSnapshot, String> {
+    dashboard_data::validate_snapshot_request(&request)?;
+    let conn = state.conn.clone();
+    run_measured_read(conn, "dashboard_snapshot", move |conn| {
+        dashboard_data::get_dashboard_snapshot(conn, &request)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn get_dashboard_range(
+    state: State<'_, DbState>,
+    request: DashboardRangeRequest,
+) -> Result<DashboardRangeResponse, String> {
+    dashboard_data::validate_range_request(&request)?;
+    let conn = state.conn.clone();
+    run_measured_read(conn, "dashboard_range", move |conn| {
+        dashboard_data::get_dashboard_range(conn, &request)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn get_dashboard_heatmap_year(
+    state: State<'_, DbState>,
+    request: DashboardHeatmapYearRequest,
+) -> Result<DashboardHeatmapYearResponse, String> {
+    dashboard_data::validate_heatmap_request(&request)?;
+    let conn = state.conn.clone();
+    run_measured_read(conn, "dashboard_heatmap_year", move |conn| {
+        dashboard_data::get_dashboard_heatmap_year(conn, &request)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn get_dashboard_recent_logs(
+    state: State<'_, DbState>,
+    request: DashboardRecentLogsRequest,
+) -> Result<DashboardRecentPage, String> {
+    dashboard_data::validate_recent_request(&request)?;
+    let conn = state.conn.clone();
+    run_measured_read(conn, "dashboard_recent_logs", move |conn| {
+        dashboard_data::get_dashboard_recent_logs(conn, &request)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn get_library_snapshot(
+    state: State<'_, DbState>,
+    request: LibrarySnapshotRequest,
+) -> Result<LibrarySnapshot, String> {
+    let conn = state.conn.clone();
+    run_measured_read(conn, "library_snapshot", move |conn| {
+        library_data::get_library_snapshot(conn, &request)
+    })
+    .await
+}
+
+#[tauri::command]
 fn get_logs_for_media(
     state: State<DbState>,
     media_id: i64,
@@ -724,6 +821,19 @@ fn get_timeline_events(state: State<DbState>) -> Result<Vec<TimelineEvent>, Stri
     with_conn(&state, |conn| {
         db::get_timeline_events(conn).map_err(|e| e.to_string())
     })
+}
+
+#[tauri::command]
+async fn get_timeline_page(
+    state: State<'_, DbState>,
+    request: TimelinePageRequest,
+) -> Result<TimelinePage, String> {
+    timeline_data::validate_page_request(&request)?;
+    let conn = state.conn.clone();
+    run_measured_read(conn, "timeline_page", move |conn| {
+        timeline_data::get_timeline_page(conn, &request)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -934,6 +1044,32 @@ fn import_csv(
         with_conn_mut(&state, |conn| {
             csv_import::import_csv_from_reader(conn, file)
         })
+    })
+}
+
+#[tauri::command]
+fn analyze_activity_csv(
+    app_handle: tauri::AppHandle,
+    state: State<DbState>,
+    file_path: String,
+) -> Result<csv_import::ActivityCsvAnalysis, String> {
+    let file = app_file_io::open_input_file(&app_handle, &file_path)?;
+    with_conn(&state, |conn| {
+        csv_import::analyze_activity_csv_from_reader(conn, file)
+    })
+}
+
+#[tauri::command]
+fn apply_activity_import(
+    app_handle: tauri::AppHandle,
+    state: State<DbState>,
+    request: csv_import::ActivityCsvImportRequest,
+) -> Result<csv_import::ActivityCsvImportResult, String> {
+    // A harmless false-dirty marker is safer than committing an import and then
+    // reporting failure because the external sync marker could not be written.
+    mark_sync_dirty(&app_handle)?;
+    with_conn_mut(&state, |conn| {
+        csv_import::apply_activity_import(conn, request)
     })
 }
 
@@ -1565,7 +1701,14 @@ pub fn run() {
             update_log,
             get_logs,
             get_heatmap,
+            get_dashboard_snapshot,
+            get_dashboard_range,
+            get_dashboard_heatmap_year,
+            get_dashboard_recent_logs,
+            get_library_snapshot,
             import_csv,
+            analyze_activity_csv,
+            apply_activity_import,
             export_csv,
             export_media_csv,
             analyze_media_csv,
@@ -1575,6 +1718,7 @@ pub fn run() {
             wipe_everything,
             get_logs_for_media,
             get_timeline_events,
+            get_timeline_page,
             get_milestones,
             add_milestone,
             delete_milestone,

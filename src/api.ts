@@ -11,11 +11,36 @@ export type {
   ActivityLog,
   ActivitySummary,
   DailyHeatmap,
+  DashboardHeatmapYearRequest,
+  DashboardHeatmapYearResponse,
+  DashboardRangeRequest,
+  DashboardRangeResponse,
+  DashboardWeekdayDistribution,
+  DashboardWeekdayStats,
+  DashboardRecentLogsRequest,
+  DashboardRecentLog,
+  DashboardRecentPage,
+  DashboardSnapshot,
+  DashboardSnapshotRequest,
+  DashboardSummary,
+  DashboardMedia,
+  LibrarySnapshot,
+  LibrarySnapshotRequest,
   GoogleDriveAuthSession,
   TimelineEventKind,
   TimelineEvent,
+  TimelinePage,
+  TimelinePageRequest,
   MediaCsvRow,
   MediaConflict,
+  ActivityCsvRow,
+  ActivityCsvContent,
+  ActivityCsvGroup,
+  ActivityCsvAnalysis,
+  ActivityCsvConflictAction,
+  ActivityCsvConflictResolution,
+  ActivityCsvImportRequest,
+  ActivityCsvImportResult,
   Milestone,
   ProfilePicture,
   LocalHttpApiConfig,
@@ -34,10 +59,24 @@ import type {
   ActivityLog,
   ActivitySummary,
   DailyHeatmap,
+  DashboardHeatmapYearRequest,
+  DashboardHeatmapYearResponse,
+  DashboardRangeRequest,
+  DashboardRangeResponse,
+  DashboardRecentLogsRequest,
+  DashboardRecentPage,
+  DashboardSnapshot,
+  DashboardSnapshotRequest,
+  LibrarySnapshot,
+  LibrarySnapshotRequest,
   GoogleDriveAuthSession,
   TimelineEvent,
+  TimelinePage,
+  TimelinePageRequest,
   MediaCsvRow,
   MediaConflict,
+  ActivityCsvImportRequest,
+  ActivityCsvImportResult,
   Milestone,
   ProfilePicture,
   LocalHttpApiConfig,
@@ -75,8 +114,26 @@ export function updateLog(log: ActivityLog): Promise<void> { return getServices(
 export function deleteLog(id: number): Promise<void> { return getServices().deleteLog(id); }
 export function getLogs(): Promise<ActivitySummary[]> { return getServices().getLogs(); }
 export function getHeatmap(): Promise<DailyHeatmap[]> { return getServices().getHeatmap(); }
+export function getDashboardSnapshot(request: DashboardSnapshotRequest): Promise<DashboardSnapshot> {
+  return getServices().getDashboardSnapshot(request);
+}
+export function getDashboardRange(request: DashboardRangeRequest): Promise<DashboardRangeResponse> {
+  return getServices().getDashboardRange(request);
+}
+export function getDashboardHeatmapYear(request: DashboardHeatmapYearRequest): Promise<DashboardHeatmapYearResponse> {
+  return getServices().getDashboardHeatmapYear(request);
+}
+export function getDashboardRecentLogs(request: DashboardRecentLogsRequest): Promise<DashboardRecentPage> {
+  return getServices().getDashboardRecentLogs(request);
+}
+export function getLibrarySnapshot(request: LibrarySnapshotRequest): Promise<LibrarySnapshot> {
+  return getServices().getLibrarySnapshot(request);
+}
 export function getLogsForMedia(mediaId: number): Promise<ActivitySummary[]> { return getServices().getLogsForMedia(mediaId); }
 export function getTimelineEvents(): Promise<TimelineEvent[]> { return getServices().getTimelineEvents(); }
+export function getTimelinePage(request: TimelinePageRequest): Promise<TimelinePage> {
+  return getServices().getTimelinePage(request);
+}
 
 export function initializeUserDb(fallbackUsername?: string): Promise<void> { return getServices().initializeUserDb(fallbackUsername); }
 export function clearActivities(): Promise<void> { return getServices().clearActivities(); }
@@ -128,6 +185,9 @@ export function saveLocalHttpApiConfig(config: LocalHttpApiConfig): Promise<Loca
 }
 
 export function applyMediaImport(records: MediaCsvRow[]): Promise<number> { return getServices().applyMediaImport(records); }
+export function applyActivityImport(request: ActivityCsvImportRequest): Promise<ActivityCsvImportResult> {
+  return getServices().applyActivityImport(request);
+}
 
 export function getMilestones(mediaUid: string): Promise<Milestone[]> { return getServices().getMilestones(mediaUid); }
 export function addMilestone(milestone: Milestone): Promise<number> { return getServices().addMilestone(milestone); }

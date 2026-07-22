@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { showLogActivityModal, showExportCsvModal } from '../../src/activity_modal';
+import { showActivityCsvConflictModal, showLogActivityModal, showExportCsvModal } from '../../src/activity_modal';
 import * as api from '../../src/api';
 import { Media } from '../../src/api';
 import { buildCalendar } from '../../src/calendar';
@@ -363,6 +363,31 @@ describe('modals/activity.ts', () => {
             });
         });
 
+        it('should reject negative duration or character counts before calling the backend', async () => {
+            vi.mocked(api.getAllMedia).mockResolvedValue([{ id: 10, title: 'Validation', status: 'Active', tracking_status: 'Ongoing' }] as unknown as Media[]);
+            const { customAlert } = await import('../../src/modal_base');
+
+            showLogActivityModal(10);
+            await vi.waitFor(() => document.querySelector('#add-activity-form'));
+            (document.querySelector('#activity-duration') as HTMLInputElement).value = '-1';
+            (document.querySelector('#activity-characters') as HTMLInputElement).value = '100';
+            document.querySelector('#add-activity-form')!.dispatchEvent(new Event('submit'));
+            await vi.waitFor(() => expect(customAlert).toHaveBeenCalledWith(
+                'Invalid Duration',
+                'Activity duration cannot be negative.',
+            ));
+            expect(api.addLog).not.toHaveBeenCalled();
+
+            (document.querySelector('#activity-duration') as HTMLInputElement).value = '10';
+            (document.querySelector('#activity-characters') as HTMLInputElement).value = '-1';
+            document.querySelector('#add-activity-form')!.dispatchEvent(new Event('submit'));
+            await vi.waitFor(() => expect(customAlert).toHaveBeenCalledWith(
+                'Invalid Characters',
+                'Activity character count cannot be negative.',
+            ));
+            expect(api.addLog).not.toHaveBeenCalled();
+        });
+
         it('should show alert when the submitted title is empty', async () => {
             vi.mocked(api.getAllMedia).mockResolvedValue([]);
             const { customAlert } = await import('../../src/modal_base');
@@ -670,6 +695,71 @@ describe('modals/activity.ts', () => {
             const result = await promise;
             expect(result?.mode).toBe('range');
             expect(result?.start).toBeDefined();
+        });
+    });
+
+    describe('showActivityCsvConflictModal', () => {
+        const analysis = {
+            rows: [],
+            groups: [{
+                content: {
+                    log_name: '<img src=x onerror=alert(1)>',
+                    media_variant: 'Manga',
+                    date: '2026-07-22',
+                    duration: 30,
+                    characters: 100,
+                    activity_type: 'Reading',
+                    notes: '<script>alert(1)</script>',
+                },
+                incoming_count: 2,
+                existing_count: 1,
+                media_exists: true,
+            }],
+        };
+
+        it('requires an explicit choice, escapes content, and returns skip resolutions', async () => {
+            const { customAlert } = await import('../../src/modal_base');
+            const promise = showActivityCsvConflictModal(analysis);
+            await vi.waitFor(() => document.querySelector('#activity-conflict-confirm'));
+
+            expect(document.querySelector('.activity-csv-conflict')?.textContent).toContain('<img src=x onerror=alert(1)>');
+            expect(document.querySelector('.activity-csv-conflict img')).toBeNull();
+            expect(document.querySelector('.activity-csv-conflict script')).toBeNull();
+            (document.querySelector('#activity-conflict-confirm') as HTMLButtonElement).click();
+            await vi.waitFor(() => expect(customAlert).toHaveBeenCalledWith(
+                'Resolution Required',
+                expect.stringContaining('every possible duplicate'),
+            ));
+
+            (document.querySelector('#activity-conflict-skip-all') as HTMLButtonElement).click();
+            (document.querySelector('#activity-conflict-confirm') as HTMLButtonElement).click();
+            await expect(promise).resolves.toEqual([{
+                content: analysis.groups[0].content,
+                action: 'skip_possible_overlaps',
+            }]);
+        });
+
+        it('can import all rows separately or cancel without a resolution', async () => {
+            const importPromise = showActivityCsvConflictModal(analysis);
+            await vi.waitFor(() => document.querySelector('#activity-conflict-import-all'));
+            (document.querySelector('#activity-conflict-import-all') as HTMLButtonElement).click();
+            (document.querySelector('#activity-conflict-confirm') as HTMLButtonElement).click();
+            await expect(importPromise).resolves.toEqual([{
+                content: analysis.groups[0].content,
+                action: 'import_all',
+            }]);
+
+            const cancelPromise = showActivityCsvConflictModal(analysis);
+            await vi.waitFor(() => document.querySelector('#activity-conflict-cancel'));
+            (document.querySelector('#activity-conflict-cancel') as HTMLButtonElement).click();
+            await expect(cancelPromise).resolves.toBeNull();
+        });
+
+        it('returns immediately when there are no existing matches', async () => {
+            await expect(showActivityCsvConflictModal({
+                rows: [],
+                groups: [{ ...analysis.groups[0], existing_count: 0 }],
+            })).resolves.toEqual([]);
         });
     });
 });

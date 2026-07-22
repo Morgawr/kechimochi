@@ -1,9 +1,12 @@
 import { Component } from '../component';
 import { html } from '../html';
-import { ActivitySummary, Media } from '../api';
-import Chart from 'chart.js/auto';
+import { ActivitySummary, DashboardRangeResponse, Media } from '../api';
+import type { Chart as ChartInstance } from 'chart.js';
 import { formatStatsDuration } from '../time';
 import { ACTIVITY_TIME_RANGES, getActivityRange, type ActivityRange } from './activity_ranges';
+import { Logger } from '../logger';
+import { logPerformance, measureSynchronous, performanceNow } from '../performance';
+import { loadChartConstructor, type ChartConstructor } from '../chart_loader';
 
 const DAILY_LABEL_FORMATTER = new Intl.DateTimeFormat('en-US', {
     month: 'short',
@@ -11,14 +14,16 @@ const DAILY_LABEL_FORMATTER = new Intl.DateTimeFormat('en-US', {
 });
 
 interface ActivityChartsState {
-    logs: ActivitySummary[];
+    logs?: ActivitySummary[];
     mediaList?: Media[];
+    rangeData?: DashboardRangeResponse;
     timeRangeDays: number;
     timeRangeOffset: number;
     groupByMode: 'activity_type' | 'log_name';
     chartType: 'bar' | 'line';
     metric: 'minutes' | 'characters';
     weekStartDay?: number;
+    snapshotRequestId?: number;
 }
 
 interface ChartGroup {
@@ -27,8 +32,9 @@ interface ChartGroup {
 }
 
 export class ActivityCharts extends Component<ActivityChartsState> {
-    private pieChartInstance: Chart | null = null;
-    private barChartInstance: Chart | null = null;
+    private pieChartInstance: ChartInstance | null = null;
+    private barChartInstance: ChartInstance | null = null;
+    private renderGeneration = 0;
     private readonly onChartParamChange: (params: Partial<ActivityChartsState>) => void;
 
     constructor(container: HTMLElement, initialState: ActivityChartsState, onChartParamChange: (params: Partial<ActivityChartsState>) => void) {
@@ -36,7 +42,35 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         this.onChartParamChange = onChartParamChange;
     }
 
+    /**
+     * Chart.js owns mutable state on its canvas elements. Keep the mounted
+     * layout stable across data/control updates so browser references, focus,
+     * and event listeners do not get replaced for every range response.
+     */
+    public setState(newState: Partial<ActivityChartsState>): void {
+        this.state = { ...this.state, ...newState };
+        const chartsLayout = this.container.querySelector<HTMLElement>('#activity-charts-grid');
+        if (!chartsLayout) {
+            this.render();
+            return;
+        }
+
+        this.syncControlState(chartsLayout);
+        this.renderCharts(chartsLayout).catch(error => {
+            Logger.error('Failed to render dashboard charts', error);
+        });
+    }
+
     render() {
+        const existingLayout = this.container.querySelector<HTMLElement>('#activity-charts-grid');
+        if (existingLayout) {
+            this.syncControlState(existingLayout);
+            this.renderCharts(existingLayout).catch(error => {
+                Logger.error('Failed to render dashboard charts', error);
+            });
+            return;
+        }
+
         this.clear();
 
         const chartsLayout = html`
@@ -119,8 +153,10 @@ export class ActivityCharts extends Component<ActivityChartsState> {
 
         this.container.appendChild(chartsLayout);
         this.setupListeners(chartsLayout);
-        this.updateNavigationState(chartsLayout);
-        this.renderCharts(chartsLayout);
+        this.syncControlState(chartsLayout);
+        this.renderCharts(chartsLayout).catch(error => {
+            Logger.error('Failed to render dashboard charts', error);
+        });
     }
 
     private setupListeners(layout: HTMLElement) {
@@ -161,23 +197,82 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         if (nextButton) nextButton.disabled = isAllTime || this.state.timeRangeOffset === 0;
     }
 
-    private renderCharts(layout: HTMLElement) {
+    private syncControlState(layout: HTMLElement): void {
+        layout.dataset.timeRangeDays = String(this.state.timeRangeDays);
+        layout.dataset.timeRangeOffset = String(this.state.timeRangeOffset);
+
+        const rangeSelect = layout.querySelector<HTMLSelectElement>('#select-time-range');
+        if (rangeSelect) rangeSelect.value = String(this.state.timeRangeDays);
+
+        this.syncToggle(layout, '#toggle-chart-type', this.state.chartType === 'line');
+        this.syncToggle(layout, '#toggle-group-by', this.state.groupByMode === 'log_name');
+        this.syncToggle(layout, '#toggle-metric', this.state.metric === 'characters');
+        this.updateNavigationState(layout);
+    }
+
+    private syncToggle(layout: HTMLElement, selector: string, checked: boolean): void {
+        const input = layout.querySelector<HTMLInputElement>(selector);
+        if (!input) return;
+
+        input.checked = checked;
+        const labels = input.closest('.chart-toolbar-group')?.querySelectorAll<HTMLElement>('.toggle-label');
+        labels?.item(0).classList.toggle('active', !checked);
+        labels?.item(1).classList.toggle('active', checked);
+    }
+
+    /** Updates interaction state while a new backend range is in flight,
+     * without constructing charts from data belonging to the previous range. */
+    public updatePendingParams(params: Partial<ActivityChartsState>): void {
+        this.state = { ...this.state, ...params };
+        // Prevent an older asynchronous Chart.js import/render from applying
+        // data for the range that has just been superseded.
+        this.renderGeneration++;
+        const layout = this.container.querySelector<HTMLElement>('#activity-charts-grid');
+        if (!layout) return;
+        delete layout.dataset.dashboardRequestId;
+        this.syncControlState(layout);
+    }
+
+    private async renderCharts(layout: HTMLElement): Promise<void> {
+        const generation = ++this.renderGeneration;
+        const snapshotRequestId = this.state.snapshotRequestId;
+        // The mounted canvases can still contain data from an earlier snapshot
+        // while Chart.js is being imported. Clear the completion marker until
+        // both charts have been constructed for this render generation.
+        delete layout.dataset.dashboardRequestId;
         const pieCanvas = layout.querySelector<HTMLCanvasElement>('#pieChart')!;
         const barCanvas = layout.querySelector<HTMLCanvasElement>('#barChart')!;
         if (!pieCanvas || !barCanvas) return;
 
-        if (this.pieChartInstance) this.pieChartInstance.destroy();
-        if (this.barChartInstance) this.barChartInstance.destroy();
-
         const colors = this.getChartColors();
-        const timeRange = getActivityRange(this.state.timeRangeDays, this.state.timeRangeOffset, this.state.logs, this.state.weekStartDay ?? 1);
+        const rangeLogs = this.state.logs ?? this.state.rangeData?.bucket_totals.map((bucket, index) => ({
+            id: index,
+            media_id: 0,
+            title: '',
+            activity_type: '',
+            duration_minutes: bucket.total_minutes,
+            characters: bucket.total_characters,
+            date: bucket.bucket,
+            language: '',
+            notes: '',
+        })) ?? [];
+        const timeRange = getActivityRange(this.state.timeRangeDays, this.state.timeRangeOffset, rangeLogs, this.state.weekStartDay ?? 1);
         layout.dataset.rangeStart = timeRange.validStart;
         layout.dataset.rangeEnd = timeRange.validEnd;
         layout.dataset.timeRangeDays = String(this.state.timeRangeDays);
         layout.dataset.timeRangeOffset = String(this.state.timeRangeOffset);
 
-        this.createPieChart(pieCanvas, colors, timeRange);
-        this.createBarChart(barCanvas, colors, timeRange);
+        const importStarted = performanceNow();
+        const Chart = await loadChartConstructor();
+        logPerformance('chart_import', 'chart_js', performanceNow() - importStarted);
+        if (generation !== this.renderGeneration || !this.container.contains(layout)) return;
+
+        this.destroyChartInstances();
+        this.createPieChart(Chart, pieCanvas, colors, timeRange);
+        this.createBarChart(Chart, barCanvas, colors, timeRange);
+        if (snapshotRequestId !== undefined) {
+            layout.dataset.dashboardRequestId = snapshotRequestId.toString();
+        }
     }
 
     private getChartColors(): string[] {
@@ -191,21 +286,32 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         ];
     }
 
-    private createPieChart(canvas: HTMLCanvasElement, colors: string[], timeRange: ActivityRange) {
-        const { logs, groupByMode } = this.state;
+    private createPieChart(Chart: ChartConstructor, canvas: HTMLCanvasElement, colors: string[], timeRange: ActivityRange) {
+        const { groupByMode } = this.state;
+        const logs = this.state.logs ?? [];
         const { validStart, validEnd } = timeRange;
         const isInRange = (log: ActivitySummary) => log.date >= validStart && log.date <= validEnd;
         const activeGroups = this.getActiveGroups(logs, isInRange, groupByMode);
         const pieTypeMap = new Map<string, number>();
         const style = getComputedStyle(document.body);
 
-        for (const log of logs) {
-            if (isInRange(log)) {
-                const key = this.getGroupForLog(log, groupByMode).key;
-                const value = this.state.metric === 'minutes' ? log.duration_minutes : (log.characters || 0);
-                pieTypeMap.set(key, (pieTypeMap.get(key) || 0) + value);
+        measureSynchronous('aggregation', 'dashboard_pie_data', () => {
+            if (this.state.rangeData) {
+                for (const point of this.state.rangeData.series) {
+                    const value = this.state.metric === 'minutes' ? point.total_minutes : point.total_characters;
+                    activeGroups.set(point.group_key, point.group_label);
+                    pieTypeMap.set(point.group_key, (pieTypeMap.get(point.group_key) || 0) + value);
+                }
+                return;
             }
-        }
+            for (const log of logs) {
+                if (isInRange(log)) {
+                    const key = this.getGroupForLog(log, groupByMode).key;
+                    const value = this.state.metric === 'minutes' ? log.duration_minutes : (log.characters || 0);
+                    pieTypeMap.set(key, (pieTypeMap.get(key) || 0) + value);
+                }
+            }
+        }, { points: this.state.rangeData?.series.length ?? logs.length });
 
         const sortedEntries = Array.from(pieTypeMap.entries()).sort((a, b) => b[1] - a[1]);
         const displayLabels = sortedEntries.map(([key]) => activeGroups.get(key) ?? key);
@@ -215,7 +321,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         canvas.dataset.labels = JSON.stringify(displayLabels);
         canvas.dataset.values = JSON.stringify(sortedEntries.map(entry => entry[1]));
 
-        this.pieChartInstance = new Chart(canvas, {
+        this.pieChartInstance = measureSynchronous('chart_construction', 'dashboard_pie_chart', () => new Chart(canvas, {
             type: 'doughnut',
             data: {
                 labels: displayLabels,
@@ -243,16 +349,21 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                     }
                 }
             }
-        });
+        }));
     }
 
-    private createBarChart(canvas: HTMLCanvasElement, colors: string[], timeRange: ActivityRange) {
+    private createBarChart(Chart: ChartConstructor, canvas: HTMLCanvasElement, colors: string[], timeRange: ActivityRange) {
         const { chartType } = this.state;
         const { labels } = timeRange;
         const style = getComputedStyle(document.body);
         const secondaryColor = style.getPropertyValue('--text-secondary').trim() || '#a0a0b0'
         const gridColor = `color-mix(in srgb, ${style.getPropertyValue('--text-secondary').trim() || '#3f3f4e'} 30%, transparent)`;
-        const datasets = this.prepareBarChartDatasets(timeRange, colors);
+        const datasets = measureSynchronous(
+            'aggregation',
+            'dashboard_bar_data',
+            () => this.prepareBarChartDatasets(timeRange, colors),
+            { points: this.state.rangeData?.series.length ?? this.state.logs?.length ?? 0 },
+        );
 
         canvas.dataset.chartType = chartType;
         canvas.dataset.groupBy = this.state.groupByMode;
@@ -262,7 +373,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
             datasets.map(dataset => dataset.data.reduce((sum, value) => sum + value, 0)),
         );
 
-        this.barChartInstance = new Chart(canvas, {
+        this.barChartInstance = measureSynchronous('chart_construction', 'dashboard_activity_chart', () => new Chart(canvas, {
             type: chartType,
             data: {
                 labels: timeRange.unit === 'day' ? labels.map(label => this.formatDailyDateLabel(label)) : labels,
@@ -302,7 +413,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                     }
                 }
             }
-        });
+        }));
     }
 
     private formatDailyDateLabel(label: string): string {
@@ -311,12 +422,40 @@ export class ActivityCharts extends Component<ActivityChartsState> {
     }
 
     private prepareBarChartDatasets(timeRange: ActivityRange, colors: string[]) {
-        const { logs, groupByMode, chartType } = this.state;
+        const { groupByMode, chartType } = this.state;
+        const logs = this.state.logs ?? [];
         const { labels, getBucketIndex } = timeRange;
+
+        if (this.state.rangeData) {
+            const activeGroups = new Map<string, string>();
+            for (const point of this.state.rangeData.series) {
+                activeGroups.set(point.group_key, point.group_label);
+            }
+            const datasetsMap = new Map<string, number[]>();
+            for (const key of activeGroups.keys()) {
+                datasetsMap.set(key, Array.from({ length: labels.length }, () => 0));
+            }
+            for (const point of this.state.rangeData.series) {
+                const index = getBucketIndex(point.bucket);
+                if (index === -1) continue;
+                const value = this.state.metric === 'minutes' ? point.total_minutes : point.total_characters;
+                datasetsMap.get(point.group_key)![index] += value;
+            }
+            return this.toDatasets(datasetsMap, activeGroups, colors, chartType);
+        }
 
         const activeGroups = this.getActiveGroups(logs, log => getBucketIndex(log.date) !== -1, groupByMode);
         const datasetsMap = this.aggregateDailyData(logs, activeGroups, getBucketIndex, labels.length, groupByMode);
 
+        return this.toDatasets(datasetsMap, activeGroups, colors, chartType);
+    }
+
+    private toDatasets(
+        datasetsMap: Map<string, number[]>,
+        activeGroups: Map<string, string>,
+        colors: string[],
+        chartType: 'bar' | 'line',
+    ) {
         return Array.from(datasetsMap.entries())
             .sort((a, b) => b[1].reduce((s, v) => s + v, 0) - a[1].reduce((s, v) => s + v, 0))
             .map(([key, data], i) => ({
@@ -416,7 +555,14 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         return map;
     }
     public destroy() {
-        if (this.pieChartInstance) this.pieChartInstance.destroy();
-        if (this.barChartInstance) this.barChartInstance.destroy();
+        this.renderGeneration++;
+        this.destroyChartInstances();
+    }
+
+    private destroyChartInstances(): void {
+        this.pieChartInstance?.destroy();
+        this.barChartInstance?.destroy();
+        this.pieChartInstance = null;
+        this.barChartInstance = null;
     }
 }

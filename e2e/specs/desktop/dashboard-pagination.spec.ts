@@ -8,10 +8,14 @@ import { MOCK_DATE } from '../../config/test-constants.js';
 
 async function seedLogsViaCsv(count: number) {
     const dataDir = process.env.KECHIMOCHI_DATA_DIR || os.tmpdir();
-    const csvPath = path.join(dataDir, `seed_${randomUUID()}.csv`);
+    const seedId = randomUUID();
+    const csvPath = path.join(dataDir, `seed_${seedId}.csv`);
     const logs = [
-        'Date,Log Name,Media Type,Duration,Language',
-        ...Array.from({ length: count }, () => `${MOCK_DATE},Test Media,Reading,10,Japanese`)
+        'Date,Log Name,Media Type,Duration,Language,Notes',
+        ...Array.from(
+            { length: count },
+            (_, index) => `${MOCK_DATE},Test Media,Reading,10,Japanese,Pagination seed ${seedId}-${index}`,
+        ),
     ].join('\n');
 
     fs.writeFileSync(csvPath, logs);

@@ -3,8 +3,10 @@ import { navigateTo, verifyActiveView } from '../../helpers/navigation.js';
 import {
   logActivity,
   getStatValue,
+  waitForStatValue,
   deleteMostRecentLog,
-  getHeatmapCellColor,
+  getHeatmapCellMinutes,
+  waitForHeatmapCellMinutes,
   waitForActivityFormToDisappear,
 } from '../../helpers/dashboard.js';
 import { submitPrompt, dismissAlert, closeModal } from '../../helpers/common.js';
@@ -79,27 +81,25 @@ describe('CUJ: Log Daily Activity', () => {
     // assuming the seed's most-recent entry survived earlier tests this session.
     const targetDate = MOCK_DATE;
     const initialLogsCount = await getStatValue('stat-total-logs');
-    const initialCellColor = await getHeatmapCellColor(targetDate);
+    const initialCellMinutes = await getHeatmapCellMinutes(targetDate);
 
     await logActivity('呪術廻戦', '300', '0', targetDate);
 
-    const afterLogCount = await getStatValue('stat-total-logs');
+    const afterLogCount = await waitForStatValue('stat-total-logs', initialLogsCount + 1);
     expect(afterLogCount).toBe(initialLogsCount + 1);
 
-    const afterLogCellColor = await getHeatmapCellColor(targetDate);
-    expect(afterLogCellColor).not.toBe(initialCellColor);
-    expect(afterLogCellColor).not.toContain('rgba(0, 0, 0, 0)');
-    expect(afterLogCellColor).not.toBe('');
+    const afterLogCellMinutes = await waitForHeatmapCellMinutes(targetDate, initialCellMinutes + 300);
+    expect(afterLogCellMinutes).toBe(initialCellMinutes + 300);
 
     // Our log has the latest date and the newest id, so it is the most-recent
     // entry; deleting the most-recent log removes exactly what we just created.
     await deleteMostRecentLog();
 
-    const afterDeleteCount = await getStatValue('stat-total-logs');
+    const afterDeleteCount = await waitForStatValue('stat-total-logs', initialLogsCount);
     expect(afterDeleteCount).toBe(initialLogsCount);
 
-    const afterDeleteCellColor = await getHeatmapCellColor(targetDate);
-    expect(afterDeleteCellColor).not.toBe(afterLogCellColor);
+    const afterDeleteCellMinutes = await waitForHeatmapCellMinutes(targetDate, initialCellMinutes);
+    expect(afterDeleteCellMinutes).toBe(initialCellMinutes);
 
     const currentStreak = await getStatValue('stat-current-streak');
     expect(currentStreak).toBeGreaterThanOrEqual(1);

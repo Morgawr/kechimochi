@@ -2,7 +2,8 @@ import { Component } from '../component';
 import { Media } from '../api';
 import { MediaListItem } from './MediaListItem';
 import type { LibraryActivityMetrics } from './library_types';
-import { createAnimatedCollectionItemWrapper, renderIncrementalMediaCollection } from './render_incremental_collection';
+import { createCollectionItemWrapper, renderIncrementalMediaCollection } from './render_incremental_collection';
+import { CoverVisibilityController } from './cover_visibility';
 
 interface MediaListState {
     mediaList: Media[];
@@ -14,6 +15,8 @@ export class MediaList extends Component<MediaListState> {
     private readonly onMediaClick: (mediaId: number) => void;
     private isDestroyed = false;
     private currentRenderId = 0;
+    private childItems: MediaListItem[] = [];
+    private visibilityController: CoverVisibilityController | null = null;
 
     constructor(container: HTMLElement, initialState: MediaListState, onMediaClick: (mediaId: number) => void) {
         super(container, initialState);
@@ -22,12 +25,15 @@ export class MediaList extends Component<MediaListState> {
 
     public destroy() {
         this.isDestroyed = true;
+        this.destroyRenderedItems();
     }
 
     render() {
         this.currentRenderId += 1;
         const renderId = this.currentRenderId;
 
+        this.destroyRenderedItems();
+        this.visibilityController = new CoverVisibilityController('360px 0px');
         this.clear();
 
         renderIncrementalMediaCollection({
@@ -43,10 +49,10 @@ export class MediaList extends Component<MediaListState> {
             firstBatchDelayMs: 40,
             subsequentBatchDelayMs: 20,
             shouldContinue: () => !this.isDestroyed && renderId === this.currentRenderId,
-            createItemWrapper: (media, index, isFirstBatch) => {
-                const itemWrapper = createAnimatedCollectionItemWrapper(
+            performanceOperation: 'library_list_batch',
+            createItemWrapper: (media, index) => {
+                const itemWrapper = createCollectionItemWrapper(
                     'media-list-item-wrapper',
-                    isFirstBatch ? index * 0.02 : 0,
                     // Only reserve a reasonable block-size for content-visibility.
                     // Reserving a large inline-size (like 1000px) can create horizontal clipping
                     // when the window is narrower because offscreen items contribute to scrollWidth.
@@ -64,10 +70,20 @@ export class MediaList extends Component<MediaListState> {
                         }
                         this.onMediaClick(media.id);
                     },
+                    this.visibilityController ?? undefined,
+                    index < 8,
                 );
+                this.childItems.push(item);
                 item.render();
                 return itemWrapper;
             },
         });
+    }
+
+    private destroyRenderedItems(): void {
+        this.visibilityController?.disconnect();
+        this.visibilityController = null;
+        this.childItems.forEach(item => item.destroy());
+        this.childItems = [];
     }
 }

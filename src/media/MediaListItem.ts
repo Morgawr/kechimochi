@@ -1,10 +1,9 @@
-import { Logger } from '../logger';
-import { Component } from '../component';
 import { html, escapeHTML, rawHtml } from '../html';
 import { Media } from '../api';
 import { formatHhMm } from '../time';
-import { MediaCoverLoader } from './cover_loader';
 import type { LibraryActivityMetrics } from './library_types';
+import type { CoverVisibilityController } from './cover_visibility';
+import { MEDIA_LIST_COVER, ProgressiveCoverComponent } from './progressive_cover';
 
 interface MediaListItemState {
     media: Media;
@@ -13,33 +12,23 @@ interface MediaListItemState {
     isMetricsLoading: boolean;
 }
 
-export class MediaListItem extends Component<MediaListItemState> {
+export class MediaListItem extends ProgressiveCoverComponent<MediaListItemState> {
     constructor(
         container: HTMLElement,
         media: Media,
         metrics: LibraryActivityMetrics | null,
         isMetricsLoading: boolean,
         onClick: () => void,
+        visibilityController?: CoverVisibilityController,
+        eager = false,
     ) {
-        super(container, { media, metrics, imgSrc: null, isMetricsLoading });
+        super(container, {
+            media,
+            metrics,
+            imgSrc: null,
+            isMetricsLoading,
+        }, MEDIA_LIST_COVER, visibilityController, eager);
         this.container.addEventListener('click', onClick);
-
-        const observer = new IntersectionObserver((entries) => {
-            if (entries[0].isIntersecting) {
-                this.loadImage().catch((e) => Logger.error('Failed to load list cover image', e));
-                observer.disconnect();
-            }
-        }, { rootMargin: '240px' });
-        observer.observe(this.container);
-    }
-
-    private async loadImage() {
-        const { cover_image: coverImage } = this.state.media;
-        if (!coverImage || coverImage.trim() === '') return;
-
-        const src = await MediaCoverLoader.load(coverImage);
-        if (!src) return;
-        this.setState({ imgSrc: src });
     }
 
     private getTrackingStatusClass(status: string): string {
@@ -90,7 +79,7 @@ export class MediaListItem extends Component<MediaListItemState> {
         this.clear();
 
         const cover = imgSrc
-            ? html`<img class="media-list-cover-image" src="${imgSrc}" alt="${media.title}" />`
+            ? html`<img class="media-list-cover-image progressive-cover-image is-loaded" src="${imgSrc}" loading="lazy" decoding="async" alt="${media.title}" />`
             : html`
                 <div class="media-list-cover-placeholder">
                     <div class="media-list-cover-placeholder-title">${media.title}</div>

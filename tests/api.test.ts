@@ -67,6 +67,24 @@ describe('api.ts', () => {
       expect(invoke).toHaveBeenCalledWith('get_heatmap');
     });
 
+    it('dashboard reads should preserve request tokens across IPC', async () => {
+      const snapshotRequest = { request_id: 1, today: '2026-07-21', heatmap_year: 2026, recent_offset: 0, recent_limit: 15 };
+      const rangeRequest = { request_id: 2, start_date: '2026-07-20', end_date: '2026-07-26', bucket: 'day' as const, group_by: 'activity_type' as const };
+      const yearRequest = { request_id: 3, year: 2025 };
+      const recentRequest = { request_id: 4, offset: 15, limit: 15 };
+      vi.mocked(invoke).mockResolvedValue({ request_id: 1 });
+
+      await api.getDashboardSnapshot(snapshotRequest);
+      await api.getDashboardRange(rangeRequest);
+      await api.getDashboardHeatmapYear(yearRequest);
+      await api.getDashboardRecentLogs(recentRequest);
+
+      expect(invoke).toHaveBeenNthCalledWith(1, 'get_dashboard_snapshot', { request: snapshotRequest });
+      expect(invoke).toHaveBeenNthCalledWith(2, 'get_dashboard_range', { request: rangeRequest });
+      expect(invoke).toHaveBeenNthCalledWith(3, 'get_dashboard_heatmap_year', { request: yearRequest });
+      expect(invoke).toHaveBeenNthCalledWith(4, 'get_dashboard_recent_logs', { request: recentRequest });
+    });
+
     it('getLogsForMedia should call invoke', async () => {
       await api.getLogsForMedia(1);
       expect(invoke).toHaveBeenCalledWith('get_logs_for_media', { mediaId: 1 });
@@ -75,6 +93,25 @@ describe('api.ts', () => {
     it('getTimelineEvents should call invoke', async () => {
       await api.getTimelineEvents();
       expect(invoke).toHaveBeenCalledWith('get_timeline_events');
+    });
+
+    it('library snapshots and timeline pages preserve request tokens across IPC', async () => {
+      const libraryRequest = { request_id: 21 };
+      const timelineRequest = {
+        request_id: 22,
+        year: 2026,
+        kind: 'finished' as const,
+        search_query: 'novel',
+        offset: 40,
+        limit: 40,
+      };
+      vi.mocked(invoke).mockResolvedValue({ request_id: 21 });
+
+      await api.getLibrarySnapshot(libraryRequest);
+      await api.getTimelinePage(timelineRequest);
+
+      expect(invoke).toHaveBeenNthCalledWith(1, 'get_library_snapshot', { request: libraryRequest });
+      expect(invoke).toHaveBeenNthCalledWith(2, 'get_timeline_page', { request: timelineRequest });
     });
 
     it('clearActivities should call invoke', async () => {

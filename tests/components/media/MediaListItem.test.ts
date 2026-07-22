@@ -89,15 +89,16 @@ describe('MediaListItem', () => {
             false,
             vi.fn(),
         );
+        component.render();
 
         triggerLatestIntersection();
 
         // @ts-expect-error - accessing private component state for verification
         await vi.waitUntil(() => component.state.imgSrc === 'blob:list-item');
-        component.render();
 
         const img = container.querySelector('img');
         expect(img?.getAttribute('src')).toBe('blob:list-item');
+        expect(img?.classList.contains('progressive-cover-image')).toBe(true);
         expect(disconnect).toHaveBeenCalled();
     });
 });

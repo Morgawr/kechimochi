@@ -1,40 +1,26 @@
-import { Logger } from '../logger';
-import { Component } from '../component';
 import { html } from '../html';
 import { Media } from '../api';
-import { MediaCoverLoader } from './cover_loader';
+import type { CoverVisibilityController } from './cover_visibility';
+import { MEDIA_GRID_COVER, ProgressiveCoverComponent } from './progressive_cover';
 
 interface MediaItemState {
     media: Media;
     imgSrc: string | null;
 }
 
-export class MediaItem extends Component<MediaItemState> {
-    constructor(container: HTMLElement, media: Media, onClick: () => void) {
-        super(container, { media, imgSrc: null });
+export class MediaItem extends ProgressiveCoverComponent<MediaItemState> {
+    constructor(
+        container: HTMLElement,
+        media: Media,
+        onClick: () => void,
+        visibilityController?: CoverVisibilityController,
+        eager = false,
+    ) {
+        super(container, {
+            media,
+            imgSrc: null,
+        }, MEDIA_GRID_COVER, visibilityController, eager);
         this.container.addEventListener('click', onClick);
-        
-        // Lazy load image when visible
-        const observer = new IntersectionObserver((entries) => {
-            if (entries[0].isIntersecting) {
-                this.loadImage();
-                observer.disconnect();
-            }
-        }, { rootMargin: '200px' });
-        observer.observe(this.container);
-    }
-
-    private async loadImage() {
-        const { cover_image } = this.state.media;
-        if (!cover_image || cover_image.trim() === '') return;
-
-        try {
-            const src = await MediaCoverLoader.load(cover_image);
-            if (!src) return;
-            this.setState({ imgSrc: src });
-        } catch (e) {
-            Logger.error("Failed to load image", e);
-        }
     }
 
     private getTrackingStatusClass(status: string): string {
@@ -66,7 +52,7 @@ export class MediaItem extends Component<MediaItemState> {
             ? html`<div class="grid-item-variant" style="margin-top: 0.35rem; font-size: 0.78rem; color: var(--text-secondary);">${media.variant}</div>`
             : '';
         const content = imgSrc
-            ? html`<img src="${imgSrc}" style="width: 100%; height: 100%; object-fit: cover; display: block;" alt="${media.title}" />`
+            ? html`<img class="media-grid-cover-image progressive-cover-image is-loaded" src="${imgSrc}" loading="lazy" decoding="async" alt="${media.title}" />`
             : html`
                 <div class="image-placeholder" style="flex: 1; display: flex; flex-direction: column; padding: 1.2rem 1rem; color: var(--text-secondary); text-align: center; justify-content: space-between;">
                     <div>

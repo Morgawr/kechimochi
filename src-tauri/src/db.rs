@@ -9,7 +9,6 @@ use uuid::Uuid;
 
 use crate::models::{
     ActivityLog, ActivitySummary, DailyHeatmap, Media, Milestone, ProfilePicture, TimelineEvent,
-    TimelineEventKind,
 };
 
 pub const CURRENT_SCHEMA_VERSION: i64 = 6;
@@ -1816,15 +1815,34 @@ fn resolve_activity_type_for_write(
     Ok(default_activity_type.to_string())
 }
 
-pub fn add_log(conn: &Connection, log: &ActivityLog) -> Result<i64> {
-    if log.duration_minutes == 0 && log.characters == 0 {
-        return Err(rusqlite::Error::ToSqlConversionFailure(Box::new(
-            std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "Activity must have either duration or characters",
-            ),
-        )));
+fn invalid_activity_input(message: &'static str) -> rusqlite::Error {
+    rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(
+        std::io::ErrorKind::InvalidInput,
+        message,
+    )))
+}
+
+pub fn validate_activity_metrics(duration_minutes: i64, characters: i64) -> Result<()> {
+    if duration_minutes < 0 {
+        return Err(invalid_activity_input(
+            "Activity duration cannot be negative",
+        ));
     }
+    if characters < 0 {
+        return Err(invalid_activity_input(
+            "Activity character count cannot be negative",
+        ));
+    }
+    if duration_minutes == 0 && characters == 0 {
+        return Err(invalid_activity_input(
+            "Activity must have either duration or characters",
+        ));
+    }
+    Ok(())
+}
+
+pub fn add_log(conn: &Connection, log: &ActivityLog) -> Result<i64> {
+    validate_activity_metrics(log.duration_minutes, log.characters)?;
     let activity_type = resolve_activity_type_for_write(conn, log.media_id, &log.activity_type)?;
     conn.execute(
         "INSERT INTO main.activity_logs (media_id, duration_minutes, characters, date, activity_type, notes) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -1839,14 +1857,7 @@ pub fn delete_log(conn: &Connection, id: i64) -> Result<()> {
 }
 
 pub fn update_log(conn: &Connection, log: &ActivityLog) -> Result<()> {
-    if log.duration_minutes == 0 && log.characters == 0 {
-        return Err(rusqlite::Error::ToSqlConversionFailure(Box::new(
-            std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "Activity must have either duration or characters",
-            ),
-        )));
-    }
+    validate_activity_metrics(log.duration_minutes, log.characters)?;
     let activity_type = resolve_activity_type_for_write(conn, log.media_id, &log.activity_type)?;
     conn.execute(
         "UPDATE main.activity_logs SET media_id = ?1, duration_minutes = ?2, characters = ?3, date = ?4, activity_type = ?5, notes = ?6 WHERE id = ?7",
@@ -2076,253 +2087,8 @@ pub fn get_all_milestones(conn: &Connection) -> Result<Vec<Milestone>> {
     Ok(milestone_list)
 }
 
-#[derive(Clone)]
-struct TimelineMediaContext {
-    media_id: i64,
-    media_title: String,
-    media_variant: String,
-    cover_image: String,
-    activity_type: String,
-    content_type: String,
-    tracking_status: String,
-    first_date: String,
-    last_date: String,
-    total_minutes: i64,
-    total_characters: i64,
-    same_day_terminal: bool,
-}
-
-fn terminal_kind(tracking_status: &str) -> Option<TimelineEventKind> {
-    match tracking_status {
-        "Complete" => Some(TimelineEventKind::Finished),
-        "Paused" => Some(TimelineEventKind::Paused),
-        "Dropped" => Some(TimelineEventKind::Dropped),
-        _ => None,
-    }
-}
-
-fn timeline_sort_rank(event: &TimelineEvent) -> u8 {
-    let is_terminal = terminal_kind(&event.tracking_status).is_some();
-
-    match event.kind {
-        TimelineEventKind::Milestone if !is_terminal => 0,
-        TimelineEventKind::Started => 1,
-        TimelineEventKind::Finished | TimelineEventKind::Paused | TimelineEventKind::Dropped
-            if event.same_day_terminal =>
-        {
-            2
-        }
-        TimelineEventKind::Finished | TimelineEventKind::Paused | TimelineEventKind::Dropped => 3,
-        TimelineEventKind::Milestone => 4,
-    }
-}
-
-fn dominant_activity_type(logs: &[ActivitySummary], fallback: &str) -> String {
-    let mut counts: HashMap<String, (usize, usize)> = HashMap::new();
-
-    for (index, log) in logs.iter().enumerate() {
-        let entry = counts
-            .entry(log.activity_type.clone())
-            .or_insert((0, usize::MAX));
-        entry.0 += 1;
-        entry.1 = entry.1.min(index);
-    }
-
-    counts
-        .into_iter()
-        .max_by(
-            |(left_kind, (left_count, left_first_seen)),
-             (right_kind, (right_count, right_first_seen))| {
-                left_count
-                    .cmp(right_count)
-                    .then_with(|| right_first_seen.cmp(left_first_seen))
-                    .then_with(|| right_kind.cmp(left_kind))
-            },
-        )
-        .map(|(kind, _)| kind)
-        .unwrap_or_else(|| fallback.to_string())
-}
-
-fn build_timeline_event(
-    context: &TimelineMediaContext,
-    kind: TimelineEventKind,
-    date: String,
-    milestone_name: Option<String>,
-    milestone_id: Option<i64>,
-    milestone_minutes: i64,
-    milestone_characters: i64,
-) -> TimelineEvent {
-    TimelineEvent {
-        kind,
-        date,
-        media_id: context.media_id,
-        media_title: context.media_title.clone(),
-        media_variant: context.media_variant.clone(),
-        cover_image: context.cover_image.clone(),
-        activity_type: context.activity_type.clone(),
-        content_type: context.content_type.clone(),
-        tracking_status: context.tracking_status.clone(),
-        milestone_name,
-        milestone_id,
-        first_date: context.first_date.clone(),
-        last_date: context.last_date.clone(),
-        total_minutes: context.total_minutes,
-        total_characters: context.total_characters,
-        milestone_minutes,
-        milestone_characters,
-        same_day_terminal: context.same_day_terminal,
-    }
-}
-
 pub fn get_timeline_events(conn: &Connection) -> Result<Vec<TimelineEvent>> {
-    let media_list = get_all_media(conn)?;
-    let logs = get_logs(conn)?;
-    let milestones = get_all_milestones(conn)?;
-
-    let mut logs_by_media_id: HashMap<i64, Vec<ActivitySummary>> = HashMap::new();
-    for log in logs {
-        logs_by_media_id.entry(log.media_id).or_default().push(log);
-    }
-
-    let mut media_contexts_by_id: HashMap<i64, TimelineMediaContext> = HashMap::new();
-    let mut media_ids_by_uid: HashMap<String, i64> = HashMap::new();
-    let mut timeline_events = Vec::new();
-
-    for media in media_list {
-        let Some(media_id) = media.id else {
-            continue;
-        };
-
-        if let Some(media_uid) = normalize_optional_string(media.uid.clone()) {
-            media_ids_by_uid.insert(media_uid, media_id);
-        }
-        let fallback_context = TimelineMediaContext {
-            media_id,
-            media_title: media.title.clone(),
-            media_variant: media.variant.clone(),
-            cover_image: media.cover_image.clone(),
-            activity_type: media.default_activity_type.clone(),
-            content_type: media.content_type.clone(),
-            tracking_status: media.tracking_status.clone(),
-            first_date: String::new(),
-            last_date: String::new(),
-            total_minutes: 0,
-            total_characters: 0,
-            same_day_terminal: false,
-        };
-        media_contexts_by_id.insert(media_id, fallback_context.clone());
-
-        let Some(media_logs) = logs_by_media_id.get(&media_id) else {
-            continue;
-        };
-        if media_logs.is_empty() {
-            continue;
-        }
-
-        let first_date = media_logs
-            .last()
-            .map(|log| log.date.clone())
-            .unwrap_or_default();
-        let last_date = media_logs
-            .first()
-            .map(|log| log.date.clone())
-            .unwrap_or_default();
-        let total_minutes = media_logs.iter().map(|log| log.duration_minutes).sum();
-        let total_characters = media_logs.iter().map(|log| log.characters).sum();
-        let activity_type = dominant_activity_type(media_logs, &media.default_activity_type);
-        let terminal_event = terminal_kind(&media.tracking_status);
-        let same_day_terminal = terminal_event.is_some() && first_date == last_date;
-
-        let context = TimelineMediaContext {
-            media_id,
-            media_title: media.title.clone(),
-            media_variant: media.variant.clone(),
-            cover_image: media.cover_image.clone(),
-            activity_type,
-            content_type: media.content_type.clone(),
-            tracking_status: media.tracking_status.clone(),
-            first_date: first_date.clone(),
-            last_date: last_date.clone(),
-            total_minutes,
-            total_characters,
-            same_day_terminal,
-        };
-        media_contexts_by_id.insert(media_id, context.clone());
-
-        if let Some(kind) = terminal_event {
-            timeline_events.push(build_timeline_event(
-                &context,
-                kind,
-                last_date.clone(),
-                None,
-                None,
-                0,
-                0,
-            ));
-
-            if !same_day_terminal {
-                timeline_events.push(build_timeline_event(
-                    &context,
-                    TimelineEventKind::Started,
-                    first_date,
-                    None,
-                    None,
-                    0,
-                    0,
-                ));
-            }
-            continue;
-        }
-
-        timeline_events.push(build_timeline_event(
-            &context,
-            TimelineEventKind::Started,
-            first_date.clone(),
-            None,
-            None,
-            0,
-            0,
-        ));
-    }
-
-    for milestone in milestones {
-        let Some(date) = milestone.date.clone() else {
-            continue;
-        };
-        let media_id = milestone
-            .media_uid
-            .as_deref()
-            .and_then(|media_uid| media_ids_by_uid.get(media_uid))
-            .copied();
-        let Some(media_id) = media_id else {
-            continue;
-        };
-        let Some(context) = media_contexts_by_id.get(&media_id).cloned() else {
-            continue;
-        };
-
-        timeline_events.push(build_timeline_event(
-            &context,
-            TimelineEventKind::Milestone,
-            date,
-            Some(milestone.name),
-            milestone.id,
-            milestone.duration,
-            milestone.characters,
-        ));
-    }
-
-    timeline_events.sort_by(|left, right| {
-        right
-            .date
-            .cmp(&left.date)
-            .then_with(|| timeline_sort_rank(left).cmp(&timeline_sort_rank(right)))
-            .then_with(|| left.media_title.cmp(&right.media_title))
-            .then_with(|| left.media_id.cmp(&right.media_id))
-            .then_with(|| right.milestone_id.cmp(&left.milestone_id))
-    });
-
-    Ok(timeline_events)
+    crate::timeline_data::get_all_timeline_events(conn)
 }
 
 pub fn add_milestone(conn: &Connection, milestone: &Milestone) -> Result<i64> {
@@ -2543,9 +2309,44 @@ mod tests {
     use super::*;
     use crate::models::TimelineEventKind;
     use rusqlite::Connection;
-    use std::sync::Mutex;
+    use std::ffi::OsString;
+    use std::sync::{Mutex, MutexGuard};
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn lock_test_environment() -> MutexGuard<'static, ()> {
+        ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    struct ScopedEnvironment {
+        originals: Vec<(&'static str, Option<OsString>)>,
+    }
+
+    impl ScopedEnvironment {
+        fn capture(names: &[&'static str]) -> Self {
+            Self {
+                originals: names
+                    .iter()
+                    .map(|name| (*name, std::env::var_os(name)))
+                    .collect(),
+            }
+        }
+    }
+
+    impl Drop for ScopedEnvironment {
+        fn drop(&mut self) {
+            for (name, value) in &self.originals {
+                unsafe {
+                    match value {
+                        Some(value) => std::env::set_var(name, value),
+                        None => std::env::remove_var(name),
+                    }
+                }
+            }
+        }
+    }
 
     fn setup_test_db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
@@ -2614,9 +2415,8 @@ mod tests {
 
     #[test]
     fn test_get_data_dir_prefers_env_var() {
-        let _guard = ENV_LOCK.lock().unwrap();
-
-        let original = std::env::var("KECHIMOCHI_DATA_DIR").ok();
+        let _guard = lock_test_environment();
+        let _environment = ScopedEnvironment::capture(&["KECHIMOCHI_DATA_DIR"]);
         let custom =
             std::env::temp_dir().join(format!("kechimochi_data_dir_env_{}", std::process::id()));
 
@@ -2626,15 +2426,6 @@ mod tests {
 
         let resolved = get_data_dir(&STANDALONE_DATA_DIR_PROVIDER);
         assert_eq!(resolved, custom);
-
-        match original {
-            Some(value) => unsafe {
-                std::env::set_var("KECHIMOCHI_DATA_DIR", value);
-            },
-            None => unsafe {
-                std::env::remove_var("KECHIMOCHI_DATA_DIR");
-            },
-        }
     }
 
     #[test]
@@ -2656,11 +2447,12 @@ mod tests {
     #[test]
     #[cfg(target_os = "windows")]
     fn test_get_data_dir_windows_default_from_appdata() {
-        let _guard = ENV_LOCK.lock().unwrap();
-
-        let original_data_dir = std::env::var("KECHIMOCHI_DATA_DIR").ok();
-        let original_app_identifier = std::env::var("KECHIMOCHI_APP_IDENTIFIER").ok();
-        let original_appdata = std::env::var("APPDATA").ok();
+        let _guard = lock_test_environment();
+        let _environment = ScopedEnvironment::capture(&[
+            "KECHIMOCHI_DATA_DIR",
+            "KECHIMOCHI_APP_IDENTIFIER",
+            "APPDATA",
+        ]);
         let fake_appdata =
             std::env::temp_dir().join(format!("kechimochi_appdata_{}", std::process::id()));
 
@@ -2672,43 +2464,17 @@ mod tests {
 
         let resolved = get_data_dir(&STANDALONE_DATA_DIR_PROVIDER);
         assert_eq!(resolved, fake_appdata.join("com.morg.kechimochi"));
-
-        match original_data_dir {
-            Some(value) => unsafe {
-                std::env::set_var("KECHIMOCHI_DATA_DIR", value);
-            },
-            None => unsafe {
-                std::env::remove_var("KECHIMOCHI_DATA_DIR");
-            },
-        }
-
-        match original_app_identifier {
-            Some(value) => unsafe {
-                std::env::set_var("KECHIMOCHI_APP_IDENTIFIER", value);
-            },
-            None => unsafe {
-                std::env::remove_var("KECHIMOCHI_APP_IDENTIFIER");
-            },
-        }
-
-        match original_appdata {
-            Some(value) => unsafe {
-                std::env::set_var("APPDATA", value);
-            },
-            None => unsafe {
-                std::env::remove_var("APPDATA");
-            },
-        }
     }
 
     #[test]
     #[cfg(target_os = "linux")]
     fn test_get_data_dir_linux_default_honors_xdg_data_home() {
-        let _guard = ENV_LOCK.lock().unwrap();
-
-        let original_data_dir = std::env::var("KECHIMOCHI_DATA_DIR").ok();
-        let original_app_identifier = std::env::var("KECHIMOCHI_APP_IDENTIFIER").ok();
-        let original_xdg_data_home = std::env::var("XDG_DATA_HOME").ok();
+        let _guard = lock_test_environment();
+        let _environment = ScopedEnvironment::capture(&[
+            "KECHIMOCHI_DATA_DIR",
+            "KECHIMOCHI_APP_IDENTIFIER",
+            "XDG_DATA_HOME",
+        ]);
         let fake_xdg_data_home =
             std::env::temp_dir().join(format!("kechimochi_xdg_data_{}", std::process::id()));
 
@@ -2723,19 +2489,6 @@ mod tests {
             resolved,
             fake_xdg_data_home.join("com.example.kechimochi-test")
         );
-
-        match original_data_dir {
-            Some(value) => unsafe { std::env::set_var("KECHIMOCHI_DATA_DIR", value) },
-            None => unsafe { std::env::remove_var("KECHIMOCHI_DATA_DIR") },
-        }
-        match original_app_identifier {
-            Some(value) => unsafe { std::env::set_var("KECHIMOCHI_APP_IDENTIFIER", value) },
-            None => unsafe { std::env::remove_var("KECHIMOCHI_APP_IDENTIFIER") },
-        }
-        match original_xdg_data_home {
-            Some(value) => unsafe { std::env::set_var("XDG_DATA_HOME", value) },
-            None => unsafe { std::env::remove_var("XDG_DATA_HOME") },
-        }
     }
 
     #[test]
@@ -3244,6 +2997,53 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("Activity must have either duration or characters"));
+
+        for (duration_minutes, characters, expected) in [
+            (-1, 100, "Activity duration cannot be negative"),
+            (10, -1, "Activity character count cannot be negative"),
+        ] {
+            let invalid = ActivityLog {
+                id: None,
+                media_id,
+                duration_minutes,
+                characters,
+                date: "2024-03-01".to_string(),
+                activity_type: String::new(),
+                notes: String::new(),
+            };
+            let error = add_log(&conn, &invalid).unwrap_err().to_string();
+            assert!(error.contains(expected));
+        }
+
+        let valid_id = add_log(
+            &conn,
+            &ActivityLog {
+                id: None,
+                media_id,
+                duration_minutes: 10,
+                characters: 0,
+                date: "2024-03-01".to_string(),
+                activity_type: String::new(),
+                notes: String::new(),
+            },
+        )
+        .unwrap();
+        let update_error = update_log(
+            &conn,
+            &ActivityLog {
+                id: Some(valid_id),
+                media_id,
+                duration_minutes: 10,
+                characters: -1,
+                date: "2024-03-01".to_string(),
+                activity_type: String::new(),
+                notes: String::new(),
+            },
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(update_error.contains("Activity character count cannot be negative"));
+        assert_eq!(get_logs(&conn).unwrap()[0].characters, 0);
     }
 
     #[test]
@@ -4282,16 +4082,14 @@ mod tests {
 
     #[test]
     fn test_get_data_dir_override() {
+        let _guard = lock_test_environment();
+        let _environment = ScopedEnvironment::capture(&["KECHIMOCHI_DATA_DIR"]);
         let temp_dir = "/tmp/kechimochi_test_dir";
-        std::env::set_var("KECHIMOCHI_DATA_DIR", temp_dir);
+        unsafe {
+            std::env::set_var("KECHIMOCHI_DATA_DIR", temp_dir);
+        }
 
-        // We need a dummy AppHandle to call it, but we can't easily.
-        // However, we can verify the env var logic directly.
-        let dir = if let Ok(d) = std::env::var("KECHIMOCHI_DATA_DIR") {
-            PathBuf::from(d)
-        } else {
-            PathBuf::from("fail")
-        };
+        let dir = get_data_dir(&STANDALONE_DATA_DIR_PROVIDER);
         assert_eq!(dir, PathBuf::from(temp_dir));
     }
 

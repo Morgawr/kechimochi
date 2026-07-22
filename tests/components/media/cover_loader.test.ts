@@ -80,6 +80,63 @@ describe('MediaCoverLoader', () => {
         await expect(MediaCoverLoader.load('missing-cover')).resolves.toBeNull();
         await expect(MediaCoverLoader.load('missing-cover')).resolves.toBeNull();
 
-        expect(mockServices.loadCoverImage).toHaveBeenCalledTimes(2);
+        expect(mockServices.loadCoverImage).toHaveBeenCalledTimes(1);
+    });
+
+    it('negative-caches failed cover reads without leaking interaction errors', async () => {
+        vi.mocked(api.readFileBytes).mockRejectedValue(new Error('cover file is missing'));
+
+        await expect(MediaCoverLoader.load('/missing/cover.png')).resolves.toBeNull();
+        await expect(MediaCoverLoader.load('/missing/cover.png')).resolves.toBeNull();
+
+        expect(api.readFileBytes).toHaveBeenCalledTimes(1);
+    });
+
+    it('shares identical in-flight reads instead of starting duplicate work', async () => {
+        mockServices.isDesktop.mockReturnValue(false);
+        let resolveCover!: (value: string | null) => void;
+        mockServices.loadCoverImage.mockImplementation(() => new Promise(resolve => {
+            resolveCover = resolve;
+        }));
+
+        const first = MediaCoverLoader.load('shared-cover');
+        const second = MediaCoverLoader.load('shared-cover');
+        expect(mockServices.loadCoverImage).toHaveBeenCalledTimes(1);
+
+        resolveCover('https://covers.example/shared.jpg');
+        await expect(Promise.all([first, second])).resolves.toEqual([
+            'https://covers.example/shared.jpg',
+            'https://covers.example/shared.jpg',
+        ]);
+    });
+
+    it('drops and revokes an old-generation result after data isolation is reset', async () => {
+        let resolveBytes!: (value: number[]) => void;
+        vi.mocked(api.readFileBytes).mockImplementation(() => new Promise(resolve => {
+            resolveBytes = resolve;
+        }));
+        globalThis.URL.createObjectURL = vi.fn(() => 'blob:old-generation');
+        globalThis.URL.revokeObjectURL = vi.fn();
+
+        const pending = MediaCoverLoader.load('/old/data/cover.png');
+        MediaCoverLoader.clear();
+        resolveBytes([1, 2, 3]);
+
+        await expect(pending).resolves.toBeNull();
+        expect(globalThis.URL.revokeObjectURL).toHaveBeenCalledWith('blob:old-generation');
+        expect(MediaCoverLoader.getCached('/old/data/cover.png')).toBeNull();
+    });
+
+    it('evicts least-recently-used entries when the bounded cache is full', async () => {
+        mockServices.isDesktop.mockReturnValue(false);
+        mockServices.loadCoverImage.mockImplementation(async coverRef => `https://covers.example/${coverRef}`);
+
+        for (let index = 0; index < 97; index += 1) {
+            await MediaCoverLoader.load(`cover-${index}`);
+        }
+        expect(mockServices.loadCoverImage).toHaveBeenCalledTimes(97);
+
+        await MediaCoverLoader.load('cover-0');
+        expect(mockServices.loadCoverImage).toHaveBeenCalledTimes(98);
     });
 });

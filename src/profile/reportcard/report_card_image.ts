@@ -1,6 +1,7 @@
-import Chart from 'chart.js/auto';
 import type { CategorySlice, ReportCardDimension } from './report_card_data';
 import { formatDurationHm } from './report_card_data';
+import { loadChartConstructor } from '../../chart_loader';
+import { logPerformance, measureSynchronous, performanceNow } from '../../performance';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -149,15 +150,19 @@ function drawAvatarFromInitials(
     context.restore();
 }
 
-function drawDonutChart(
+async function drawDonutChart(
     context: CanvasRenderingContext2D,
     slices: CategorySlice[],
     chartColors: string[],
     destinationX: number,
     destinationY: number,
     size: number,
-): void {
+): Promise<void> {
     if (slices.length === 0) return;
+
+    const importStarted = performanceNow();
+    const Chart = await loadChartConstructor();
+    logPerformance('chart_import', 'report_card_chart_js', performanceNow() - importStarted);
 
     // Render the chart at the card's physical resolution so it stays crisp when
     // blitted onto the RENDER_SCALE-scaled card context. devicePixelRatio is
@@ -167,7 +172,7 @@ function drawDonutChart(
     chartCanvas.width = size * RENDER_SCALE;
     chartCanvas.height = size * RENDER_SCALE;
 
-    const chartInstance = new Chart(chartCanvas, {
+    const chartInstance = measureSynchronous('chart_construction', 'report_card_donut_chart', () => new Chart(chartCanvas, {
         type: 'doughnut', // chart.js registers this controller under the "doughnut" spelling
         data: {
             labels: slices.map(slice => slice.label),
@@ -187,7 +192,7 @@ function drawDonutChart(
                 tooltip: { enabled: false },
             },
         },
-    });
+    }));
 
     context.drawImage(chartCanvas, destinationX, destinationY, size, size);
     chartInstance.destroy();
@@ -293,7 +298,7 @@ export async function renderReportCardImage(options: ReportCardImageOptions): Pr
     });
 
     // ── Donut chart ────────────────────────────────────────────────────────
-    drawDonutChart(context, slices, themeColors.chartColors, DONUT_X, DONUT_Y, DONUT_SIZE);
+    await drawDonutChart(context, slices, themeColors.chartColors, DONUT_X, DONUT_Y, DONUT_SIZE);
 
     // ── App name / branding ───────────────────────────────────────────────────
     context.fillStyle = themeColors.secondaryTextColor;

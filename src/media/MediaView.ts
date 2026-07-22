@@ -1,6 +1,6 @@
 import { Component } from '../component';
 import { html } from '../html';
-import { Media, ActivitySummary, getAllMedia, getLogs, getLogsForMedia, getSetting, setSetting } from '../api';
+import { Media, ActivitySummary, LibrarySnapshot, getLibrarySnapshot, getLogsForMedia, setSetting } from '../api';
 import { MediaLibraryBrowser, type LibraryMediaSelection } from './MediaLibraryBrowser';
 import { MediaDetail } from './MediaDetail';
 import { Logger } from '../logger';
@@ -12,6 +12,7 @@ import {
     type LibraryActivityMetrics,
     type LibraryLayoutMode,
 } from './library_types';
+import { measureSynchronous } from '../performance';
 
 interface MediaViewState {
     viewMode: 'grid' | 'detail';
@@ -29,10 +30,17 @@ interface MediaViewState {
     gridZoom: number;
     isGridSupported: boolean;
     listMetricsByMediaId: Record<number, LibraryActivityMetrics>;
-    isListMetricsLoaded: boolean;
-    isListMetricsLoading: boolean;
     isLoading: boolean;
     isInitialized: boolean;
+}
+
+interface RenderedLibraryPresentation {
+    mediaList: Media[];
+    libraryFilters: MediaViewState['libraryFilters'];
+    preferredLayout: LibraryLayoutMode;
+    gridZoom: number;
+    isGridSupported: boolean;
+    listMetricsByMediaId: Record<number, LibraryActivityMetrics>;
 }
 
 interface LegacyMediaQueryListCompat {
@@ -47,6 +55,8 @@ export class MediaView extends Component<MediaViewState> {
     private isDestroyed = false;
     private navigationSource?:  'dashboard' | 'timeline';
     private detailNavigationRequestId = 0;
+    private loadRequestId = 0;
+    private renderedLibraryPresentation: RenderedLibraryPresentation | null = null;
 
     constructor(container: HTMLElement) {
         super(container, {
@@ -65,8 +75,6 @@ export class MediaView extends Component<MediaViewState> {
             gridZoom: LIBRARY_GRID_ZOOM.DEFAULT,
             isGridSupported: MediaView.isGridLayoutSupported(),
             listMetricsByMediaId: {},
-            isListMetricsLoaded: false,
-            isListMetricsLoading: false,
             isLoading: false,
             isInitialized: false,
         });
@@ -80,6 +88,12 @@ export class MediaView extends Component<MediaViewState> {
 
     public destroy() {
         this.isDestroyed = true;
+        if (this.state.isLoading) {
+            this.loadRequestId += 1;
+        }
+        this.detailNavigationRequestId += 1;
+        this.activeSubComponent?.destroy?.();
+        this.activeSubComponent = null;
         globalThis.removeEventListener('keydown', this.keyboardHandler);
         globalThis.removeEventListener('mouseup', this.mouseHandler);
         this.unbindGridSupportListener();
@@ -169,10 +183,6 @@ export class MediaView extends Component<MediaViewState> {
         Promise.resolve(task).catch((error) => Logger.error(message, error));
     }
 
-    private getEffectiveLayout(): LibraryLayoutMode {
-        return this.state.isGridSupported ? this.state.preferredLayout : 'list';
-    }
-
     private async navigateDetail(direction: number) {
         const { detailMediaList, currentIndex } = this.state;
         if (detailMediaList.length === 0) return;
@@ -197,11 +207,24 @@ export class MediaView extends Component<MediaViewState> {
         try {
             const currentLogs = await getLogsForMedia(media.id);
             if (this.isDestroyed || requestId !== this.detailNavigationRequestId) return;
-            this.setState({ currentLogs });
+            this.state.currentLogs = currentLogs;
+            if (
+                this.activeSubComponent instanceof MediaDetail
+                && this.activeSubComponent.updateLogs(media.id, currentLogs)
+            ) {
+                return;
+            }
+            this.render();
         } catch (e) {
             Logger.error('Failed to load logs for media detail navigation', e);
             if (!this.isDestroyed && requestId === this.detailNavigationRequestId) {
-                this.setState({ currentLogs: [] });
+                this.state.currentLogs = [];
+                if (
+                    !(this.activeSubComponent instanceof MediaDetail)
+                    || !this.activeSubComponent.updateLogs(media.id, [])
+                ) {
+                    this.render();
+                }
             }
         }
     }
@@ -263,8 +286,28 @@ private async handleBack() {
         await this.exitDetail(false);
     }
     
+    public prepareLibraryView(): boolean {
+        const requiresRender = this.state.viewMode !== 'grid';
+        this.targetMediaId = null;
+        this.navigationSource = undefined;
+        this.loadRequestId += 1;
+        this.detailNavigationRequestId += 1;
+        this.state = {
+            ...this.state,
+            viewMode: 'grid',
+            detailMediaList: [],
+            currentLogs: [],
+            currentIndex: 0,
+            isLoading: false,
+        };
+        return requiresRender;
+    }
+
     public async resetView() {
-        this.setState({ viewMode: 'grid', detailMediaList: [], currentLogs: [], currentIndex: 0 });
+        const requiresRender = this.prepareLibraryView();
+        if (requiresRender || !this.container.querySelector('#media-root')) {
+            this.render();
+        }
         await this.loadData();
     }
 
@@ -272,89 +315,6 @@ private async handleBack() {
         this.targetMediaId = mediaId;
         this.navigationSource = source;
         await this.loadData(mediaId);
-    }
-
-    private async ensureListMetricsLoaded() {
-        if (this.state.viewMode !== 'grid') return;
-        if (this.getEffectiveLayout() !== 'list') return;
-        if (this.state.isListMetricsLoaded || this.state.isListMetricsLoading) return;
-
-        this.setState({ isListMetricsLoading: true });
-        try {
-            const logs = await getLogs();
-            const metricsByMediaId = this.aggregateListMetrics(logs);
-            if (this.isDestroyed) return;
-
-            this.setState({
-                listMetricsByMediaId: metricsByMediaId,
-                isListMetricsLoaded: true,
-                isListMetricsLoading: false,
-            });
-        } catch (e) {
-            Logger.error('Failed to load list activity metrics', e);
-            if (!this.isDestroyed) {
-                this.setState({
-                    listMetricsByMediaId: {},
-                    isListMetricsLoaded: true,
-                    isListMetricsLoading: false,
-                });
-            }
-        }
-    }
-
-    private aggregateListMetrics(logs: ActivitySummary[]): Record<number, LibraryActivityMetrics> {
-        return logs.reduce<Record<number, LibraryActivityMetrics>>((acc, log) => {
-            const current = acc[log.media_id] ?? {
-                firstActivityDate: null,
-                lastActivityDate: null,
-                totalMinutes: 0,
-            };
-
-            const firstActivityDate = current.firstActivityDate === null || log.date < current.firstActivityDate
-                ? log.date
-                : current.firstActivityDate;
-            const lastActivityDate = current.lastActivityDate === null || log.date > current.lastActivityDate
-                ? log.date
-                : current.lastActivityDate;
-
-            acc[log.media_id] = {
-                firstActivityDate,
-                lastActivityDate,
-                totalMinutes: current.totalMinutes + log.duration_minutes,
-            };
-            return acc;
-        }, {});
-    }
-
-    private async loadInitialPreferences() {
-        let nextFilters = this.state.libraryFilters;
-        let nextPreferredLayout = this.state.preferredLayout;
-        let nextGridZoom = this.state.gridZoom;
-
-        if (this.state.isInitialized) {
-            return { nextFilters, nextPreferredLayout, nextGridZoom };
-        }
-
-        const [hideArchivedStr, storedLayout, storedGridZoom] = await Promise.all([
-            getSetting(SETTING_KEYS.GRID_HIDE_ARCHIVED),
-            getSetting(SETTING_KEYS.LIBRARY_LAYOUT_MODE),
-            getSetting(SETTING_KEYS.LIBRARY_GRID_ZOOM),
-        ]);
-
-        if (hideArchivedStr != null) {
-            nextFilters = {
-                ...nextFilters,
-                hideArchived: hideArchivedStr === 'true',
-            };
-        }
-
-        if (storedLayout === 'grid' || storedLayout === 'list') {
-            nextPreferredLayout = storedLayout;
-        }
-
-        nextGridZoom = normalizeLibraryGridZoom(storedGridZoom);
-
-        return { nextFilters, nextPreferredLayout, nextGridZoom };
     }
 
     private resolveDetailState(mediaList: Media[], jumpToId?: number) {
@@ -397,72 +357,235 @@ private async handleBack() {
         };
     }
 
+    private isStaleLoad(requestId: number): boolean {
+        return this.isDestroyed || requestId !== this.loadRequestId;
+    }
+
+    private resolveSnapshotPresentation(snapshot: LibrarySnapshot, isInitialLoad: boolean) {
+        let libraryFilters = this.state.libraryFilters;
+        let preferredLayout = this.state.preferredLayout;
+        let gridZoom = this.state.gridZoom;
+
+        if (isInitialLoad) {
+            libraryFilters = {
+                ...libraryFilters,
+                hideArchived: snapshot.settings.hide_archived,
+            };
+            preferredLayout = snapshot.settings.preferred_layout;
+            gridZoom = normalizeLibraryGridZoom(snapshot.settings.grid_zoom);
+        }
+
+        const availableTypes = new Set(
+            snapshot.media.map((media) => (media.content_type || 'Unknown').trim() || 'Unknown'),
+        );
+        libraryFilters = {
+            ...libraryFilters,
+            typeFilters: libraryFilters.typeFilters.filter((type) => availableTypes.has(type)),
+        };
+
+        return { libraryFilters, preferredLayout, gridZoom };
+    }
+
+    private projectSnapshotMetrics(snapshot: LibrarySnapshot): Record<number, LibraryActivityMetrics> {
+        return measureSynchronous(
+            'aggregation',
+            'library_metrics_projection',
+            () => snapshot.metrics.reduce<Record<number, LibraryActivityMetrics>>((metrics, value) => {
+                metrics[value.media_id] = {
+                    firstActivityDate: value.first_activity_date,
+                    lastActivityDate: value.last_activity_date,
+                    totalMinutes: value.total_minutes,
+                };
+                return metrics;
+            }, {}),
+            { media_count: snapshot.media.length, metric_count: snapshot.metrics.length },
+        );
+    }
+
+    private async buildSnapshotState(
+        snapshot: LibrarySnapshot,
+        requestId: number,
+        isInitialLoad: boolean,
+        jumpToId?: number,
+    ): Promise<Partial<MediaViewState> | null> {
+        const { libraryFilters, preferredLayout, gridZoom } = this.resolveSnapshotPresentation(
+            snapshot,
+            isInitialLoad,
+        );
+        const listMetricsByMediaId = this.projectSnapshotMetrics(snapshot);
+        const { targetId, detailMediaList, currentIndex } = this.resolveDetailState(snapshot.media, jumpToId);
+        const requestedViewMode = targetId !== null && targetId !== undefined ? 'detail' : this.state.viewMode;
+        const viewMode: MediaViewState['viewMode'] = requestedViewMode === 'detail' && detailMediaList.length > 0
+            ? 'detail'
+            : 'grid';
+        let currentLogs: ActivitySummary[] = [];
+
+        if (viewMode === 'detail' && detailMediaList[currentIndex]) {
+            currentLogs = await getLogsForMedia(detailMediaList[currentIndex].id!);
+            if (this.isStaleLoad(requestId)) return null;
+        }
+
+        return {
+            libraryMediaList: snapshot.media,
+            detailMediaList,
+            currentLogs,
+            currentIndex,
+            libraryFilters,
+            preferredLayout,
+            gridZoom,
+            isGridSupported: MediaView.isGridLayoutSupported(),
+            listMetricsByMediaId,
+            isLoading: false,
+            isInitialized: true,
+            viewMode,
+        };
+    }
+
+    private handleLoadError(error: unknown, requestId: number, isInitialLoad: boolean): void {
+        if (this.isStaleLoad(requestId)) return;
+        Logger.error('Failed to load media view content', error);
+        if (isInitialLoad) {
+            this.setState({ isLoading: false, isInitialized: true });
+            return;
+        }
+        this.state.isLoading = false;
+    }
+
+    private canReuseRenderedLibrary(nextState: Partial<MediaViewState>): boolean {
+        const rendered = this.renderedLibraryPresentation;
+        if (
+            !rendered
+            || !this.activeSubComponent
+            || this.state.viewMode !== 'grid'
+            || nextState.viewMode !== 'grid'
+        ) {
+            return false;
+        }
+
+        const nextFilters = nextState.libraryFilters;
+        const nextMedia = nextState.libraryMediaList;
+        const nextMetrics = nextState.listMetricsByMediaId;
+        return Boolean(
+            nextFilters
+            && nextMedia
+            && nextMetrics
+            && this.areFiltersEqual(rendered.libraryFilters, nextFilters)
+            && rendered.preferredLayout === nextState.preferredLayout
+            && rendered.gridZoom === nextState.gridZoom
+            && rendered.isGridSupported === nextState.isGridSupported
+            && this.areMediaListsEqual(rendered.mediaList, nextMedia)
+            && this.areMetricMapsEqual(rendered.listMetricsByMediaId, nextMetrics)
+        );
+    }
+
+    private areFiltersEqual(
+        left: MediaViewState['libraryFilters'],
+        right: MediaViewState['libraryFilters'],
+    ): boolean {
+        return left.searchQuery === right.searchQuery
+            && left.hideArchived === right.hideArchived
+            && this.areStringArraysEqual(left.typeFilters, right.typeFilters)
+            && this.areStringArraysEqual(left.statusFilters, right.statusFilters);
+    }
+
+    private areStringArraysEqual(left: string[], right: string[]): boolean {
+        return left.length === right.length && left.every((value, index) => value === right[index]);
+    }
+
+    private areMediaListsEqual(left: Media[], right: Media[]): boolean {
+        if (left.length !== right.length) return false;
+        return left.every((media, index) => {
+            const other = right[index];
+            return media.id === other.id
+                && media.uid === other.uid
+                && media.title === other.title
+                && media.variant === other.variant
+                && media.default_activity_type === other.default_activity_type
+                && media.status === other.status
+                && media.language === other.language
+                && media.description === other.description
+                && media.cover_image === other.cover_image
+                && media.extra_data === other.extra_data
+                && media.content_type === other.content_type
+                && media.tracking_status === other.tracking_status;
+        });
+    }
+
+    private areMetricMapsEqual(
+        left: Record<number, LibraryActivityMetrics>,
+        right: Record<number, LibraryActivityMetrics>,
+    ): boolean {
+        const leftIds = Object.keys(left);
+        const rightIds = Object.keys(right);
+        if (leftIds.length !== rightIds.length) return false;
+        return leftIds.every((id) => {
+            const leftMetric = left[Number(id)];
+            const rightMetric = right[Number(id)];
+            return leftMetric.firstActivityDate === rightMetric?.firstActivityDate
+                && leftMetric.lastActivityDate === rightMetric?.lastActivityDate
+                && leftMetric.totalMinutes === rightMetric?.totalMinutes;
+        });
+    }
+
+    private captureRenderedLibraryPresentation(): void {
+        this.renderedLibraryPresentation = {
+            mediaList: this.state.libraryMediaList,
+            libraryFilters: {
+                ...this.state.libraryFilters,
+                typeFilters: [...this.state.libraryFilters.typeFilters],
+                statusFilters: [...this.state.libraryFilters.statusFilters],
+            },
+            preferredLayout: this.state.preferredLayout,
+            gridZoom: this.state.gridZoom,
+            isGridSupported: this.state.isGridSupported,
+            listMetricsByMediaId: this.state.listMetricsByMediaId,
+        };
+    }
+
+    private markLibraryRequest(requestId: number): void {
+        const root = this.container.querySelector<HTMLElement>('#media-root');
+        if (root) root.dataset.libraryRequestId = requestId.toString();
+    }
+
     async loadData(jumpToId?: number) {
         if (this.state.isLoading && jumpToId === undefined) return;
-        this.setState({ isLoading: true });
+        const requestId = ++this.loadRequestId;
+        const isInitialLoad = !this.state.isInitialized;
+        this.detailNavigationRequestId += 1;
+        if (isInitialLoad) {
+            this.state.isLoading = true;
+            if (!this.container.querySelector('#media-root')) {
+                this.render();
+            }
+        } else {
+            this.state.isLoading = true;
+        }
 
         try {
-            const initialPreferences = await this.loadInitialPreferences();
-            let nextFilters = initialPreferences.nextFilters;
-            const nextPreferredLayout = initialPreferences.nextPreferredLayout;
-            const nextGridZoom = initialPreferences.nextGridZoom;
-
-            const mediaList = await getAllMedia();
-            const availableTypes = new Set(mediaList.map((media) => (media.content_type || 'Unknown').trim() || 'Unknown'));
-            nextFilters = {
-                ...nextFilters,
-                typeFilters: nextFilters.typeFilters.filter((type) => availableTypes.has(type)),
-            };
-
-            let currentLogs: ActivitySummary[] = [];
-            const { targetId, detailMediaList, currentIndex } = this.resolveDetailState(mediaList, jumpToId);
-
-            const requestedViewMode = targetId !== null && targetId !== undefined ? 'detail' : this.state.viewMode;
-            const viewMode = requestedViewMode === 'detail' && detailMediaList.length > 0 ? 'detail' : 'grid';
-            if (viewMode === 'detail' && detailMediaList[currentIndex]) {
-                currentLogs = await getLogsForMedia(detailMediaList[currentIndex].id!);
+            const snapshot = await getLibrarySnapshot({ request_id: requestId });
+            if (this.isStaleLoad(requestId) || snapshot.request_id !== requestId) return;
+            const nextState = await this.buildSnapshotState(snapshot, requestId, isInitialLoad, jumpToId);
+            if (!nextState) return;
+            if (this.canReuseRenderedLibrary(nextState)) {
+                this.state = { ...this.state, ...nextState };
+            } else {
+                this.setState(nextState);
             }
-
-            this.setState({
-                libraryMediaList: mediaList,
-                detailMediaList,
-                currentLogs,
-                currentIndex,
-                libraryFilters: nextFilters,
-                preferredLayout: nextPreferredLayout,
-                gridZoom: nextGridZoom,
-                isGridSupported: MediaView.isGridLayoutSupported(),
-                listMetricsByMediaId: {},
-                isListMetricsLoaded: false,
-                isListMetricsLoading: false,
-                isLoading: false,
-                isInitialized: true,
-                viewMode,
-            });
+            this.markLibraryRequest(requestId);
         } catch (e) {
-            Logger.error('Failed to load media view content', e);
-        } finally {
-            if (!this.isDestroyed) {
-                this.setState({ isLoading: false });
-            }
+            this.handleLoadError(e, requestId, isInitialLoad);
         }
     }
 
     render() {
-        if (!this.state.isInitialized && !this.state.isLoading && !this.targetMediaId) {
-            this.loadData().catch((err) => Logger.error('Failed to load data in render', err));
-            return;
-        }
-
-        if (this.state.viewMode === 'grid' && this.getEffectiveLayout() === 'list' && !this.state.isListMetricsLoaded && !this.state.isListMetricsLoading) {
-            this.runAsync(this.ensureListMetricsLoaded(), 'Failed to load list activity metrics');
-        }
-
+        this.activeSubComponent?.destroy?.();
+        this.activeSubComponent = null;
+        this.renderedLibraryPresentation = null;
         this.clear();
-        const root = html`<div class="animate-fade-in" style="display: flex; flex-direction: column; height: 100%; gap: 1rem;" id="media-root"></div>`;
+        const root = html`<div style="display: flex; flex-direction: column; height: 100%; gap: 1rem;" id="media-root"></div>`;
         this.container.appendChild(root);
 
-        if (this.state.isLoading) {
+        if (!this.state.isInitialized || this.state.isLoading) {
             root.innerHTML = `
                 <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; opacity: 0.7;">
                     <div style="width: 40px; height: 40px; border: 3px solid var(--border-color); border-top-color: var(--accent-green); border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 1rem;"></div>
@@ -474,8 +597,6 @@ private async handleBack() {
             `;
             return;
         }
-
-        this.activeSubComponent?.destroy?.();
 
         if (this.state.viewMode === 'grid') {
             this.renderBrowser(root);
@@ -494,7 +615,7 @@ private async handleBack() {
                 gridZoom: this.state.gridZoom,
                 isGridSupported: this.state.isGridSupported,
                 listMetricsByMediaId: this.state.listMetricsByMediaId,
-                isListMetricsLoading: this.state.isListMetricsLoading,
+                isListMetricsLoading: false,
             },
             (selection) => {
                 this.openLibraryDetail(selection).catch((err) => Logger.error('Failed to load media detail', err));
@@ -505,6 +626,7 @@ private async handleBack() {
             (filters) => {
                 const oldHideArchived = this.state.libraryFilters.hideArchived;
                 this.state.libraryFilters = { ...this.state.libraryFilters, ...filters };
+                this.captureRenderedLibraryPresentation();
                 if (filters.hideArchived !== undefined && oldHideArchived !== filters.hideArchived) {
                     this.runAsync(
                         setSetting(SETTING_KEYS.GRID_HIDE_ARCHIVED, filters.hideArchived.toString()),
@@ -513,14 +635,16 @@ private async handleBack() {
                 }
             },
             (layout) => {
-                this.setState({ preferredLayout: layout });
+                this.state.preferredLayout = layout;
+                this.captureRenderedLibraryPresentation();
                 this.runAsync(
                     setSetting(SETTING_KEYS.LIBRARY_LAYOUT_MODE, layout),
                     'Failed to persist library layout preference',
                 );
             },
             (gridZoom) => {
-                this.setState({ gridZoom });
+                this.state.gridZoom = gridZoom;
+                this.captureRenderedLibraryPresentation();
                 this.runAsync(
                     setSetting(SETTING_KEYS.LIBRARY_GRID_ZOOM, gridZoom.toString()),
                     'Failed to persist library grid zoom',
@@ -528,6 +652,7 @@ private async handleBack() {
             },
         );
         this.activeSubComponent.render();
+        this.captureRenderedLibraryPresentation();
     }
 
     private renderDetail(root: HTMLElement) {

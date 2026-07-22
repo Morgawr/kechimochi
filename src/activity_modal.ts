@@ -1,4 +1,14 @@
-import { getAllMedia, addLog, updateLog, addMedia, updateMedia, ActivitySummary, Media } from './api';
+import {
+    getAllMedia,
+    addLog,
+    updateLog,
+    addMedia,
+    updateMedia,
+    ActivitySummary,
+    Media,
+    ActivityCsvAnalysis,
+    ActivityCsvConflictResolution,
+} from './api';
 import { ACTIVITY_TYPES } from './constants';
 import { buildCalendar } from './calendar';
 import { customPrompt, customAlert, createCancelableOverlay } from './modal_base';
@@ -53,6 +63,102 @@ export async function showExportCsvModal(): Promise<{mode: 'all' | 'range', star
             }
             else resolve({ mode: 'all' });
             cleanup();
+        });
+    });
+}
+
+export async function showActivityCsvConflictModal(
+    analysis: ActivityCsvAnalysis,
+): Promise<ActivityCsvConflictResolution[] | null> {
+    const conflicts = analysis.groups.filter(group => group.existing_count > 0);
+    if (conflicts.length === 0) return [];
+
+    return new Promise((resolve) => {
+        const { overlay, cleanup, dismiss } = createCancelableOverlay(() => resolve(null));
+        const rowsHtml = conflicts.map((group, index) => {
+            const content = group.content;
+            const overlap = Math.min(group.existing_count, group.incoming_count);
+            const durationUnit = content.duration === 1 ? 'minute' : 'minutes';
+            const characterUnit = content.characters === 1 ? 'character' : 'characters';
+            const metrics = [
+                content.duration > 0 ? `${content.duration} ${durationUnit}` : '',
+                content.characters > 0 ? `${content.characters.toLocaleString()} ${characterUnit}` : '',
+            ].filter(Boolean).join(' and ');
+            return `
+                <div class="activity-csv-conflict" data-conflict-index="${index}" style="padding: 0.75rem; background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: var(--radius-sm); display: flex; flex-direction: column; gap: 0.5rem;">
+                    <div style="font-weight: 600;">${escapeHTML(content.log_name)}</div>
+                    <div style="font-size: 0.8rem; color: var(--text-secondary);">
+                        ${escapeHTML(content.date)} · ${escapeHTML(content.activity_type)} · ${escapeHTML(metrics)}
+                        ${content.media_variant ? ` · Variant: ${escapeHTML(content.media_variant)}` : ''}
+                    </div>
+                    ${content.notes ? `<div style="font-size: 0.8rem; white-space: pre-wrap;">Notes: ${escapeHTML(content.notes)}</div>` : ''}
+                    <div style="font-size: 0.8rem; color: var(--text-secondary);">
+                        ${group.existing_count} matching ${group.existing_count === 1 ? 'activity' : 'activities'} already in the profile; ${group.incoming_count} in this CSV. Up to ${overlap} may overlap.
+                    </div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 1rem;">
+                        <label style="display: flex; align-items: center; gap: 0.3rem; cursor: pointer;">
+                            <input type="radio" name="activity-conflict-${index}" value="skip_possible_overlaps" />
+                            Skip ${overlap} possible ${overlap === 1 ? 'overlap' : 'overlaps'}
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 0.3rem; cursor: pointer;">
+                            <input type="radio" name="activity-conflict-${index}" value="import_all" />
+                            Import all ${group.incoming_count} as separate ${group.incoming_count === 1 ? 'activity' : 'activities'}
+                        </label>
+                    </div>
+                </div>`;
+        }).join('');
+
+        overlay.innerHTML = `
+            <div class="modal-content" style="max-width: 720px; width: 92vw; max-height: 90vh; display: flex; flex-direction: column; gap: 1rem;">
+                <h3>Possible Duplicate Activities</h3>
+                <p style="color: var(--text-secondary); font-size: 0.9rem; margin: 0;">
+                    These rows exactly match existing activity content. Identical activities can still be separate occurrences, so choose how to handle every group. Existing activities will never be changed or deleted.
+                </p>
+                <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                    <button type="button" class="btn btn-secondary" id="activity-conflict-skip-all">Skip all possible overlaps</button>
+                    <button type="button" class="btn btn-secondary" id="activity-conflict-import-all">Import every CSV row separately</button>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 0.75rem; overflow-y: auto; padding-right: 0.25rem;">
+                    ${rowsHtml}
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--border-color);">
+                    <button type="button" class="btn btn-ghost" id="activity-conflict-cancel">Cancel Import</button>
+                    <button type="button" class="btn btn-primary" id="activity-conflict-confirm">Continue</button>
+                </div>
+            </div>`;
+
+        const selectAll = (action: 'skip_possible_overlaps' | 'import_all') => {
+            overlay.querySelectorAll<HTMLInputElement>(`input[value="${action}"]`).forEach(input => {
+                input.checked = true;
+            });
+        };
+        overlay.querySelector('#activity-conflict-skip-all')!.addEventListener('click', () => {
+            selectAll('skip_possible_overlaps');
+        });
+        overlay.querySelector('#activity-conflict-import-all')!.addEventListener('click', () => {
+            selectAll('import_all');
+        });
+        overlay.querySelector('#activity-conflict-cancel')!.addEventListener('click', dismiss);
+        overlay.querySelector('#activity-conflict-confirm')!.addEventListener('click', async () => {
+            const resolutions: ActivityCsvConflictResolution[] = [];
+            for (let index = 0; index < conflicts.length; index += 1) {
+                const selected = overlay.querySelector<HTMLInputElement>(
+                    `input[name="activity-conflict-${index}"]:checked`,
+                );
+                if (!selected) {
+                    await customAlert(
+                        'Resolution Required',
+                        'Choose how to handle every possible duplicate activity before continuing.',
+                    );
+                    return;
+                }
+                resolutions.push({
+                    content: conflicts[index].content,
+                    action: selected.value as ActivityCsvConflictResolution['action'],
+                });
+            }
+            cleanup();
+            resolve(resolutions);
         });
     });
 }
@@ -383,6 +489,14 @@ export async function showLogActivityModal(prefillMediaId?: number, editLog?: Ac
             
             if (!mediaTitle) {
                 await customAlert("Required Field", "Please enter a Media Title.");
+                return;
+            }
+            if (duration < 0) {
+                await customAlert("Invalid Duration", "Activity duration cannot be negative.");
+                return;
+            }
+            if (characters < 0) {
+                await customAlert("Invalid Characters", "Activity character count cannot be negative.");
                 return;
             }
             if (duration <= 0 && characters <= 0) {

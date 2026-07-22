@@ -11,7 +11,9 @@ The format is based on Keep a Changelog, with one section per released version.
  - Media, activity, and milestone CSV exports now include optional variant tag.
  - You can now zoom in/out in the library grid view.
  - Media entries can now share the same title as long as they have different variant tags (including empty variant)
-- Added a Windows .exe (NSIS) installer alongside the existing MSI installer.
+ - You can now add "boolean" tags to media items. They work like any other tag but only have a key with an empty value and they look different in the UI.
+ - Spider chart showing weekly average and median distribution of activities
+ - Added a Windows .exe (NSIS) installer alongside the existing MSI installer.
 
 ### Changed
  - When browsing media entries, left and right buttons now cycle through entries according to any previously-applied media filters
@@ -21,6 +23,8 @@ The format is based on Keep a Changelog, with one section per released version.
  - Cloud sync now asks whether to combine entries or rename one and keep both when local and remote media have the same title and variant but different internal identities.
  - CSV imports now identify media using the exact title and variant pair. Legacy CSVs without a variant column remain supported when the title identifies only one media entry.
  - Introduced a global lock that prevents multiple kechimochi instances from running on the same device.
+ - Improved performance and background data loading for the dashboard, library, timeline, and media covers.
+ - CSV activity import will now match duplicate activities already present in the database and prompt the user to confirm if it's a valid import or a mistake
 
 ### Fixed
  - Activity types are now stored on every activity log, so changing a media default no longer reclassifies historical activity; This also retroactively applies to historical blank activities.
@@ -31,7 +35,7 @@ The format is based on Keep a Changelog, with one section per released version.
  - Interrupted sync recovery no longer overwrites newer local changes by replaying an already-applied snapshot.
  - Factory reset, backup restore, and Google Drive disconnect can no longer race with an active sync or retain sync state belonging to the previous database.
  - Newer unsupported database versions are rejected before the app creates companion database files or applies persistent database settings.
-- Windows: Kechimochi now declares an explicit AppUserModelID, which *should* (experimental) keep pinned taskbar shortcuts working across updates.
+ - Windows: Kechimochi now declares an explicit AppUserModelID, which *should* (experimental) keep pinned taskbar shortcuts working across updates.
 
 ### Special Notes:
 

@@ -6,6 +6,17 @@ import { logActivity } from '../../helpers/dashboard.js';
 import { setText } from '../../helpers/form-controls.js';
 import { dismissAlert } from '../../helpers/common.js';
 
+async function waitForSingleMediaDetailLog(expectedDurationMinutes: string): Promise<void> {
+  await browser.waitUntil(async () => browser.execute((durationMinutes) => {
+    const logs = document.querySelectorAll('.media-detail-log-item');
+    return logs.length === 1
+      && logs[0].getAttribute('data-duration-minutes') === durationMinutes;
+  }, expectedDurationMinutes), {
+    timeout: 8000,
+    timeoutMsg: `Expected one media-detail activity lasting ${expectedDurationMinutes} minutes`,
+  });
+}
+
 describe('Media Variant CUJ', () => {
   const title = 'Horimiya Variant Test';
 
@@ -91,21 +102,19 @@ describe('Media Variant CUJ', () => {
     await navigateTo('media');
     await clickMediaItem(duplicateTitle, 'Anime');
     expect(await $('#media-variant').getText()).toBe('Anime');
-    expect(await $$('.media-detail-log-item').length).toBe(1);
-    expect(await $('.media-detail-log-item').getAttribute('data-duration-minutes')).toBe('7');
+    await waitForSingleMediaDetailLog('7');
 
     await $('#media-variant').doubleClick();
     await setText('.edit-input', 'Manga');
     await browser.keys('Enter');
     await dismissAlert('Another media entry already uses');
     expect(await $('#media-variant').getText()).toBe('Anime');
-    expect(await $$('.media-detail-log-item').length).toBe(1);
+    await waitForSingleMediaDetailLog('7');
 
     await backToGrid();
     await clickMediaItem(duplicateTitle, 'Manga');
     expect(await $('#media-variant').getText()).toBe('Manga');
-    expect(await $$('.media-detail-log-item').length).toBe(1);
-    expect(await $('.media-detail-log-item').getAttribute('data-duration-minutes')).toBe('13');
+    await waitForSingleMediaDetailLog('13');
   });
 
   it('rejects a title collision when both media have no variant', async () => {

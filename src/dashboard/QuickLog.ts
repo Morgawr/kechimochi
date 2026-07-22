@@ -1,4 +1,4 @@
-import { ActivitySummary, Media } from '../api';
+import { ActivitySummary, DashboardMedia, Media } from '../api';
 import { Component } from '../component';
 import { html, escapeHTML } from '../html';
 import { Logger } from '../logger';
@@ -7,8 +7,9 @@ import { EVENTS } from '../constants';
 import { MediaCoverLoader } from '../media/cover_loader';
 
 interface QuickLogState {
-    logs: ActivitySummary[];
-    mediaList: Media[];
+    logs?: ActivitySummary[];
+    mediaList: Array<Media | DashboardMedia>;
+    preSorted?: boolean;
     coverUrls: Record<number, string>;
 }
 
@@ -32,6 +33,7 @@ export class QuickLog extends Component<QuickLogState> {
         this.clear();
 
         const items = this.getSortedMedia();
+        this.discardEvictedCoverUrls(items);
         const content = html`
             <div class="card quick-log-card" style="display: flex; flex-direction: column; gap: 0.9rem; min-height: 0;">
                 <h3 class="dashboard-module-title">Quick Log</h3>
@@ -68,9 +70,32 @@ export class QuickLog extends Component<QuickLogState> {
         });
     }
 
-    private getSortedMedia(): Media[] {
+    /**
+     * Desktop covers are object URLs owned by the bounded shared cache. The
+     * dashboard remains mounted while another view is active, so a library
+     * render can evict and revoke a URL that Quick Log still has in its local
+     * state. Drop those stale references before rendering so ensureCoverUrls
+     * can acquire a fresh URL instead of leaving a broken image behind.
+     */
+    private discardEvictedCoverUrls(items: Array<Media | DashboardMedia>): void {
+        for (const media of items) {
+            if (!media.id || !media.cover_image) continue;
+            const coverUrl = this.state.coverUrls[media.id];
+            if (!coverUrl?.startsWith('blob:')) continue;
+            if (MediaCoverLoader.getCached(media.cover_image) === coverUrl) continue;
+
+            delete this.state.coverUrls[media.id];
+            this.attemptedCoverIds.delete(media.id);
+        }
+    }
+
+    private getSortedMedia(): Array<Media | DashboardMedia> {
         const latestLogByMedia = new Map<number, { date: string; id: number }>();
-        for (const log of this.state.logs) {
+        if (this.state.preSorted) {
+            return this.state.mediaList.slice(0, MAX_QUICK_LOG_ITEMS);
+        }
+
+        for (const log of this.state.logs ?? []) {
             const previous = latestLogByMedia.get(log.media_id);
             if (!previous || this.compareLogRecency(log, previous) > 0) {
                 latestLogByMedia.set(log.media_id, { date: log.date, id: log.id });
@@ -122,7 +147,7 @@ export class QuickLog extends Component<QuickLogState> {
         return left.localeCompare(right);
     }
 
-    private renderItem(media: Media): string {
+    private renderItem(media: Media | DashboardMedia): string {
         const coverUrl = media.id ? this.state.coverUrls[media.id] : '';
         const contentType = (media.content_type || media.default_activity_type || 'Unknown').trim() || 'Unknown';
         const variant = (media.variant || '').trim();
@@ -182,7 +207,7 @@ export class QuickLog extends Component<QuickLogState> {
         `;
     }
 
-    private async ensureCoverUrls(items: Media[]): Promise<void> {
+    private async ensureCoverUrls(items: Array<Media | DashboardMedia>): Promise<void> {
         await Promise.all(items.map(async media => {
             if (!media.id || !media.cover_image || this.state.coverUrls[media.id] || this.attemptedCoverIds.has(media.id)) {
                 return;
@@ -204,7 +229,7 @@ export class QuickLog extends Component<QuickLogState> {
         }));
     }
 
-    private async openQuickLog(media: Media): Promise<void> {
+    private async openQuickLog(media: Media | DashboardMedia): Promise<void> {
         const success = await showLogActivityModal(media.id);
         if (!success) {
             return;
@@ -220,7 +245,7 @@ export class QuickLog extends Component<QuickLogState> {
         }));
     }
 
-    private attachQuickLogInteractions(node: HTMLElement, media: Media): void {
+    private attachQuickLogInteractions(node: HTMLElement, media: Media | DashboardMedia): void {
         const isMobileApp = document.body.dataset.runtime === 'mobile-app';
         let longPressTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
         let suppressClick = false;

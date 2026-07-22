@@ -55,7 +55,8 @@ vi.mock('../../src/api', () => ({
 }));
 
 const mockServices = {
-    pickAndImportActivities: vi.fn(),
+    analyzeActivitiesCsvFromPick: vi.fn(),
+    applyActivityImport: vi.fn(),
     exportActivities: vi.fn(),
     analyzeMediaCsvFromPick: vi.fn(),
     exportMediaLibrary: vi.fn(),
@@ -82,6 +83,7 @@ vi.mock('../../src/modal_base', () => ({
 }));
 
 vi.mock('../../src/activity_modal', () => ({
+    showActivityCsvConflictModal: vi.fn(),
     showExportCsvModal: vi.fn(),
 }));
 
@@ -185,7 +187,8 @@ describe('ProfileView', () => {
         vi.clearAllMocks();
         mockServices.isDesktop.mockReturnValue(true);
         mockServices.supportsLocalHttpApi.mockReturnValue(true);
-        mockServices.pickAndImportActivities.mockResolvedValue(null);
+        mockServices.analyzeActivitiesCsvFromPick.mockResolvedValue(null);
+        mockServices.applyActivityImport.mockResolvedValue({ imported_count: 0, skipped_count: 0 });
         mockServices.exportActivities.mockResolvedValue(null);
         mockServices.analyzeMediaCsvFromPick.mockResolvedValue(null);
         mockServices.exportMediaLibrary.mockResolvedValue(null);
@@ -1407,7 +1410,7 @@ describe('ProfileView', () => {
 
     it('covers activity, media, milestone, backup, and avatar error paths', async () => {
         vi.mocked(api.getSyncStatus).mockResolvedValue(buildSyncStatus());
-        vi.mocked(mockServices.pickAndImportActivities).mockRejectedValueOnce(new Error('activity import failed'));
+        vi.mocked(mockServices.analyzeActivitiesCsvFromPick).mockRejectedValueOnce(new Error('activity import failed'));
         vi.mocked(modals.showExportCsvModal)
             .mockResolvedValueOnce(null)
             .mockResolvedValueOnce({ mode: 'range', start: '2026-01-01', end: '2026-01-31' });
@@ -1524,7 +1527,23 @@ describe('ProfileView', () => {
 
     it('handles successful import and export actions', async () => {
         vi.mocked(api.getSyncStatus).mockResolvedValue(buildSyncStatus());
-        vi.mocked(mockServices.pickAndImportActivities).mockResolvedValueOnce(3);
+        const activityAnalysis = {
+            rows: [{
+                'Date': '2026-07-22',
+                'Log Name': 'CSV Activity',
+                'Default Activity Type': 'Reading',
+                'Duration': 30,
+                'Language': 'Japanese',
+                'Characters': 0,
+                'Activity Type': 'Reading',
+                'Notes': '',
+                'Media Variant': '',
+            }],
+            groups: [],
+        };
+        vi.mocked(mockServices.analyzeActivitiesCsvFromPick).mockResolvedValueOnce(activityAnalysis);
+        vi.mocked(activityModal.showActivityCsvConflictModal).mockResolvedValueOnce([]);
+        vi.mocked(mockServices.applyActivityImport).mockResolvedValueOnce({ imported_count: 3, skipped_count: 0 });
         vi.mocked(modals.showExportCsvModal).mockResolvedValueOnce({ mode: 'all' });
         vi.mocked(mockServices.exportActivities).mockResolvedValueOnce(4);
         vi.mocked(mockServices.analyzeMediaCsvFromPick).mockResolvedValueOnce([

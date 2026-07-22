@@ -14,9 +14,24 @@ import type {
     ActivityLog,
     ActivitySummary,
     DailyHeatmap,
+    DashboardHeatmapYearRequest,
+    DashboardHeatmapYearResponse,
+    DashboardRangeRequest,
+    DashboardRangeResponse,
+    DashboardRecentLogsRequest,
+    DashboardRecentPage,
+    DashboardSnapshot,
+    DashboardSnapshotRequest,
+    LibrarySnapshot,
+    LibrarySnapshotRequest,
     TimelineEvent,
+    TimelinePage,
+    TimelinePageRequest,
     MediaCsvRow,
     MediaConflict,
+    ActivityCsvAnalysis,
+    ActivityCsvImportRequest,
+    ActivityCsvImportResult,
     Milestone,
     ProfilePicture,
     LocalHttpApiConfig,
@@ -32,6 +47,7 @@ import type {
 } from '../types';
 import { getBuildVersion } from '../app_version';
 import { getMockExternalJsonResponse } from './external_mocks';
+import { measureDashboardTransport, measureTransport } from '../performance';
 
 export class DesktopServices implements AppServices {
     private win: ReturnType<typeof getCurrentWindow> | null = null;
@@ -75,8 +91,32 @@ export class DesktopServices implements AppServices {
     deleteLog(id: number):                  Promise<void>            { return invoke('delete_log', { id }); }
     getLogs():                              Promise<ActivitySummary[]>{ return invoke('get_logs'); }
     getHeatmap():                           Promise<DailyHeatmap[]>  { return invoke('get_heatmap'); }
+    getDashboardSnapshot(request: DashboardSnapshotRequest): Promise<DashboardSnapshot> {
+        return measureDashboardTransport('ipc', 'dashboard_snapshot', () =>
+            invoke('get_dashboard_snapshot', { request }));
+    }
+    getDashboardRange(request: DashboardRangeRequest): Promise<DashboardRangeResponse> {
+        return measureDashboardTransport('ipc', 'dashboard_range', () =>
+            invoke('get_dashboard_range', { request }));
+    }
+    getDashboardHeatmapYear(request: DashboardHeatmapYearRequest): Promise<DashboardHeatmapYearResponse> {
+        return measureDashboardTransport('ipc', 'dashboard_heatmap_year', () =>
+            invoke('get_dashboard_heatmap_year', { request }));
+    }
+    getDashboardRecentLogs(request: DashboardRecentLogsRequest): Promise<DashboardRecentPage> {
+        return measureDashboardTransport('ipc', 'dashboard_recent_logs', () =>
+            invoke('get_dashboard_recent_logs', { request }));
+    }
+    getLibrarySnapshot(request: LibrarySnapshotRequest): Promise<LibrarySnapshot> {
+        return measureTransport('ipc', 'library_snapshot', () =>
+            invoke('get_library_snapshot', { request }));
+    }
     getLogsForMedia(mediaId: number):       Promise<ActivitySummary[]>{ return invoke('get_logs_for_media', { mediaId }); }
     getTimelineEvents():                    Promise<TimelineEvent[]> { return invoke('get_timeline_events'); }
+    getTimelinePage(request: TimelinePageRequest): Promise<TimelinePage> {
+        return measureTransport('ipc', 'timeline_page', () =>
+            invoke('get_timeline_page', { request }));
+    }
 
     initializeUserDb(fallbackUsername?: string):Promise<void>            { return invoke('initialize_user_db', { fallbackUsername }); }
     clearActivities():                       Promise<void>            { return invoke('clear_activities'); }
@@ -126,10 +166,14 @@ export class DesktopServices implements AppServices {
     }
 
     // ── File-based operations ─────────────────────────────────────────────────
-    async pickAndImportActivities(): Promise<number | null> {
+    async analyzeActivitiesCsvFromPick(): Promise<ActivityCsvAnalysis | null> {
         const selected = this.getMockOpenPath() ?? await tauriOpen({ multiple: false, filters: [{ name: 'CSV', extensions: ['csv'] }] });
         if (!selected || typeof selected !== 'string') return null;
-        return invoke('import_csv', { filePath: selected });
+        return invoke('analyze_activity_csv', { filePath: selected });
+    }
+
+    applyActivityImport(request: ActivityCsvImportRequest): Promise<ActivityCsvImportResult> {
+        return invoke('apply_activity_import', { request });
     }
 
     async exportActivities(startDate?: string, endDate?: string): Promise<number | null> {
