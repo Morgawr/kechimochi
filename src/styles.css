@@ -1502,6 +1502,57 @@ input:focus, select:focus {
   text-shadow: 0 0 4px var(--accent-red);
 }
 
+.media-boolean-tag-list {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.media-boolean-tag {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-height: 2rem;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent-green) 42%, var(--border-color) 58%);
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--bg-card) 84%, var(--accent-green) 16%);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.media-boolean-tag-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  margin: 0;
+  padding: 0.38rem 0.35rem 0.38rem 0.8rem;
+  border-radius: inherit;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.media-boolean-tag-delete {
+  align-self: stretch;
+  border: 0;
+  background: transparent;
+  color: var(--accent-red);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  opacity: 0.5;
+  padding: 0.2rem 0.65rem 0.2rem 0.25rem;
+}
+
+.media-boolean-tag .edit-input {
+  width: 9rem !important;
+  margin: 0.2rem 0 0.2rem 0.35rem;
+}
+
 
 .dashboard-media-link:hover {
     filter: brightness(1.2);

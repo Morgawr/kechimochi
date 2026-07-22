@@ -625,7 +625,20 @@ export class MediaDetail extends Component<MediaDetailState> {
             return 0;
         });
 
-        return sortedEntries.map(([k, v]) => {
+        const valuedFields: string[] = [];
+        const booleanTags: string[] = [];
+
+        sortedEntries.forEach(([k, v]) => {
+            if (v === '') {
+                booleanTags.push(`
+                    <div class="media-boolean-tag" data-ekey="${k}">
+                        <span class="editable-extra media-boolean-tag-label" data-key="${k}" data-extra-value="" title="Double click to add a value">${k}</span>
+                        <button type="button" class="delete-extra-btn media-boolean-tag-delete" data-key="${k}" title="Delete field" aria-label="Delete ${k}">&times;</button>
+                    </div>
+                `);
+                return;
+            }
+
             const isSourceUrl = k.toLowerCase().includes('source') && typeof v === 'string' && v.startsWith('http') && isValidImporterUrl(v, media.content_type || "Unknown");
             let refreshBtn = '';
             if (isSourceUrl) {
@@ -634,15 +647,21 @@ export class MediaDetail extends Component<MediaDetailState> {
                 </div>`;
             }
 
-            return `
+            valuedFields.push(`
                 <div class="card" style="padding: 0.5rem 1rem; position: relative;" data-ekey="${k}">
                     <div class="editable-extra-key" data-key="${k}" title="Double click to rename field" style="font-size: 0.7rem; color: var(--text-secondary); text-transform: uppercase; cursor: pointer;">${k}</div>
-                    <div class="editable-extra" data-key="${k}" title="Double click to edit" style="cursor: pointer; font-weight: 500;">${v || '-'}</div>
+                    <div class="editable-extra" data-key="${k}" title="Double click to edit" style="cursor: pointer; font-weight: 500;">${v}</div>
                     <div class="delete-extra-btn" data-key="${k}" title="Delete field" style="position: absolute; top: 0.5rem; right: 0.5rem; cursor: pointer; color: var(--accent-red); font-size: 0.8rem; font-weight: bold; opacity: 0.6;">&times;</div>
                     ${refreshBtn}
                 </div>
-            `;
-        }).join('');
+            `);
+        });
+
+        const booleanTagList = booleanTags.length > 0
+            ? `<div class="media-boolean-tag-list">${booleanTags.join('')}</div>`
+            : '';
+
+        return valuedFields.join('') + booleanTagList;
     }
 
     private async computeReadingSpeedHtml(media: Media, readingMin: number): Promise<string> {
@@ -803,7 +822,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                 if (options.isRenameKey) {
                     currentVal = field;
                 } else if (options.isExtra) {
-                    currentVal = el.textContent === '-' ? '' : el.textContent;
+                    currentVal = el.dataset.extraValue ?? (el.textContent === '-' ? '' : el.textContent);
                 } else {
                     currentVal = (this.state.media[field as keyof Media] as string) || '';
                 }

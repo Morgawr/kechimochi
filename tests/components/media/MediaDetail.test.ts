@@ -370,6 +370,37 @@ describe('MediaDetail', () => {
         expect(input.style.textTransform).toBe('none');
     });
 
+    it('should render empty extra fields as boolean tags and let them gain a value', async () => {
+        vi.mocked(api.getMilestones).mockResolvedValue([]);
+        vi.mocked(api.updateMedia).mockResolvedValue(undefined);
+        const media = {
+            ...mockMedia,
+            extra_data: '{"Favorite":"","Author":"Writer"}'
+        } as unknown as Media;
+        const component = new MediaDetail(container, media, [], [media], 0, mockCallbacks);
+        component.render();
+
+        const booleanTag = container.querySelector('.media-boolean-tag[data-ekey="Favorite"]') as HTMLElement;
+        const booleanLabel = booleanTag.querySelector('.editable-extra') as HTMLElement;
+        expect(booleanLabel.textContent).toBe('Favorite');
+        expect(booleanLabel.dataset.extraValue).toBe('');
+        expect(booleanTag.querySelector('.editable-extra-key')).toBeNull();
+        expect(container.querySelector('.card[data-ekey="Favorite"]')).toBeNull();
+        expect(container.querySelector('.card[data-ekey="Author"] .editable-extra')?.textContent).toBe('Writer');
+
+        booleanLabel.dispatchEvent(new Event('dblclick'));
+        const input = booleanTag.querySelector('.edit-input') as HTMLInputElement;
+        expect(input.value).toBe('');
+        input.value = 'Yes';
+        input.dispatchEvent(new Event('blur'));
+
+        await vi.waitFor(() => expect(api.updateMedia).toHaveBeenCalledWith(
+            expect.objectContaining({ extra_data: '{"Favorite":"Yes","Author":"Writer"}' })
+        ));
+        expect(container.querySelector('.media-boolean-tag[data-ekey="Favorite"]')).toBeNull();
+        expect(container.querySelector('.card[data-ekey="Favorite"] .editable-extra')?.textContent).toBe('Yes');
+    });
+
     it('should compute reading speed with case-insensitive character count keys', async () => {
         vi.mocked(api.getMilestones).mockResolvedValue([]);
         const completedMedia = {
