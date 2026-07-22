@@ -307,13 +307,16 @@ export function applyLibrarySort(mediaList: Media[], options: LibrarySortOptions
                 resolvedStage.direction,
             );
             if (stageComparison !== 0) return stageComparison;
+        }
 
+        for (let stageIndex = 0; stageIndex < resolvedStages.length; stageIndex += 1) {
+            const resolvedStage = resolvedStages[stageIndex];
             const aTiebreak = a.stageTiebreakValues[stageIndex];
             const bTiebreak = b.stageTiebreakValues[stageIndex];
-            if (aTiebreak !== null && bTiebreak !== null) {
-                const tiebreakComparison = compareTiebreakValues(aTiebreak, bTiebreak, resolvedStage.direction);
-                if (tiebreakComparison !== 0) return tiebreakComparison;
-            }
+            if (aTiebreak === null || bTiebreak === null) continue;
+
+            const tiebreakComparison = compareTiebreakValues(aTiebreak, bTiebreak, resolvedStage.direction);
+            if (tiebreakComparison !== 0) return tiebreakComparison;
         }
 
         return 0;

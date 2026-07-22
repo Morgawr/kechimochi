@@ -513,4 +513,36 @@ describe('applyLibrarySort - variant tiebreak', () => {
 
         expect(sorted.map(media => media.id)).toEqual([1, 2]);
     });
+
+    it('should let a later stage outrank the variant tiebreak', () => {
+        const mediaList = [
+            makeMedia({ id: 1, title: 'Higurashi', variant: '', content_type: 'Visual Novel' }),
+            makeMedia({ id: 2, title: 'Higurashi', variant: 'Manga', content_type: 'Manga' }),
+        ];
+
+        const sorted = applyLibrarySort(mediaList, baseSortOptions({
+            stages: [
+                { field: { kind: 'builtin', key: 'title' }, direction: 'ascending' },
+                { field: { kind: 'builtin', key: 'contentType' }, direction: 'ascending' },
+            ],
+        }));
+
+        expect(sorted.map(media => media.id)).toEqual([2, 1]);
+    });
+
+    it('should fall back to the variant tiebreak when every stage ties', () => {
+        const mediaList = [
+            makeMedia({ id: 1, title: 'Higurashi', variant: 'Manga', content_type: 'Manga' }),
+            makeMedia({ id: 2, title: 'Higurashi', variant: '', content_type: 'Manga' }),
+        ];
+
+        const sorted = applyLibrarySort(mediaList, baseSortOptions({
+            stages: [
+                { field: { kind: 'builtin', key: 'title' }, direction: 'ascending' },
+                { field: { kind: 'builtin', key: 'contentType' }, direction: 'ascending' },
+            ],
+        }));
+
+        expect(sorted.map(media => media.id)).toEqual([2, 1]);
+    });
 });
