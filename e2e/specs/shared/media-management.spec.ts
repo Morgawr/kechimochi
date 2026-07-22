@@ -80,6 +80,27 @@ describe('Media Management CUJs', () => {
       expect(await getExtraField(fieldKey)).toBe(updatedValue);
     });
 
+    it('should render an empty extra field as a boolean tag and let it gain a value', async () => {
+      const fieldKey = 'Wishlist';
+      await addExtraField(fieldKey, '');
+
+      const booleanTag = $(`.media-boolean-tag[data-ekey="${fieldKey}"]`);
+      await booleanTag.waitForDisplayed({ timeout: 5000 });
+      expect(await booleanTag.$('.editable-extra').getText()).toBe(fieldKey);
+      expect(await booleanTag.$('.editable-extra').getAttribute('data-extra-value')).toBe('');
+
+      await editExtraField(fieldKey, 'Yes');
+
+      await browser.waitUntil(async () => {
+        return (await getExtraField(fieldKey)) === 'Yes';
+      }, {
+        timeout: 5000,
+        timeoutMsg: `Expected boolean tag "${fieldKey}" to become a valued extra field`
+      });
+      expect(await $(`.media-boolean-tag[data-ekey="${fieldKey}"]`).isExisting()).toBe(false);
+      expect(await getExtraField(fieldKey)).toBe('Yes');
+    });
+
     it('should expand and collapse a long description with see more and see less', async () => {
       const longDescription = 'Cyberpunk 2077 is a futuristic RPG about mercs, megacorps, chrome, and messy choices. '.repeat(12);
 

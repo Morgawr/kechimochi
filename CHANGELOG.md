@@ -11,6 +11,7 @@ The format is based on Keep a Changelog, with one section per released version.
  - Media, activity, and milestone CSV exports now include optional variant tag.
  - You can now zoom in/out in the library grid view.
  - Media entries can now share the same title as long as they have different variant tags (including empty variant)
+ - You can now add "boolean" tags to media items. They work like any other tag but only have a key with an empty value and they look different in the UI.
 
 ### Changed
  - When browsing media entries, left and right buttons now cycle through entries according to any previously-applied media filters
