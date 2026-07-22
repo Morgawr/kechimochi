@@ -20,7 +20,6 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ### Changed
  - When browsing media entries, left and right buttons now cycle through entries according to any previously-applied media filters
- - Opening the library is faster on large collections: activity totals are now summarised by the database instead of loading every activity log into the app.
  - Reworked the "Monthly" view to show daily amounts instead of weeks, because weeks were inconsistent and not accurate.
  - Renamed "Weekly", "Monthly", and "Yearly" options to "Week", "Month", and "Year"
  - Renamed the media-level "Media Type" field to "Default Activity Type" across the database, API, and CSV exports, while retaining compatibility with legacy imports and API clients.
