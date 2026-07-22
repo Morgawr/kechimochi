@@ -94,15 +94,18 @@ describe('Media Grid CUJ', () => {
     // Grid items carry a `.status-led`, list items a `.badge-status`; both
     // encode the tracking status in a `status-<state>` class.
     const statusSelector = `${itemSelector} .status-led, ${itemSelector} .badge-status`;
+
+    let statusClassName = '';
     await browser.waitUntil(async () => {
-      return (await $$(statusSelector).length) > 0;
-    }, { timeout: 10000, timeoutMsg: 'Status indicators did not render in time' });
+      const [firstStatus] = await $$(statusSelector);
+      if (!firstStatus || !(await firstStatus.isDisplayed().catch(() => false))) {
+        return false;
+      }
+      statusClassName = (await firstStatus.getAttribute('class').catch(() => null)) ?? '';
+      return statusClassName.includes('status-');
+    }, { timeout: 10000, timeoutMsg: 'A displayed status indicator did not render in time' });
 
-    const firstStatus = $$(statusSelector)[0];
-    expect(await firstStatus.isDisplayed()).toBe(true);
-
-    const className = await firstStatus.getAttribute('class');
-    expect(className).toContain('status-');
+    expect(statusClassName).toContain('status-');
   });
 
   it('should have a working search bar', async () => {
