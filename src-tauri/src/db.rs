@@ -2309,9 +2309,44 @@ mod tests {
     use super::*;
     use crate::models::TimelineEventKind;
     use rusqlite::Connection;
-    use std::sync::Mutex;
+    use std::ffi::OsString;
+    use std::sync::{Mutex, MutexGuard};
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn lock_test_environment() -> MutexGuard<'static, ()> {
+        ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    struct ScopedEnvironment {
+        originals: Vec<(&'static str, Option<OsString>)>,
+    }
+
+    impl ScopedEnvironment {
+        fn capture(names: &[&'static str]) -> Self {
+            Self {
+                originals: names
+                    .iter()
+                    .map(|name| (*name, std::env::var_os(name)))
+                    .collect(),
+            }
+        }
+    }
+
+    impl Drop for ScopedEnvironment {
+        fn drop(&mut self) {
+            for (name, value) in &self.originals {
+                unsafe {
+                    match value {
+                        Some(value) => std::env::set_var(name, value),
+                        None => std::env::remove_var(name),
+                    }
+                }
+            }
+        }
+    }
 
     fn setup_test_db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
@@ -2380,9 +2415,8 @@ mod tests {
 
     #[test]
     fn test_get_data_dir_prefers_env_var() {
-        let _guard = ENV_LOCK.lock().unwrap();
-
-        let original = std::env::var("KECHIMOCHI_DATA_DIR").ok();
+        let _guard = lock_test_environment();
+        let _environment = ScopedEnvironment::capture(&["KECHIMOCHI_DATA_DIR"]);
         let custom =
             std::env::temp_dir().join(format!("kechimochi_data_dir_env_{}", std::process::id()));
 
@@ -2392,15 +2426,6 @@ mod tests {
 
         let resolved = get_data_dir(&STANDALONE_DATA_DIR_PROVIDER);
         assert_eq!(resolved, custom);
-
-        match original {
-            Some(value) => unsafe {
-                std::env::set_var("KECHIMOCHI_DATA_DIR", value);
-            },
-            None => unsafe {
-                std::env::remove_var("KECHIMOCHI_DATA_DIR");
-            },
-        }
     }
 
     #[test]
@@ -2422,11 +2447,12 @@ mod tests {
     #[test]
     #[cfg(target_os = "windows")]
     fn test_get_data_dir_windows_default_from_appdata() {
-        let _guard = ENV_LOCK.lock().unwrap();
-
-        let original_data_dir = std::env::var("KECHIMOCHI_DATA_DIR").ok();
-        let original_app_identifier = std::env::var("KECHIMOCHI_APP_IDENTIFIER").ok();
-        let original_appdata = std::env::var("APPDATA").ok();
+        let _guard = lock_test_environment();
+        let _environment = ScopedEnvironment::capture(&[
+            "KECHIMOCHI_DATA_DIR",
+            "KECHIMOCHI_APP_IDENTIFIER",
+            "APPDATA",
+        ]);
         let fake_appdata =
             std::env::temp_dir().join(format!("kechimochi_appdata_{}", std::process::id()));
 
@@ -2438,43 +2464,17 @@ mod tests {
 
         let resolved = get_data_dir(&STANDALONE_DATA_DIR_PROVIDER);
         assert_eq!(resolved, fake_appdata.join("com.morg.kechimochi"));
-
-        match original_data_dir {
-            Some(value) => unsafe {
-                std::env::set_var("KECHIMOCHI_DATA_DIR", value);
-            },
-            None => unsafe {
-                std::env::remove_var("KECHIMOCHI_DATA_DIR");
-            },
-        }
-
-        match original_app_identifier {
-            Some(value) => unsafe {
-                std::env::set_var("KECHIMOCHI_APP_IDENTIFIER", value);
-            },
-            None => unsafe {
-                std::env::remove_var("KECHIMOCHI_APP_IDENTIFIER");
-            },
-        }
-
-        match original_appdata {
-            Some(value) => unsafe {
-                std::env::set_var("APPDATA", value);
-            },
-            None => unsafe {
-                std::env::remove_var("APPDATA");
-            },
-        }
     }
 
     #[test]
     #[cfg(target_os = "linux")]
     fn test_get_data_dir_linux_default_honors_xdg_data_home() {
-        let _guard = ENV_LOCK.lock().unwrap();
-
-        let original_data_dir = std::env::var("KECHIMOCHI_DATA_DIR").ok();
-        let original_app_identifier = std::env::var("KECHIMOCHI_APP_IDENTIFIER").ok();
-        let original_xdg_data_home = std::env::var("XDG_DATA_HOME").ok();
+        let _guard = lock_test_environment();
+        let _environment = ScopedEnvironment::capture(&[
+            "KECHIMOCHI_DATA_DIR",
+            "KECHIMOCHI_APP_IDENTIFIER",
+            "XDG_DATA_HOME",
+        ]);
         let fake_xdg_data_home =
             std::env::temp_dir().join(format!("kechimochi_xdg_data_{}", std::process::id()));
 
@@ -2489,19 +2489,6 @@ mod tests {
             resolved,
             fake_xdg_data_home.join("com.example.kechimochi-test")
         );
-
-        match original_data_dir {
-            Some(value) => unsafe { std::env::set_var("KECHIMOCHI_DATA_DIR", value) },
-            None => unsafe { std::env::remove_var("KECHIMOCHI_DATA_DIR") },
-        }
-        match original_app_identifier {
-            Some(value) => unsafe { std::env::set_var("KECHIMOCHI_APP_IDENTIFIER", value) },
-            None => unsafe { std::env::remove_var("KECHIMOCHI_APP_IDENTIFIER") },
-        }
-        match original_xdg_data_home {
-            Some(value) => unsafe { std::env::set_var("XDG_DATA_HOME", value) },
-            None => unsafe { std::env::remove_var("XDG_DATA_HOME") },
-        }
     }
 
     #[test]
@@ -4095,16 +4082,14 @@ mod tests {
 
     #[test]
     fn test_get_data_dir_override() {
+        let _guard = lock_test_environment();
+        let _environment = ScopedEnvironment::capture(&["KECHIMOCHI_DATA_DIR"]);
         let temp_dir = "/tmp/kechimochi_test_dir";
-        std::env::set_var("KECHIMOCHI_DATA_DIR", temp_dir);
+        unsafe {
+            std::env::set_var("KECHIMOCHI_DATA_DIR", temp_dir);
+        }
 
-        // We need a dummy AppHandle to call it, but we can't easily.
-        // However, we can verify the env var logic directly.
-        let dir = if let Ok(d) = std::env::var("KECHIMOCHI_DATA_DIR") {
-            PathBuf::from(d)
-        } else {
-            PathBuf::from("fail")
-        };
+        let dir = get_data_dir(&STANDALONE_DATA_DIR_PROVIDER);
         assert_eq!(dir, PathBuf::from(temp_dir));
     }
 
