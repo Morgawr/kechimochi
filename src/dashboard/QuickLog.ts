@@ -33,6 +33,7 @@ export class QuickLog extends Component<QuickLogState> {
         this.clear();
 
         const items = this.getSortedMedia();
+        this.discardEvictedCoverUrls(items);
         const content = html`
             <div class="card quick-log-card" style="display: flex; flex-direction: column; gap: 0.9rem; min-height: 0;">
                 <h3 class="dashboard-module-title">Quick Log</h3>
@@ -67,6 +68,25 @@ export class QuickLog extends Component<QuickLogState> {
         this.ensureCoverUrls(items).catch(error => {
             Logger.error('Failed to prepare Quick Log cover images', error);
         });
+    }
+
+    /**
+     * Desktop covers are object URLs owned by the bounded shared cache. The
+     * dashboard remains mounted while another view is active, so a library
+     * render can evict and revoke a URL that Quick Log still has in its local
+     * state. Drop those stale references before rendering so ensureCoverUrls
+     * can acquire a fresh URL instead of leaving a broken image behind.
+     */
+    private discardEvictedCoverUrls(items: Array<Media | DashboardMedia>): void {
+        for (const media of items) {
+            if (!media.id || !media.cover_image) continue;
+            const coverUrl = this.state.coverUrls[media.id];
+            if (!coverUrl?.startsWith('blob:')) continue;
+            if (MediaCoverLoader.getCached(media.cover_image) === coverUrl) continue;
+
+            delete this.state.coverUrls[media.id];
+            this.attemptedCoverIds.delete(media.id);
+        }
     }
 
     private getSortedMedia(): Array<Media | DashboardMedia> {
