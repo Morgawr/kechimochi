@@ -223,13 +223,21 @@ export async function addMedia(title: string, type: string, contentType?: string
  */
 export async function setSearchQuery(query: string): Promise<void> {
     await setText('#grid-search-filter', query);
+    await browser.waitUntil(async () => {
+        const content = $('#media-library-content');
+        return (await content.getAttribute('aria-busy').catch(() => 'true')) !== 'true';
+    }, {
+        timeout: 5000,
+        interval: 50,
+        timeoutMsg: 'Library search did not finish rendering in time',
+    });
 }
 
 async function waitForLibraryRefresh(): Promise<void> {
-    await browser.execute(() => new Promise<void>((resolve) => {
-        const settle = () => resolve();
-        requestAnimationFrame(() => requestAnimationFrame(settle));
-    }));
+    // Native WebKit may throttle requestAnimationFrame when an interaction is
+    // a deliberate no-op, so an rAF-based wait can block forever. Chip renders
+    // are synchronous; this short driver-side pause only yields to WebDriver.
+    await browser.pause(50);
 }
 
 async function waitForFilterPanelState(expanded: boolean): Promise<void> {

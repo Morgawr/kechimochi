@@ -130,7 +130,7 @@ describe('main.ts initialization', () => {
     const bootApp = async () => {
         const { App } = await import('../src/main');
         await App.start();
-        await vi.waitFor(() => expect(api.initializeUserDb).toHaveBeenCalled());
+        await vi.waitFor(() => expect(api.getDashboardSnapshot).toHaveBeenCalled());
     };
 
     const clickView = async (view: 'dashboard' | 'media' | 'timeline' | 'profile') => {
@@ -155,6 +155,8 @@ describe('main.ts initialization', () => {
     it('should initialize the App', async () => {
         await bootApp();
         expect(localStorage.getItem).toHaveBeenCalled();
+        expect(api.initializeUserDb).not.toHaveBeenCalled();
+        expect(api.getSyncStatus).toHaveBeenCalledTimes(1);
     });
 
     it('continues startup when reading startup error state fails', async () => {
@@ -166,7 +168,7 @@ describe('main.ts initialization', () => {
             '[kechimochi] Failed to read startup error state, continuing normal startup.',
             expect.any(Error),
         );
-        expect(api.initializeUserDb).toHaveBeenCalled();
+        expect(api.initializeUserDb).not.toHaveBeenCalled();
     });
 
     it('logs and continues when update manager initialization fails', async () => {
@@ -220,7 +222,7 @@ describe('main.ts initialization', () => {
     it('should not fetch inactive view data during startup', async () => {
         await bootApp();
 
-        expect(api.getTimelineEvents).not.toHaveBeenCalled();
+        expect(api.getTimelinePage).not.toHaveBeenCalled();
         expect(api.getLogsForMedia).not.toHaveBeenCalled();
 
         const requestedSettings = vi.mocked(api.getSetting).mock.calls.map(([key]) => key);
@@ -306,7 +308,7 @@ describe('main.ts initialization', () => {
         };
 
         await App.start(manager as never);
-        await vi.waitFor(() => expect(api.initializeUserDb).toHaveBeenCalled());
+        await vi.waitFor(() => expect(api.getDashboardSnapshot).toHaveBeenCalled());
         expect(api.getSyncStatus).not.toHaveBeenCalled();
     });
 
@@ -364,16 +366,16 @@ describe('main.ts initialization', () => {
         await bootApp();
 
         await clickView('media');
-        const mediaCalls = vi.mocked(api.getAllMedia).mock.calls.length;
+        const mediaCalls = vi.mocked(api.getLibrarySnapshot).mock.calls.length;
         (document.getElementById('nav-sync-status-btn') as HTMLButtonElement).click();
         await vi.waitFor(() => expect(api.runSync).toHaveBeenCalledTimes(1));
-        await vi.waitFor(() => expect(vi.mocked(api.getAllMedia).mock.calls.length).toBeGreaterThan(mediaCalls));
+        await vi.waitFor(() => expect(vi.mocked(api.getLibrarySnapshot).mock.calls.length).toBeGreaterThan(mediaCalls));
 
         await clickView('timeline');
-        const timelineCalls = vi.mocked(api.getTimelineEvents).mock.calls.length;
+        const timelineCalls = vi.mocked(api.getTimelinePage).mock.calls.length;
         (document.getElementById('nav-sync-status-btn') as HTMLButtonElement).click();
         await vi.waitFor(() => expect(api.runSync).toHaveBeenCalledTimes(2));
-        await vi.waitFor(() => expect(vi.mocked(api.getTimelineEvents).mock.calls.length).toBeGreaterThan(timelineCalls));
+        await vi.waitFor(() => expect(vi.mocked(api.getTimelinePage).mock.calls.length).toBeGreaterThan(timelineCalls));
 
         await clickView('profile');
         const settingsCalls = vi.mocked(api.getSetting).mock.calls.length;
@@ -384,7 +386,6 @@ describe('main.ts initialization', () => {
 
     it('refreshes sync chrome when the shell sync action cannot read status', async () => {
         vi.mocked(api.getSyncStatus)
-            .mockResolvedValueOnce(createSyncStatusMock())
             .mockResolvedValueOnce(createSyncStatusMock())
             .mockRejectedValueOnce(new Error('sync status failed'))
             .mockRejectedValueOnce(new Error('sync status failed'));
@@ -414,15 +415,38 @@ describe('main.ts initialization', () => {
         expect(dashboardLink?.classList.contains('active')).toBe(true);
     });
 
-    it('should handle app-navigate event', async () => {
+    it('does not reread sync status during routine view navigation', async () => {
         await bootApp();
+        expect(api.getSyncStatus).toHaveBeenCalledTimes(1);
 
-        globalThis.dispatchEvent(new CustomEvent('app-navigate', { 
+        await clickView('media');
+        await vi.waitFor(() => expect(api.getLibrarySnapshot).toHaveBeenCalled());
+        await clickView('timeline');
+        await vi.waitFor(() => expect(api.getTimelinePage).toHaveBeenCalled());
+        await clickView('dashboard');
+
+        expect(api.getSyncStatus).toHaveBeenCalledTimes(1);
+    });
+
+    it('should handle app-navigate event', async () => {
+        const addEventListenerSpy = vi.spyOn(globalThis, 'addEventListener');
+        await bootApp();
+        const appNavigateListener = addEventListenerSpy.mock.calls.find(
+            ([eventName]) => eventName === EVENTS.APP_NAVIGATE,
+        )?.[1] as EventListener | undefined;
+        addEventListenerSpy.mockRestore();
+
+        const snapshotsBeforeNavigation = vi.mocked(api.getLibrarySnapshot).mock.calls.length;
+
+        appNavigateListener?.(new CustomEvent('app-navigate', {
             detail: { view: 'media', focusMediaId: 123 } 
         }));
         
         const mediaLink = document.querySelector('[data-view="media"]');
         await vi.waitFor(() => expect(mediaLink?.classList.contains('active')).toBe(true));
+        await vi.waitFor(() => expect(vi.mocked(api.getLibrarySnapshot).mock.calls).toHaveLength(
+            snapshotsBeforeNavigation + 1,
+        ));
     });
 
     it('should initialize a new local profile from the first-run setup modal', async () => {
@@ -467,10 +491,7 @@ describe('main.ts initialization', () => {
 
         await bootApp();
 
-        expect(Logger.info).toHaveBeenCalledWith(
-            '[kechimochi] DB uninitialized (no settings table found), proceeding with fallback.',
-            expect.any(Error),
-        );
+        expect(Logger.info).not.toHaveBeenCalled();
         expect(api.initializeUserDb).toHaveBeenCalledWith('fresh-user');
     });
 
@@ -623,17 +644,17 @@ describe('main.ts initialization', () => {
     it('should refresh timeline data after logging activity from the timeline view', async () => {
         await bootApp();
 
-        expect(api.getTimelineEvents).not.toHaveBeenCalled();
+        expect(api.getTimelinePage).not.toHaveBeenCalled();
 
         await clickView('timeline');
-        await vi.waitFor(() => expect(api.getTimelineEvents).toHaveBeenCalled());
-        const callsAfterNavigation = vi.mocked(api.getTimelineEvents).mock.calls.length;
+        await vi.waitFor(() => expect(api.getTimelinePage).toHaveBeenCalled());
+        const callsAfterNavigation = vi.mocked(api.getTimelinePage).mock.calls.length;
 
         vi.mocked(modals.showLogActivityModal).mockResolvedValue(true);
         document.getElementById('btn-add-activity')?.dispatchEvent(new Event('click'));
 
         await vi.waitFor(() =>
-            expect(vi.mocked(api.getTimelineEvents).mock.calls.length).toBeGreaterThan(callsAfterNavigation),
+            expect(vi.mocked(api.getTimelinePage).mock.calls.length).toBeGreaterThan(callsAfterNavigation),
         );
     });
 

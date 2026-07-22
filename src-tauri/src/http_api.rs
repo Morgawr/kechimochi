@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use axum::{
     body::Body,
     extract::{rejection::JsonRejection, Multipart, Path, Query, State},
-    http::{header, HeaderValue, Method, Request, StatusCode},
+    http::{header, HeaderMap, HeaderValue, Method, Request, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{any, get, post, put},
@@ -14,6 +14,7 @@ use axum::{
 };
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tower_http::cors::{Any, CorsLayer};
 
 use crate::{backup, csv_import, db, get_username_logic, models, profile_picture, sync_state};
@@ -117,6 +118,18 @@ fn map_milestone_write_error(error: rusqlite::Error) -> AppError {
     }
 }
 
+fn map_activity_write_error(error: rusqlite::Error) -> AppError {
+    let message = error.to_string();
+    if message.contains("Activity duration cannot be negative")
+        || message.contains("Activity character count cannot be negative")
+        || message.contains("Activity must have either duration or characters")
+    {
+        AppError::BadRequest(message)
+    } else {
+        AppError::Internal(message)
+    }
+}
+
 fn map_csv_import_error(error: String) -> AppError {
     if csv_import::is_client_input_error_message(&error) {
         AppError::BadRequest(error)
@@ -162,10 +175,6 @@ pub fn build_api_router(state: SharedApiState, config: HttpApiRouterConfig) -> R
             put(update_media).delete(delete_media_handler),
         )
         .route("/api/logs/heatmap", get(get_heatmap))
-        .route(
-            "/api/logs/library-metrics",
-            get(get_library_activity_metrics),
-        )
         .route("/api/logs/media/:id", get(get_logs_for_media))
         .route("/api/logs", get(get_logs).post(add_log))
         .route(
@@ -193,6 +202,14 @@ pub fn build_api_router(state: SharedApiState, config: HttpApiRouterConfig) -> R
             .route("/api/activities/clear", post(clear_activities))
             .route("/api/reset", post(wipe_everything_handler))
             .route("/api/import/activities", post(import_activities))
+            .route(
+                "/api/import/activities/analyze",
+                post(analyze_activity_csv_upload),
+            )
+            .route(
+                "/api/import/activities/apply",
+                post(apply_activity_import_handler),
+            )
             .route("/api/export/activities", get(export_activities))
             .route("/api/import/media/analyze", post(analyze_media_csv_upload))
             .route("/api/import/media/apply", post(apply_media_import_handler))
@@ -397,7 +414,7 @@ async fn add_log(
     Json(log): Json<models::ActivityLog>,
 ) -> HandlerResult<Json<i64>> {
     let conn = s.conn.lock().ae()?;
-    let id = db::add_log(&conn, &log).ae()?;
+    let id = db::add_log(&conn, &log).map_err(map_activity_write_error)?;
     mark_dirty(&s)?;
     Ok(Json(id))
 }
@@ -409,7 +426,7 @@ async fn update_log_handler(
 ) -> HandlerResult<Json<()>> {
     log.id = Some(id);
     let conn = s.conn.lock().ae()?;
-    db::update_log(&conn, &log).ae()?;
+    db::update_log(&conn, &log).map_err(map_activity_write_error)?;
     mark_dirty(&s)?;
     Ok(Json(()))
 }
@@ -429,13 +446,6 @@ async fn get_heatmap(
 ) -> HandlerResult<Json<Vec<models::DailyHeatmap>>> {
     let conn = s.conn.lock().ae()?;
     db::get_heatmap(&conn).ae().map(Json)
-}
-
-async fn get_library_activity_metrics(
-    State(s): State<SharedApiState>,
-) -> HandlerResult<Json<Vec<models::LibraryActivityMetricsRow>>> {
-    let conn = s.conn.lock().ae()?;
-    db::get_library_activity_metrics(&conn).ae().map(Json)
 }
 
 async fn get_logs_for_media(
@@ -623,6 +633,36 @@ async fn import_activities(
     };
     mark_dirty(&s)?;
     Ok(Json(serde_json::json!({ "count": count })))
+}
+
+async fn analyze_activity_csv_upload(
+    State(s): State<SharedApiState>,
+    mut multipart: Multipart,
+) -> HandlerResult<Json<csv_import::ActivityCsvAnalysis>> {
+    let tmp = field_to_tempfile(&mut multipart).await?;
+    let path = tmp
+        .path()
+        .to_str()
+        .ok_or_else(|| AppError::Internal("Invalid temp path".into()))?
+        .to_owned();
+    let conn = s.conn.lock().ae()?;
+    csv_import::analyze_activity_csv(&conn, &path)
+        .map_err(map_csv_import_error)
+        .map(Json)
+}
+
+async fn apply_activity_import_handler(
+    State(s): State<SharedApiState>,
+    payload: Result<Json<csv_import::ActivityCsvImportRequest>, JsonRejection>,
+) -> HandlerResult<Json<csv_import::ActivityCsvImportResult>> {
+    let Json(request) = payload.map_err(|error| AppError::BadRequest(error.body_text()))?;
+    // Write the external sync intent first. If this fails, no database rows are
+    // committed and the caller can safely retry the same reviewed import.
+    mark_dirty(&s)?;
+    let mut conn = s.conn.lock().ae()?;
+    csv_import::apply_activity_import(&mut conn, request)
+        .map_err(map_csv_import_error)
+        .map(Json)
 }
 
 #[derive(Deserialize)]
@@ -847,6 +887,7 @@ async fn upload_cover(
 async fn serve_cover(
     State(s): State<SharedApiState>,
     Path(filename): Path<String>,
+    headers: HeaderMap,
 ) -> HandlerResult<Response> {
     let safe_name = std::path::Path::new(&filename)
         .file_name()
@@ -858,6 +899,19 @@ async fn serve_cover(
         return Err(AppError::Internal("Cover not found".into()));
     }
     let bytes = std::fs::read(&file_path).ae()?;
+    let etag = format!("\"{:x}\"", Sha256::digest(&bytes));
+    if headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+        == Some(etag.as_str())
+    {
+        return Response::builder()
+            .status(StatusCode::NOT_MODIFIED)
+            .header(header::ETAG, etag)
+            .header(header::CACHE_CONTROL, "private, no-cache")
+            .body(Body::empty())
+            .ae();
+    }
     let content_type = match file_path
         .extension()
         .and_then(|e| e.to_str())
@@ -870,6 +924,8 @@ async fn serve_cover(
     };
     Response::builder()
         .header(header::CONTENT_TYPE, content_type)
+        .header(header::ETAG, etag)
+        .header(header::CACHE_CONTROL, "private, no-cache")
         .body(Body::from(bytes))
         .ae()
 }
@@ -1189,6 +1245,34 @@ mod tests {
             get_all_media(State(state)).await.unwrap().0[0].title,
             "Original"
         );
+    }
+
+    #[tokio::test]
+    async fn activity_handlers_return_bad_request_for_negative_metrics() {
+        let state = setup_api_state();
+        let media_id = add_media(
+            State(state.clone()),
+            Json(sample_http_media("Validation", "Novel")),
+        )
+        .await
+        .unwrap()
+        .0;
+        let error = add_log(
+            State(state.clone()),
+            Json(models::ActivityLog {
+                id: None,
+                media_id,
+                duration_minutes: -1,
+                characters: 100,
+                date: "2026-07-22".to_string(),
+                activity_type: "Reading".to_string(),
+                notes: String::new(),
+            }),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(error, AppError::BadRequest(_)));
+        assert!(get_logs(State(state)).await.unwrap().0.is_empty());
     }
 
     #[tokio::test]

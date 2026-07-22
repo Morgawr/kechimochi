@@ -63,12 +63,6 @@ const createState = (overrides: Partial<{
     ...overrides,
 });
 
-function triggerTransitionEnd(target: HTMLElement, propertyName: string) {
-    const event = new Event('transitionend');
-    Object.defineProperty(event, 'propertyName', { value: propertyName });
-    target.dispatchEvent(event);
-}
-
 function latestGridRows(): LibraryRow[] {
     const calls = vi.mocked(MediaGrid).mock.calls;
     return (calls[calls.length - 1][1] as { rows: LibraryRow[] }).rows;
@@ -386,7 +380,7 @@ describe('MediaLibraryBrowser', () => {
         expect(onGridZoomChange).toHaveBeenCalledTimes(5);
     });
 
-    it('toggles the filter tray open and closed and cleans up animated styles', () => {
+    it('toggles the filter tray open and closed without delaying interaction', () => {
         const component = new MediaLibraryBrowser(
             container,
             createState({
@@ -407,8 +401,6 @@ describe('MediaLibraryBrowser', () => {
         expect(toggle.getAttribute('aria-expanded')).toBe('true');
         expect(panel.classList.contains('is-expanded')).toBe(true);
 
-        triggerTransitionEnd(panel, 'opacity');
-        triggerTransitionEnd(panel, 'height');
         expect(panel.style.height).toBe('auto');
         expect(panel.style.overflow).toBe('visible');
         expect(panel.style.pointerEvents).toBe('auto');
@@ -417,9 +409,9 @@ describe('MediaLibraryBrowser', () => {
         expect(toggle.getAttribute('aria-expanded')).toBe('false');
         expect(panel.classList.contains('is-collapsed')).toBe(true);
 
-        triggerTransitionEnd(panel, 'opacity');
-        triggerTransitionEnd(panel, 'height');
+        expect(panel.style.height).toBe('0px');
         expect(panel.style.overflow).toBe('hidden');
+        expect(panel.style.pointerEvents).toBe('none');
     });
 
     it('updates chip filters across add, remove, and clear flows', () => {
@@ -439,6 +431,9 @@ describe('MediaLibraryBrowser', () => {
 
         component.render();
         (container.querySelector('#btn-toggle-filters') as HTMLButtonElement).click();
+
+        (container.querySelector('[data-filter-group="status"][data-filter-value="All"]') as HTMLButtonElement).click();
+        expect(onFilterChange).not.toHaveBeenCalled();
 
         (container.querySelector('[data-filter-group="status"][data-filter-value="Ongoing"]') as HTMLButtonElement).click();
         expect(onFilterChange).toHaveBeenLastCalledWith({
@@ -490,7 +485,7 @@ describe('MediaLibraryBrowser', () => {
         });
     });
 
-    it('notifies parent state when shared search and hide-archived filters change', () => {
+    it('notifies parent state when shared search and hide-archived filters change', async () => {
         const onFilterChange = vi.fn();
         const component = new MediaLibraryBrowser(
             container,
@@ -509,17 +504,21 @@ describe('MediaLibraryBrowser', () => {
         const search = container.querySelector('#grid-search-filter') as HTMLInputElement;
         search.value = 'alp';
         search.dispatchEvent(new Event('input'));
+        expect(container.querySelector('#media-library-content')?.getAttribute('aria-busy')).toBe('true');
 
-        expect(onFilterChange).toHaveBeenLastCalledWith({
-            searchQuery: 'alp',
-            statusFilters: [],
-            typeFilters: [],
-            hideArchived: false,
-            sortStages: [],
-            groupByType: false,
-            keepOngoingFirst: true,
-            keepArchivedLast: true,
+        await vi.waitFor(() => {
+            expect(onFilterChange).toHaveBeenLastCalledWith({
+                searchQuery: 'alp',
+                statusFilters: [],
+                typeFilters: [],
+                hideArchived: false,
+                sortStages: [],
+                groupByType: false,
+                keepOngoingFirst: true,
+                keepArchivedLast: true,
+            });
         });
+        expect(container.querySelector('#media-library-content')?.getAttribute('aria-busy')).toBe('false');
 
         const hideArchived = container.querySelector('#grid-hide-archived') as HTMLInputElement;
         hideArchived.checked = true;

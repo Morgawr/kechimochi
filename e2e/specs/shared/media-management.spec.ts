@@ -3,7 +3,7 @@ import { navigateTo, verifyActiveView } from '../../helpers/navigation.js';
 import { confirmAction, safeClick, waitForSelectorDisplayed } from '../../helpers/common.js';
 import { setSelect } from '../../helpers/form-controls.js';
 import { addMedia, clickMediaItem, isMediaVisible, getActiveMediaItemSelector } from '../../helpers/library.js';
-import { logActivity } from '../../helpers/dashboard.js';
+import { clickRecentActivityMediaLink, logActivity } from '../../helpers/dashboard.js';
 import {
   addExtraField,
   backToGrid,
@@ -78,6 +78,27 @@ describe('Media Management CUJs', () => {
       });
 
       expect(await getExtraField(fieldKey)).toBe(updatedValue);
+    });
+
+    it('should render an empty extra field as a boolean tag and let it gain a value', async () => {
+      const fieldKey = 'Wishlist';
+      await addExtraField(fieldKey, '');
+
+      const booleanTag = $(`.media-boolean-tag[data-ekey="${fieldKey}"]`);
+      await booleanTag.waitForDisplayed({ timeout: 5000 });
+      expect(await booleanTag.$('.editable-extra').getText()).toBe(fieldKey);
+      expect(await booleanTag.$('.editable-extra').getAttribute('data-extra-value')).toBe('');
+
+      await editExtraField(fieldKey, 'Yes');
+
+      await browser.waitUntil(async () => {
+        return (await getExtraField(fieldKey)) === 'Yes';
+      }, {
+        timeout: 5000,
+        timeoutMsg: `Expected boolean tag "${fieldKey}" to become a valued extra field`
+      });
+      expect(await $(`.media-boolean-tag[data-ekey="${fieldKey}"]`).isExisting()).toBe(false);
+      expect(await getExtraField(fieldKey)).toBe('Yes');
     });
 
     it('should expand and collapse a long description with see more and see less', async () => {
@@ -184,16 +205,7 @@ describe('Media Management CUJs', () => {
       await logActivity('Cyberpunk 2077', '30');
 
       await navigateTo('dashboard');
-
-      const mediaLink = $('.dashboard-media-link');
-      await mediaLink.waitForDisplayed({ timeout: 5000 });
-      await mediaLink.scrollIntoView();
-      await mediaLink.waitForClickable({ timeout: 2000 });
-
-      const linkText = await mediaLink.getText();
-      expect(linkText).toBe('Cyberpunk 2077');
-
-      await mediaLink.click();
+      await clickRecentActivityMediaLink('Cyberpunk 2077');
 
       await browser.waitUntil(async () => {
         const el = $('#media-title');

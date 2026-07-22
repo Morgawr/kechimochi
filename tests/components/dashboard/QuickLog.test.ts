@@ -11,6 +11,7 @@ vi.mock('../../../src/activity_modal', () => ({
 vi.mock('../../../src/media/cover_loader', () => ({
     MediaCoverLoader: {
         load: vi.fn().mockResolvedValue(null),
+        getCached: vi.fn().mockReturnValue(null),
     }
 }));
 
@@ -44,6 +45,7 @@ describe('QuickLog', () => {
         vi.clearAllMocks();
         vi.mocked(showLogActivityModal).mockResolvedValue(false);
         vi.mocked(MediaCoverLoader.load).mockResolvedValue(null);
+        vi.mocked(MediaCoverLoader.getCached).mockReturnValue(null);
     });
 
     afterEach(() => {
@@ -256,6 +258,32 @@ describe('QuickLog', () => {
         component.render();
         await Promise.resolve();
         expect(MediaCoverLoader.load).toHaveBeenCalledOnce();
+    });
+
+    it('reloads a desktop cover after its retained object URL is evicted', async () => {
+        let cachedCover: string | null = 'blob:quick-log-cover-1';
+        vi.mocked(MediaCoverLoader.getCached).mockImplementation(() => cachedCover);
+        vi.mocked(MediaCoverLoader.load).mockImplementation(async () => {
+            cachedCover ??= 'blob:quick-log-cover-2';
+            return cachedCover;
+        });
+        const media = makeMedia({ cover_image: 'cover.jpg' });
+        const component = new QuickLog(container, { logs: [], mediaList: [media] }, { onLogged: vi.fn() });
+
+        component.render();
+        await vi.waitFor(() => {
+            expect(container.querySelector('.quick-log-cover img')?.getAttribute('src'))
+                .toBe('blob:quick-log-cover-1');
+        });
+
+        cachedCover = null;
+        component.setState({ mediaList: [media] });
+
+        await vi.waitFor(() => {
+            expect(container.querySelector('.quick-log-cover img')?.getAttribute('src'))
+                .toBe('blob:quick-log-cover-2');
+        });
+        expect(MediaCoverLoader.load).toHaveBeenCalledTimes(2);
     });
 
     it('does not retry a cover that failed to load', async () => {

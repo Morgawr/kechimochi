@@ -35,4 +35,4 @@ export type {
     LibrarySortOptions,
     LibrarySortStage,
 } from './sorting';
-export { createAnimatedCollectionItemWrapper, createLibrarySectionHeaderWrapper, renderIncrementalMediaCollection } from './render_incremental_collection';
+export { createCollectionItemWrapper, createLibrarySectionHeaderWrapper, renderIncrementalMediaCollection } from './render_incremental_collection';

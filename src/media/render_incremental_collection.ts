@@ -1,3 +1,5 @@
+import { measureSynchronous } from '../performance';
+
 interface IncrementalMediaCollectionOptions<T> {
     host: HTMLElement;
     items: T[];
@@ -10,18 +12,16 @@ interface IncrementalMediaCollectionOptions<T> {
     firstBatchDelayMs: number;
     subsequentBatchDelayMs: number;
     shouldContinue: () => boolean;
-    createItemWrapper: (item: T, index: number, isFirstBatch: boolean) => HTMLElement;
+    createItemWrapper: (item: T, index: number) => HTMLElement;
+    performanceOperation: string;
 }
 
-export function createAnimatedCollectionItemWrapper(
+export function createCollectionItemWrapper(
     className: string,
-    animationDelaySeconds: number,
     containIntrinsicSize: string,
 ): HTMLDivElement {
     const itemWrapper = document.createElement('div');
-    itemWrapper.className = `${className} animate-page-fade-in`;
-    itemWrapper.style.opacity = '0';
-    itemWrapper.style.animation = `fadeIn 0.25s ease-out ${animationDelaySeconds}s forwards`;
+    itemWrapper.className = className;
     itemWrapper.style.contentVisibility = 'auto';
     itemWrapper.style.containIntrinsicSize = containIntrinsicSize;
     return itemWrapper;
@@ -29,12 +29,10 @@ export function createAnimatedCollectionItemWrapper(
 
 export function createLibrarySectionHeaderWrapper(
     label: string,
-    animationDelaySeconds: number,
     spanFullWidth: boolean,
 ): HTMLDivElement {
-    const headerWrapper = createAnimatedCollectionItemWrapper(
+    const headerWrapper = createCollectionItemWrapper(
         'media-library-section-header',
-        animationDelaySeconds,
         'auto 48px',
     );
     if (spanFullWidth) {
@@ -57,6 +55,7 @@ export function renderIncrementalMediaCollection<T>({
     subsequentBatchDelayMs,
     shouldContinue,
     createItemWrapper,
+    performanceOperation,
 }: IncrementalMediaCollectionOptions<T>) {
     const container = document.createElement('div');
     container.id = containerId;
@@ -77,12 +76,13 @@ export function renderIncrementalMediaCollection<T>({
         const currentLimit = isFirstBatch ? initialBatchSize : batchSize;
         const end = Math.min(currentIndex + currentLimit, items.length);
 
-        const fragment = document.createDocumentFragment();
-        for (let i = currentIndex; i < end; i += 1) {
-            fragment.appendChild(createItemWrapper(items[i], i, isFirstBatch));
-        }
-
-        container.appendChild(fragment);
+        measureSynchronous('render', performanceOperation, () => {
+            const fragment = document.createDocumentFragment();
+            for (let i = currentIndex; i < end; i += 1) {
+                fragment.appendChild(createItemWrapper(items[i], i));
+            }
+            container.appendChild(fragment);
+        }, { batch_size: end - currentIndex, rendered_count: end, total_count: items.length });
         currentIndex = end;
 
         if (currentIndex >= items.length || !shouldContinue()) {

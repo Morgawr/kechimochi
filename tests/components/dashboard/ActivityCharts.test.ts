@@ -20,13 +20,19 @@ describe('ActivityCharts', () => {
         vi.clearAllMocks();
     });
 
-    it('should render chart canvases and UI controls', () => {
+    async function waitForChartConstruction(): Promise<void> {
+        await vi.waitFor(() => expect(Chart).toHaveBeenCalledTimes(2));
+    }
+
+    it('should render chart canvases and UI controls', async () => {
         const component = new ActivityCharts(
             container,
             { logs: [], timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'activity_type', chartType: 'bar', metric: 'minutes' },
             onParamChange
         );
         component.render();
+        expect(Chart).not.toHaveBeenCalled();
+        await waitForChartConstruction();
 
         expect(container.querySelector('#pieChart')).toBeDefined();
         expect(container.querySelector('#barChart')).toBeDefined();
@@ -40,6 +46,69 @@ describe('ActivityCharts', () => {
         ]);
         expect((container.querySelector('#activity-charts-grid') as HTMLElement | null)?.dataset.timeRangeDays).toBe('7');
         expect(Chart).toHaveBeenCalledTimes(2);
+    });
+
+    it('updates charts and controls without replacing the mounted layout or canvases', async () => {
+        const component = new ActivityCharts(
+            container,
+            { logs: [], timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'activity_type', chartType: 'bar', metric: 'minutes' },
+            onParamChange,
+        );
+        component.render();
+        await waitForChartConstruction();
+
+        const layout = container.querySelector('#activity-charts-grid');
+        const pieCanvas = container.querySelector('#pieChart');
+        const barCanvas = container.querySelector('#barChart');
+        vi.clearAllMocks();
+
+        component.setState({
+            timeRangeDays: 30,
+            timeRangeOffset: 1,
+            chartType: 'line',
+            groupByMode: 'log_name',
+            metric: 'characters',
+        });
+        await waitForChartConstruction();
+
+        expect(container.querySelector('#activity-charts-grid')).toBe(layout);
+        expect(container.querySelector('#pieChart')).toBe(pieCanvas);
+        expect(container.querySelector('#barChart')).toBe(barCanvas);
+        expect((container.querySelector('#select-time-range') as HTMLSelectElement).value).toBe('30');
+        expect((container.querySelector('#toggle-chart-type') as HTMLInputElement).checked).toBe(true);
+        expect((container.querySelector('#toggle-group-by') as HTMLInputElement).checked).toBe(true);
+        expect((container.querySelector('#toggle-metric') as HTMLInputElement).checked).toBe(true);
+        expect((container.querySelector('#btn-chart-next') as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it('marks chart data ready only after constructing the current snapshot generation', async () => {
+        const component = new ActivityCharts(
+            container,
+            {
+                logs: [],
+                timeRangeDays: 7,
+                timeRangeOffset: 0,
+                groupByMode: 'activity_type',
+                chartType: 'bar',
+                metric: 'minutes',
+                snapshotRequestId: 41,
+            },
+            onParamChange,
+        );
+
+        component.render();
+        const layout = container.querySelector<HTMLElement>('#activity-charts-grid');
+        expect(layout?.dataset.dashboardRequestId).toBeUndefined();
+        await waitForChartConstruction();
+        expect(layout?.dataset.dashboardRequestId).toBe('41');
+
+        component.updatePendingParams({ timeRangeDays: 30 });
+        expect(layout?.dataset.dashboardRequestId).toBeUndefined();
+
+        vi.clearAllMocks();
+        component.setState({ snapshotRequestId: 42 });
+        await waitForChartConstruction();
+        expect(layout?.dataset.dashboardRequestId).toBe('42');
     });
 
     it('should trigger param change on UI interaction', () => {
@@ -69,13 +138,14 @@ describe('ActivityCharts', () => {
         expect(onParamChange).toHaveBeenCalledWith({ timeRangeOffset: 1 });
     });
 
-    it('should destroy chart instances on destroy', () => {
+    it('should destroy chart instances on destroy', async () => {
         const component = new ActivityCharts(
             container,
             { logs: [], timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'activity_type', chartType: 'bar', metric: 'minutes' },
             onParamChange
         );
         component.render();
+        await waitForChartConstruction();
         
         const instances = vi.mocked(Chart).mock.results.map(r => r.value);
         component.destroy();
@@ -83,7 +153,7 @@ describe('ActivityCharts', () => {
         instances.forEach(instance => expect(instance.destroy).toHaveBeenCalled());
     });
 
-    it('should handle different time ranges', () => {
+    it('should handle different time ranges', async () => {
         // 30 days
         let component = new ActivityCharts(
             container,
@@ -91,6 +161,7 @@ describe('ActivityCharts', () => {
             onParamChange
         );
         component.render();
+        await waitForChartConstruction();
         expect(Chart).toHaveBeenCalled();
 
         // 365 days
@@ -101,10 +172,11 @@ describe('ActivityCharts', () => {
             onParamChange
         );
         component.render();
+        await waitForChartConstruction();
         expect(Chart).toHaveBeenCalled();
     });
 
-    it('should format weekly chart labels as month abbreviations with two-digit days', () => {
+    it('should format weekly chart labels as month abbreviations with two-digit days', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-06-10T12:00:00'));
 
@@ -114,6 +186,7 @@ describe('ActivityCharts', () => {
             onParamChange
         );
         component.render();
+        await waitForChartConstruction();
 
         const barChartConfig = vi.mocked(Chart).mock.calls[1][1];
 
@@ -128,7 +201,7 @@ describe('ActivityCharts', () => {
         ]);
     });
 
-    it('should chart monthly activity as one data point per day', () => {
+    it('should chart monthly activity as one data point per day', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-06-10T12:00:00'));
 
@@ -149,6 +222,7 @@ describe('ActivityCharts', () => {
             onParamChange,
         );
         component.render();
+        await waitForChartConstruction();
 
         const barChartConfig = vi.mocked(Chart).mock.calls[1][1];
 
@@ -161,7 +235,7 @@ describe('ActivityCharts', () => {
         expect(barChartConfig.data.datasets[0].data[29]).toBe(45);
     });
 
-    it('should keep offset weekly pie chart totals within the selected week when crossing months', () => {
+    it('should keep offset weekly pie chart totals within the selected week when crossing months', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-05-09T12:00:00'));
 
@@ -181,6 +255,7 @@ describe('ActivityCharts', () => {
             onParamChange
         );
         component.render();
+        await waitForChartConstruction();
 
         const chartGrid = container.querySelector('#activity-charts-grid') as HTMLElement;
         const pieChartConfig = vi.mocked(Chart).mock.calls[0][1];
@@ -190,17 +265,55 @@ describe('ActivityCharts', () => {
         expect(pieChartConfig.data.datasets[0].data).toEqual([1200]);
     });
 
-    it('should handle alternative grouping modes', () => {
+    it('should handle alternative grouping modes', async () => {
         const component = new ActivityCharts(
             container,
             { logs: [{ date: '2024-01-01', duration_minutes: 10, title: 'T', media_id: 1, activity_type: 'M', language: 'Japanese' } as unknown as ActivitySummary], timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'log_name', chartType: 'line', metric: 'minutes' },
             onParamChange
         );
         component.render();
+        await waitForChartConstruction();
         expect(Chart).toHaveBeenCalled();
     });
 
-    it('keeps same-title media variants separate when grouping by name', () => {
+    it('charts bounded backend series without raw activity logs', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-06-10T12:00:00'));
+        const component = new ActivityCharts(container, {
+            rangeData: {
+                request_id: 1,
+                start_date: '2026-06-08',
+                end_date: '2026-06-14',
+                bucket: 'day',
+                group_by: 'activity_type',
+                series: [
+                    { bucket: '2026-06-08', group_key: 'activity:Reading', group_label: 'Reading', total_minutes: 30, total_characters: 1000 },
+                    { bucket: '2026-06-09', group_key: 'activity:Reading', group_label: 'Reading', total_minutes: 45, total_characters: 2000 },
+                ],
+                bucket_totals: [
+                    { bucket: '2026-06-08', total_minutes: 30, total_characters: 1000 },
+                    { bucket: '2026-06-09', total_minutes: 45, total_characters: 2000 },
+                ],
+                category_totals: [],
+                highlights: [],
+            },
+            timeRangeDays: 7,
+            timeRangeOffset: 0,
+            groupByMode: 'activity_type',
+            chartType: 'bar',
+            metric: 'minutes',
+        }, onParamChange);
+
+        component.render();
+        await waitForChartConstruction();
+
+        const pieConfig = vi.mocked(Chart).mock.calls[0][1];
+        const barConfig = vi.mocked(Chart).mock.calls[1][1];
+        expect(pieConfig.data.datasets[0].data).toEqual([75]);
+        expect(barConfig.data.datasets[0].data.slice(0, 2)).toEqual([30, 45]);
+    });
+
+    it('keeps same-title media variants separate when grouping by name', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-06-10T12:00:00'));
 
@@ -221,6 +334,7 @@ describe('ActivityCharts', () => {
         );
 
         component.render();
+        await waitForChartConstruction();
 
         const pieChartConfig = vi.mocked(Chart).mock.calls[0][1];
         const barChartConfig = vi.mocked(Chart).mock.calls[1][1];

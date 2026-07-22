@@ -1,6 +1,6 @@
 import { Component } from '../component';
 import { html } from '../html';
-import { Media, ActivitySummary, LibraryActivityMetricsRow, getAllMedia, getLibraryActivityMetrics, getLogsForMedia, getSetting, setSetting } from '../api';
+import { Media, ActivitySummary, LibrarySnapshot, getLibrarySnapshot, getLogsForMedia, getSetting, setSetting } from '../api';
 import { MediaLibraryBrowser, type LibraryMediaSelection } from './MediaLibraryBrowser';
 import { MediaDetail } from './MediaDetail';
 import { Logger } from '../logger';
@@ -12,31 +12,15 @@ import {
     type LibraryActivityMetrics,
     type LibraryLayoutMode,
 } from './library_types';
+import { measureSynchronous } from '../performance';
 import { resolveDisplayContentType } from './content_type';
+import { buildExtraDataIndex, getUniqueExtraFieldNames, serializeLibrarySortStages, type LibrarySortStage } from './sorting';
 import {
-    buildExtraDataIndex,
-    getUniqueExtraFieldNames,
-    parseLibrarySortStages,
-    serializeLibrarySortStages,
-    reconcileEnumOrder,
-    sortStagesNeedMetrics,
-    type LibrarySortStage,
-} from './sorting';
-
-type BooleanLibraryFilterField = 'hideArchived' | 'groupByType' | 'keepOngoingFirst' | 'keepArchivedLast';
-
-interface BooleanLibraryFilterSettingDescriptor {
-    key: string;
-    field: BooleanLibraryFilterField;
-    errorLabel: string;
-}
-
-const BOOLEAN_LIBRARY_FILTER_SETTINGS: readonly BooleanLibraryFilterSettingDescriptor[] = [
-    { key: SETTING_KEYS.GRID_HIDE_ARCHIVED, field: 'hideArchived', errorLabel: 'hide archived' },
-    { key: SETTING_KEYS.LIBRARY_GROUP_BY_TYPE, field: 'groupByType', errorLabel: 'group by type' },
-    { key: SETTING_KEYS.LIBRARY_KEEP_ONGOING_FIRST, field: 'keepOngoingFirst', errorLabel: 'keep ongoing first' },
-    { key: SETTING_KEYS.LIBRARY_KEEP_ARCHIVED_LAST, field: 'keepArchivedLast', errorLabel: 'keep archived last' },
-];
+    libraryPreferenceWrites,
+    parseLibraryPreferences,
+    reconcileLibraryEnumOrders,
+    revalidateSortStages,
+} from './library_preferences';
 
 interface MediaViewLibraryFilters {
     searchQuery: string;
@@ -62,10 +46,17 @@ interface MediaViewState {
     gridZoom: number;
     isGridSupported: boolean;
     listMetricsByMediaId: Record<number, LibraryActivityMetrics>;
-    isListMetricsLoaded: boolean;
-    isListMetricsLoading: boolean;
     isLoading: boolean;
     isInitialized: boolean;
+}
+
+interface RenderedLibraryPresentation {
+    mediaList: Media[];
+    libraryFilters: MediaViewState['libraryFilters'];
+    preferredLayout: LibraryLayoutMode;
+    gridZoom: number;
+    isGridSupported: boolean;
+    listMetricsByMediaId: Record<number, LibraryActivityMetrics>;
 }
 
 interface LegacyMediaQueryListCompat {
@@ -80,6 +71,8 @@ export class MediaView extends Component<MediaViewState> {
     private isDestroyed = false;
     private navigationSource?:  'dashboard' | 'timeline';
     private detailNavigationRequestId = 0;
+    private loadRequestId = 0;
+    private renderedLibraryPresentation: RenderedLibraryPresentation | null = null;
 
     constructor(container: HTMLElement) {
         super(container, {
@@ -104,8 +97,6 @@ export class MediaView extends Component<MediaViewState> {
             gridZoom: LIBRARY_GRID_ZOOM.DEFAULT,
             isGridSupported: MediaView.isGridLayoutSupported(),
             listMetricsByMediaId: {},
-            isListMetricsLoaded: false,
-            isListMetricsLoading: false,
             isLoading: false,
             isInitialized: false,
         });
@@ -120,6 +111,12 @@ export class MediaView extends Component<MediaViewState> {
 
     public destroy() {
         this.isDestroyed = true;
+        if (this.state.isLoading) {
+            this.loadRequestId += 1;
+        }
+        this.detailNavigationRequestId += 1;
+        this.activeSubComponent?.destroy?.();
+        this.activeSubComponent = null;
         globalThis.removeEventListener('keydown', this.keyboardHandler);
         globalThis.removeEventListener('mouseup', this.mouseHandler);
         globalThis.removeEventListener(EVENTS.LIBRARY_PREFERENCES_CHANGED, this.libraryPreferencesHandler);
@@ -127,21 +124,23 @@ export class MediaView extends Component<MediaViewState> {
         super.destroy();
     }
 
-    private async reloadLibraryEnumOrders() {
+    private static async fetchLibraryEnumOrders() {
         const [contentTypeOrderStr, trackingStatusOrderStr] = await Promise.all([
             getSetting(SETTING_KEYS.CONTENT_TYPE_ORDER),
             getSetting(SETTING_KEYS.TRACKING_STATUS_ORDER),
         ]);
-        if (this.isDestroyed) return;
-
-        this.setState(MediaView.reconcileLibraryEnumOrders(contentTypeOrderStr, trackingStatusOrderStr));
+        return reconcileLibraryEnumOrders(contentTypeOrderStr, trackingStatusOrderStr);
     }
 
-    private static reconcileLibraryEnumOrders(contentTypeOrderStr: string | null, trackingStatusOrderStr: string | null) {
-        return {
-            contentTypeOrder: reconcileEnumOrder(contentTypeOrderStr, CONTENT_TYPES),
-            trackingStatusOrder: reconcileEnumOrder(trackingStatusOrderStr, TRACKING_STATUSES),
-        };
+    private async reloadLibraryEnumOrders() {
+        const enumOrders = await MediaView.fetchLibraryEnumOrders();
+        if (this.isDestroyed) return;
+
+        this.setState(enumOrders);
+    }
+
+    private async loadLibraryEnumOrders(isInitialLoad: boolean) {
+        return isInitialLoad ? MediaView.fetchLibraryEnumOrders() : null;
     }
 
     private static isGridLayoutSupported(): boolean {
@@ -232,10 +231,6 @@ export class MediaView extends Component<MediaViewState> {
         Promise.resolve(task).catch((error) => Logger.error(message, error));
     }
 
-    private getEffectiveLayout(): LibraryLayoutMode {
-        return this.state.isGridSupported ? this.state.preferredLayout : 'list';
-    }
-
     private async navigateDetail(direction: number) {
         const { detailMediaList, currentIndex } = this.state;
         if (detailMediaList.length === 0) return;
@@ -260,11 +255,24 @@ export class MediaView extends Component<MediaViewState> {
         try {
             const currentLogs = await getLogsForMedia(media.id);
             if (this.isDestroyed || requestId !== this.detailNavigationRequestId) return;
-            this.setState({ currentLogs });
+            this.state.currentLogs = currentLogs;
+            if (
+                this.activeSubComponent instanceof MediaDetail
+                && this.activeSubComponent.updateLogs(media.id, currentLogs)
+            ) {
+                return;
+            }
+            this.render();
         } catch (e) {
             Logger.error('Failed to load logs for media detail navigation', e);
             if (!this.isDestroyed && requestId === this.detailNavigationRequestId) {
-                this.setState({ currentLogs: [] });
+                this.state.currentLogs = [];
+                if (
+                    !(this.activeSubComponent instanceof MediaDetail)
+                    || !this.activeSubComponent.updateLogs(media.id, [])
+                ) {
+                    this.render();
+                }
             }
         }
     }
@@ -326,8 +334,28 @@ private async handleBack() {
         await this.exitDetail(false);
     }
     
+    public prepareLibraryView(): boolean {
+        const requiresRender = this.state.viewMode !== 'grid';
+        this.targetMediaId = null;
+        this.navigationSource = undefined;
+        this.loadRequestId += 1;
+        this.detailNavigationRequestId += 1;
+        this.state = {
+            ...this.state,
+            viewMode: 'grid',
+            detailMediaList: [],
+            currentLogs: [],
+            currentIndex: 0,
+            isLoading: false,
+        };
+        return requiresRender;
+    }
+
     public async resetView() {
-        this.setState({ viewMode: 'grid', detailMediaList: [], currentLogs: [], currentIndex: 0 });
+        const requiresRender = this.prepareLibraryView();
+        if (requiresRender || !this.container.querySelector('#media-root')) {
+            this.render();
+        }
         await this.loadData();
     }
 
@@ -335,95 +363,6 @@ private async handleBack() {
         this.targetMediaId = mediaId;
         this.navigationSource = source;
         await this.loadData(mediaId);
-    }
-
-    private mapMetricsRows(rows: LibraryActivityMetricsRow[]): Record<number, LibraryActivityMetrics> {
-        return rows.reduce<Record<number, LibraryActivityMetrics>>((acc, row) => {
-            acc[row.media_id] = {
-                firstActivityDate: row.first_activity_date,
-                lastActivityDate: row.last_activity_date,
-                totalMinutes: row.total_minutes,
-                totalCharacters: row.total_characters,
-            };
-            return acc;
-        }, {});
-    }
-
-    private async resolveMetricsRows(): Promise<Record<number, LibraryActivityMetrics>> {
-        try {
-            return this.mapMetricsRows(await getLibraryActivityMetrics());
-        } catch (e) {
-            Logger.error('Failed to load list activity metrics', e);
-            return {};
-        }
-    }
-
-    private async ensureListMetricsLoaded() {
-        if (this.state.viewMode !== 'grid') return;
-        if (this.getEffectiveLayout() !== 'list') return;
-        if (this.state.isListMetricsLoaded || this.state.isListMetricsLoading) return;
-
-        this.setState({ isListMetricsLoading: true });
-        const listMetricsByMediaId = await this.resolveMetricsRows();
-        if (this.isDestroyed) return;
-
-        this.setState({
-            listMetricsByMediaId,
-            isListMetricsLoaded: true,
-            isListMetricsLoading: false,
-        });
-    }
-
-    private async loadInitialPreferences() {
-        let nextFilters = this.state.libraryFilters;
-        let nextPreferredLayout = this.state.preferredLayout;
-        let nextContentTypeOrder = this.state.contentTypeOrder;
-        let nextTrackingStatusOrder = this.state.trackingStatusOrder;
-        let nextGridZoom = this.state.gridZoom;
-
-        if (this.state.isInitialized) {
-            return { nextFilters, nextPreferredLayout, nextContentTypeOrder, nextTrackingStatusOrder, nextGridZoom };
-        }
-
-        const [
-            storedLayout,
-            storedGridZoom,
-            sortStagesStr,
-            contentTypeOrderStr,
-            trackingStatusOrderStr,
-            booleanFilterSettingValues,
-        ] = await Promise.all([
-            getSetting(SETTING_KEYS.LIBRARY_LAYOUT_MODE),
-            getSetting(SETTING_KEYS.LIBRARY_GRID_ZOOM),
-            getSetting(SETTING_KEYS.LIBRARY_SORT_STAGES),
-            getSetting(SETTING_KEYS.CONTENT_TYPE_ORDER),
-            getSetting(SETTING_KEYS.TRACKING_STATUS_ORDER),
-            Promise.all(BOOLEAN_LIBRARY_FILTER_SETTINGS.map((descriptor) => getSetting(descriptor.key))),
-        ]);
-
-        if (storedLayout === 'grid' || storedLayout === 'list') {
-            nextPreferredLayout = storedLayout;
-        }
-
-        const booleanFilterUpdates: Partial<Record<BooleanLibraryFilterField, boolean>> = {};
-        BOOLEAN_LIBRARY_FILTER_SETTINGS.forEach((descriptor, index) => {
-            const storedValue = booleanFilterSettingValues[index];
-            booleanFilterUpdates[descriptor.field] = storedValue != null ? storedValue === 'true' : nextFilters[descriptor.field];
-        });
-
-        nextFilters = {
-            ...nextFilters,
-            ...booleanFilterUpdates,
-            // Validated with the real extra-field names once the media list is available (loadData).
-            sortStages: parseLibrarySortStages(sortStagesStr ?? '[]', []),
-        };
-
-        const reconciledEnumOrders = MediaView.reconcileLibraryEnumOrders(contentTypeOrderStr, trackingStatusOrderStr);
-        nextContentTypeOrder = reconciledEnumOrders.contentTypeOrder;
-        nextTrackingStatusOrder = reconciledEnumOrders.trackingStatusOrder;
-        nextGridZoom = normalizeLibraryGridZoom(storedGridZoom);
-
-        return { nextFilters, nextPreferredLayout, nextContentTypeOrder, nextTrackingStatusOrder, nextGridZoom };
     }
 
     private resolveDetailState(mediaList: Media[], jumpToId?: number) {
@@ -466,105 +405,252 @@ private async handleBack() {
         };
     }
 
+    private isStaleLoad(requestId: number): boolean {
+        return this.isDestroyed || requestId !== this.loadRequestId;
+    }
+
+    private resolveSnapshotPresentation(snapshot: LibrarySnapshot, isInitialLoad: boolean) {
+        let libraryFilters = this.state.libraryFilters;
+        let preferredLayout = this.state.preferredLayout;
+        let gridZoom = this.state.gridZoom;
+
+        const extraFieldNames = getUniqueExtraFieldNames(buildExtraDataIndex(snapshot.media));
+
+        // Only on the first load: after that the in-memory state is authoritative, and a snapshot
+        // read racing a fire-and-forget setSetting write would revert the user's last toggle.
+        if (isInitialLoad) {
+            libraryFilters = {
+                ...libraryFilters,
+                ...parseLibraryPreferences(snapshot.settings, extraFieldNames),
+            };
+            preferredLayout = snapshot.settings.preferred_layout;
+            gridZoom = normalizeLibraryGridZoom(snapshot.settings.grid_zoom);
+        } else {
+            libraryFilters = {
+                ...libraryFilters,
+                sortStages: revalidateSortStages(libraryFilters.sortStages, extraFieldNames),
+            };
+        }
+
+        const availableTypes = new Set(snapshot.media.map((media) => resolveDisplayContentType(media)));
+        libraryFilters = {
+            ...libraryFilters,
+            typeFilters: libraryFilters.typeFilters.filter((type) => availableTypes.has(type)),
+        };
+
+        return { libraryFilters, preferredLayout, gridZoom };
+    }
+
+    private projectSnapshotMetrics(snapshot: LibrarySnapshot): Record<number, LibraryActivityMetrics> {
+        return measureSynchronous(
+            'aggregation',
+            'library_metrics_projection',
+            () => snapshot.metrics.reduce<Record<number, LibraryActivityMetrics>>((metrics, value) => {
+                metrics[value.media_id] = {
+                    firstActivityDate: value.first_activity_date,
+                    lastActivityDate: value.last_activity_date,
+                    totalMinutes: value.total_minutes,
+                    totalCharacters: value.total_characters,
+                };
+                return metrics;
+            }, {}),
+            { media_count: snapshot.media.length, metric_count: snapshot.metrics.length },
+        );
+    }
+
+    private async buildSnapshotState(
+        snapshot: LibrarySnapshot,
+        requestId: number,
+        isInitialLoad: boolean,
+        jumpToId?: number,
+    ): Promise<Partial<MediaViewState> | null> {
+        const { libraryFilters, preferredLayout, gridZoom } = this.resolveSnapshotPresentation(
+            snapshot,
+            isInitialLoad,
+        );
+        const listMetricsByMediaId = this.projectSnapshotMetrics(snapshot);
+        const { targetId, detailMediaList, currentIndex } = this.resolveDetailState(snapshot.media, jumpToId);
+        const requestedViewMode = targetId !== null && targetId !== undefined ? 'detail' : this.state.viewMode;
+        const viewMode: MediaViewState['viewMode'] = requestedViewMode === 'detail' && detailMediaList.length > 0
+            ? 'detail'
+            : 'grid';
+        let currentLogs: ActivitySummary[] = [];
+
+        if (viewMode === 'detail' && detailMediaList[currentIndex]) {
+            currentLogs = await getLogsForMedia(detailMediaList[currentIndex].id!);
+            if (this.isStaleLoad(requestId)) return null;
+        }
+
+        return {
+            libraryMediaList: snapshot.media,
+            detailMediaList,
+            currentLogs,
+            currentIndex,
+            libraryFilters,
+            preferredLayout,
+            gridZoom,
+            isGridSupported: MediaView.isGridLayoutSupported(),
+            listMetricsByMediaId,
+            isLoading: false,
+            isInitialized: true,
+            viewMode,
+        };
+    }
+
+    private handleLoadError(error: unknown, requestId: number, isInitialLoad: boolean): void {
+        if (this.isStaleLoad(requestId)) return;
+        Logger.error('Failed to load media view content', error);
+        if (isInitialLoad) {
+            this.setState({ isLoading: false, isInitialized: true });
+            return;
+        }
+        this.state.isLoading = false;
+    }
+
+    private canReuseRenderedLibrary(nextState: Partial<MediaViewState>): boolean {
+        const rendered = this.renderedLibraryPresentation;
+        if (
+            !rendered
+            || !this.activeSubComponent
+            || this.state.viewMode !== 'grid'
+            || nextState.viewMode !== 'grid'
+        ) {
+            return false;
+        }
+
+        const nextFilters = nextState.libraryFilters;
+        const nextMedia = nextState.libraryMediaList;
+        const nextMetrics = nextState.listMetricsByMediaId;
+        return Boolean(
+            nextFilters
+            && nextMedia
+            && nextMetrics
+            && this.areFiltersEqual(rendered.libraryFilters, nextFilters)
+            && rendered.preferredLayout === nextState.preferredLayout
+            && rendered.gridZoom === nextState.gridZoom
+            && rendered.isGridSupported === nextState.isGridSupported
+            && this.areMediaListsEqual(rendered.mediaList, nextMedia)
+            && this.areMetricMapsEqual(rendered.listMetricsByMediaId, nextMetrics)
+        );
+    }
+
+    private areFiltersEqual(
+        left: MediaViewState['libraryFilters'],
+        right: MediaViewState['libraryFilters'],
+    ): boolean {
+        return left.searchQuery === right.searchQuery
+            && left.hideArchived === right.hideArchived
+            && left.groupByType === right.groupByType
+            && left.keepOngoingFirst === right.keepOngoingFirst
+            && left.keepArchivedLast === right.keepArchivedLast
+            && serializeLibrarySortStages(left.sortStages) === serializeLibrarySortStages(right.sortStages)
+            && this.areStringArraysEqual(left.typeFilters, right.typeFilters)
+            && this.areStringArraysEqual(left.statusFilters, right.statusFilters);
+    }
+
+    private areStringArraysEqual(left: string[], right: string[]): boolean {
+        return left.length === right.length && left.every((value, index) => value === right[index]);
+    }
+
+    private areMediaListsEqual(left: Media[], right: Media[]): boolean {
+        if (left.length !== right.length) return false;
+        return left.every((media, index) => {
+            const other = right[index];
+            return media.id === other.id
+                && media.uid === other.uid
+                && media.title === other.title
+                && media.variant === other.variant
+                && media.default_activity_type === other.default_activity_type
+                && media.status === other.status
+                && media.language === other.language
+                && media.description === other.description
+                && media.cover_image === other.cover_image
+                && media.extra_data === other.extra_data
+                && media.content_type === other.content_type
+                && media.tracking_status === other.tracking_status;
+        });
+    }
+
+    private areMetricMapsEqual(
+        left: Record<number, LibraryActivityMetrics>,
+        right: Record<number, LibraryActivityMetrics>,
+    ): boolean {
+        const leftIds = Object.keys(left);
+        const rightIds = Object.keys(right);
+        if (leftIds.length !== rightIds.length) return false;
+        return leftIds.every((id) => {
+            const leftMetric = left[Number(id)];
+            const rightMetric = right[Number(id)];
+            return leftMetric.firstActivityDate === rightMetric?.firstActivityDate
+                && leftMetric.lastActivityDate === rightMetric?.lastActivityDate
+                && leftMetric.totalMinutes === rightMetric?.totalMinutes
+                && leftMetric.totalCharacters === rightMetric?.totalCharacters;
+        });
+    }
+
+    private captureRenderedLibraryPresentation(): void {
+        this.renderedLibraryPresentation = {
+            mediaList: this.state.libraryMediaList,
+            libraryFilters: {
+                ...this.state.libraryFilters,
+                typeFilters: [...this.state.libraryFilters.typeFilters],
+                statusFilters: [...this.state.libraryFilters.statusFilters],
+            },
+            preferredLayout: this.state.preferredLayout,
+            gridZoom: this.state.gridZoom,
+            isGridSupported: this.state.isGridSupported,
+            listMetricsByMediaId: this.state.listMetricsByMediaId,
+        };
+    }
+
+    private markLibraryRequest(requestId: number): void {
+        const root = this.container.querySelector<HTMLElement>('#media-root');
+        if (root) root.dataset.libraryRequestId = requestId.toString();
+    }
+
     async loadData(jumpToId?: number) {
         if (this.state.isLoading && jumpToId === undefined) return;
-        this.setState({ isLoading: true });
+        const requestId = ++this.loadRequestId;
+        const isInitialLoad = !this.state.isInitialized;
+        this.detailNavigationRequestId += 1;
+        if (isInitialLoad) {
+            this.state.isLoading = true;
+            if (!this.container.querySelector('#media-root')) {
+                this.render();
+            }
+        } else {
+            this.state.isLoading = true;
+        }
 
         try {
-            const initialPreferences = await this.loadInitialPreferences();
-            let nextFilters = initialPreferences.nextFilters;
-            const nextPreferredLayout = initialPreferences.nextPreferredLayout;
-            const nextContentTypeOrder = initialPreferences.nextContentTypeOrder;
-            const nextTrackingStatusOrder = initialPreferences.nextTrackingStatusOrder;
-            const nextGridZoom = initialPreferences.nextGridZoom;
-
-            // Metrics are bounded by logged-media count (post step-5), so firing them alongside
-            // getAllMedia costs ~0 wall clock; only await below when the active sort needs them.
-            const sortNeedsMetrics = sortStagesNeedMetrics(nextFilters.sortStages);
-            const mediaListPromise = getAllMedia();
-            const metricsPromise = this.resolveMetricsRows();
-
-            const mediaList = await mediaListPromise;
-            const availableTypes = new Set(mediaList.map((media) => resolveDisplayContentType(media)));
-            const extraFieldNames = getUniqueExtraFieldNames(buildExtraDataIndex(mediaList));
-            nextFilters = {
-                ...nextFilters,
-                typeFilters: nextFilters.typeFilters.filter((type) => availableTypes.has(type)),
-                sortStages: parseLibrarySortStages(serializeLibrarySortStages(nextFilters.sortStages), extraFieldNames),
-            };
-
-            let currentLogs: ActivitySummary[] = [];
-            const { targetId, detailMediaList, currentIndex } = this.resolveDetailState(mediaList, jumpToId);
-
-            const requestedViewMode = targetId !== null && targetId !== undefined ? 'detail' : this.state.viewMode;
-            const viewMode = requestedViewMode === 'detail' && detailMediaList.length > 0 ? 'detail' : 'grid';
-            if (viewMode === 'detail' && detailMediaList[currentIndex]) {
-                currentLogs = await getLogsForMedia(detailMediaList[currentIndex].id!);
-            }
-
-            // Seeded from current state so a reload keeps showing the metrics it already has
-            // until the fresh ones land, instead of flashing stat-less rows for a microtask.
-            let listMetricsByMediaId = this.state.listMetricsByMediaId;
-            let isListMetricsLoaded = this.state.isListMetricsLoaded;
-            if (sortNeedsMetrics) {
-                listMetricsByMediaId = await metricsPromise;
-                isListMetricsLoaded = true;
+            const [snapshot, enumOrders] = await Promise.all([
+                getLibrarySnapshot({ request_id: requestId }),
+                this.loadLibraryEnumOrders(isInitialLoad),
+            ]);
+            if (this.isStaleLoad(requestId) || snapshot.request_id !== requestId) return;
+            const nextState = await this.buildSnapshotState(snapshot, requestId, isInitialLoad, jumpToId);
+            if (!nextState) return;
+            if (enumOrders) Object.assign(nextState, enumOrders);
+            if (this.canReuseRenderedLibrary(nextState)) {
+                this.state = { ...this.state, ...nextState };
             } else {
-                this.runAsync(
-                    metricsPromise.then((backgroundMetricsByMediaId) => {
-                        if (this.isDestroyed) return;
-                        this.setState({
-                            listMetricsByMediaId: backgroundMetricsByMediaId,
-                            isListMetricsLoaded: true,
-                            isListMetricsLoading: false,
-                        });
-                    }),
-                    'Failed to load list activity metrics',
-                );
+                this.setState(nextState);
             }
-
-            this.setState({
-                libraryMediaList: mediaList,
-                detailMediaList,
-                currentLogs,
-                currentIndex,
-                libraryFilters: nextFilters,
-                contentTypeOrder: nextContentTypeOrder,
-                trackingStatusOrder: nextTrackingStatusOrder,
-                preferredLayout: nextPreferredLayout,
-                gridZoom: nextGridZoom,
-                isGridSupported: MediaView.isGridLayoutSupported(),
-                listMetricsByMediaId,
-                isListMetricsLoaded,
-                isListMetricsLoading: !sortNeedsMetrics,
-                isLoading: false,
-                isInitialized: true,
-                viewMode,
-            });
+            this.markLibraryRequest(requestId);
         } catch (e) {
-            Logger.error('Failed to load media view content', e);
-        } finally {
-            if (!this.isDestroyed) {
-                this.setState({ isLoading: false });
-            }
+            this.handleLoadError(e, requestId, isInitialLoad);
         }
     }
 
     render() {
-        if (!this.state.isInitialized && !this.state.isLoading && !this.targetMediaId) {
-            this.loadData().catch((err) => Logger.error('Failed to load data in render', err));
-            return;
-        }
-
-        if (this.state.viewMode === 'grid' && this.getEffectiveLayout() === 'list' && !this.state.isListMetricsLoaded && !this.state.isListMetricsLoading) {
-            this.runAsync(this.ensureListMetricsLoaded(), 'Failed to load list activity metrics');
-        }
-
+        this.activeSubComponent?.destroy?.();
+        this.activeSubComponent = null;
+        this.renderedLibraryPresentation = null;
         this.clear();
-        const root = html`<div class="animate-fade-in" style="display: flex; flex-direction: column; height: 100%; gap: 1rem;" id="media-root"></div>`;
+        const root = html`<div style="display: flex; flex-direction: column; height: 100%; gap: 1rem;" id="media-root"></div>`;
         this.container.appendChild(root);
 
-        if (this.state.isLoading) {
+        if (!this.state.isInitialized || this.state.isLoading) {
             root.innerHTML = `
                 <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; opacity: 0.7;">
                     <div style="width: 40px; height: 40px; border: 3px solid var(--border-color); border-top-color: var(--accent-green); border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 1rem;"></div>
@@ -576,8 +662,6 @@ private async handleBack() {
             `;
             return;
         }
-
-        this.activeSubComponent?.destroy?.();
 
         if (this.state.viewMode === 'grid') {
             this.renderBrowser(root);
@@ -598,7 +682,7 @@ private async handleBack() {
                 gridZoom: this.state.gridZoom,
                 isGridSupported: this.state.isGridSupported,
                 listMetricsByMediaId: this.state.listMetricsByMediaId,
-                isListMetricsLoading: this.state.isListMetricsLoading,
+                isListMetricsLoading: false,
             },
             (selection) => {
                 this.openLibraryDetail(selection).catch((err) => Logger.error('Failed to load media detail', err));
@@ -609,37 +693,26 @@ private async handleBack() {
             (filters) => {
                 const oldFilters = this.state.libraryFilters;
                 this.state.libraryFilters = { ...oldFilters, ...filters };
+                this.captureRenderedLibraryPresentation();
 
-                for (const descriptor of BOOLEAN_LIBRARY_FILTER_SETTINGS) {
-                    const value = filters[descriptor.field];
-                    if (value !== undefined && oldFilters[descriptor.field] !== value) {
-                        this.runAsync(
-                            setSetting(descriptor.key, value.toString()),
-                            `Failed to persist ${descriptor.errorLabel} preference`,
-                        );
-                    }
-                }
-
-                if (filters.sortStages !== undefined) {
-                    const serializedSortStages = serializeLibrarySortStages(filters.sortStages);
-                    const serializedOldSortStages = serializeLibrarySortStages(oldFilters.sortStages);
-                    if (serializedSortStages !== serializedOldSortStages) {
-                        this.runAsync(
-                            setSetting(SETTING_KEYS.LIBRARY_SORT_STAGES, serializedSortStages),
-                            'Failed to persist library sort stages preference',
-                        );
-                    }
+                for (const write of libraryPreferenceWrites(oldFilters, filters)) {
+                    this.runAsync(
+                        setSetting(write.key, write.value),
+                        `Failed to persist ${write.errorLabel} preference`,
+                    );
                 }
             },
             (layout) => {
-                this.setState({ preferredLayout: layout });
+                this.state.preferredLayout = layout;
+                this.captureRenderedLibraryPresentation();
                 this.runAsync(
                     setSetting(SETTING_KEYS.LIBRARY_LAYOUT_MODE, layout),
                     'Failed to persist library layout preference',
                 );
             },
             (gridZoom) => {
-                this.setState({ gridZoom });
+                this.state.gridZoom = gridZoom;
+                this.captureRenderedLibraryPresentation();
                 this.runAsync(
                     setSetting(SETTING_KEYS.LIBRARY_GRID_ZOOM, gridZoom.toString()),
                     'Failed to persist library grid zoom',
@@ -647,6 +720,7 @@ private async handleBack() {
             },
         );
         this.activeSubComponent.render();
+        this.captureRenderedLibraryPresentation();
     }
 
     private renderDetail(root: HTMLElement) {

@@ -38,15 +38,16 @@ export class MediaDetail extends Component<MediaDetailState> {
     private readonly onViewportResize: () => void;
     private readonly onGlobalPointerDown: (event: PointerEvent) => void;
     private readonly onGlobalKeyDown: (event: KeyboardEvent) => void;
-    private currentObjectUrl: string | null = null;
     private isDestroyed = false;
     private overflowMenuRoot: HTMLElement | null = null;
     private overflowMenu: HTMLElement | null = null;
     private overflowMenuButton: HTMLButtonElement | null = null;
     private readonly cleanupBackHandler: () => void;
 
-    private notifyLocalDataChanged() {
-        globalThis.dispatchEvent(new CustomEvent(EVENTS.LOCAL_DATA_CHANGED));
+    private notifyLocalDataChanged(coversChanged = false) {
+        globalThis.dispatchEvent(new CustomEvent(EVENTS.LOCAL_DATA_CHANGED, {
+            detail: { coversChanged },
+        }));
     }
 
     private requireMediaUid(): string {
@@ -103,13 +104,21 @@ export class MediaDetail extends Component<MediaDetailState> {
         this.loadMilestones().catch(e => Logger.error("Failed to load milestones", e));
     }
 
+    public updateLogs(mediaId: number, logs: ActivitySummary[]): boolean {
+        if (this.state.media.id !== mediaId || this.isDestroyed) {
+            return false;
+        }
+        this.state.logs = logs;
+        this.render();
+        return true;
+    }
+
     public override destroy() {
         this.isDestroyed = true;
         globalThis.removeEventListener('resize', this.onViewportResize);
         globalThis.removeEventListener('pointerdown', this.onGlobalPointerDown, true);
         globalThis.removeEventListener('keydown', this.onGlobalKeyDown);
         this.cleanupBackHandler();
-        this.revokeCurrentObjectUrl();
         super.destroy();
     }
 
@@ -127,7 +136,6 @@ export class MediaDetail extends Component<MediaDetailState> {
     private async loadImage() {
         const { cover_image } = this.state.media;
         if (!cover_image || cover_image.trim() === '') {
-            this.revokeCurrentObjectUrl();
             if (this.state.imgSrc !== null && !this.isDestroyed) {
                 this.setState({ imgSrc: null });
             }
@@ -142,15 +150,9 @@ export class MediaDetail extends Component<MediaDetailState> {
             return;
         }
 
-        const src = await MediaCoverLoader.load(cover_image, {
-            cache: false,
-            useCache: false,
-        });
+        const src = await MediaCoverLoader.load(cover_image);
         if (!src) return;
-        if (this.isDestroyed) {
-            MediaCoverLoader.revokeIfObjectUrl(src);
-            return;
-        }
+        if (this.isDestroyed) return;
 
         if (getServices().isDesktop()) {
             await this.applyDesktopImageSource(src);
@@ -162,17 +164,11 @@ export class MediaDetail extends Component<MediaDetailState> {
 
     private async applyDesktopImageSource(src: string) {
         await this.preloadImageSource(src);
-        if (this.isDestroyed) {
-            MediaCoverLoader.revokeIfObjectUrl(src);
-            return;
-        }
+        if (this.isDestroyed) return;
 
-        const previousObjectUrl = this.currentObjectUrl;
-        this.currentObjectUrl = src;
         if (this.state.imgSrc !== src) {
             this.updateCoverImage(src);
         }
-        MediaCoverLoader.revokeIfObjectUrl(previousObjectUrl);
     }
 
     private applyWebImageSource(src: string) {
@@ -225,12 +221,6 @@ export class MediaDetail extends Component<MediaDetailState> {
         current.replaceWith(image);
         this.attachCoverUploadListener(image);
         this.adjustDesktopCoverSize();
-    }
-
-    private revokeCurrentObjectUrl() {
-        if (!this.currentObjectUrl) return;
-        MediaCoverLoader.revokeIfObjectUrl(this.currentObjectUrl);
-        this.currentObjectUrl = null;
     }
 
     private getTrackingStatusClass(status: string): string {
@@ -635,7 +625,20 @@ export class MediaDetail extends Component<MediaDetailState> {
             return 0;
         });
 
-        return sortedEntries.map(([k, v]) => {
+        const valuedFields: string[] = [];
+        const booleanTags: string[] = [];
+
+        sortedEntries.forEach(([k, v]) => {
+            if (v === '') {
+                booleanTags.push(`
+                    <div class="media-boolean-tag" data-ekey="${k}">
+                        <span class="editable-extra media-boolean-tag-label" data-key="${k}" data-extra-value="" title="Double click to add a value">${k}</span>
+                        <button type="button" class="delete-extra-btn media-boolean-tag-delete" data-key="${k}" title="Delete field" aria-label="Delete ${k}">&times;</button>
+                    </div>
+                `);
+                return;
+            }
+
             const isSourceUrl = k.toLowerCase().includes('source') && typeof v === 'string' && v.startsWith('http') && isValidImporterUrl(v, media.content_type || "Unknown");
             let refreshBtn = '';
             if (isSourceUrl) {
@@ -644,15 +647,21 @@ export class MediaDetail extends Component<MediaDetailState> {
                 </div>`;
             }
 
-            return `
+            valuedFields.push(`
                 <div class="card" style="padding: 0.5rem 1rem; position: relative;" data-ekey="${k}">
                     <div class="editable-extra-key" data-key="${k}" title="Double click to rename field" style="font-size: 0.7rem; color: var(--text-secondary); text-transform: uppercase; cursor: pointer;">${k}</div>
-                    <div class="editable-extra" data-key="${k}" title="Double click to edit" style="cursor: pointer; font-weight: 500;">${v || '-'}</div>
+                    <div class="editable-extra" data-key="${k}" title="Double click to edit" style="cursor: pointer; font-weight: 500;">${v}</div>
                     <div class="delete-extra-btn" data-key="${k}" title="Delete field" style="position: absolute; top: 0.5rem; right: 0.5rem; cursor: pointer; color: var(--accent-red); font-size: 0.8rem; font-weight: bold; opacity: 0.6;">&times;</div>
                     ${refreshBtn}
                 </div>
-            `;
-        }).join('');
+            `);
+        });
+
+        const booleanTagList = booleanTags.length > 0
+            ? `<div class="media-boolean-tag-list">${booleanTags.join('')}</div>`
+            : '';
+
+        return valuedFields.join('') + booleanTagList;
     }
 
     private async computeReadingSpeedHtml(media: Media, readingMin: number): Promise<string> {
@@ -813,7 +822,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                 if (options.isRenameKey) {
                     currentVal = field;
                 } else if (options.isExtra) {
-                    currentVal = el.textContent === '-' ? '' : el.textContent;
+                    currentVal = el.dataset.extraValue ?? (el.textContent === '-' ? '' : el.textContent);
                 } else {
                     currentVal = (this.state.media[field as keyof Media] as string) || '';
                 }
@@ -924,7 +933,7 @@ export class MediaDetail extends Component<MediaDetailState> {
             const ok = await customConfirm("Delete Media", `Are you sure you want to permanently delete "${this.state.media.title}" and all its logs?`, "btn-danger", "Delete");
             if (ok) {
                 await deleteMedia(this.state.media.id!);
-                this.notifyLocalDataChanged();
+                this.notifyLocalDataChanged(true);
                 this.onDelete();
             }
         });
@@ -1049,7 +1058,11 @@ export class MediaDetail extends Component<MediaDetailState> {
                 const newPath = await getServices().pickAndUploadCover(this.state.media.id!);
                 if (newPath) {
                     this.state.media.cover_image = newPath;
+                    MediaCoverLoader.clear();
                     await this.loadImage();
+                    // The cache was invalidated before loading the replacement.
+                    // Do not clear again after the new object URL is committed.
+                    this.notifyLocalDataChanged();
                 }
             } catch (e) {
                 await customAlert("Error", "Failed to upload image: " + e);
@@ -1087,6 +1100,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                 try {
                     const newPath = await downloadAndSaveImage(this.state.media.id, merged.coverImageUrl);
                     this.state.media.cover_image = newPath;
+                    MediaCoverLoader.clear();
                     await this.loadImage(); // Reload blob URL for the new image
                 } catch (err) {
                     Logger.error("Failed to download new cover", err);

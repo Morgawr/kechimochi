@@ -36,9 +36,10 @@ import {
     customConfirm,
     showBlockingStatus,
 } from '../modal_base';
-import { showExportCsvModal } from '../activity_modal';
+import { showActivityCsvConflictModal, showExportCsvModal } from '../activity_modal';
 import { showMediaCsvConflictModal } from '../media/modal';
 import { getServices } from '../services';
+import { MediaCoverLoader } from '../media/cover_loader';
 import { formatProductVersionLabel, getAppVersionInfo } from '../app_version';
 import type {
     ActivitySummary,
@@ -367,6 +368,13 @@ export class ProfileView extends Component<ProfileState> {
     protected onMount(): void {
         if (!this.updateManager) return;
         this.removeUpdateListener = this.updateManager.subscribe(updateState => {
+            // The profile view is constructed while the dashboard is booting.
+            // Retain update state without rendering (and therefore loading the
+            // whole hidden profile view) until the user opens it.
+            if (!this.state.isInitialized) {
+                this.state = { ...this.state, updateState };
+                return;
+            }
             this.setState({ updateState });
         });
     }
@@ -1581,8 +1589,28 @@ export class ProfileView extends Component<ProfileState> {
 
         root.querySelector('#profile-btn-import-csv')?.addEventListener('click', async () => {
             try {
-                const count = await getServices().pickAndImportActivities();
-                if (count !== null) await customAlert("Success", `Successfully imported ${count} activity logs!`);
+                const analysis = await getServices().analyzeActivitiesCsvFromPick();
+                if (!analysis) return;
+                if (analysis.rows.length === 0) {
+                    await customAlert("Info", "No valid activity rows found in the CSV.");
+                    return;
+                }
+                const resolutions = await showActivityCsvConflictModal(analysis);
+                if (!resolutions) return;
+                const result = await getServices().applyActivityImport({
+                    rows: analysis.rows,
+                    analyzed_groups: analysis.groups,
+                    resolutions,
+                });
+                globalThis.dispatchEvent(new CustomEvent(EVENTS.LOCAL_DATA_CHANGED));
+                const skippedLabel = result.skipped_count === 1 ? 'duplicate' : 'duplicates';
+                const skipped = result.skipped_count > 0
+                    ? ` Skipped ${result.skipped_count} possible ${skippedLabel}.`
+                    : '';
+                await customAlert(
+                    "Success",
+                    `Successfully imported ${result.imported_count} activity logs!${skipped}`,
+                );
             } catch (e) {
                 await customAlert("Error", `Import failed: ${e}`);
             }
@@ -1615,6 +1643,9 @@ export class ProfileView extends Component<ProfileState> {
                 const resolvedRecords = await showMediaCsvConflictModal(conflicts);
                 if (!resolvedRecords || resolvedRecords.length === 0) return;
                 const count = await applyMediaImport(resolvedRecords);
+                globalThis.dispatchEvent(new CustomEvent(EVENTS.LOCAL_DATA_CHANGED, {
+                    detail: { coversChanged: true },
+                }));
                 await customAlert("Success", `Successfully imported ${count} media library entries!`);
             } catch (e) {
                 await customAlert("Error", `Import failed: ${e}`);
@@ -1973,6 +2004,7 @@ export class ProfileView extends Component<ProfileState> {
                 'Attaching Cloud Sync Profile',
                 'Downloading remote data, applying changes on this device, and publishing the merged result...',
             );
+            MediaCoverLoader.clear();
             await this.refreshSyncData(selection.preview.conflict_count > 0);
             await customAlert('Cloud Sync Attached', this.describeAttachResult(result, selection.preview));
         } catch (error) {
@@ -2005,6 +2037,7 @@ export class ProfileView extends Component<ProfileState> {
                 'run_sync',
                 () => runSync()
             );
+            MediaCoverLoader.clear();
             await this.refreshSyncData(result.sync_status.conflict_count > 0);
 
             if (result.sync_status.state === 'conflict_pending') {
@@ -2061,6 +2094,7 @@ export class ProfileView extends Component<ProfileState> {
                 'replace_local_from_remote',
                 () => replaceLocalFromRemote()
             );
+            MediaCoverLoader.clear();
             await this.refreshSyncData(false);
             await customAlert(
                 'Local Recovery Complete',
@@ -2194,6 +2228,7 @@ export class ProfileView extends Component<ProfileState> {
                 'Applying your choice to the local merged snapshot...',
                 () => resolveSyncConflict(conflictIndex, expectedConflict.conflict_token, resolution)
             );
+            MediaCoverLoader.clear();
             const remaining = result.sync_status.conflict_count;
             await this.refreshSyncData(remaining > 0);
 

@@ -161,19 +161,252 @@ impl From<ActivitySummary> for HttpActivitySummary {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct LibraryActivityMetricsRow {
-    pub media_id: i64,
-    pub first_activity_date: String,
-    pub last_activity_date: String,
+pub struct DailyHeatmap {
+    pub date: String,
+    pub total_minutes: i64,
+    pub total_characters: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DashboardBucket {
+    Day,
+    Month,
+    Year,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DashboardGroupBy {
+    ActivityType,
+    LogName,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DashboardSnapshotRequest {
+    pub request_id: u64,
+    pub today: String,
+    pub heatmap_year: i32,
+    pub recent_offset: i64,
+    pub recent_limit: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DashboardRangeRequest {
+    pub request_id: u64,
+    pub start_date: String,
+    pub end_date: String,
+    pub bucket: DashboardBucket,
+    pub group_by: DashboardGroupBy,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DashboardHeatmapYearRequest {
+    pub request_id: u64,
+    pub year: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DashboardRecentLogsRequest {
+    pub request_id: u64,
+    pub offset: i64,
+    pub limit: i64,
+}
+
+/// The deliberately small media projection used by dashboard cards. Keeping it
+/// separate from `Media` prevents descriptions and extra_data from leaking into
+/// dashboard payloads or being retained when the active profile changes.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DashboardMedia {
+    pub id: i64,
+    pub title: String,
+    pub variant: String,
+    pub default_activity_type: String,
+    pub status: String,
+    pub cover_image: String,
+    pub content_type: String,
+    pub tracking_status: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DashboardTotals {
     pub total_minutes: i64,
     pub total_characters: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct DailyHeatmap {
-    pub date: String,
+pub struct DashboardNamedTotals {
+    pub key: String,
+    pub label: String,
     pub total_minutes: i64,
     pub total_characters: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DashboardSummary {
+    pub total_logs: i64,
+    pub total_media: i64,
+    pub logged_days: i64,
+    pub first_activity_date: Option<String>,
+    pub last_activity_date: Option<String>,
+    pub max_streak: i64,
+    pub current_streak: i64,
+    pub total_minutes: i64,
+    pub total_characters: i64,
+    pub activity_totals: Vec<DashboardNamedTotals>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DashboardRecentLog {
+    pub id: i64,
+    pub media_id: i64,
+    pub title: String,
+    pub variant: String,
+    pub activity_type: String,
+    pub duration_minutes: i64,
+    pub characters: i64,
+    pub date: String,
+    pub language: String,
+    pub notes: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DashboardRecentPage {
+    pub request_id: u64,
+    pub offset: i64,
+    pub limit: i64,
+    pub total_count: i64,
+    pub items: Vec<DashboardRecentLog>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DashboardChartPoint {
+    /// The first ISO date represented by this bucket.
+    pub bucket: String,
+    pub group_key: String,
+    pub group_label: String,
+    pub total_minutes: i64,
+    pub total_characters: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DashboardBucketTotals {
+    /// The first ISO date represented by this bucket.
+    pub bucket: String,
+    pub total_minutes: i64,
+    pub total_characters: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DashboardHighlightKind {
+    MostTime,
+    MostCharacters,
+    MostSessions,
+    BiggestDay,
+    BiggestStreak,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DashboardHighlight {
+    pub kind: DashboardHighlightKind,
+    pub media: Option<DashboardMedia>,
+    pub date: Option<String>,
+    pub total_minutes: i64,
+    pub total_characters: i64,
+    pub sessions: i64,
+    pub streak_days: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct DashboardWeekdayStats {
+    /// Sunday is 0 and Saturday is 6, matching SQLite's `%w` convention.
+    pub weekday: u32,
+    pub average_minutes: f64,
+    pub median_minutes: f64,
+    pub average_characters: f64,
+    pub median_characters: f64,
+    pub sample_days: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct DashboardWeekdayDistribution {
+    pub start_date: String,
+    pub end_date: String,
+    pub days: Vec<DashboardWeekdayStats>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DashboardRangeResponse {
+    pub request_id: u64,
+    pub start_date: String,
+    pub end_date: String,
+    pub bucket: DashboardBucket,
+    pub group_by: DashboardGroupBy,
+    pub series: Vec<DashboardChartPoint>,
+    pub bucket_totals: Vec<DashboardBucketTotals>,
+    pub category_totals: Vec<DashboardNamedTotals>,
+    pub highlights: Vec<DashboardHighlight>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DashboardHeatmapYearResponse {
+    pub request_id: u64,
+    pub year: i32,
+    pub days: Vec<DailyHeatmap>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DashboardSettings {
+    pub chart_type: String,
+    pub group_by: DashboardGroupBy,
+    pub week_start_day: i64,
+    pub migrate_legacy_group_by: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DashboardSnapshot {
+    pub request_id: u64,
+    pub settings: DashboardSettings,
+    pub summary: DashboardSummary,
+    pub quick_log_media: Vec<DashboardMedia>,
+    pub recent_logs: DashboardRecentPage,
+    pub heatmap: DashboardHeatmapYearResponse,
+    pub range: DashboardRangeResponse,
+    pub weekday_distribution: DashboardWeekdayDistribution,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LibrarySnapshotRequest {
+    pub request_id: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct LibrarySettings {
+    pub hide_archived: bool,
+    pub preferred_layout: String,
+    pub grid_zoom: i64,
+    pub group_by_type: bool,
+    pub keep_ongoing_first: bool,
+    pub keep_archived_last: bool,
+    pub sort_stages: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct LibraryActivityMetrics {
+    pub media_id: i64,
+    pub first_activity_date: Option<String>,
+    pub last_activity_date: Option<String>,
+    pub total_minutes: Option<i64>,
+    pub total_characters: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LibrarySnapshot {
+    pub request_id: u64,
+    pub settings: LibrarySettings,
+    pub media: Vec<Media>,
+    pub metrics: Vec<LibraryActivityMetrics>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -184,6 +417,38 @@ pub enum TimelineEventKind {
     Paused,
     Dropped,
     Milestone,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TimelinePageRequest {
+    pub request_id: u64,
+    pub year: Option<i32>,
+    pub kind: Option<TimelineEventKind>,
+    #[serde(default)]
+    pub search_query: String,
+    pub offset: i64,
+    pub limit: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct TimelineSummary {
+    pub total_minutes: i64,
+    pub completed_titles: i64,
+    pub total_characters: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TimelinePage {
+    pub request_id: u64,
+    pub offset: i64,
+    pub limit: i64,
+    pub total_count: i64,
+    pub all_event_count: i64,
+    pub has_more: bool,
+    pub available_years: Vec<i32>,
+    pub ambiguous_titles: Vec<String>,
+    pub summary: TimelineSummary,
+    pub events: Vec<TimelineEvent>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]

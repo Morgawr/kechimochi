@@ -59,6 +59,43 @@ describe('DesktopServices', () => {
         });
     });
 
+    it('routes bounded dashboard reads through dedicated IPC commands', async () => {
+        vi.mocked(invoke).mockResolvedValue({ request_id: 17 });
+        const snapshotRequest = { request_id: 17, today: '2026-07-21', heatmap_year: 2026, recent_offset: 0, recent_limit: 15 };
+        const rangeRequest = { request_id: 18, start_date: '2026-07-20', end_date: '2026-07-26', bucket: 'day' as const, group_by: 'activity_type' as const };
+        const yearRequest = { request_id: 19, year: 2025 };
+        const recentRequest = { request_id: 20, offset: 15, limit: 15 };
+
+        await services.getDashboardSnapshot(snapshotRequest);
+        await services.getDashboardRange(rangeRequest);
+        await services.getDashboardHeatmapYear(yearRequest);
+        await services.getDashboardRecentLogs(recentRequest);
+
+        expect(invoke).toHaveBeenNthCalledWith(1, 'get_dashboard_snapshot', { request: snapshotRequest });
+        expect(invoke).toHaveBeenNthCalledWith(2, 'get_dashboard_range', { request: rangeRequest });
+        expect(invoke).toHaveBeenNthCalledWith(3, 'get_dashboard_heatmap_year', { request: yearRequest });
+        expect(invoke).toHaveBeenNthCalledWith(4, 'get_dashboard_recent_logs', { request: recentRequest });
+    });
+
+    it('routes atomic library and bounded timeline reads through dedicated IPC commands', async () => {
+        vi.mocked(invoke).mockResolvedValue({ request_id: 31 });
+        const libraryRequest = { request_id: 31 };
+        const timelineRequest = {
+            request_id: 32,
+            year: null,
+            kind: null,
+            search_query: '',
+            offset: 0,
+            limit: 40,
+        };
+
+        await services.getLibrarySnapshot(libraryRequest);
+        await services.getTimelinePage(timelineRequest);
+
+        expect(invoke).toHaveBeenNthCalledWith(1, 'get_library_snapshot', { request: libraryRequest });
+        expect(invoke).toHaveBeenNthCalledWith(2, 'get_timeline_page', { request: timelineRequest });
+    });
+
     it('formats dev and release app versions correctly', async () => {
         const globals = globalThis as Record<string, unknown>;
         globals.__APP_VERSION__ = '0.1.0-dev.hash123';
@@ -73,24 +110,31 @@ describe('DesktopServices', () => {
         await expect(services.getAppVersion()).resolves.toBe('0.1.0');
     });
 
-    it('imports activities from mock and dialog-selected paths', async () => {
+    it('analyzes activities from picked paths and applies reviewed imports', async () => {
         (globalThis as Record<string, unknown>).mockOpenPath = `${SAFE_DIR}/activities.csv`;
-        vi.mocked(invoke).mockResolvedValueOnce(5).mockResolvedValueOnce(3);
+        const analysis = { rows: [], groups: [] };
+        const request = { rows: [], analyzed_groups: [], resolutions: [] };
+        vi.mocked(invoke)
+            .mockResolvedValueOnce(analysis)
+            .mockResolvedValueOnce(analysis)
+            .mockResolvedValueOnce({ imported_count: 3, skipped_count: 1 });
         vi.mocked(tauriOpen).mockResolvedValue(`${SAFE_DIR}/from-dialog.csv`);
 
-        await expect(services.pickAndImportActivities()).resolves.toBe(5);
+        await expect(services.analyzeActivitiesCsvFromPick()).resolves.toEqual(analysis);
         delete (globalThis as Record<string, unknown>).mockOpenPath;
-        await expect(services.pickAndImportActivities()).resolves.toBe(3);
+        await expect(services.analyzeActivitiesCsvFromPick()).resolves.toEqual(analysis);
+        await expect(services.applyActivityImport(request)).resolves.toEqual({ imported_count: 3, skipped_count: 1 });
 
-        expect(invoke).toHaveBeenNthCalledWith(1, 'import_csv', { filePath: `${SAFE_DIR}/activities.csv` });
-        expect(invoke).toHaveBeenNthCalledWith(2, 'import_csv', { filePath: `${SAFE_DIR}/from-dialog.csv` });
+        expect(invoke).toHaveBeenNthCalledWith(1, 'analyze_activity_csv', { filePath: `${SAFE_DIR}/activities.csv` });
+        expect(invoke).toHaveBeenNthCalledWith(2, 'analyze_activity_csv', { filePath: `${SAFE_DIR}/from-dialog.csv` });
+        expect(invoke).toHaveBeenNthCalledWith(3, 'apply_activity_import', { request });
     });
 
     it('returns null or false when import/export dialogs are cancelled', async () => {
         vi.mocked(tauriOpen).mockResolvedValue(null);
         vi.mocked(tauriSave).mockResolvedValue(null);
 
-        await expect(services.pickAndImportActivities()).resolves.toBeNull();
+        await expect(services.analyzeActivitiesCsvFromPick()).resolves.toBeNull();
         await expect(services.pickAndExportFullBackup('{}', '1.0.0')).resolves.toBe(false);
         await expect(services.pickAndUploadProfilePicture()).resolves.toBeNull();
     });

@@ -21,6 +21,7 @@ describe('utils/dialogs.ts', () => {
         const result = await save();
         expect(result).toBe('/mock/save/path');
         expect(tauriSave).not.toHaveBeenCalled();
+        expect(logSpy).not.toHaveBeenCalled();
         logSpy.mockRestore();
     });
 
@@ -37,6 +38,7 @@ describe('utils/dialogs.ts', () => {
         const result = await open();
         expect(result).toBe('/mock/open/path');
         expect(tauriOpen).not.toHaveBeenCalled();
+        expect(logSpy).not.toHaveBeenCalled();
         logSpy.mockRestore();
     });
 

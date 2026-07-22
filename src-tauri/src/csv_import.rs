@@ -49,26 +49,26 @@ impl CsvRow {
     ];
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-struct ActivityCsvRow {
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ActivityCsvRow {
     #[serde(rename = "Date")]
-    date: String,
+    pub date: String,
     #[serde(rename = "Log Name")]
-    log_name: String,
+    pub log_name: String,
     #[serde(rename = "Default Activity Type")]
-    default_activity_type: String,
+    pub default_activity_type: String,
     #[serde(rename = "Duration")]
-    duration: i64,
+    pub duration: i64,
     #[serde(rename = "Language")]
-    language: String,
+    pub language: String,
     #[serde(rename = "Characters")]
-    characters: i64,
+    pub characters: i64,
     #[serde(rename = "Activity Type")]
-    activity_type: String,
+    pub activity_type: String,
     #[serde(rename = "Notes")]
-    notes: String,
+    pub notes: String,
     #[serde(rename = "Media Variant")]
-    media_variant: String,
+    pub media_variant: String,
 }
 
 impl ActivityCsvRow {
@@ -83,6 +83,57 @@ impl ActivityCsvRow {
         "Notes",
         "Media Variant",
     ];
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct ActivityCsvContent {
+    pub log_name: String,
+    pub media_variant: String,
+    pub date: String,
+    pub duration: i64,
+    pub characters: i64,
+    pub activity_type: String,
+    pub notes: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ActivityCsvGroup {
+    pub content: ActivityCsvContent,
+    pub incoming_count: usize,
+    pub existing_count: usize,
+    pub media_exists: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ActivityCsvAnalysis {
+    pub rows: Vec<ActivityCsvRow>,
+    pub groups: Vec<ActivityCsvGroup>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivityCsvConflictAction {
+    SkipPossibleOverlaps,
+    ImportAll,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ActivityCsvConflictResolution {
+    pub content: ActivityCsvContent,
+    pub action: ActivityCsvConflictAction,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActivityCsvImportRequest {
+    pub rows: Vec<ActivityCsvRow>,
+    pub analyzed_groups: Vec<ActivityCsvGroup>,
+    pub resolutions: Vec<ActivityCsvConflictResolution>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ActivityCsvImportResult {
+    pub imported_count: usize,
+    pub skipped_count: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -431,6 +482,49 @@ pub fn import_csv(conn: &mut Connection, file_path: &str) -> Result<usize, Strin
 }
 
 pub fn import_csv_from_reader<R: Read>(conn: &mut Connection, reader: R) -> Result<usize, String> {
+    let rows = parse_activity_csv_rows(conn, reader)?;
+    let analysis = analyze_activity_rows(conn, rows)?;
+    if analysis.groups.iter().any(|group| group.existing_count > 0) {
+        return Err(
+            "Activity CSV contains possible duplicate activities. Analyze the CSV and explicitly resolve every conflict before importing."
+                .to_string(),
+        );
+    }
+    let result = apply_activity_import(
+        conn,
+        ActivityCsvImportRequest {
+            rows: analysis.rows,
+            analyzed_groups: analysis.groups,
+            resolutions: Vec::new(),
+        },
+    )?;
+    Ok(result.imported_count)
+}
+
+pub fn analyze_activity_csv(
+    conn: &Connection,
+    file_path: &str,
+) -> Result<ActivityCsvAnalysis, String> {
+    let path = Path::new(file_path);
+    if !path.exists() {
+        return Err("File not found".into());
+    }
+    let file = File::open(path).map_err(|e| e.to_string())?;
+    analyze_activity_csv_from_reader(conn, file)
+}
+
+pub fn analyze_activity_csv_from_reader<R: Read>(
+    conn: &Connection,
+    reader: R,
+) -> Result<ActivityCsvAnalysis, String> {
+    let rows = parse_activity_csv_rows(conn, reader)?;
+    analyze_activity_rows(conn, rows)
+}
+
+fn parse_activity_csv_rows<R: Read>(
+    conn: &Connection,
+    reader: R,
+) -> Result<Vec<ActivityCsvRow>, String> {
     let mut rdr = csv::ReaderBuilder::new()
         .has_headers(true)
         .from_reader(reader);
@@ -445,7 +539,7 @@ pub fn import_csv_from_reader<R: Read>(conn: &mut Connection, reader: R) -> Resu
     require_activity_type_header(&headers, "activity CSV")?;
     let has_variant = has_header(&headers, "Media Variant");
     let catalog = MediaCatalog::load(conn)?;
-    let mut records = Vec::new();
+    let mut rows = Vec::new();
     let mut new_media_defaults: HashMap<CsvMediaKey, (String, usize)> = HashMap::new();
 
     for (index, result) in rdr.deserialize::<CsvRow>().enumerate() {
@@ -458,6 +552,9 @@ pub fn import_csv_from_reader<R: Read>(conn: &mut Connection, reader: R) -> Resu
             &format!("activity CSV row {row_number}"),
         )?;
         let formatted_date = normalize_activity_date(&record.date, row_number)?;
+        let characters = record.characters.unwrap_or(0);
+        db::validate_activity_metrics(record.duration, characters)
+            .map_err(|error| format!("Invalid activity CSV row {row_number}: {error}"))?;
         let requested_variant = has_variant.then_some(record.media_variant.as_str());
         let existing = catalog.resolve(
             &record.log_name,
@@ -491,34 +588,295 @@ pub fn import_csv_from_reader<R: Read>(conn: &mut Connection, reader: R) -> Resu
             }
         }
 
-        records.push((
-            row_number,
-            record,
+        let activity_type = record
+            .activity_type
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| default_activity_type.clone());
+        rows.push(ActivityCsvRow {
+            date: formatted_date,
+            log_name: key.title,
             default_activity_type,
-            formatted_date,
-            key,
-            existing.and_then(|media| media.id),
-        ));
+            duration: record.duration,
+            language: record.language,
+            characters,
+            activity_type,
+            notes: record.notes.unwrap_or_default(),
+            media_variant: key.variant,
+        });
     }
 
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    Ok(rows)
+}
+
+#[derive(Debug)]
+struct PreparedActivityCsvRow {
+    row: ActivityCsvRow,
+    media_key: CsvMediaKey,
+    existing_media_id: Option<i64>,
+    content: ActivityCsvContent,
+}
+
+fn prepare_activity_rows(
+    conn: &Connection,
+    rows: Vec<ActivityCsvRow>,
+) -> Result<Vec<PreparedActivityCsvRow>, String> {
+    let catalog = MediaCatalog::load(conn)?;
+    let mut prepared = Vec::with_capacity(rows.len());
+    let mut new_media_defaults: HashMap<CsvMediaKey, (String, usize)> = HashMap::new();
+    let mut new_media_languages: HashMap<CsvMediaKey, (String, usize)> = HashMap::new();
+
+    for (index, row) in rows.into_iter().enumerate() {
+        let row_number = index + 2;
+        let default_activity_type = resolve_default_activity_type(
+            Some(&row.default_activity_type),
+            None,
+            &format!("activity CSV row {row_number}"),
+        )?;
+        let date = normalize_activity_date(&row.date, row_number)?;
+        db::validate_activity_metrics(row.duration, row.characters)
+            .map_err(|error| format!("Invalid activity CSV row {row_number}: {error}"))?;
+        let existing = catalog.resolve(
+            &row.log_name,
+            Some(&row.media_variant),
+            &format!("activity CSV row {row_number}"),
+            "Media Variant",
+        )?;
+        let media_key = CsvMediaKey::new(
+            &row.log_name,
+            existing
+                .map(|media| media.variant.as_str())
+                .unwrap_or(&row.media_variant),
+        )
+        .map_err(|error| format!("{error} on activity CSV row {row_number}"))?;
+
+        if existing.is_none() {
+            if let Some((first_default, first_row)) = new_media_defaults.get(&media_key) {
+                if first_default != &default_activity_type {
+                    return Err(format!(
+                        "Conflicting Default Activity Type values for new media with {}: '{}' on activity CSV row {} and '{}' on row {}. Per-log Activity Type values may differ, but a new media entry must have one default.",
+                        media_key.description(),
+                        first_default,
+                        first_row,
+                        default_activity_type,
+                        row_number
+                    ));
+                }
+            } else {
+                new_media_defaults.insert(
+                    media_key.clone(),
+                    (default_activity_type.clone(), row_number),
+                );
+            }
+            if let Some((first_language, first_row)) = new_media_languages.get(&media_key) {
+                if first_language != &row.language {
+                    return Err(format!(
+                        "Conflicting Language values for new media with {}: '{}' on activity CSV row {} and '{}' on row {}. A new media entry must have one language.",
+                        media_key.description(),
+                        first_language,
+                        first_row,
+                        row.language,
+                        row_number
+                    ));
+                }
+            } else {
+                new_media_languages.insert(media_key.clone(), (row.language.clone(), row_number));
+            }
+        }
+
+        let activity_type = row.activity_type.trim();
+        let activity_type = if activity_type.is_empty() {
+            default_activity_type.clone()
+        } else {
+            activity_type.to_string()
+        };
+        let normalized_row = ActivityCsvRow {
+            date: date.clone(),
+            log_name: media_key.title.clone(),
+            default_activity_type,
+            duration: row.duration,
+            language: row.language,
+            characters: row.characters,
+            activity_type: activity_type.clone(),
+            notes: row.notes,
+            media_variant: media_key.variant.clone(),
+        };
+        let content = ActivityCsvContent {
+            log_name: media_key.title.clone(),
+            media_variant: media_key.variant.clone(),
+            date,
+            duration: normalized_row.duration,
+            characters: normalized_row.characters,
+            activity_type,
+            notes: normalized_row.notes.clone(),
+        };
+        prepared.push(PreparedActivityCsvRow {
+            row: normalized_row,
+            media_key,
+            existing_media_id: existing.and_then(|media| media.id),
+            content,
+        });
+    }
+
+    Ok(prepared)
+}
+
+fn existing_activity_counts(
+    conn: &Connection,
+) -> Result<HashMap<ActivityCsvContent, usize>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT m.title, m.variant, a.date, a.duration_minutes, a.characters,
+                    a.activity_type, a.notes
+             FROM main.activity_logs a
+             JOIN shared.media m ON m.id = a.media_id",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(ActivityCsvContent {
+                log_name: row.get(0)?,
+                media_variant: row.get(1)?,
+                date: row.get(2)?,
+                duration: row.get(3)?,
+                characters: row.get(4)?,
+                activity_type: row.get(5)?,
+                notes: row.get(6)?,
+            })
+        })
+        .map_err(|error| error.to_string())?;
+    let mut counts = HashMap::new();
+    for row in rows {
+        *counts
+            .entry(row.map_err(|error| error.to_string())?)
+            .or_insert(0) += 1;
+    }
+    Ok(counts)
+}
+
+fn build_activity_groups(
+    conn: &Connection,
+    prepared: &[PreparedActivityCsvRow],
+) -> Result<Vec<ActivityCsvGroup>, String> {
+    let existing = existing_activity_counts(conn)?;
+    let mut incoming = HashMap::new();
+    let mut media_exists = HashMap::new();
+    let mut ordered_contents = Vec::new();
+    for row in prepared {
+        if !incoming.contains_key(&row.content) {
+            ordered_contents.push(row.content.clone());
+            media_exists.insert(row.content.clone(), row.existing_media_id.is_some());
+        }
+        *incoming.entry(row.content.clone()).or_insert(0) += 1;
+    }
+    Ok(ordered_contents
+        .into_iter()
+        .map(|content| ActivityCsvGroup {
+            incoming_count: *incoming.get(&content).unwrap_or(&0),
+            existing_count: *existing.get(&content).unwrap_or(&0),
+            media_exists: *media_exists.get(&content).unwrap_or(&false),
+            content,
+        })
+        .collect())
+}
+
+fn analyze_activity_rows(
+    conn: &Connection,
+    rows: Vec<ActivityCsvRow>,
+) -> Result<ActivityCsvAnalysis, String> {
+    let prepared = prepare_activity_rows(conn, rows)?;
+    let groups = build_activity_groups(conn, &prepared)?;
+    Ok(ActivityCsvAnalysis {
+        rows: prepared.into_iter().map(|row| row.row).collect(),
+        groups,
+    })
+}
+
+pub fn apply_activity_import(
+    conn: &mut Connection,
+    request: ActivityCsvImportRequest,
+) -> Result<ActivityCsvImportResult, String> {
+    let tx = conn.transaction().map_err(|error| error.to_string())?;
+    let prepared = prepare_activity_rows(&tx, request.rows)?;
+    let current_groups = build_activity_groups(&tx, &prepared)?;
+    if current_groups != request.analyzed_groups {
+        return Err(
+            "Activity CSV data changed after conflict review. Analyze the CSV again before importing."
+                .to_string(),
+        );
+    }
+
+    let conflict_contents = current_groups
+        .iter()
+        .filter(|group| group.existing_count > 0)
+        .map(|group| group.content.clone())
+        .collect::<HashSet<_>>();
+    let mut resolution_by_content = HashMap::new();
+    for resolution in request.resolutions {
+        if !conflict_contents.contains(&resolution.content) {
+            return Err(
+                "Activity CSV import contains a resolution for content that is not a current conflict"
+                    .to_string(),
+            );
+        }
+        if resolution_by_content
+            .insert(resolution.content, resolution.action)
+            .is_some()
+        {
+            return Err("Activity CSV import contains duplicate conflict resolutions".to_string());
+        }
+    }
+    if resolution_by_content.len() != conflict_contents.len() {
+        return Err(
+            "Activity CSV import requires an explicit resolution for every possible duplicate"
+                .to_string(),
+        );
+    }
+
+    let mut skip_remaining = HashMap::new();
+    for group in &current_groups {
+        if group.existing_count == 0 {
+            continue;
+        }
+        let action = resolution_by_content.get(&group.content).ok_or_else(|| {
+            "Activity CSV import requires an explicit resolution for every possible duplicate"
+                .to_string()
+        })?;
+        let skip_count = match action {
+            ActivityCsvConflictAction::SkipPossibleOverlaps => {
+                group.existing_count.min(group.incoming_count)
+            }
+            ActivityCsvConflictAction::ImportAll => 0,
+        };
+        skip_remaining.insert(group.content.clone(), skip_count);
+    }
+
     let mut imported_count = 0;
+    let mut skipped_count = 0;
     let mut created_media_ids: HashMap<CsvMediaKey, i64> = HashMap::new();
 
-    for (_row_number, record, default_activity_type, formatted_date, key, existing_id) in records {
-        let media_id = if let Some(id) = existing_id {
+    for prepared_row in prepared {
+        if let Some(remaining) = skip_remaining.get_mut(&prepared_row.content) {
+            if *remaining > 0 {
+                *remaining -= 1;
+                skipped_count += 1;
+                continue;
+            }
+        }
+
+        let media_id = if let Some(id) = prepared_row.existing_media_id {
             id
-        } else if let Some(id) = created_media_ids.get(&key) {
+        } else if let Some(id) = created_media_ids.get(&prepared_row.media_key) {
             *id
         } else {
             let new_media = Media {
                 id: None,
                 uid: None,
-                title: key.title.clone(),
-                variant: key.variant.clone(),
-                default_activity_type: default_activity_type.clone(),
+                title: prepared_row.media_key.title.clone(),
+                variant: prepared_row.media_key.variant.clone(),
+                default_activity_type: prepared_row.row.default_activity_type.clone(),
                 status: "Complete".into(), // Default to Complete for historical data
-                language: record.language.clone(),
+                language: prepared_row.row.language.clone(),
                 description: "".to_string(),
                 cover_image: "".to_string(),
                 extra_data: "{}".to_string(),
@@ -526,22 +884,18 @@ pub fn import_csv_from_reader<R: Read>(conn: &mut Connection, reader: R) -> Resu
                 tracking_status: "Untracked".to_string(),
             };
             let id = db::add_media_with_id(&tx, &new_media).map_err(|e| e.to_string())?;
-            created_media_ids.insert(key, id);
+            created_media_ids.insert(prepared_row.media_key, id);
             id
         };
 
         let new_log = ActivityLog {
             id: None,
             media_id,
-            duration_minutes: record.duration,
-            characters: record.characters.unwrap_or(0),
-            date: formatted_date,
-            activity_type: record
-                .activity_type
-                .map(|value| value.trim().to_string())
-                .filter(|value| !value.is_empty())
-                .unwrap_or(default_activity_type),
-            notes: record.notes.unwrap_or_default(),
+            duration_minutes: prepared_row.row.duration,
+            characters: prepared_row.row.characters,
+            date: prepared_row.row.date,
+            activity_type: prepared_row.row.activity_type,
+            notes: prepared_row.row.notes,
         };
 
         db::add_log(&tx, &new_log).map_err(|e| e.to_string())?;
@@ -549,7 +903,10 @@ pub fn import_csv_from_reader<R: Read>(conn: &mut Connection, reader: R) -> Resu
     }
 
     tx.commit().map_err(|e| e.to_string())?;
-    Ok(imported_count)
+    Ok(ActivityCsvImportResult {
+        imported_count,
+        skipped_count,
+    })
 }
 
 fn normalize_activity_date(value: &str, row_number: usize) -> Result<String, String> {
@@ -2399,6 +2756,224 @@ mod tests {
         assert_eq!(logs[0].characters, 0); // Default value
 
         std::fs::remove_file(csv_path).ok();
+    }
+
+    #[test]
+    fn test_activity_analysis_uses_full_content_and_preserves_multiplicity() {
+        let conn = setup_test_db();
+        let media_id = db::add_media_with_id(&conn, &sample_media("Existing")).unwrap();
+        db::add_log(
+            &conn,
+            &ActivityLog {
+                id: None,
+                media_id,
+                duration_minutes: 30,
+                characters: 100,
+                date: "2026-07-20".to_string(),
+                activity_type: "Reading".to_string(),
+                notes: "same note".to_string(),
+            },
+        )
+        .unwrap();
+
+        let csv = "Date,Log Name,Default Activity Type,Duration,Language,Characters,Activity Type,Notes,Media Variant\n\
+                   2026-07-20,Existing,Reading,30,Japanese,100,Reading,same note,\n\
+                   2026/07/20,Existing,Reading,30,Japanese,100,Reading,same note,\n\
+                   2026-07-20,Existing,Reading,30,Japanese,100,Listening,different type,\n";
+        let analysis = analyze_activity_csv_from_reader(&conn, csv.as_bytes()).unwrap();
+
+        assert_eq!(analysis.rows.len(), 3);
+        assert_eq!(analysis.groups.len(), 2);
+        let exact = analysis
+            .groups
+            .iter()
+            .find(|group| group.content.notes == "same note")
+            .unwrap();
+        assert_eq!(exact.incoming_count, 2);
+        assert_eq!(exact.existing_count, 1);
+        let different = analysis
+            .groups
+            .iter()
+            .find(|group| group.content.notes == "different type")
+            .unwrap();
+        assert_eq!(different.incoming_count, 1);
+        assert_eq!(different.existing_count, 0);
+        let analysis_json = serde_json::to_string(&analysis).unwrap();
+        for forbidden_key in ["id", "uid", "uuid"] {
+            assert!(!analysis_json.contains(&format!("\"{forbidden_key}\"")));
+        }
+    }
+
+    #[test]
+    fn test_activity_apply_skips_only_possible_overlap_and_never_replaces() {
+        let mut conn = setup_test_db();
+        let media_id = db::add_media_with_id(&conn, &sample_media("Existing")).unwrap();
+        let existing_id = db::add_log(
+            &conn,
+            &ActivityLog {
+                id: None,
+                media_id,
+                duration_minutes: 30,
+                characters: 100,
+                date: "2026-07-20".to_string(),
+                activity_type: "Reading".to_string(),
+                notes: "same note".to_string(),
+            },
+        )
+        .unwrap();
+        let csv = "Date,Log Name,Default Activity Type,Duration,Language,Characters,Activity Type,Notes,Media Variant\n\
+                   2026-07-20,Existing,Reading,30,Japanese,100,Reading,same note,\n\
+                   2026-07-20,Existing,Reading,30,Japanese,100,Reading,same note,\n";
+        let analysis = analyze_activity_csv_from_reader(&conn, csv.as_bytes()).unwrap();
+        let conflict = analysis.groups[0].content.clone();
+        let result = apply_activity_import(
+            &mut conn,
+            ActivityCsvImportRequest {
+                rows: analysis.rows,
+                analyzed_groups: analysis.groups,
+                resolutions: vec![ActivityCsvConflictResolution {
+                    content: conflict,
+                    action: ActivityCsvConflictAction::SkipPossibleOverlaps,
+                }],
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result.imported_count, 1);
+        assert_eq!(result.skipped_count, 1);
+        let logs = db::get_logs(&conn).unwrap();
+        assert_eq!(logs.len(), 2);
+        assert!(logs.iter().any(|log| log.id == Some(existing_id)));
+    }
+
+    #[test]
+    fn test_activity_apply_rejects_stale_analysis_and_retry_without_writes() {
+        let mut conn = setup_test_db();
+        let media_id = db::add_media_with_id(&conn, &sample_media("Existing")).unwrap();
+        let csv = "Date,Log Name,Default Activity Type,Duration,Language,Characters,Activity Type,Notes,Media Variant\n\
+                   2026-07-20,Existing,Reading,30,Japanese,100,Reading,same note,\n";
+        let analysis = analyze_activity_csv_from_reader(&conn, csv.as_bytes()).unwrap();
+        assert_eq!(analysis.groups[0].existing_count, 0);
+
+        db::add_log(
+            &conn,
+            &ActivityLog {
+                id: None,
+                media_id,
+                duration_minutes: 30,
+                characters: 100,
+                date: "2026-07-20".to_string(),
+                activity_type: "Reading".to_string(),
+                notes: "same note".to_string(),
+            },
+        )
+        .unwrap();
+
+        let error = apply_activity_import(
+            &mut conn,
+            ActivityCsvImportRequest {
+                rows: analysis.rows,
+                analyzed_groups: analysis.groups,
+                resolutions: vec![],
+            },
+        )
+        .unwrap_err();
+        assert!(error.contains("changed after conflict review"));
+        assert_eq!(db::get_logs(&conn).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_activity_apply_can_import_an_exact_match_as_a_separate_occurrence() {
+        let mut conn = setup_test_db();
+        let media_id = db::add_media_with_id(&conn, &sample_media("Existing")).unwrap();
+        db::add_log(
+            &conn,
+            &ActivityLog {
+                id: None,
+                media_id,
+                duration_minutes: 30,
+                characters: 0,
+                date: "2026-07-20".to_string(),
+                activity_type: "Reading".to_string(),
+                notes: String::new(),
+            },
+        )
+        .unwrap();
+        let csv = "Date,Log Name,Default Activity Type,Duration,Language,Characters,Activity Type,Notes,Media Variant\n\
+                   2026-07-20,Existing,Reading,30,Japanese,0,Reading,,\n";
+        let analysis = analyze_activity_csv_from_reader(&conn, csv.as_bytes()).unwrap();
+        let content = analysis.groups[0].content.clone();
+        let result = apply_activity_import(
+            &mut conn,
+            ActivityCsvImportRequest {
+                rows: analysis.rows,
+                analyzed_groups: analysis.groups,
+                resolutions: vec![ActivityCsvConflictResolution {
+                    content,
+                    action: ActivityCsvConflictAction::ImportAll,
+                }],
+            },
+        )
+        .unwrap();
+        assert_eq!(result.imported_count, 1);
+        assert_eq!(result.skipped_count, 0);
+        assert_eq!(db::get_logs(&conn).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn test_legacy_activity_import_requires_review_for_possible_duplicates() {
+        let mut conn = setup_test_db();
+        let media_id = db::add_media_with_id(&conn, &sample_media("Existing")).unwrap();
+        db::add_log(
+            &conn,
+            &ActivityLog {
+                id: None,
+                media_id,
+                duration_minutes: 30,
+                characters: 0,
+                date: "2026-07-20".to_string(),
+                activity_type: "Reading".to_string(),
+                notes: String::new(),
+            },
+        )
+        .unwrap();
+        let csv = "Date,Log Name,Default Activity Type,Duration,Language,Characters,Activity Type,Notes,Media Variant\n\
+                   2026-07-20,Existing,Reading,30,Japanese,0,Reading,,\n";
+
+        let error = import_csv_from_reader(&mut conn, csv.as_bytes()).unwrap_err();
+
+        assert!(error.contains("explicitly resolve every conflict"));
+        assert_eq!(db::get_logs(&conn).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_activity_csv_negative_metrics_abort_before_media_or_log_writes() {
+        let conn = setup_test_db();
+        let csv = "Date,Log Name,Default Activity Type,Duration,Language,Characters,Activity Type,Notes,Media Variant\n\
+                   2026-07-20,Would Be New,Reading,30,Japanese,100,Reading,valid,\n\
+                   2026-07-21,Negative,Reading,-1,Japanese,100,Reading,invalid,\n";
+        let error = analyze_activity_csv_from_reader(&conn, csv.as_bytes()).unwrap_err();
+        assert!(error.contains("Activity duration cannot be negative"));
+        assert!(db::get_all_media(&conn).unwrap().is_empty());
+        assert!(db::get_logs(&conn).unwrap().is_empty());
+
+        let negative_characters = "Date,Log Name,Default Activity Type,Duration,Language,Characters,Activity Type,Notes,Media Variant\n\
+                                   2026-07-20,Negative Chars,Reading,30,Japanese,-1,Reading,invalid,\n";
+        let error =
+            analyze_activity_csv_from_reader(&conn, negative_characters.as_bytes()).unwrap_err();
+        assert!(error.contains("Activity character count cannot be negative"));
+    }
+
+    #[test]
+    fn test_activity_csv_rejects_conflicting_languages_for_new_media() {
+        let conn = setup_test_db();
+        let csv = "Date,Log Name,Default Activity Type,Duration,Language,Characters,Activity Type,Notes,Media Variant\n\
+                   2026-07-20,New Media,Reading,30,Japanese,0,Reading,,\n\
+                   2026-07-21,New Media,Reading,30,English,0,Reading,,\n";
+        let error = analyze_activity_csv_from_reader(&conn, csv.as_bytes()).unwrap_err();
+        assert!(error.contains("Conflicting Language values for new media"));
+        assert!(db::get_all_media(&conn).unwrap().is_empty());
+        assert!(db::get_logs(&conn).unwrap().is_empty());
     }
 
     #[test]

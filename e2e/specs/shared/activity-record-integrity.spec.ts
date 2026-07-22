@@ -7,6 +7,7 @@ import {
   logActivityFromDetail,
 } from '../../helpers/media-detail.js';
 import { setSelect } from '../../helpers/form-controls.js';
+import { waitForCurrentPieChartData } from '../../helpers/dashboard.js';
 
 describe('CUJ: Activity Record Integrity', () => {
   const title = 'Activity Integrity Novel';
@@ -38,7 +39,10 @@ describe('CUJ: Activity Record Integrity', () => {
     expect(await originalDashboardEntry.getText()).toContain('31 Minutes');
     expect(await originalDashboardEntry.getText()).toContain('of Reading');
 
-    const aggregateBefore = await $('#pieChart').getAttribute('data-values');
+    const aggregateBefore = await waitForCurrentPieChartData({
+      labels: ['Reading'],
+      values: [31],
+    });
 
     await navigateTo('media');
     await clickMediaItem(title);
@@ -47,7 +51,10 @@ describe('CUJ: Activity Record Integrity', () => {
 
     await navigateTo('dashboard');
     expect(await $(`.dashboard-activity-item[data-activity-title="${title}"]`).getText()).toContain('of Reading');
-    expect(await $('#pieChart').getAttribute('data-values')).toBe(aggregateBefore);
+    expect(await waitForCurrentPieChartData({
+      labels: ['Reading'],
+      values: [31],
+    })).toEqual(aggregateBefore);
 
     await navigateTo('media');
     await clickMediaItem(title);

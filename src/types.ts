@@ -25,6 +25,58 @@ export interface MediaConflict {
     };
 }
 
+export interface ActivityCsvRow {
+    "Date": string;
+    "Log Name": string;
+    "Default Activity Type": string;
+    "Duration": number;
+    "Language": string;
+    "Characters": number;
+    "Activity Type": string;
+    "Notes": string;
+    "Media Variant": string;
+}
+
+export interface ActivityCsvContent {
+    log_name: string;
+    media_variant: string;
+    date: string;
+    duration: number;
+    characters: number;
+    activity_type: string;
+    notes: string;
+}
+
+export interface ActivityCsvGroup {
+    content: ActivityCsvContent;
+    incoming_count: number;
+    existing_count: number;
+    media_exists: boolean;
+}
+
+export interface ActivityCsvAnalysis {
+    rows: ActivityCsvRow[];
+    groups: ActivityCsvGroup[];
+}
+
+export type ActivityCsvConflictAction = 'skip_possible_overlaps' | 'import_all';
+
+export interface ActivityCsvConflictResolution {
+    content: ActivityCsvContent;
+    action: ActivityCsvConflictAction;
+}
+
+export interface ActivityCsvImportRequest {
+    rows: ActivityCsvRow[];
+    analyzed_groups: ActivityCsvGroup[];
+    resolutions: ActivityCsvConflictResolution[];
+}
+
+export interface ActivityCsvImportResult {
+    imported_count: number;
+    skipped_count: number;
+}
+
 export interface Media {
     id?: number;
     uid?: string;
@@ -68,12 +120,198 @@ export interface DailyHeatmap {
     total_characters: number;
 }
 
-export interface LibraryActivityMetricsRow {
-    media_id: number;
-    first_activity_date: string;
-    last_activity_date: string;
+export type DashboardBucket = 'day' | 'month' | 'year';
+export type DashboardGroupBy = 'activity_type' | 'log_name';
+
+export interface DashboardSnapshotRequest {
+    request_id: number;
+    today: string;
+    heatmap_year: number;
+    recent_offset: number;
+    recent_limit: number;
+}
+
+export interface DashboardRangeRequest {
+    request_id: number;
+    start_date: string;
+    end_date: string;
+    bucket: DashboardBucket;
+    group_by: DashboardGroupBy;
+}
+
+export interface DashboardHeatmapYearRequest {
+    request_id: number;
+    year: number;
+}
+
+export interface DashboardRecentLogsRequest {
+    request_id: number;
+    offset: number;
+    limit: number;
+}
+
+export interface DashboardMedia {
+    id: number;
+    title: string;
+    variant: string;
+    default_activity_type: string;
+    status: string;
+    cover_image: string;
+    content_type: string;
+    tracking_status: string;
+}
+
+export interface DashboardNamedTotals {
+    key: string;
+    label: string;
     total_minutes: number;
     total_characters: number;
+}
+
+export interface DashboardSummary {
+    total_logs: number;
+    total_media: number;
+    logged_days: number;
+    first_activity_date: string | null;
+    last_activity_date: string | null;
+    max_streak: number;
+    current_streak: number;
+    total_minutes: number;
+    total_characters: number;
+    activity_totals: DashboardNamedTotals[];
+}
+
+export interface DashboardRecentLog {
+    id: number;
+    media_id: number;
+    title: string;
+    variant: string;
+    activity_type: string;
+    duration_minutes: number;
+    characters: number;
+    date: string;
+    language: string;
+    notes: string;
+}
+
+export interface DashboardRecentPage {
+    request_id: number;
+    offset: number;
+    limit: number;
+    total_count: number;
+    items: DashboardRecentLog[];
+}
+
+export interface DashboardChartPoint {
+    bucket: string;
+    group_key: string;
+    group_label: string;
+    total_minutes: number;
+    total_characters: number;
+}
+
+export interface DashboardBucketTotals {
+    bucket: string;
+    total_minutes: number;
+    total_characters: number;
+}
+
+export type DashboardHighlightKind =
+    | 'most_time'
+    | 'most_characters'
+    | 'most_sessions'
+    | 'biggest_day'
+    | 'biggest_streak';
+
+export interface DashboardHighlight {
+    kind: DashboardHighlightKind;
+    media: DashboardMedia | null;
+    date: string | null;
+    total_minutes: number;
+    total_characters: number;
+    sessions: number;
+    streak_days: number;
+}
+
+export interface DashboardWeekdayStats {
+    /** Sunday is 0 and Saturday is 6. */
+    weekday: number;
+    average_minutes: number;
+    median_minutes: number;
+    average_characters: number;
+    median_characters: number;
+    sample_days: number;
+}
+
+export interface DashboardWeekdayDistribution {
+    start_date: string;
+    end_date: string;
+    days: DashboardWeekdayStats[];
+}
+
+export interface DashboardRangeResponse {
+    request_id: number;
+    start_date: string;
+    end_date: string;
+    bucket: DashboardBucket;
+    group_by: DashboardGroupBy;
+    series: DashboardChartPoint[];
+    bucket_totals: DashboardBucketTotals[];
+    category_totals: DashboardNamedTotals[];
+    highlights: DashboardHighlight[];
+}
+
+export interface DashboardHeatmapYearResponse {
+    request_id: number;
+    year: number;
+    days: DailyHeatmap[];
+}
+
+export interface DashboardSettings {
+    chart_type: 'bar' | 'line';
+    group_by: DashboardGroupBy;
+    week_start_day: number;
+    migrate_legacy_group_by: boolean;
+}
+
+export interface DashboardSnapshot {
+    request_id: number;
+    settings: DashboardSettings;
+    summary: DashboardSummary;
+    quick_log_media: DashboardMedia[];
+    recent_logs: DashboardRecentPage;
+    heatmap: DashboardHeatmapYearResponse;
+    range: DashboardRangeResponse;
+    weekday_distribution: DashboardWeekdayDistribution;
+}
+
+export interface LibrarySnapshotRequest {
+    request_id: number;
+}
+
+export interface LibrarySettings {
+    hide_archived: boolean;
+    preferred_layout: 'grid' | 'list';
+    grid_zoom: number;
+    group_by_type: boolean;
+    keep_ongoing_first: boolean;
+    keep_archived_last: boolean;
+    sort_stages: string;
+}
+
+export interface LibraryActivityMetricsDto {
+    media_id: number;
+    first_activity_date: string | null;
+    last_activity_date: string | null;
+    total_minutes: number | null;
+    total_characters: number | null;
+}
+
+export interface LibrarySnapshot {
+    request_id: number;
+    settings: LibrarySettings;
+    media: Media[];
+    metrics: LibraryActivityMetricsDto[];
 }
 
 export type TimelineEventKind =
@@ -102,6 +340,34 @@ export interface TimelineEvent {
     milestoneMinutes: number;
     milestoneCharacters: number;
     sameDayTerminal: boolean;
+}
+
+export interface TimelinePageRequest {
+    request_id: number;
+    year: number | null;
+    kind: TimelineEventKind | null;
+    search_query: string;
+    offset: number;
+    limit: number;
+}
+
+export interface TimelineSummary {
+    total_minutes: number;
+    completed_titles: number;
+    total_characters: number;
+}
+
+export interface TimelinePage {
+    request_id: number;
+    offset: number;
+    limit: number;
+    total_count: number;
+    all_event_count: number;
+    has_more: boolean;
+    available_years: number[];
+    ambiguous_titles: string[];
+    summary: TimelineSummary;
+    events: TimelineEvent[];
 }
 
 export interface Milestone {

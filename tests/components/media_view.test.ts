@@ -7,8 +7,9 @@ import { MediaDetail } from '../../src/media/MediaDetail';
 import { SETTING_KEYS, CONTENT_TYPES, TRACKING_STATUSES, EVENTS } from '../../src/constants';
 
 vi.mock('../../src/api', () => ({
+    getLibrarySnapshot: vi.fn(),
     getAllMedia: vi.fn(),
-    getLibraryActivityMetrics: vi.fn(),
+    getLogs: vi.fn(),
     getLogsForMedia: vi.fn(),
     getSetting: vi.fn(),
     setSetting: vi.fn(),
@@ -25,6 +26,7 @@ vi.mock('../../src/media/MediaDetail', () => ({
     MediaDetail: vi.fn().mockImplementation(() => ({
         render: vi.fn(),
         destroy: vi.fn(),
+        updateLogs: vi.fn(() => true),
     })),
 }));
 
@@ -79,18 +81,33 @@ function stubMatchMedia(initialMatches: boolean, mode: 'modern' | 'legacy' = 'mo
 }
 
 async function renderAndWaitForBrowser(component: MediaView) {
+    component.render();
+    await component.loadData();
     await vi.waitFor(() => {
-        component.render();
         expect(MediaLibraryBrowser).toHaveBeenCalled();
     });
 }
 
 async function renderAndWaitForInitialization(component: MediaView) {
+    component.render();
+    await component.loadData();
     await vi.waitFor(() => {
-        component.render();
         // @ts-expect-error - accessing private state for assertions
         if (!component.state.isInitialized) throw new Error('Not initialized');
     });
+}
+
+function librarySettings(overrides = {}) {
+    return {
+        hide_archived: false,
+        preferred_layout: 'grid' as const,
+        grid_zoom: 100,
+        group_by_type: false,
+        keep_ongoing_first: true,
+        keep_archived_last: true,
+        sort_stages: '[]',
+        ...overrides,
+    };
 }
 
 describe('MediaView', () => {
@@ -103,7 +120,53 @@ describe('MediaView', () => {
         vi.clearAllMocks();
         matchMediaStub = stubMatchMedia(true);
         vi.mocked(api.getSetting).mockResolvedValue(null);
-        vi.mocked(api.getLibraryActivityMetrics).mockResolvedValue([]);
+        vi.mocked(api.getLogs).mockResolvedValue([]);
+        vi.mocked(api.getAllMedia).mockResolvedValue([]);
+        vi.mocked(api.getLibrarySnapshot).mockImplementation(async (request) => {
+            const [
+                media, logs, hideArchived, layout, gridZoom,
+                groupByType, keepOngoingFirst, keepArchivedLast, sortStages,
+            ] = await Promise.all([
+                api.getAllMedia(),
+                api.getLogs(),
+                api.getSetting(SETTING_KEYS.GRID_HIDE_ARCHIVED),
+                api.getSetting(SETTING_KEYS.LIBRARY_LAYOUT_MODE),
+                api.getSetting(SETTING_KEYS.LIBRARY_GRID_ZOOM),
+                api.getSetting(SETTING_KEYS.LIBRARY_GROUP_BY_TYPE),
+                api.getSetting(SETTING_KEYS.LIBRARY_KEEP_ONGOING_FIRST),
+                api.getSetting(SETTING_KEYS.LIBRARY_KEEP_ARCHIVED_LAST),
+                api.getSetting(SETTING_KEYS.LIBRARY_SORT_STAGES),
+            ]);
+            const metrics = Array.from(logs.reduce((byMedia, log) => {
+                const value = byMedia.get(log.media_id) ?? {
+                    media_id: log.media_id,
+                    first_activity_date: log.date,
+                    last_activity_date: log.date,
+                    total_minutes: 0,
+                    total_characters: 0,
+                };
+                value.first_activity_date = value.first_activity_date < log.date ? value.first_activity_date : log.date;
+                value.last_activity_date = value.last_activity_date > log.date ? value.last_activity_date : log.date;
+                value.total_minutes += log.duration_minutes;
+                value.total_characters += log.characters;
+                byMedia.set(log.media_id, value);
+                return byMedia;
+            }, new Map<number, { media_id: number; first_activity_date: string; last_activity_date: string; total_minutes: number; total_characters: number }>()).values());
+            return {
+                request_id: request.request_id,
+                media,
+                metrics,
+                settings: {
+                    hide_archived: hideArchived === 'true',
+                    preferred_layout: layout === 'list' ? 'list' : 'grid',
+                    grid_zoom: Number.isFinite(Number(gridZoom)) ? Number(gridZoom) : 100,
+                    group_by_type: groupByType === 'true',
+                    keep_ongoing_first: keepOngoingFirst !== 'false',
+                    keep_archived_last: keepArchivedLast !== 'false',
+                    sort_stages: sortStages ?? '[]',
+                },
+            };
+        });
     });
 
     afterEach(() => {
@@ -132,6 +195,108 @@ describe('MediaView', () => {
             gridZoom: 80,
             isGridSupported: true,
         }));
+    });
+
+    it('renders one staged loading shell before committing the initial snapshot', async () => {
+        let resolveSnapshot!: (value: Awaited<ReturnType<typeof api.getLibrarySnapshot>>) => void;
+        vi.mocked(api.getLibrarySnapshot).mockImplementationOnce((request) => new Promise(resolve => {
+            resolveSnapshot = (value) => resolve({ ...value, request_id: request.request_id });
+        }));
+        const component = new MediaView(container);
+        const renderSpy = vi.spyOn(component, 'render');
+
+        component.render();
+        const load = component.loadData();
+        await vi.waitFor(() => expect(api.getLibrarySnapshot).toHaveBeenCalledTimes(1));
+
+        expect(renderSpy).toHaveBeenCalledTimes(1);
+        expect(container.querySelector('#media-root')).not.toBeNull();
+
+        resolveSnapshot({
+            request_id: 0,
+            media: [],
+            metrics: [],
+            settings: librarySettings(),
+        });
+        await load;
+
+        expect(renderSpy).toHaveBeenCalledTimes(2);
+        expect(MediaLibraryBrowser).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the mounted library browser when a refreshed snapshot is unchanged', async () => {
+        const mockMedia = [{
+            id: 1,
+            title: 'Cached Grid Item',
+            status: 'Active',
+            content_type: 'Anime',
+            tracking_status: 'Ongoing',
+        }] as unknown as Media[];
+        vi.mocked(api.getAllMedia).mockResolvedValue(mockMedia);
+        const component = new MediaView(container);
+        await renderAndWaitForBrowser(component);
+
+        const initialRoot = container.querySelector('#media-root');
+        expect(initialRoot?.getAttribute('data-library-request-id')).toBe('1');
+
+        await component.loadData();
+
+        expect(api.getLibrarySnapshot).toHaveBeenCalledTimes(2);
+        expect(MediaLibraryBrowser).toHaveBeenCalledTimes(1);
+        expect(container.querySelector('#media-root')).toBe(initialRoot);
+        expect(initialRoot?.getAttribute('data-library-request-id')).toBe('2');
+    });
+
+    it('includes active filters in reuse checks and rebuilds only when snapshot data changes', async () => {
+        const mockMedia = [{
+            id: 1,
+            title: 'Filtered Grid Item',
+            status: 'Active',
+            content_type: 'Anime',
+            tracking_status: 'Ongoing',
+        }] as unknown as Media[];
+        vi.mocked(api.getAllMedia).mockResolvedValue(mockMedia);
+        const component = new MediaView(container);
+        await renderAndWaitForBrowser(component);
+
+        const onFilterChange = vi.mocked(MediaLibraryBrowser).mock.calls[0][4];
+        onFilterChange({
+            searchQuery: 'Filtered',
+            typeFilters: ['Anime'],
+            statusFilters: ['Ongoing'],
+            hideArchived: true,
+        });
+
+        await component.loadData();
+        expect(MediaLibraryBrowser).toHaveBeenCalledTimes(1);
+
+        vi.mocked(api.getAllMedia).mockResolvedValue([{
+            ...mockMedia[0],
+            title: 'Filtered Grid Item Updated',
+        }]);
+        await component.loadData();
+
+        expect(MediaLibraryBrowser).toHaveBeenCalledTimes(2);
+        expect(vi.mocked(MediaLibraryBrowser).mock.calls.at(-1)?.[1]).toEqual(expect.objectContaining({
+            searchQuery: 'Filtered',
+            typeFilters: ['Anime'],
+            statusFilters: ['Ongoing'],
+            hideArchived: true,
+        }));
+    });
+
+    it('uses the default grid zoom when the persisted value is malformed', async () => {
+        vi.mocked(api.getAllMedia).mockResolvedValue([]);
+        vi.mocked(api.getSetting).mockImplementation(async (key: string) => {
+            if (key === SETTING_KEYS.LIBRARY_GRID_ZOOM) return 'not-a-number';
+            return null;
+        });
+
+        const component = new MediaView(container);
+        await renderAndWaitForBrowser(component);
+
+        const browserProps = vi.mocked(MediaLibraryBrowser).mock.calls[0][1];
+        expect(browserProps).toEqual(expect.objectContaining({ gridZoom: 100 }));
     });
 
     it('loads persisted sort stages, switches, and enum orders, dropping stale entries on load', async () => {
@@ -553,7 +718,7 @@ describe('MediaView', () => {
         expect(component.state.preferredLayout).toBe('list');
     });
 
-    it('awaits metrics before first paint in grid layout when the persisted sort needs them', async () => {
+    it('provides list metrics on the first browser render in grid layout', async () => {
         const mockMedia = [
             { id: 1, title: 'Low', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing', extra_data: '{}' },
             { id: 2, title: 'High', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing', extra_data: '{}' },
@@ -565,16 +730,16 @@ describe('MediaView', () => {
             }
             return null;
         });
-        vi.mocked(api.getLibraryActivityMetrics).mockResolvedValue([
-            { media_id: 1, first_activity_date: '2026-01-01', last_activity_date: '2026-01-01', total_minutes: 10, total_characters: 0 },
-            { media_id: 2, first_activity_date: '2026-01-01', last_activity_date: '2026-01-01', total_minutes: 90, total_characters: 0 },
-        ]);
+        vi.mocked(api.getLogs).mockResolvedValue([
+            { media_id: 1, date: '2026-01-01', duration_minutes: 10, characters: 0 },
+            { media_id: 2, date: '2026-01-01', duration_minutes: 90, characters: 0 },
+        ] as unknown as api.ActivitySummary[]);
 
         const component = new MediaView(container);
         await renderAndWaitForBrowser(component);
 
-        // Grid is the default layout here; metrics must already be resolved on the very first
-        // browser render, not just eventually via a background setState.
+        // Grid is the default layout here; metrics must be present on the very first browser
+        // render, or a metrics-backed sort silently ranks everything "missing".
         expect(vi.mocked(MediaLibraryBrowser).mock.calls[0][1]).toEqual(expect.objectContaining({
             preferredLayout: 'grid',
             isListMetricsLoading: false,
@@ -583,37 +748,6 @@ describe('MediaView', () => {
                 2: expect.objectContaining({ totalMinutes: 90 }),
             }),
         }));
-    });
-
-    it('does not block first paint on metrics when the persisted sort does not need them', async () => {
-        const mockMedia = [{ id: 1, title: 'Alpha', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' }];
-        vi.mocked(api.getAllMedia).mockResolvedValue(mockMedia as unknown as Media[]);
-        let resolveMetrics: (rows: unknown) => void = () => {};
-        vi.mocked(api.getLibraryActivityMetrics).mockImplementation(() => new Promise((resolve) => {
-            resolveMetrics = resolve;
-        }));
-
-        const component = new MediaView(container);
-        await renderAndWaitForBrowser(component);
-
-        expect(vi.mocked(MediaLibraryBrowser).mock.calls[0][1]).toEqual(expect.objectContaining({
-            listMetricsByMediaId: {},
-            isListMetricsLoading: true,
-        }));
-
-        resolveMetrics([
-            { media_id: 1, first_activity_date: '2026-01-01', last_activity_date: '2026-01-01', total_minutes: 20, total_characters: 400 },
-        ]);
-
-        await vi.waitFor(() => {
-            const latestProps = vi.mocked(MediaLibraryBrowser).mock.calls.at(-1)?.[1];
-            expect(latestProps).toEqual(expect.objectContaining({
-                isListMetricsLoading: false,
-                listMetricsByMediaId: expect.objectContaining({
-                    1: expect.objectContaining({ totalMinutes: 20, totalCharacters: 400 }),
-                }),
-            }));
-        });
     });
 
     it('stores the grid zoom when the user changes the cover size', async () => {
@@ -629,86 +763,71 @@ describe('MediaView', () => {
         expect(component.state.gridZoom).toBe(70);
     });
 
-    it('loads list metrics after switching from grid to list and aggregates first/last dates', async () => {
-        vi.mocked(api.getAllMedia).mockResolvedValue([{ id: 7, title: 'Switched Item' }] as unknown as Media[]);
-        vi.mocked(api.getLibraryActivityMetrics).mockResolvedValue([
-            {
+    it('uses list metrics from the initial atomic library snapshot', async () => {
+        vi.mocked(api.getLibrarySnapshot).mockResolvedValue({
+            request_id: 1,
+            media: [{ id: 7, title: 'Switched Item' }] as unknown as Media[],
+            metrics: [{
                 media_id: 7,
                 first_activity_date: '2026-03-01',
                 last_activity_date: '2026-03-18',
                 total_minutes: 115,
                 total_characters: 8000,
-            },
-        ]);
+            }],
+            settings: librarySettings({ preferred_layout: 'list' }),
+        });
 
         const component = new MediaView(container);
         await renderAndWaitForBrowser(component);
 
-        const onLayoutChange = vi.mocked(MediaLibraryBrowser).mock.calls[0][5];
-        onLayoutChange('list');
-
-        await vi.waitFor(() => expect(api.getLibraryActivityMetrics).toHaveBeenCalledTimes(1));
-        await vi.waitFor(() => {
-            const browserProps = vi.mocked(MediaLibraryBrowser).mock.calls.at(-1)?.[1];
-            expect(browserProps).toEqual(expect.objectContaining({
-                preferredLayout: 'list',
-                isListMetricsLoading: false,
-                listMetricsByMediaId: expect.objectContaining({
-                    7: expect.objectContaining({
-                        firstActivityDate: '2026-03-01',
-                        lastActivityDate: '2026-03-18',
-                        totalMinutes: 115,
-                        totalCharacters: 8000,
-                    }),
+        const browserProps = vi.mocked(MediaLibraryBrowser).mock.calls.at(-1)?.[1];
+        expect(browserProps).toEqual(expect.objectContaining({
+            preferredLayout: 'list',
+            isListMetricsLoading: false,
+            listMetricsByMediaId: expect.objectContaining({
+                7: expect.objectContaining({
+                    firstActivityDate: '2026-03-01',
+                    lastActivityDate: '2026-03-18',
+                    totalMinutes: 115,
+                    totalCharacters: 8000,
                 }),
-            }));
-        });
+            }),
+        }));
+        expect(api.getLibrarySnapshot).toHaveBeenCalledTimes(1);
     });
 
-    it('falls back to empty metrics when list metric loading fails', async () => {
-        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-        vi.mocked(api.getAllMedia).mockResolvedValue([{ id: 1, title: 'Failure Case' }] as unknown as Media[]);
-        vi.mocked(api.getSetting).mockImplementation(async (key: string) => {
-            if (key === SETTING_KEYS.LIBRARY_LAYOUT_MODE) return 'list';
-            return null;
+    it('renders list media reliably when a snapshot has no activity metrics', async () => {
+        vi.mocked(api.getLibrarySnapshot).mockResolvedValue({
+            request_id: 1,
+            media: [{ id: 1, title: 'No Logs' }] as unknown as Media[],
+            metrics: [],
+            settings: librarySettings({ preferred_layout: 'list' }),
         });
-        vi.mocked(api.getLibraryActivityMetrics).mockRejectedValue(new Error('metrics failed'));
+
 
         const component = new MediaView(container);
         await renderAndWaitForBrowser(component);
 
-        await vi.waitFor(() => {
-            const browserProps = vi.mocked(MediaLibraryBrowser).mock.calls.at(-1)?.[1];
-            expect(browserProps).toEqual(expect.objectContaining({
-                isListMetricsLoading: false,
-                listMetricsByMediaId: {},
-            }));
-        });
-        expect(errorSpy).toHaveBeenCalledWith('Failed to load list activity metrics', expect.any(Error));
-        errorSpy.mockRestore();
+        expect(vi.mocked(MediaLibraryBrowser).mock.calls.at(-1)?.[1]).toEqual(expect.objectContaining({
+            isListMetricsLoading: false,
+            listMetricsByMediaId: {},
+        }));
     });
 
     it('forces list mode on small windows without rewriting the saved grid preference', async () => {
         matchMediaStub = stubMatchMedia(false);
         vi.mocked(api.getAllMedia).mockResolvedValue([{ id: 1, title: 'Compact' }] as unknown as Media[]);
-        vi.mocked(api.getLibraryActivityMetrics).mockResolvedValue([{
-            media_id: 1,
-            first_activity_date: '2026-03-01',
-            last_activity_date: '2026-03-01',
-            total_minutes: 30,
-            total_characters: 1500,
-        }]);
+        vi.mocked(api.getLogs).mockResolvedValue([
+            { media_id: 1, date: '2026-03-01', duration_minutes: 30, characters: 1500 },
+        ] as unknown as api.ActivitySummary[]);
         vi.mocked(api.getSetting).mockImplementation(async (key: string) => {
             if (key === SETTING_KEYS.LIBRARY_LAYOUT_MODE) return 'grid';
             return null;
         });
 
         const component = new MediaView(container);
-        await vi.waitFor(() => {
-            component.render();
-            expect(MediaLibraryBrowser).toHaveBeenCalled();
-            expect(api.getLibraryActivityMetrics).toHaveBeenCalled();
-        });
+        await renderAndWaitForBrowser(component);
+        expect(api.getLogs).toHaveBeenCalled();
 
         const browserProps = vi.mocked(MediaLibraryBrowser).mock.calls.at(-1)?.[1];
         expect(browserProps).toEqual(expect.objectContaining({
@@ -765,6 +884,40 @@ describe('MediaView', () => {
         expect(component.state.currentIndex).toBe(1);
         const detailProps = vi.mocked(MediaDetail).mock.calls.at(-1);
         expect((detailProps?.[3] as Media[]).map((media) => media.id)).toEqual([10, 20]);
+    });
+
+    it('rejects an older library snapshot after a newer jump request completes', async () => {
+        let resolveFirst!: (value: Awaited<ReturnType<typeof api.getLibrarySnapshot>>) => void;
+        const firstSnapshot = new Promise<Awaited<ReturnType<typeof api.getLibrarySnapshot>>>(resolve => {
+            resolveFirst = resolve;
+        });
+        vi.mocked(api.getLibrarySnapshot)
+            .mockImplementationOnce(() => firstSnapshot)
+            .mockImplementationOnce(async request => ({
+                request_id: request.request_id,
+                media: [{ id: 20, title: 'Newest' }] as unknown as Media[],
+                metrics: [],
+                settings: librarySettings(),
+            }));
+        vi.mocked(api.getLogsForMedia).mockResolvedValue([]);
+        const component = new MediaView(container);
+
+        const oldLoad = component.loadData();
+        await vi.waitFor(() => expect(api.getLibrarySnapshot).toHaveBeenCalledTimes(1));
+        await component.jumpToMedia(20);
+        const oldRequest = vi.mocked(api.getLibrarySnapshot).mock.calls[0][0];
+        resolveFirst({
+            request_id: oldRequest.request_id,
+            media: [{ id: 10, title: 'Stale' }] as unknown as Media[],
+            metrics: [],
+            settings: librarySettings({ hide_archived: true, preferred_layout: 'list', grid_zoom: 70 }),
+        });
+        await oldLoad;
+
+        // @ts-expect-error - accessing private state for stale-response verification
+        expect(component.state.libraryMediaList.map((media: Media) => media.title)).toEqual(['Newest']);
+        // @ts-expect-error - accessing private state for stale-response verification
+        expect(component.state.viewMode).toBe('detail');
     });
 
     it('logs load-data failures and clears the loading state', async () => {

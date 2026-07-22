@@ -22,6 +22,16 @@ describe('CUJ: Manual Cover Management', () => {
     await waitForAppReady();
   });
 
+  async function waitForDecodedImage(selector: string, failureMessage: string): Promise<void> {
+    await browser.waitUntil(async () => browser.execute((imageSelector) => {
+      const image = document.querySelector<HTMLImageElement>(imageSelector);
+      return Boolean(image?.complete && image.naturalWidth > 0);
+    }, selector), {
+      timeout: 10000,
+      timeoutMsg: failureMessage,
+    });
+  }
+
   it('uploads and reloads a cover across media, Quick Log, and Timeline', async () => {
     await navigateTo('media');
     await addMedia(title, 'Reading', 'Manga');
@@ -35,7 +45,24 @@ describe('CUJ: Manual Cover Management', () => {
     await gridImage.waitForDisplayed({ timeout: 10000 });
 
     await navigateTo('dashboard');
-    await $(`.quick-log-item[data-quick-log-title="${title}"] img`).waitForDisplayed({ timeout: 10000 });
+    const quickLogCoverSelector = `.quick-log-item[data-quick-log-title="${title}"] img`;
+    await waitForDecodedImage(quickLogCoverSelector, 'Quick Log cover did not decode on the dashboard');
+
+    // The app keeps dashboard components mounted while the library is active.
+    // Replacing a cover clears the shared object-URL cache, which used to leave
+    // Quick Log holding a revoked URL. Exercise the reported resize/maximize
+    // navigation path before returning to the retained dashboard.
+    await navigateTo('media');
+    await clickMediaItem(title);
+    await uploadCoverImage(fixture);
+    await backToGrid();
+    await browser.setWindowSize(900, 800);
+    await browser.maximizeWindow();
+    await navigateTo('dashboard');
+    await waitForDecodedImage(
+      quickLogCoverSelector,
+      'Quick Log cover became a broken image after resizing the library and returning to the dashboard',
+    );
 
     await openTimeline();
     await searchTimeline(title);

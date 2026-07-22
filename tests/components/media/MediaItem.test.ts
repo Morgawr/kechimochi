@@ -46,17 +46,18 @@ describe('MediaItem', () => {
 
         const media = { title: 'T', cover_image: '/path/to/img.jpg', status: 'Active' };
         const component = new MediaItem(container, media as unknown as Media, vi.fn());
+        component.render();
         
         // Simulate intersection
         triggerLatestIntersection();
         
         // @ts-expect-error - accessing private state
         await vi.waitUntil(() => component.state.imgSrc === 'blob:abc');
-        component.render();
 
         const img = container.querySelector('img');
         expect(img).not.toBeNull();
         expect(img?.src).toBe('blob:abc');
+        expect(img?.classList.contains('progressive-cover-image')).toBe(true);
         expect(disconnect).toHaveBeenCalled();
     });
 
@@ -72,6 +73,21 @@ describe('MediaItem', () => {
         await vi.waitUntil(() => component.state.imgSrc === 'https://covers.example/test.jpg');
         expect(mockServices.loadCoverImage).toHaveBeenCalledWith('/path/to/web.jpg');
         expect(api.readFileBytes).not.toHaveBeenCalled();
+    });
+
+    it('should load eager covers without waiting for an intersection', async () => {
+        vi.mocked(api.readFileBytes).mockResolvedValue([1, 2, 3]);
+        globalThis.URL.createObjectURL = vi.fn(() => 'blob:eager');
+
+        const media = { title: 'Eager', cover_image: '/path/to/eager.jpg', status: 'Active' };
+        const component = new MediaItem(container, media as unknown as Media, vi.fn(), undefined, true);
+        component.render();
+
+        // @ts-expect-error - accessing private state
+        await vi.waitUntil(() => component.state.imgSrc === 'blob:eager');
+
+        expect(api.readFileBytes).toHaveBeenCalledWith('/path/to/eager.jpg');
+        expect(container.querySelector('img')?.getAttribute('src')).toBe('blob:eager');
     });
 
     it('should reuse cached cover images without reading bytes again', async () => {
@@ -108,6 +124,30 @@ describe('MediaItem', () => {
         expect(component.state.imgSrc).toBeNull();
 
         consoleSpy.mockRestore();
+    });
+
+    it('should not commit a cover that resolves after the item is destroyed', async () => {
+        let resolveBytes: (bytes: number[]) => void = (_bytes: number[]) => undefined;
+        vi.mocked(api.readFileBytes).mockReturnValue(new Promise(resolve => {
+            resolveBytes = resolve;
+        }));
+        const createObjectUrl = vi.fn(() => 'blob:late');
+        globalThis.URL.createObjectURL = createObjectUrl;
+
+        const media = { title: 'Removed', cover_image: '/path/to/late.jpg', status: 'Active' };
+        const component = new MediaItem(container, media as unknown as Media, vi.fn());
+        component.render();
+        triggerLatestIntersection();
+        await vi.waitFor(() => expect(api.readFileBytes).toHaveBeenCalledWith('/path/to/late.jpg'));
+
+        component.destroy();
+        resolveBytes([1, 2, 3]);
+        await vi.waitFor(() => expect(createObjectUrl).toHaveBeenCalledOnce());
+        await new Promise(resolve => setTimeout(resolve, 0));
+
+        // @ts-expect-error - accessing private state
+        expect(component.state.imgSrc).toBeNull();
+        expect(container.querySelector('img')).toBeNull();
     });
 
     it('should render status LED for tracked media', () => {

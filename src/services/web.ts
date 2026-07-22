@@ -12,10 +12,24 @@ import type {
     ActivityLog,
     ActivitySummary,
     DailyHeatmap,
-    LibraryActivityMetricsRow,
+    DashboardHeatmapYearRequest,
+    DashboardHeatmapYearResponse,
+    DashboardRangeRequest,
+    DashboardRangeResponse,
+    DashboardRecentLogsRequest,
+    DashboardRecentPage,
+    DashboardSnapshot,
+    DashboardSnapshotRequest,
+    LibrarySnapshot,
+    LibrarySnapshotRequest,
     TimelineEvent,
+    TimelinePage,
+    TimelinePageRequest,
     MediaCsvRow,
     MediaConflict,
+    ActivityCsvAnalysis,
+    ActivityCsvImportRequest,
+    ActivityCsvImportResult,
     Milestone,
     ProfilePicture,
     LocalHttpApiConfig,
@@ -31,6 +45,7 @@ import type {
 } from '../types';
 import { getBuildVersion } from '../app_version';
 import { getMockExternalJsonResponse } from './external_mocks';
+import { logPerformance, performanceNow } from '../performance';
 
 const API_BASE: string = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -65,6 +80,46 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
         body: body === undefined ? undefined : JSON.stringify(body),
     });
     return parseJsonResponse<T>(res);
+}
+
+async function postMeasured<T>(path: string, body: unknown, operation: string): Promise<T> {
+    const started = performanceNow();
+    let responseHeadersAt = started;
+    try {
+        const res = await fetch(apiUrl(path), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        responseHeadersAt = performanceNow();
+        if (!res.ok) throw new Error(await res.text());
+
+        const contentType = res.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+            const bodyText = await res.text();
+            const hint = bodyText.startsWith('<!DOCTYPE') || bodyText.startsWith('<html')
+                ? 'Received HTML instead of JSON. Start the Rust web server and configure Vite to proxy /api to it.'
+                : `Unexpected response type: ${contentType || 'unknown'}`;
+            throw new Error(hint);
+        }
+
+        const responseText = await res.text();
+        const parsed = JSON.parse(responseText) as T;
+        const completedAt = performanceNow();
+        logPerformance('fetch', operation, completedAt - started, {
+            headers_ms: Number((responseHeadersAt - started).toFixed(3)),
+            body_and_parse_ms: Number((completedAt - responseHeadersAt).toFixed(3)),
+            response_bytes: new TextEncoder().encode(responseText).byteLength,
+            outcome: 'success',
+        });
+        return parsed;
+    } catch (error) {
+        logPerformance('fetch', operation, performanceNow() - started, {
+            headers_ms: Number((responseHeadersAt - started).toFixed(3)),
+            outcome: 'error',
+        });
+        throw error;
+    }
 }
 
 async function put<T>(path: string, body: unknown): Promise<T> {
@@ -137,9 +192,26 @@ export class WebServices implements AppServices {
     deleteLog(id: number):                  Promise<void>             { return del(`/logs/${id}`); }
     getLogs():                              Promise<ActivitySummary[]> { return get('/logs'); }
     getHeatmap():                           Promise<DailyHeatmap[]>   { return get('/logs/heatmap'); }
-    getLibraryActivityMetrics():            Promise<LibraryActivityMetricsRow[]> { return get('/logs/library-metrics'); }
+    getDashboardSnapshot(request: DashboardSnapshotRequest): Promise<DashboardSnapshot> {
+        return postMeasured('/dashboard/snapshot', request, 'dashboard_snapshot');
+    }
+    getDashboardRange(request: DashboardRangeRequest): Promise<DashboardRangeResponse> {
+        return postMeasured('/dashboard/range', request, 'dashboard_range');
+    }
+    getDashboardHeatmapYear(request: DashboardHeatmapYearRequest): Promise<DashboardHeatmapYearResponse> {
+        return postMeasured('/dashboard/heatmap-year', request, 'dashboard_heatmap_year');
+    }
+    getDashboardRecentLogs(request: DashboardRecentLogsRequest): Promise<DashboardRecentPage> {
+        return postMeasured('/dashboard/recent-logs', request, 'dashboard_recent_logs');
+    }
+    getLibrarySnapshot(request: LibrarySnapshotRequest): Promise<LibrarySnapshot> {
+        return postMeasured('/library/snapshot', request, 'library_snapshot');
+    }
     getLogsForMedia(mediaId: number):       Promise<ActivitySummary[]> { return get(`/logs/media/${mediaId}`); }
     getTimelineEvents():                    Promise<TimelineEvent[]>  { return get('/timeline'); }
+    getTimelinePage(request: TimelinePageRequest): Promise<TimelinePage> {
+        return postMeasured('/timeline/page', request, 'timeline_page');
+    }
 
     initializeUserDb(fallbackUsername?: string):Promise<void>            { return post('/profiles/initialize', { fallback_username: fallbackUsername }); }
     clearActivities():                       Promise<void>             { return post('/activities/clear'); }
@@ -193,15 +265,18 @@ export class WebServices implements AppServices {
     }
 
     // ── File-based operations ─────────────────────────────────────────────────
-    async pickAndImportActivities(): Promise<number | null> {
+    async analyzeActivitiesCsvFromPick(): Promise<ActivityCsvAnalysis | null> {
         const file = await pickFile('.csv');
         if (!file) return null;
         const form = new FormData();
         form.append('file', file);
-        const res = await fetch(apiUrl('/import/activities'), { method: 'POST', body: form });
+        const res = await fetch(apiUrl('/import/activities/analyze'), { method: 'POST', body: form });
         if (!res.ok) throw new Error(await res.text());
-        const { count } = await res.json();
-        return count as number;
+        return res.json();
+    }
+
+    applyActivityImport(request: ActivityCsvImportRequest): Promise<ActivityCsvImportResult> {
+        return post('/import/activities/apply', request);
     }
 
     async exportActivities(startDate?: string, endDate?: string): Promise<number | null> {
