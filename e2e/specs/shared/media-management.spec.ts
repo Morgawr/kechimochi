@@ -3,7 +3,7 @@ import { navigateTo, verifyActiveView } from '../../helpers/navigation.js';
 import { confirmAction, safeClick, waitForSelectorDisplayed } from '../../helpers/common.js';
 import { setSelect } from '../../helpers/form-controls.js';
 import { addMedia, clickMediaItem, isMediaVisible, getActiveMediaItemSelector } from '../../helpers/library.js';
-import { logActivity } from '../../helpers/dashboard.js';
+import { clickRecentActivityMediaLink, logActivity } from '../../helpers/dashboard.js';
 import {
   addExtraField,
   backToGrid,
@@ -184,16 +184,7 @@ describe('Media Management CUJs', () => {
       await logActivity('Cyberpunk 2077', '30');
 
       await navigateTo('dashboard');
-
-      const mediaLink = $('.dashboard-media-link');
-      await mediaLink.waitForDisplayed({ timeout: 5000 });
-      await mediaLink.scrollIntoView();
-      await mediaLink.waitForClickable({ timeout: 2000 });
-
-      const linkText = await mediaLink.getText();
-      expect(linkText).toBe('Cyberpunk 2077');
-
-      await mediaLink.click();
+      await clickRecentActivityMediaLink('Cyberpunk 2077');
 
       await browser.waitUntil(async () => {
         const el = $('#media-title');

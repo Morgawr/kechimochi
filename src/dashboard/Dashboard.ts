@@ -109,6 +109,7 @@ export class Dashboard extends Component<DashboardState> {
         const generation = ++this.dataGeneration;
         const requestId = this.nextRequestId();
         this.activeSnapshotRequest = requestId;
+        this.setRenderRequestMarker('dashboardRequestId', requestId);
         // Invalidate section requests issued against the previous snapshot.
         this.activeRangeRequest = requestId;
         this.activeHeatmapRequest = requestId;
@@ -153,6 +154,7 @@ export class Dashboard extends Component<DashboardState> {
                 this.updateQuickLog();
                 this.updateRecentLogs();
             });
+            this.setRenderRequestMarker('dashboardPrimaryRequestId', requestId);
             this.stageVisualizations(generation, requestId);
 
             if (snapshot.settings.migrate_legacy_group_by) {
@@ -220,6 +222,7 @@ export class Dashboard extends Component<DashboardState> {
         this.onNextFrame(() => {
             if (!this.isCurrentSnapshot(generation, snapshotRequestId)) return;
             measureSynchronous('render', 'dashboard_heatmap_stage', () => this.updateHeatmap());
+            this.setRenderRequestMarker('dashboardHeatmapRequestId', snapshotRequestId);
             this.onNextFrame(() => {
                 if (!this.isCurrentSnapshot(generation, snapshotRequestId)) return;
                 measureSynchronous('render', 'dashboard_visualization_stage', () => {
@@ -673,6 +676,14 @@ export class Dashboard extends Component<DashboardState> {
 
     private isCurrentSnapshot(generation: number, requestId: number): boolean {
         return generation === this.dataGeneration && requestId === this.activeSnapshotRequest;
+    }
+
+    private setRenderRequestMarker(
+        marker: 'dashboardRequestId' | 'dashboardPrimaryRequestId' | 'dashboardHeatmapRequestId',
+        requestId: number,
+    ): void {
+        const root = this.container.querySelector<HTMLElement>('.dashboard-root');
+        if (root) root.dataset[marker] = requestId.toString();
     }
 
     private getLocalISODate(date: Date): string {

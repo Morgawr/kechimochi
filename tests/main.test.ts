@@ -444,7 +444,7 @@ describe('main.ts initialization', () => {
         
         const mediaLink = document.querySelector('[data-view="media"]');
         await vi.waitFor(() => expect(mediaLink?.classList.contains('active')).toBe(true));
-        await vi.waitFor(() => expect(vi.mocked(api.getLibrarySnapshot).mock.calls.length).toBe(
+        await vi.waitFor(() => expect(vi.mocked(api.getLibrarySnapshot).mock.calls).toHaveLength(
             snapshotsBeforeNavigation + 1,
         ));
     });

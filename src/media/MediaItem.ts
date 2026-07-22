@@ -1,19 +1,14 @@
-import { Component } from '../component';
 import { html } from '../html';
 import { Media } from '../api';
-import { MediaCoverLoader } from './cover_loader';
-import { CoverVisibilityController } from './cover_visibility';
+import type { CoverVisibilityController } from './cover_visibility';
+import { MEDIA_GRID_COVER, ProgressiveCoverComponent } from './progressive_cover';
 
 interface MediaItemState {
     media: Media;
     imgSrc: string | null;
 }
 
-export class MediaItem extends Component<MediaItemState> {
-    private readonly ownVisibilityController: CoverVisibilityController | null;
-    private readonly stopObserving: () => void;
-    private isDestroyed = false;
-
+export class MediaItem extends ProgressiveCoverComponent<MediaItemState> {
     constructor(
         container: HTMLElement,
         media: Media,
@@ -23,59 +18,9 @@ export class MediaItem extends Component<MediaItemState> {
     ) {
         super(container, {
             media,
-            imgSrc: media.cover_image ? MediaCoverLoader.getCached(media.cover_image) : null,
-        });
+            imgSrc: null,
+        }, MEDIA_GRID_COVER, visibilityController, eager);
         this.container.addEventListener('click', onClick);
-        const visibility = visibilityController ?? new CoverVisibilityController('240px 0px');
-        this.ownVisibilityController = visibilityController ? null : visibility;
-        const task = () => {
-            this.loadImage().catch(() => undefined);
-        };
-        if (!media.cover_image || this.state.imgSrc) {
-            this.stopObserving = () => undefined;
-        } else if (eager) {
-            visibility.loadNow(this.container, task);
-            this.stopObserving = () => undefined;
-        } else {
-            this.stopObserving = visibility.observe(this.container, task);
-        }
-    }
-
-    private async loadImage() {
-        const { cover_image } = this.state.media;
-        if (!cover_image || cover_image.trim() === '') return;
-
-        const src = await MediaCoverLoader.load(cover_image);
-        if (!src || this.isDestroyed) return;
-        this.state.imgSrc = src;
-        this.commitImage(src);
-    }
-
-    private commitImage(src: string): void {
-        const existing = this.container.querySelector<HTMLImageElement>('img.media-grid-cover-image');
-        if (existing) {
-            if (existing.src !== src) existing.src = src;
-            return;
-        }
-
-        const placeholder = this.container.querySelector<HTMLElement>('.image-placeholder');
-        if (!placeholder) return;
-        const image = document.createElement('img');
-        image.className = 'media-grid-cover-image progressive-cover-image';
-        image.alt = this.state.media.title;
-        image.loading = 'lazy';
-        image.decoding = 'async';
-        image.addEventListener('load', () => image.classList.add('is-loaded'), { once: true });
-        image.src = src;
-        placeholder.replaceWith(image);
-        if (image.complete) requestAnimationFrame(() => image.classList.add('is-loaded'));
-    }
-
-    public override destroy(): void {
-        this.isDestroyed = true;
-        this.stopObserving();
-        this.ownVisibilityController?.disconnect();
-        super.destroy();
     }
 
     private getTrackingStatusClass(status: string): string {

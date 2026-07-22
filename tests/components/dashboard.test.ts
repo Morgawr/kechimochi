@@ -204,6 +204,10 @@ describe('Dashboard', () => {
         await load;
 
         expect(api.getDashboardSnapshot).toHaveBeenCalledTimes(1);
+        const root = container.querySelector<HTMLElement>('.dashboard-root');
+        expect(root?.dataset.dashboardRequestId).toBe(request.request_id.toString());
+        expect(root?.dataset.dashboardPrimaryRequestId).toBe(request.request_id.toString());
+        expect(root?.dataset.dashboardHeatmapRequestId).toBe(request.request_id.toString());
         // @ts-expect-error state is intentionally inspected as component contract coverage
         expect(dashboard.state.isInitialized).toBe(true);
         expect(ActivityCharts).toHaveBeenCalledTimes(1);

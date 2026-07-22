@@ -1,10 +1,9 @@
-import { Component } from '../component';
 import { html, escapeHTML, rawHtml } from '../html';
 import { Media } from '../api';
 import { formatHhMm } from '../time';
-import { MediaCoverLoader } from './cover_loader';
 import type { LibraryActivityMetrics } from './library_types';
-import { CoverVisibilityController } from './cover_visibility';
+import type { CoverVisibilityController } from './cover_visibility';
+import { MEDIA_LIST_COVER, ProgressiveCoverComponent } from './progressive_cover';
 
 interface MediaListItemState {
     media: Media;
@@ -13,11 +12,7 @@ interface MediaListItemState {
     isMetricsLoading: boolean;
 }
 
-export class MediaListItem extends Component<MediaListItemState> {
-    private readonly ownVisibilityController: CoverVisibilityController | null;
-    private readonly stopObserving: () => void;
-    private isDestroyed = false;
-
+export class MediaListItem extends ProgressiveCoverComponent<MediaListItemState> {
     constructor(
         container: HTMLElement,
         media: Media,
@@ -30,60 +25,10 @@ export class MediaListItem extends Component<MediaListItemState> {
         super(container, {
             media,
             metrics,
-            imgSrc: media.cover_image ? MediaCoverLoader.getCached(media.cover_image) : null,
+            imgSrc: null,
             isMetricsLoading,
-        });
+        }, MEDIA_LIST_COVER, visibilityController, eager);
         this.container.addEventListener('click', onClick);
-        const visibility = visibilityController ?? new CoverVisibilityController('280px 0px');
-        this.ownVisibilityController = visibilityController ? null : visibility;
-        const task = () => {
-            this.loadImage().catch(() => undefined);
-        };
-        if (!media.cover_image || this.state.imgSrc) {
-            this.stopObserving = () => undefined;
-        } else if (eager) {
-            visibility.loadNow(this.container, task);
-            this.stopObserving = () => undefined;
-        } else {
-            this.stopObserving = visibility.observe(this.container, task);
-        }
-    }
-
-    private async loadImage() {
-        const { cover_image: coverImage } = this.state.media;
-        if (!coverImage || coverImage.trim() === '') return;
-
-        const src = await MediaCoverLoader.load(coverImage);
-        if (!src || this.isDestroyed) return;
-        this.state.imgSrc = src;
-        this.commitImage(src);
-    }
-
-    private commitImage(src: string): void {
-        const shell = this.container.querySelector<HTMLElement>('.media-list-cover-shell');
-        if (!shell) return;
-        const existing = shell.querySelector<HTMLImageElement>('img.media-list-cover-image');
-        if (existing) {
-            if (existing.src !== src) existing.src = src;
-            return;
-        }
-
-        const image = document.createElement('img');
-        image.className = 'media-list-cover-image progressive-cover-image';
-        image.alt = this.state.media.title;
-        image.loading = 'lazy';
-        image.decoding = 'async';
-        image.addEventListener('load', () => image.classList.add('is-loaded'), { once: true });
-        image.src = src;
-        shell.replaceChildren(image);
-        if (image.complete) requestAnimationFrame(() => image.classList.add('is-loaded'));
-    }
-
-    public override destroy(): void {
-        this.isDestroyed = true;
-        this.stopObserving();
-        this.ownVisibilityController?.disconnect();
-        super.destroy();
     }
 
     private getTrackingStatusClass(status: string): string {
