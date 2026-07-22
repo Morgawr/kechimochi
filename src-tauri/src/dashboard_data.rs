@@ -15,6 +15,7 @@ use crate::models::{
     DashboardHighlightKind, DashboardMedia, DashboardNamedTotals, DashboardRangeRequest,
     DashboardRangeResponse, DashboardRecentLog, DashboardRecentLogsRequest, DashboardRecentPage,
     DashboardSettings, DashboardSnapshot, DashboardSnapshotRequest, DashboardSummary,
+    DashboardWeekdayDistribution, DashboardWeekdayStats,
 };
 use crate::read_performance::{Measured, Timings};
 
@@ -24,6 +25,7 @@ const TOP_GROUPS_PER_METRIC: usize = 12;
 const MAX_DAY_BUCKETS: i64 = 62;
 const MAX_MONTH_BUCKET_DAYS: i64 = 731;
 const MAX_YEAR_BUCKETS: i32 = 1_000;
+const WEEKDAY_DISTRIBUTION_DAYS: u64 = 183;
 
 pub fn validate_snapshot_request(
     request: &DashboardSnapshotRequest,
@@ -135,6 +137,7 @@ pub fn get_dashboard_snapshot(
         group_by: settings.group_by,
     };
     let range = query_range(&transaction, &initial_range_request, &mut timings)?;
+    let weekday_distribution = query_weekday_distribution(&transaction, today, &mut timings)?;
 
     timings.query(|| transaction.commit())?;
     Ok(timings.finish(DashboardSnapshot {
@@ -145,7 +148,88 @@ pub fn get_dashboard_snapshot(
         recent_logs,
         heatmap,
         range,
+        weekday_distribution,
     }))
+}
+
+fn query_weekday_distribution(
+    conn: &Connection,
+    end: NaiveDate,
+    timings: &mut Timings,
+) -> Result<DashboardWeekdayDistribution> {
+    let start = end
+        .checked_sub_days(Days::new(WEEKDAY_DISTRIBUTION_DAYS - 1))
+        .expect("valid weekday distribution start");
+    let start_date = start.format("%Y-%m-%d").to_string();
+    let end_date = end.format("%Y-%m-%d").to_string();
+    let totals_by_date = timings.query(|| {
+        let mut statement = conn.prepare(
+            "SELECT a.date,
+                    COALESCE(SUM(a.duration_minutes), 0),
+                    COALESCE(SUM(a.characters), 0)
+             FROM main.activity_logs a
+             WHERE a.date >= ?1 AND a.date <= ?2 AND date(a.date) IS NOT NULL
+             GROUP BY a.date",
+        )?;
+        let rows = statement.query_map(params![start_date, end_date], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                (row.get::<_, i64>(1)?, row.get::<_, i64>(2)?),
+            ))
+        })?;
+        rows.collect::<Result<HashMap<_, _>>>()
+    })?;
+
+    Ok(timings.aggregate(|| {
+        let mut minute_samples: [Vec<i64>; 7] = std::array::from_fn(|_| Vec::new());
+        let mut character_samples: [Vec<i64>; 7] = std::array::from_fn(|_| Vec::new());
+        for offset in 0..WEEKDAY_DISTRIBUTION_DAYS {
+            let date = start
+                .checked_add_days(Days::new(offset))
+                .expect("valid weekday distribution date");
+            let weekday = date.weekday().num_days_from_sunday() as usize;
+            let key = date.format("%Y-%m-%d").to_string();
+            let (minutes, characters) = totals_by_date.get(&key).copied().unwrap_or_default();
+            minute_samples[weekday].push(minutes);
+            character_samples[weekday].push(characters);
+        }
+
+        let days = minute_samples
+            .into_iter()
+            .zip(character_samples)
+            .enumerate()
+            .map(|(weekday, (mut minutes, mut characters))| {
+                let sample_days = minutes.len();
+                let (average_minutes, median_minutes) = average_and_median(&mut minutes);
+                let (average_characters, median_characters) = average_and_median(&mut characters);
+                DashboardWeekdayStats {
+                    weekday: weekday as u32,
+                    average_minutes,
+                    median_minutes,
+                    average_characters,
+                    median_characters,
+                    sample_days: sample_days as i64,
+                }
+            })
+            .collect();
+
+        DashboardWeekdayDistribution {
+            start_date,
+            end_date,
+            days,
+        }
+    }))
+}
+
+fn average_and_median(values: &mut [i64]) -> (f64, f64) {
+    values.sort_unstable();
+    let total: i64 = values.iter().sum();
+    let median = if values.len() % 2 == 0 {
+        (values[values.len() / 2 - 1] + values[values.len() / 2]) as f64 / 2.0
+    } else {
+        values[values.len() / 2] as f64
+    };
+    (total as f64 / values.len() as f64, median)
 }
 
 pub fn get_dashboard_range(
@@ -1018,6 +1102,69 @@ mod tests {
         let json = serde_json::to_string(&snapshot).unwrap();
         assert!(!json.contains("large description"));
         assert!(!json.contains("private"));
+    }
+
+    #[test]
+    fn snapshot_weekday_distribution_includes_zero_days_in_a_bounded_six_month_window() {
+        let (_directory, conn) = test_connection();
+        let media_id = db::add_media_with_id(&conn, &media("A", "")).unwrap();
+        for (date, duration_minutes, characters) in [
+            ("2026-01-20", 900, 900_000),
+            ("2026-07-13", 60, 10_000),
+            ("2026-07-20", 120, 30_000),
+            ("2026-07-23", 800, 800_000),
+        ] {
+            db::add_log(
+                &conn,
+                &ActivityLog {
+                    id: None,
+                    media_id,
+                    duration_minutes,
+                    characters,
+                    date: date.to_string(),
+                    activity_type: "Reading".to_string(),
+                    notes: String::new(),
+                },
+            )
+            .unwrap();
+        }
+
+        let snapshot = get_dashboard_snapshot(
+            &conn,
+            &DashboardSnapshotRequest {
+                request_id: 43,
+                today: "2026-07-22".to_string(),
+                heatmap_year: 2026,
+                recent_offset: 0,
+                recent_limit: 15,
+            },
+        )
+        .unwrap()
+        .value;
+
+        let distribution = snapshot.weekday_distribution;
+        assert_eq!(distribution.start_date, "2026-01-21");
+        assert_eq!(distribution.end_date, "2026-07-22");
+        assert_eq!(distribution.days.len(), 7);
+        assert_eq!(
+            distribution
+                .days
+                .iter()
+                .map(|day| day.sample_days)
+                .sum::<i64>(),
+            WEEKDAY_DISTRIBUTION_DAYS as i64,
+        );
+        let monday = distribution
+            .days
+            .iter()
+            .find(|day| day.weekday == 1)
+            .unwrap();
+        assert_eq!(monday.median_minutes, 0.0);
+        assert!((monday.average_minutes - 180.0 / monday.sample_days as f64).abs() < f64::EPSILON);
+        assert_eq!(monday.median_characters, 0.0);
+        assert!(
+            (monday.average_characters - 40_000.0 / monday.sample_days as f64).abs() < f64::EPSILON
+        );
     }
 
     #[test]

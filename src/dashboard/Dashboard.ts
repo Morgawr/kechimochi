@@ -10,6 +10,7 @@ import {
     type ActivitySummary,
     type DashboardMedia,
     type DashboardRangeResponse,
+    type DashboardWeekdayDistribution,
     type DashboardRecentLog,
     type DashboardRecentPage,
     type DashboardSummary,
@@ -45,6 +46,7 @@ interface DashboardState {
     heatmapData: Array<{ date: string; total_minutes: number; total_characters: number }>;
     quickLogMedia: DashboardMedia[];
     rangeData: DashboardRangeResponse | null;
+    weekdayDistribution: DashboardWeekdayDistribution | null;
     recentPage: DashboardRecentPage | null;
     currentHeatmapYear: number;
     chartParams: ChartParams;
@@ -85,6 +87,7 @@ export class Dashboard extends Component<DashboardState> {
             heatmapData: [],
             quickLogMedia: [],
             rangeData: null,
+            weekdayDistribution: null,
             recentPage: null,
             currentHeatmapYear: new Date().getFullYear(),
             chartParams: {
@@ -136,6 +139,7 @@ export class Dashboard extends Component<DashboardState> {
                 recentPage: snapshot.recent_logs,
                 heatmapData: snapshot.heatmap.days,
                 rangeData: snapshot.range,
+                weekdayDistribution: snapshot.weekday_distribution,
                 currentHeatmapYear: snapshot.heatmap.year,
                 currentPage: 1,
                 chartParams: {
@@ -311,6 +315,8 @@ export class Dashboard extends Component<DashboardState> {
         if (!this.containers.totals || !this.state.rangeData) return;
         const componentState = {
             rangeData: this.state.rangeData,
+            weekdayDistribution: this.state.weekdayDistribution ?? undefined,
+            metric: this.state.chartParams.metric,
             timeRangeDays: this.state.chartParams.timeRangeDays,
             timeRangeOffset: this.state.chartParams.timeRangeOffset,
             weekStartDay: this.state.chartParams.weekStartDay,
@@ -345,7 +351,10 @@ export class Dashboard extends Component<DashboardState> {
             this.activeChartsComponent?.updatePendingParams(next);
             this.requestRange().catch(error => Logger.error('Unexpected dashboard range failure', error));
         } else {
-            measureSynchronous('render', 'dashboard_chart_controls', () => this.updateCharts());
+            measureSynchronous('render', 'dashboard_chart_controls', () => {
+                this.updateCharts();
+                if (params.metric) this.updateTotals();
+            });
         }
     }
 

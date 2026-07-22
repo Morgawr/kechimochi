@@ -42,6 +42,8 @@ export type {
     DashboardHeatmapYearResponse,
     DashboardRangeRequest,
     DashboardRangeResponse,
+    DashboardWeekdayDistribution,
+    DashboardWeekdayStats,
     DashboardRecentLogsRequest,
     DashboardRecentPage,
     DashboardSnapshot,

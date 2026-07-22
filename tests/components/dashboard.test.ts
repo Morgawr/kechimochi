@@ -134,6 +134,11 @@ function snapshot(request: DashboardSnapshotRequest, overrides: Partial<Dashboar
         },
         heatmap: { request_id: request.request_id, year: request.heatmap_year, days: [] },
         range,
+        weekday_distribution: {
+            start_date: request.today,
+            end_date: request.today,
+            days: [],
+        },
         ...overrides,
     };
 }

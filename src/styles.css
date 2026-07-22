@@ -2686,10 +2686,30 @@ input:focus, select:focus {
     color: var(--text-primary);
 }
 
+#dashboard-totals-container {
+    container-type: inline-size;
+}
+
 .dashboard-totals-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 2rem;
+}
+
+@container (max-width: 760px) {
+    .dashboard-totals-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .dashboard-weekday-card {
+        grid-column: 1 / -1;
+    }
+}
+
+@container (max-width: 520px) {
+    .dashboard-totals-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
 }
 
 .dashboard-totals-card {
@@ -2704,23 +2724,126 @@ input:focus, select:focus {
     display: flex;
     flex-direction: column;
     width: 100%;
+    grid-column: 1 / -1;
 }
 
-@media (max-width: 1024px) {
-    .dashboard-totals-grid {
-        grid-template-columns: 1fr;
-    }
+.dashboard-weekday-card {
+    justify-content: flex-start;
 }
 
-@media (max-width : 1500px )and (min-width: 768px){
+.dashboard-weekday-figure {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    min-width: 0;
+    margin: 0;
+}
 
-.dashboard-highlights-grid{
-  grid-template-columns: 1fr 1fr 1fr!important;
+.dashboard-weekday-radar {
+    display: block;
+    width: min(100%, 30rem);
+    height: auto;
+    overflow: visible;
 }
-.dashboard-totals-grid{
-  display: flex;
-  flex-wrap: wrap;
+
+.dashboard-weekday-grid polygon,
+.dashboard-weekday-grid line {
+    fill: none;
+    stroke: color-mix(in srgb, var(--text-secondary) 22%, transparent);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
 }
+
+.dashboard-weekday-scale text {
+    fill: color-mix(in srgb, var(--text-secondary) 76%, transparent);
+    font-size: 9px;
+    font-weight: 700;
+}
+
+.dashboard-weekday-average {
+    fill: color-mix(in srgb, var(--accent-purple) 34%, transparent);
+    stroke: var(--accent-purple);
+    stroke-width: 2;
+    stroke-linejoin: round;
+    vector-effect: non-scaling-stroke;
+}
+
+.dashboard-weekday-median {
+    fill: none;
+    stroke: var(--accent-green);
+    stroke-width: 1.5;
+    stroke-dasharray: 4 3;
+    stroke-linejoin: round;
+    vector-effect: non-scaling-stroke;
+}
+
+.dashboard-weekday-point {
+    fill: var(--accent-purple);
+    stroke: var(--bg-card);
+    stroke-width: 1.5;
+    vector-effect: non-scaling-stroke;
+}
+
+.dashboard-weekday-label {
+    fill: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.dashboard-weekday-legend {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.45rem 0.85rem;
+    color: var(--text-secondary);
+    font-size: 0.7rem;
+    font-weight: 700;
+}
+
+.dashboard-weekday-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.dashboard-weekday-legend i {
+    display: inline-block;
+    width: 0.85rem;
+    height: 0.18rem;
+    border-radius: 999px;
+    background: var(--accent-purple);
+}
+
+.dashboard-weekday-legend .is-median {
+    height: 0;
+    border-top: 2px dashed var(--accent-green);
+    border-radius: 0;
+    background: transparent;
+}
+
+.dashboard-weekday-empty {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    min-height: 15rem;
+    color: var(--text-secondary);
+    text-align: center;
+}
+
+.dashboard-weekday-empty span {
+    color: color-mix(in srgb, var(--accent-purple) 70%, transparent);
+    font-size: 4rem;
+    line-height: 1;
+}
+
+.dashboard-weekday-empty p {
+    margin: 0;
 }
 
 
@@ -3350,10 +3473,6 @@ input:checked + .slider:before {
   #activity-charts-grid {
     grid-template-columns: 1fr !important;
     gap: 2rem !important;
-  }
-
-  .dashboard-totals-grid {
-    grid-template-columns: 1fr;
   }
 
   /* flex: 1 on chart wrappers overrides height: 300px via flex-basis: 0.

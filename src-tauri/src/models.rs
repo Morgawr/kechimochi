@@ -318,6 +318,24 @@ pub struct DashboardHighlight {
     pub streak_days: i64,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct DashboardWeekdayStats {
+    /// Sunday is 0 and Saturday is 6, matching SQLite's `%w` convention.
+    pub weekday: u32,
+    pub average_minutes: f64,
+    pub median_minutes: f64,
+    pub average_characters: f64,
+    pub median_characters: f64,
+    pub sample_days: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct DashboardWeekdayDistribution {
+    pub start_date: String,
+    pub end_date: String,
+    pub days: Vec<DashboardWeekdayStats>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DashboardRangeResponse {
     pub request_id: u64,
@@ -355,6 +373,7 @@ pub struct DashboardSnapshot {
     pub recent_logs: DashboardRecentPage,
     pub heatmap: DashboardHeatmapYearResponse,
     pub range: DashboardRangeResponse,
+    pub weekday_distribution: DashboardWeekdayDistribution,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

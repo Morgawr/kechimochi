@@ -10,6 +10,7 @@ import {
   waitForLibraryLayout,
 } from '../../helpers/library.js';
 import { safeClick, waitForSelectorDisplayed } from '../../helpers/common.js';
+import { clickHeatmapCell, getActivityChartRangeMetadata } from '../../helpers/dashboard.js';
 
 describe('Responsive Styling CUJ', () => {
   before(async () => {
@@ -70,9 +71,12 @@ describe('Responsive Styling CUJ', () => {
       return await browser.execute(() => {
         const stats = document.getElementById('stats-box-container');
         const heatmap = document.getElementById('heatmap-container');
-        return stats && heatmap && heatmap.getBoundingClientRect().top > (stats.getBoundingClientRect().top + 40);
+        const charts = document.querySelectorAll('#activity-charts-grid .card');
+        return stats && heatmap && charts.length >= 2
+          && heatmap.getBoundingClientRect().top > (stats.getBoundingClientRect().top + 40)
+          && charts[1].getBoundingClientRect().top > (charts[0].getBoundingClientRect().top + 40);
       });
-    }, { timeout: 3000 });
+    }, { timeout: 10000 });
 
     const stacked = await browser.execute(() => {
       const stats = document.getElementById('stats-box-container');
@@ -101,6 +105,99 @@ describe('Responsive Styling CUJ', () => {
     expect(stacked.hasRequiredNodes).toBe(true);
     expect(stacked.heatmapBelowStats).toBe(true);
     expect(stacked.secondChartBelowFirst).toBe(true);
+  });
+
+  it('should reflow weekday stats and keep highlights on a separate row', async () => {
+    await navigateTo('dashboard');
+    expect(await verifyActiveView('dashboard')).toBe(true);
+    await clickHeatmapCell('2024-03-07');
+    await browser.waitUntil(async () => (await getActivityChartRangeMetadata()).rangeStart === '2024-03-04', {
+      timeout: 5000,
+      timeoutMsg: 'Dashboard did not load the seeded activity week',
+    });
+
+    const readTotalsLayout = async () => browser.execute(() => {
+      const grid = document.querySelector<HTMLElement>('.dashboard-totals-grid');
+      const primaryCards = [
+        document.querySelector<HTMLElement>('.dashboard-weekday-card'),
+        Array.from(document.querySelectorAll<HTMLElement>('.dashboard-totals-card')).find(card => card.textContent?.includes('Weekly Stats')),
+        Array.from(document.querySelectorAll<HTMLElement>('.dashboard-totals-card')).find(card => card.textContent?.includes('Categories')),
+      ];
+      const highlights = document.querySelector<HTMLElement>('.dashboard-highlights-card');
+      const radar = document.querySelector<SVGElement>('.dashboard-weekday-radar');
+      if (!grid || primaryCards.some(card => !card) || !highlights) {
+        return null;
+      }
+
+      const primaryRects = primaryCards.map(card => card!.getBoundingClientRect());
+      const highlightsRect = highlights.getBoundingClientRect();
+      const gridRect = grid.getBoundingClientRect();
+      const rowCount = new Set(primaryRects.map(rect => Math.round(rect.top))).size;
+      return {
+        rowCount,
+        weekdayFirst: primaryRects[0].left < primaryRects[1].left && primaryRects[0].left < primaryRects[2].left,
+        weekdayOwnRow: primaryRects[0].bottom <= Math.min(primaryRects[1].top, primaryRects[2].top) + 1,
+        remainingCardsShareRow: Math.abs(primaryRects[1].top - primaryRects[2].top) <= 1,
+        highlightsBelowPrimary: highlightsRect.top > Math.max(...primaryRects.map(rect => rect.bottom)) - 1,
+        gridOverflow: grid.scrollWidth > grid.clientWidth + 1,
+        cardsInsideGrid: primaryRects.every(rect => rect.left >= gridRect.left - 1 && rect.right <= gridRect.right + 1),
+        radarInsideCard: !radar || (() => {
+          const radarRect = radar.getBoundingClientRect();
+          const cardRect = primaryCards[0]!.getBoundingClientRect();
+          return radarRect.left >= cardRect.left - 1 && radarRect.right <= cardRect.right + 1;
+        })(),
+      };
+    });
+
+    await browser.setWindowSize(1280, 1200);
+    await browser.waitUntil(async () => (await readTotalsLayout())?.rowCount === 1, {
+      timeout: 5000,
+      timeoutMsg: 'Dashboard totals did not form one desktop row',
+    });
+    const desktop = await readTotalsLayout();
+    expect(desktop?.highlightsBelowPrimary).toBe(true);
+    expect(desktop?.weekdayFirst).toBe(true);
+
+    await browser.execute(() => {
+      const toggle = document.querySelector<HTMLInputElement>('#toggle-metric');
+      if (!toggle) return;
+      toggle.checked = true;
+      toggle.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await browser.waitUntil(async () => browser.execute(() =>
+      document.querySelector<HTMLElement>('.dashboard-weekday-card')?.dataset.metric === 'characters'
+    ), { timeout: 3000, timeoutMsg: 'Weekday distribution did not switch to characters' });
+    await browser.execute(() => {
+      const toggle = document.querySelector<HTMLInputElement>('#toggle-metric');
+      if (!toggle) return;
+      toggle.checked = false;
+      toggle.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await browser.waitUntil(async () => browser.execute(() =>
+      document.querySelector<HTMLElement>('.dashboard-weekday-card')?.dataset.metric === 'minutes'
+    ), { timeout: 3000, timeoutMsg: 'Weekday distribution did not switch back to time' });
+
+    await browser.setWindowSize(700, 1200);
+    await browser.waitUntil(async () => (await readTotalsLayout())?.rowCount === 2, {
+      timeout: 5000,
+      timeoutMsg: 'Dashboard totals did not wrap to two rows at medium width',
+    });
+    const medium = await readTotalsLayout();
+    expect(medium?.weekdayOwnRow).toBe(true);
+    expect(medium?.remainingCardsShareRow).toBe(true);
+    expect(medium?.highlightsBelowPrimary).toBe(true);
+    expect(medium?.gridOverflow).toBe(false);
+
+    await browser.setWindowSize(390, 1200);
+    await browser.waitUntil(async () => (await readTotalsLayout())?.rowCount === 3, {
+      timeout: 5000,
+      timeoutMsg: 'Dashboard totals did not stack in compact mode',
+    });
+    const compact = await readTotalsLayout();
+    expect(compact?.highlightsBelowPrimary).toBe(true);
+    expect(compact?.gridOverflow).toBe(false);
+    expect(compact?.cardsInsideGrid).toBe(true);
+    expect(compact?.radarInsideCard).toBe(true);
   });
 
   it('should distribute dashboard visualization controls across the full row at desktop width', async () => {

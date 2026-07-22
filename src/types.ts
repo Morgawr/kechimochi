@@ -181,6 +181,22 @@ export interface DashboardHighlight {
     streak_days: number;
 }
 
+export interface DashboardWeekdayStats {
+    /** Sunday is 0 and Saturday is 6. */
+    weekday: number;
+    average_minutes: number;
+    median_minutes: number;
+    average_characters: number;
+    median_characters: number;
+    sample_days: number;
+}
+
+export interface DashboardWeekdayDistribution {
+    start_date: string;
+    end_date: string;
+    days: DashboardWeekdayStats[];
+}
+
 export interface DashboardRangeResponse {
     request_id: number;
     start_date: string;
@@ -214,6 +230,7 @@ export interface DashboardSnapshot {
     recent_logs: DashboardRecentPage;
     heatmap: DashboardHeatmapYearResponse;
     range: DashboardRangeResponse;
+    weekday_distribution: DashboardWeekdayDistribution;
 }
 
 export interface LibrarySnapshotRequest {

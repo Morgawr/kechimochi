@@ -73,6 +73,11 @@ function defaultDashboardSnapshot(request: DashboardSnapshotRequest) {
             category_totals: [],
             highlights: [],
         },
+        weekday_distribution: {
+            start_date: request.today,
+            end_date: request.today,
+            days: [],
+        },
     };
 }
 
