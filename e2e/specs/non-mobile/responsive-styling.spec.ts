@@ -1,6 +1,14 @@
 import { waitForAppReady } from '../../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../../helpers/navigation.js';
-import { setLibraryLayout, waitForLibraryLayout } from '../../helpers/library.js';
+import {
+  setHideArchived,
+  setLibraryLayout,
+  setMediaTypeFilters,
+  setSearchQuery,
+  setTrackingStatusFilters,
+  waitForLibraryItemCount,
+  waitForLibraryLayout,
+} from '../../helpers/library.js';
 import { safeClick, waitForSelectorDisplayed } from '../../helpers/common.js';
 
 describe('Responsive Styling CUJ', () => {
@@ -335,6 +343,63 @@ describe('Responsive Styling CUJ', () => {
       timeout: 3000,
       timeoutMsg: 'Library grid zoom did not return to 100%',
     });
+  });
+
+  it('should preserve an unchanged filtered grid when navigating away and back', async () => {
+    await browser.setWindowSize(1280, 1200);
+    await navigateTo('media');
+    await setLibraryLayout('grid');
+    await setSearchQuery('呪術');
+    await setMediaTypeFilters(['Manga']);
+    await setTrackingStatusFilters(['Ongoing']);
+    await setHideArchived(true);
+
+    try {
+      await waitForLibraryItemCount(1, {
+        timeoutMsg: 'Combined library filters did not settle on one grid item',
+      });
+      const beforeNavigation = await browser.execute(() => {
+        const root = document.getElementById('media-root');
+        const item = document.querySelector<HTMLElement>('.media-grid-item[data-title="呪術廻戦"]');
+        if (!root || !item) return null;
+        item.dataset.navigationCacheMarker = 'preserved-filtered-grid';
+        return root.dataset.libraryRequestId || '';
+      });
+      expect(beforeNavigation).not.toBeNull();
+
+      await navigateTo('dashboard');
+      await navigateTo('media');
+      await browser.waitUntil(async () => browser.execute((previousRequestId) => {
+        const root = document.getElementById('media-root');
+        return Boolean(root?.dataset.libraryRequestId
+          && root.dataset.libraryRequestId !== previousRequestId);
+      }, beforeNavigation), {
+        timeout: 10000,
+        timeoutMsg: 'Library background snapshot did not finish after navigation',
+      });
+
+      const preserved = await browser.execute(() => {
+        const markedItem = document.querySelector<HTMLElement>(
+          '.media-grid-item[data-navigation-cache-marker="preserved-filtered-grid"]',
+        );
+        return {
+          markerPresent: Boolean(markedItem),
+          titles: Array.from(
+            document.querySelectorAll<HTMLElement>('.media-grid-item'),
+            item => item.dataset.title || '',
+          ),
+          searchQuery: document.querySelector<HTMLInputElement>('#grid-search-filter')?.value || '',
+        };
+      });
+      expect(preserved.markerPresent).toBe(true);
+      expect(preserved.titles).toEqual(['呪術廻戦']);
+      expect(preserved.searchQuery).toBe('呪術');
+    } finally {
+      await setSearchQuery('');
+      await setTrackingStatusFilters([]);
+      await setMediaTypeFilters([]);
+      await setHideArchived(false);
+    }
   });
 
   it('should apply mobile media-detail layout structure and style hooks', async () => {

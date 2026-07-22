@@ -198,6 +198,67 @@ describe('MediaView', () => {
         expect(MediaLibraryBrowser).toHaveBeenCalledTimes(1);
     });
 
+    it('keeps the mounted library browser when a refreshed snapshot is unchanged', async () => {
+        const mockMedia = [{
+            id: 1,
+            title: 'Cached Grid Item',
+            status: 'Active',
+            content_type: 'Anime',
+            tracking_status: 'Ongoing',
+        }] as unknown as Media[];
+        vi.mocked(api.getAllMedia).mockResolvedValue(mockMedia);
+        const component = new MediaView(container);
+        await renderAndWaitForBrowser(component);
+
+        const initialRoot = container.querySelector('#media-root');
+        expect(initialRoot?.getAttribute('data-library-request-id')).toBe('1');
+
+        await component.loadData();
+
+        expect(api.getLibrarySnapshot).toHaveBeenCalledTimes(2);
+        expect(MediaLibraryBrowser).toHaveBeenCalledTimes(1);
+        expect(container.querySelector('#media-root')).toBe(initialRoot);
+        expect(initialRoot?.getAttribute('data-library-request-id')).toBe('2');
+    });
+
+    it('includes active filters in reuse checks and rebuilds only when snapshot data changes', async () => {
+        const mockMedia = [{
+            id: 1,
+            title: 'Filtered Grid Item',
+            status: 'Active',
+            content_type: 'Anime',
+            tracking_status: 'Ongoing',
+        }] as unknown as Media[];
+        vi.mocked(api.getAllMedia).mockResolvedValue(mockMedia);
+        const component = new MediaView(container);
+        await renderAndWaitForBrowser(component);
+
+        const onFilterChange = vi.mocked(MediaLibraryBrowser).mock.calls[0][4];
+        onFilterChange({
+            searchQuery: 'Filtered',
+            typeFilters: ['Anime'],
+            statusFilters: ['Ongoing'],
+            hideArchived: true,
+        });
+
+        await component.loadData();
+        expect(MediaLibraryBrowser).toHaveBeenCalledTimes(1);
+
+        vi.mocked(api.getAllMedia).mockResolvedValue([{
+            ...mockMedia[0],
+            title: 'Filtered Grid Item Updated',
+        }]);
+        await component.loadData();
+
+        expect(MediaLibraryBrowser).toHaveBeenCalledTimes(2);
+        expect(vi.mocked(MediaLibraryBrowser).mock.calls.at(-1)?.[1]).toEqual(expect.objectContaining({
+            searchQuery: 'Filtered',
+            typeFilters: ['Anime'],
+            statusFilters: ['Ongoing'],
+            hideArchived: true,
+        }));
+    });
+
     it('uses the default grid zoom when the persisted value is malformed', async () => {
         vi.mocked(api.getAllMedia).mockResolvedValue([]);
         vi.mocked(api.getSetting).mockImplementation(async (key: string) => {

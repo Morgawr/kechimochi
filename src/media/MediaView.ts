@@ -34,6 +34,15 @@ interface MediaViewState {
     isInitialized: boolean;
 }
 
+interface RenderedLibraryPresentation {
+    mediaList: Media[];
+    libraryFilters: MediaViewState['libraryFilters'];
+    preferredLayout: LibraryLayoutMode;
+    gridZoom: number;
+    isGridSupported: boolean;
+    listMetricsByMediaId: Record<number, LibraryActivityMetrics>;
+}
+
 interface LegacyMediaQueryListCompat {
     addListener?: (listener: (event: MediaQueryListEvent) => void) => void;
     removeListener?: (listener: (event: MediaQueryListEvent) => void) => void;
@@ -47,6 +56,7 @@ export class MediaView extends Component<MediaViewState> {
     private navigationSource?:  'dashboard' | 'timeline';
     private detailNavigationRequestId = 0;
     private loadRequestId = 0;
+    private renderedLibraryPresentation: RenderedLibraryPresentation | null = null;
 
     constructor(container: HTMLElement) {
         super(container, {
@@ -441,6 +451,105 @@ private async handleBack() {
         this.state.isLoading = false;
     }
 
+    private canReuseRenderedLibrary(nextState: Partial<MediaViewState>): boolean {
+        const rendered = this.renderedLibraryPresentation;
+        if (
+            !rendered
+            || !this.activeSubComponent
+            || this.state.viewMode !== 'grid'
+            || nextState.viewMode !== 'grid'
+        ) {
+            return false;
+        }
+
+        const nextFilters = nextState.libraryFilters;
+        const nextMedia = nextState.libraryMediaList;
+        const nextMetrics = nextState.listMetricsByMediaId;
+        return Boolean(
+            nextFilters
+            && nextMedia
+            && nextMetrics
+            && this.areFiltersEqual(rendered.libraryFilters, nextFilters)
+            && rendered.preferredLayout === nextState.preferredLayout
+            && rendered.gridZoom === nextState.gridZoom
+            && rendered.isGridSupported === nextState.isGridSupported
+            && this.areMediaListsEqual(rendered.mediaList, nextMedia)
+            && this.areMetricMapsEqual(rendered.listMetricsByMediaId, nextMetrics)
+        );
+    }
+
+    private areFiltersEqual(
+        left: MediaViewState['libraryFilters'],
+        right: MediaViewState['libraryFilters'],
+    ): boolean {
+        return left.searchQuery === right.searchQuery
+            && left.hideArchived === right.hideArchived
+            && this.areStringArraysEqual(left.typeFilters, right.typeFilters)
+            && this.areStringArraysEqual(left.statusFilters, right.statusFilters);
+    }
+
+    private areStringArraysEqual(left: string[], right: string[]): boolean {
+        return left.length === right.length && left.every((value, index) => value === right[index]);
+    }
+
+    private areMediaListsEqual(left: Media[], right: Media[]): boolean {
+        if (left.length !== right.length) return false;
+        return left.every((media, index) => {
+            const other = right[index];
+            return media.id === other.id
+                && media.uid === other.uid
+                && media.title === other.title
+                && media.variant === other.variant
+                && media.default_activity_type === other.default_activity_type
+                && media.status === other.status
+                && media.language === other.language
+                && media.description === other.description
+                && media.cover_image === other.cover_image
+                && media.extra_data === other.extra_data
+                && media.content_type === other.content_type
+                && media.tracking_status === other.tracking_status;
+        });
+    }
+
+    private areMetricMapsEqual(
+        left: Record<number, LibraryActivityMetrics>,
+        right: Record<number, LibraryActivityMetrics>,
+    ): boolean {
+        const leftIds = Object.keys(left);
+        const rightIds = Object.keys(right);
+        if (leftIds.length !== rightIds.length) return false;
+        return leftIds.every((id) => {
+            const leftMetric = left[Number(id)];
+            const rightMetric = right[Number(id)];
+            return Boolean(
+                rightMetric
+                && leftMetric.firstActivityDate === rightMetric.firstActivityDate
+                && leftMetric.lastActivityDate === rightMetric.lastActivityDate
+                && leftMetric.totalMinutes === rightMetric.totalMinutes
+            );
+        });
+    }
+
+    private captureRenderedLibraryPresentation(): void {
+        this.renderedLibraryPresentation = {
+            mediaList: this.state.libraryMediaList,
+            libraryFilters: {
+                ...this.state.libraryFilters,
+                typeFilters: [...this.state.libraryFilters.typeFilters],
+                statusFilters: [...this.state.libraryFilters.statusFilters],
+            },
+            preferredLayout: this.state.preferredLayout,
+            gridZoom: this.state.gridZoom,
+            isGridSupported: this.state.isGridSupported,
+            listMetricsByMediaId: this.state.listMetricsByMediaId,
+        };
+    }
+
+    private markLibraryRequest(requestId: number): void {
+        const root = this.container.querySelector<HTMLElement>('#media-root');
+        if (root) root.dataset.libraryRequestId = requestId.toString();
+    }
+
     async loadData(jumpToId?: number) {
         if (this.state.isLoading && jumpToId === undefined) return;
         const requestId = ++this.loadRequestId;
@@ -459,7 +568,13 @@ private async handleBack() {
             const snapshot = await getLibrarySnapshot({ request_id: requestId });
             if (this.isStaleLoad(requestId) || snapshot.request_id !== requestId) return;
             const nextState = await this.buildSnapshotState(snapshot, requestId, isInitialLoad, jumpToId);
-            if (nextState) this.setState(nextState);
+            if (!nextState) return;
+            if (this.canReuseRenderedLibrary(nextState)) {
+                this.state = { ...this.state, ...nextState };
+            } else {
+                this.setState(nextState);
+            }
+            this.markLibraryRequest(requestId);
         } catch (e) {
             this.handleLoadError(e, requestId, isInitialLoad);
         }
@@ -468,6 +583,7 @@ private async handleBack() {
     render() {
         this.activeSubComponent?.destroy?.();
         this.activeSubComponent = null;
+        this.renderedLibraryPresentation = null;
         this.clear();
         const root = html`<div style="display: flex; flex-direction: column; height: 100%; gap: 1rem;" id="media-root"></div>`;
         this.container.appendChild(root);
@@ -513,6 +629,7 @@ private async handleBack() {
             (filters) => {
                 const oldHideArchived = this.state.libraryFilters.hideArchived;
                 this.state.libraryFilters = { ...this.state.libraryFilters, ...filters };
+                this.captureRenderedLibraryPresentation();
                 if (filters.hideArchived !== undefined && oldHideArchived !== filters.hideArchived) {
                     this.runAsync(
                         setSetting(SETTING_KEYS.GRID_HIDE_ARCHIVED, filters.hideArchived.toString()),
@@ -522,6 +639,7 @@ private async handleBack() {
             },
             (layout) => {
                 this.state.preferredLayout = layout;
+                this.captureRenderedLibraryPresentation();
                 this.runAsync(
                     setSetting(SETTING_KEYS.LIBRARY_LAYOUT_MODE, layout),
                     'Failed to persist library layout preference',
@@ -529,6 +647,7 @@ private async handleBack() {
             },
             (gridZoom) => {
                 this.state.gridZoom = gridZoom;
+                this.captureRenderedLibraryPresentation();
                 this.runAsync(
                     setSetting(SETTING_KEYS.LIBRARY_GRID_ZOOM, gridZoom.toString()),
                     'Failed to persist library grid zoom',
@@ -536,6 +655,7 @@ private async handleBack() {
             },
         );
         this.activeSubComponent.render();
+        this.captureRenderedLibraryPresentation();
     }
 
     private renderDetail(root: HTMLElement) {
