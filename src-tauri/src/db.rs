@@ -1815,15 +1815,34 @@ fn resolve_activity_type_for_write(
     Ok(default_activity_type.to_string())
 }
 
-pub fn add_log(conn: &Connection, log: &ActivityLog) -> Result<i64> {
-    if log.duration_minutes == 0 && log.characters == 0 {
-        return Err(rusqlite::Error::ToSqlConversionFailure(Box::new(
-            std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "Activity must have either duration or characters",
-            ),
-        )));
+fn invalid_activity_input(message: &'static str) -> rusqlite::Error {
+    rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(
+        std::io::ErrorKind::InvalidInput,
+        message,
+    )))
+}
+
+pub fn validate_activity_metrics(duration_minutes: i64, characters: i64) -> Result<()> {
+    if duration_minutes < 0 {
+        return Err(invalid_activity_input(
+            "Activity duration cannot be negative",
+        ));
     }
+    if characters < 0 {
+        return Err(invalid_activity_input(
+            "Activity character count cannot be negative",
+        ));
+    }
+    if duration_minutes == 0 && characters == 0 {
+        return Err(invalid_activity_input(
+            "Activity must have either duration or characters",
+        ));
+    }
+    Ok(())
+}
+
+pub fn add_log(conn: &Connection, log: &ActivityLog) -> Result<i64> {
+    validate_activity_metrics(log.duration_minutes, log.characters)?;
     let activity_type = resolve_activity_type_for_write(conn, log.media_id, &log.activity_type)?;
     conn.execute(
         "INSERT INTO main.activity_logs (media_id, duration_minutes, characters, date, activity_type, notes) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -1838,14 +1857,7 @@ pub fn delete_log(conn: &Connection, id: i64) -> Result<()> {
 }
 
 pub fn update_log(conn: &Connection, log: &ActivityLog) -> Result<()> {
-    if log.duration_minutes == 0 && log.characters == 0 {
-        return Err(rusqlite::Error::ToSqlConversionFailure(Box::new(
-            std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "Activity must have either duration or characters",
-            ),
-        )));
-    }
+    validate_activity_metrics(log.duration_minutes, log.characters)?;
     let activity_type = resolve_activity_type_for_write(conn, log.media_id, &log.activity_type)?;
     conn.execute(
         "UPDATE main.activity_logs SET media_id = ?1, duration_minutes = ?2, characters = ?3, date = ?4, activity_type = ?5, notes = ?6 WHERE id = ?7",
@@ -2998,6 +3010,53 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("Activity must have either duration or characters"));
+
+        for (duration_minutes, characters, expected) in [
+            (-1, 100, "Activity duration cannot be negative"),
+            (10, -1, "Activity character count cannot be negative"),
+        ] {
+            let invalid = ActivityLog {
+                id: None,
+                media_id,
+                duration_minutes,
+                characters,
+                date: "2024-03-01".to_string(),
+                activity_type: String::new(),
+                notes: String::new(),
+            };
+            let error = add_log(&conn, &invalid).unwrap_err().to_string();
+            assert!(error.contains(expected));
+        }
+
+        let valid_id = add_log(
+            &conn,
+            &ActivityLog {
+                id: None,
+                media_id,
+                duration_minutes: 10,
+                characters: 0,
+                date: "2024-03-01".to_string(),
+                activity_type: String::new(),
+                notes: String::new(),
+            },
+        )
+        .unwrap();
+        let update_error = update_log(
+            &conn,
+            &ActivityLog {
+                id: Some(valid_id),
+                media_id,
+                duration_minutes: 10,
+                characters: -1,
+                date: "2024-03-01".to_string(),
+                activity_type: String::new(),
+                notes: String::new(),
+            },
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(update_error.contains("Activity character count cannot be negative"));
+        assert_eq!(get_logs(&conn).unwrap()[0].characters, 0);
     }
 
     #[test]

@@ -33,6 +33,14 @@ export type {
   TimelinePageRequest,
   MediaCsvRow,
   MediaConflict,
+  ActivityCsvRow,
+  ActivityCsvContent,
+  ActivityCsvGroup,
+  ActivityCsvAnalysis,
+  ActivityCsvConflictAction,
+  ActivityCsvConflictResolution,
+  ActivityCsvImportRequest,
+  ActivityCsvImportResult,
   Milestone,
   ProfilePicture,
   LocalHttpApiConfig,
@@ -67,6 +75,8 @@ import type {
   TimelinePageRequest,
   MediaCsvRow,
   MediaConflict,
+  ActivityCsvImportRequest,
+  ActivityCsvImportResult,
   Milestone,
   ProfilePicture,
   LocalHttpApiConfig,
@@ -175,6 +185,9 @@ export function saveLocalHttpApiConfig(config: LocalHttpApiConfig): Promise<Loca
 }
 
 export function applyMediaImport(records: MediaCsvRow[]): Promise<number> { return getServices().applyMediaImport(records); }
+export function applyActivityImport(request: ActivityCsvImportRequest): Promise<ActivityCsvImportResult> {
+  return getServices().applyActivityImport(request);
+}
 
 export function getMilestones(mediaUid: string): Promise<Milestone[]> { return getServices().getMilestones(mediaUid); }
 export function addMilestone(milestone: Milestone): Promise<number> { return getServices().addMilestone(milestone); }

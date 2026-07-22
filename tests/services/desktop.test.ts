@@ -110,24 +110,31 @@ describe('DesktopServices', () => {
         await expect(services.getAppVersion()).resolves.toBe('0.1.0');
     });
 
-    it('imports activities from mock and dialog-selected paths', async () => {
+    it('analyzes activities from picked paths and applies reviewed imports', async () => {
         (globalThis as Record<string, unknown>).mockOpenPath = `${SAFE_DIR}/activities.csv`;
-        vi.mocked(invoke).mockResolvedValueOnce(5).mockResolvedValueOnce(3);
+        const analysis = { rows: [], groups: [] };
+        const request = { rows: [], analyzed_groups: [], resolutions: [] };
+        vi.mocked(invoke)
+            .mockResolvedValueOnce(analysis)
+            .mockResolvedValueOnce(analysis)
+            .mockResolvedValueOnce({ imported_count: 3, skipped_count: 1 });
         vi.mocked(tauriOpen).mockResolvedValue(`${SAFE_DIR}/from-dialog.csv`);
 
-        await expect(services.pickAndImportActivities()).resolves.toBe(5);
+        await expect(services.analyzeActivitiesCsvFromPick()).resolves.toEqual(analysis);
         delete (globalThis as Record<string, unknown>).mockOpenPath;
-        await expect(services.pickAndImportActivities()).resolves.toBe(3);
+        await expect(services.analyzeActivitiesCsvFromPick()).resolves.toEqual(analysis);
+        await expect(services.applyActivityImport(request)).resolves.toEqual({ imported_count: 3, skipped_count: 1 });
 
-        expect(invoke).toHaveBeenNthCalledWith(1, 'import_csv', { filePath: `${SAFE_DIR}/activities.csv` });
-        expect(invoke).toHaveBeenNthCalledWith(2, 'import_csv', { filePath: `${SAFE_DIR}/from-dialog.csv` });
+        expect(invoke).toHaveBeenNthCalledWith(1, 'analyze_activity_csv', { filePath: `${SAFE_DIR}/activities.csv` });
+        expect(invoke).toHaveBeenNthCalledWith(2, 'analyze_activity_csv', { filePath: `${SAFE_DIR}/from-dialog.csv` });
+        expect(invoke).toHaveBeenNthCalledWith(3, 'apply_activity_import', { request });
     });
 
     it('returns null or false when import/export dialogs are cancelled', async () => {
         vi.mocked(tauriOpen).mockResolvedValue(null);
         vi.mocked(tauriSave).mockResolvedValue(null);
 
-        await expect(services.pickAndImportActivities()).resolves.toBeNull();
+        await expect(services.analyzeActivitiesCsvFromPick()).resolves.toBeNull();
         await expect(services.pickAndExportFullBackup('{}', '1.0.0')).resolves.toBe(false);
         await expect(services.pickAndUploadProfilePicture()).resolves.toBeNull();
     });

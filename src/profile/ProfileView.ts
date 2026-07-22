@@ -36,7 +36,7 @@ import {
     customConfirm,
     showBlockingStatus,
 } from '../modal_base';
-import { showExportCsvModal } from '../activity_modal';
+import { showActivityCsvConflictModal, showExportCsvModal } from '../activity_modal';
 import { showMediaCsvConflictModal } from '../media/modal';
 import { getServices } from '../services';
 import { MediaCoverLoader } from '../media/cover_loader';
@@ -1453,8 +1453,28 @@ export class ProfileView extends Component<ProfileState> {
 
         root.querySelector('#profile-btn-import-csv')?.addEventListener('click', async () => {
             try {
-                const count = await getServices().pickAndImportActivities();
-                if (count !== null) await customAlert("Success", `Successfully imported ${count} activity logs!`);
+                const analysis = await getServices().analyzeActivitiesCsvFromPick();
+                if (!analysis) return;
+                if (analysis.rows.length === 0) {
+                    await customAlert("Info", "No valid activity rows found in the CSV.");
+                    return;
+                }
+                const resolutions = await showActivityCsvConflictModal(analysis);
+                if (!resolutions) return;
+                const result = await getServices().applyActivityImport({
+                    rows: analysis.rows,
+                    analyzed_groups: analysis.groups,
+                    resolutions,
+                });
+                globalThis.dispatchEvent(new CustomEvent(EVENTS.LOCAL_DATA_CHANGED));
+                const skippedLabel = result.skipped_count === 1 ? 'duplicate' : 'duplicates';
+                const skipped = result.skipped_count > 0
+                    ? ` Skipped ${result.skipped_count} possible ${skippedLabel}.`
+                    : '';
+                await customAlert(
+                    "Success",
+                    `Successfully imported ${result.imported_count} activity logs!${skipped}`,
+                );
             } catch (e) {
                 await customAlert("Error", `Import failed: ${e}`);
             }

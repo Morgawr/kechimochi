@@ -27,6 +27,9 @@ import type {
     TimelinePageRequest,
     MediaCsvRow,
     MediaConflict,
+    ActivityCsvAnalysis,
+    ActivityCsvImportRequest,
+    ActivityCsvImportResult,
     Milestone,
     ProfilePicture,
     LocalHttpApiConfig,
@@ -262,15 +265,18 @@ export class WebServices implements AppServices {
     }
 
     // ── File-based operations ─────────────────────────────────────────────────
-    async pickAndImportActivities(): Promise<number | null> {
+    async analyzeActivitiesCsvFromPick(): Promise<ActivityCsvAnalysis | null> {
         const file = await pickFile('.csv');
         if (!file) return null;
         const form = new FormData();
         form.append('file', file);
-        const res = await fetch(apiUrl('/import/activities'), { method: 'POST', body: form });
+        const res = await fetch(apiUrl('/import/activities/analyze'), { method: 'POST', body: form });
         if (!res.ok) throw new Error(await res.text());
-        const { count } = await res.json();
-        return count as number;
+        return res.json();
+    }
+
+    applyActivityImport(request: ActivityCsvImportRequest): Promise<ActivityCsvImportResult> {
+        return post('/import/activities/apply', request);
     }
 
     async exportActivities(startDate?: string, endDate?: string): Promise<number | null> {

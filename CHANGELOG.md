@@ -23,6 +23,7 @@ The format is based on Keep a Changelog, with one section per released version.
  - CSV imports now identify media using the exact title and variant pair. Legacy CSVs without a variant column remain supported when the title identifies only one media entry.
  - Introduced a global lock that prevents multiple kechimochi instances from running on the same device.
  - Improved performance and background data loading for the dashboard, library, timeline, and media covers.
+ - CSV activity import will now match duplicate activities already present in the database and prompt the user to confirm if it's a valid import or a mistake
 
 ### Fixed
  - Activity types are now stored on every activity log, so changing a media default no longer reclassifies historical activity; This also retroactively applies to historical blank activities.

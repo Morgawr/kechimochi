@@ -25,6 +25,58 @@ export interface MediaConflict {
     };
 }
 
+export interface ActivityCsvRow {
+    "Date": string;
+    "Log Name": string;
+    "Default Activity Type": string;
+    "Duration": number;
+    "Language": string;
+    "Characters": number;
+    "Activity Type": string;
+    "Notes": string;
+    "Media Variant": string;
+}
+
+export interface ActivityCsvContent {
+    log_name: string;
+    media_variant: string;
+    date: string;
+    duration: number;
+    characters: number;
+    activity_type: string;
+    notes: string;
+}
+
+export interface ActivityCsvGroup {
+    content: ActivityCsvContent;
+    incoming_count: number;
+    existing_count: number;
+    media_exists: boolean;
+}
+
+export interface ActivityCsvAnalysis {
+    rows: ActivityCsvRow[];
+    groups: ActivityCsvGroup[];
+}
+
+export type ActivityCsvConflictAction = 'skip_possible_overlaps' | 'import_all';
+
+export interface ActivityCsvConflictResolution {
+    content: ActivityCsvContent;
+    action: ActivityCsvConflictAction;
+}
+
+export interface ActivityCsvImportRequest {
+    rows: ActivityCsvRow[];
+    analyzed_groups: ActivityCsvGroup[];
+    resolutions: ActivityCsvConflictResolution[];
+}
+
+export interface ActivityCsvImportResult {
+    imported_count: number;
+    skipped_count: number;
+}
+
 export interface Media {
     id?: number;
     uid?: string;

@@ -292,6 +292,8 @@ describe('WebServices', () => {
     it('imports picked activity, media, and milestone CSV files', async () => {
         const file = new File(['csv'], 'import.csv', { type: 'text/csv' });
         mockFilePicker(file);
+        const activityAnalysis = { rows: [], groups: [] };
+        const activityRequest = { rows: [], analyzed_groups: [], resolutions: [] };
         const records: MediaCsvRow[] = [{
             Title: 'Example',
             Variant: 'Manga',
@@ -304,29 +306,35 @@ describe('WebServices', () => {
             'Cover Image (Base64)': '',
         }];
         fetchMock
-            .mockResolvedValueOnce({ ok: true, json: vi.fn().mockResolvedValue({ count: 3 }), text: vi.fn() })
+            .mockResolvedValueOnce(okJson(activityAnalysis))
+            .mockResolvedValueOnce(okJson({ imported_count: 3, skipped_count: 1 }))
             .mockResolvedValueOnce({ ok: true, json: vi.fn().mockResolvedValue([{ incoming: records[0] }]), text: vi.fn() })
             .mockResolvedValueOnce(okJson(2))
             .mockResolvedValueOnce({ ok: true, json: vi.fn().mockResolvedValue({ count: 4 }), text: vi.fn() });
 
-        await expect(services.pickAndImportActivities()).resolves.toBe(3);
+        await expect(services.analyzeActivitiesCsvFromPick()).resolves.toEqual(activityAnalysis);
+        await expect(services.applyActivityImport(activityRequest)).resolves.toEqual({ imported_count: 3, skipped_count: 1 });
         await expect(services.analyzeMediaCsvFromPick()).resolves.toEqual([{ incoming: records[0] }]);
         await expect(services.applyMediaImport(records)).resolves.toBe(2);
         await expect(services.importMilestonesCsv('ignored.csv')).resolves.toBe(4);
 
-        expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/import/activities', expect.objectContaining({
+        expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/import/activities/analyze', expect.objectContaining({
             method: 'POST',
             body: expect.any(FormData),
         }));
-        expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/import/media/analyze', expect.objectContaining({
+        expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/import/activities/apply', expect.objectContaining({
+            method: 'POST',
+            body: JSON.stringify(activityRequest),
+        }));
+        expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/import/media/analyze', expect.objectContaining({
             method: 'POST',
             body: expect.any(FormData),
         }));
-        expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/import/media/apply', expect.objectContaining({
+        expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/import/media/apply', expect.objectContaining({
             method: 'POST',
             body: JSON.stringify(records),
         }));
-        expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/import/milestones', expect.objectContaining({
+        expect(fetchMock).toHaveBeenNthCalledWith(5, '/api/import/milestones', expect.objectContaining({
             method: 'POST',
             body: expect.any(FormData),
         }));
@@ -335,7 +343,7 @@ describe('WebServices', () => {
     it('returns nullish import results when file picking is cancelled', async () => {
         mockFilePicker(null, 'cancel');
 
-        await expect(services.pickAndImportActivities()).resolves.toBeNull();
+        await expect(services.analyzeActivitiesCsvFromPick()).resolves.toBeNull();
         await expect(services.analyzeMediaCsvFromPick()).resolves.toBeNull();
         await expect(services.importMilestonesCsv('ignored.csv')).resolves.toBe(0);
         await expect(services.pickAndUploadProfilePicture()).resolves.toBeNull();

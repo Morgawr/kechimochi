@@ -1048,6 +1048,32 @@ fn import_csv(
 }
 
 #[tauri::command]
+fn analyze_activity_csv(
+    app_handle: tauri::AppHandle,
+    state: State<DbState>,
+    file_path: String,
+) -> Result<csv_import::ActivityCsvAnalysis, String> {
+    let file = app_file_io::open_input_file(&app_handle, &file_path)?;
+    with_conn(&state, |conn| {
+        csv_import::analyze_activity_csv_from_reader(conn, file)
+    })
+}
+
+#[tauri::command]
+fn apply_activity_import(
+    app_handle: tauri::AppHandle,
+    state: State<DbState>,
+    request: csv_import::ActivityCsvImportRequest,
+) -> Result<csv_import::ActivityCsvImportResult, String> {
+    // A harmless false-dirty marker is safer than committing an import and then
+    // reporting failure because the external sync marker could not be written.
+    mark_sync_dirty(&app_handle)?;
+    with_conn_mut(&state, |conn| {
+        csv_import::apply_activity_import(conn, request)
+    })
+}
+
+#[tauri::command]
 fn export_csv(
     state: State<DbState>,
     file_path: String,
@@ -1670,6 +1696,8 @@ pub fn run() {
             get_dashboard_recent_logs,
             get_library_snapshot,
             import_csv,
+            analyze_activity_csv,
+            apply_activity_import,
             export_csv,
             export_media_csv,
             analyze_media_csv,

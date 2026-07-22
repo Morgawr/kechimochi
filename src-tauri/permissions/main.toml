@@ -19,6 +19,8 @@ commands.allow = [
     "get_timeline_events",
     "get_timeline_page",
     "import_csv",
+    "analyze_activity_csv",
+    "apply_activity_import",
     "export_csv",
     "export_media_csv",
     "analyze_media_csv",

@@ -1,0 +1,3 @@
+Date,Log Name,Default Activity Type,Duration,Language,Characters,Activity Type,Notes,Media Variant
+2026-07-21,Should Not Import - Valid Before Negative,Reading,30,Japanese,100,Reading,,
+2026-07-22,Should Not Import - Negative Duration,Reading,-1,Japanese,100,Reading,,

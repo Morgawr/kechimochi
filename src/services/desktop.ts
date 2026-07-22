@@ -29,6 +29,9 @@ import type {
     TimelinePageRequest,
     MediaCsvRow,
     MediaConflict,
+    ActivityCsvAnalysis,
+    ActivityCsvImportRequest,
+    ActivityCsvImportResult,
     Milestone,
     ProfilePicture,
     LocalHttpApiConfig,
@@ -163,10 +166,14 @@ export class DesktopServices implements AppServices {
     }
 
     // ── File-based operations ─────────────────────────────────────────────────
-    async pickAndImportActivities(): Promise<number | null> {
+    async analyzeActivitiesCsvFromPick(): Promise<ActivityCsvAnalysis | null> {
         const selected = this.getMockOpenPath() ?? await tauriOpen({ multiple: false, filters: [{ name: 'CSV', extensions: ['csv'] }] });
         if (!selected || typeof selected !== 'string') return null;
-        return invoke('import_csv', { filePath: selected });
+        return invoke('analyze_activity_csv', { filePath: selected });
+    }
+
+    applyActivityImport(request: ActivityCsvImportRequest): Promise<ActivityCsvImportResult> {
+        return invoke('apply_activity_import', { request });
     }
 
     async exportActivities(startDate?: string, endDate?: string): Promise<number | null> {

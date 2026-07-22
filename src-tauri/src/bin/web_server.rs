@@ -74,6 +74,18 @@ fn map_milestone_write_error(error: rusqlite::Error) -> AppError {
     }
 }
 
+fn map_activity_write_error(error: rusqlite::Error) -> AppError {
+    let message = error.to_string();
+    if message.contains("Activity duration cannot be negative")
+        || message.contains("Activity character count cannot be negative")
+        || message.contains("Activity must have either duration or characters")
+    {
+        AppError::BadRequest(message)
+    } else {
+        AppError::Internal(message)
+    }
+}
+
 fn map_csv_import_error(error: String) -> AppError {
     if csv_import::is_client_input_error_message(&error) {
         AppError::BadRequest(error)
@@ -253,6 +265,14 @@ fn build_app_router(state: Shared) -> Router {
         .route("/api/reset", post(wipe_everything_handler))
         // Import / export
         .route("/api/import/activities", post(import_activities))
+        .route(
+            "/api/import/activities/analyze",
+            post(analyze_activity_csv_upload),
+        )
+        .route(
+            "/api/import/activities/apply",
+            post(apply_activity_import_handler),
+        )
         .route("/api/export/activities", get(export_activities))
         .route("/api/import/media/analyze", post(analyze_media_csv_upload))
         .route("/api/import/media/apply", post(apply_media_import_handler))
@@ -437,7 +457,9 @@ async fn add_log(
     Json(log): Json<models::ActivityLog>,
 ) -> HandlerResult<Json<i64>> {
     let conn = s.conn.lock().await;
-    db::add_log(&conn, &log).ae().map(Json)
+    db::add_log(&conn, &log)
+        .map_err(map_activity_write_error)
+        .map(Json)
 }
 
 async fn update_log_handler(
@@ -447,7 +469,9 @@ async fn update_log_handler(
 ) -> HandlerResult<Json<()>> {
     log.id = Some(id);
     let conn = s.conn.lock().await;
-    db::update_log(&conn, &log).ae().map(|_| Json(()))
+    db::update_log(&conn, &log)
+        .map_err(map_activity_write_error)
+        .map(|_| Json(()))
 }
 
 async fn delete_log_handler(
@@ -713,6 +737,33 @@ async fn import_activities(
         csv_import::import_csv(&mut conn, &path).map_err(map_csv_import_error)?
     };
     Ok(Json(serde_json::json!({ "count": count })))
+}
+
+async fn analyze_activity_csv_upload(
+    State(s): State<Shared>,
+    mut multipart: Multipart,
+) -> HandlerResult<Json<csv_import::ActivityCsvAnalysis>> {
+    let tmp = field_to_tempfile(&mut multipart).await?;
+    let path = tmp
+        .path()
+        .to_str()
+        .ok_or_else(|| AppError::Internal("Invalid temp path".into()))?
+        .to_owned();
+    let conn = s.conn.lock().await;
+    csv_import::analyze_activity_csv(&conn, &path)
+        .map_err(map_csv_import_error)
+        .map(Json)
+}
+
+async fn apply_activity_import_handler(
+    State(s): State<Shared>,
+    payload: Result<Json<csv_import::ActivityCsvImportRequest>, JsonRejection>,
+) -> HandlerResult<Json<csv_import::ActivityCsvImportResult>> {
+    let Json(request) = payload.map_err(|error| AppError::BadRequest(error.body_text()))?;
+    let mut conn = s.conn.lock().await;
+    csv_import::apply_activity_import(&mut conn, request)
+        .map_err(map_csv_import_error)
+        .map(Json)
 }
 
 #[derive(Deserialize)]

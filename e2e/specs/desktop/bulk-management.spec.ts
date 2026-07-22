@@ -2,7 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { waitForAppReady } from '../../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../../helpers/navigation.js';
-import { resolveConflicts } from '../../helpers/import.js';
+import { resolveActivityConflicts, resolveConflicts } from '../../helpers/import.js';
 import { isMediaVisible } from '../../helpers/library.js';
 import {
     dismissAlert,
@@ -17,6 +17,9 @@ const MEDIA_CSV = path.join(FIXTURES_DIR, 'bulk_media.csv');
 const ACTIVITY_CSV = path.join(FIXTURES_DIR, 'bulk_activities.csv');
 const ACTIVITY_CSV_INVALID_DATE = path.join(FIXTURES_DIR, 'bulk_activities_invalid_date.csv');
 const ACTIVITY_CSV_CONFLICTING_TYPES = path.join(FIXTURES_DIR, 'bulk_activities_conflicting_types.csv');
+const ACTIVITY_CSV_CONFLICT_BASELINE = path.join(FIXTURES_DIR, 'bulk_activities_conflict_baseline.csv');
+const ACTIVITY_CSV_CONFLICTS = path.join(FIXTURES_DIR, 'bulk_activities_conflicts.csv');
+const ACTIVITY_CSV_NEGATIVE = path.join(FIXTURES_DIR, 'bulk_activities_negative.csv');
 
 describe('CUJ: Bulk Management (Data Import)', () => {
     before(async () => {
@@ -87,6 +90,44 @@ describe('CUJ: Bulk Management (Data Import)', () => {
         expect(text).toContain('60 Minutes');
     });
 
+    it('should resolve possible duplicate activities by content and preserve multiplicity', async () => {
+        await navigateTo('profile');
+        await setDialogMockPath(ACTIVITY_CSV_CONFLICT_BASELINE);
+        await $('#profile-btn-import-csv').click();
+        await dismissAlert('Successfully imported 1 activity logs!');
+
+        await setDialogMockPath(ACTIVITY_CSV_CONFLICTS);
+        await $('#profile-btn-import-csv').click();
+        const conflict = $('.activity-csv-conflict');
+        await conflict.waitForDisplayed({ timeout: 5000 });
+        const conflictText = await conflict.getText();
+        expect(conflictText).toContain('Activity Conflict E2E');
+        expect(conflictText).toContain('1 matching activity already in the profile; 2 in this CSV');
+
+        await resolveActivityConflicts(
+            'skip_possible_overlaps',
+            'Successfully imported 2 activity logs! Skipped 1 possible duplicate.',
+        );
+
+        await navigateTo('dashboard');
+        expect(await verifyActiveView('dashboard')).toBe(true);
+        const imported = $$(`.dashboard-activity-item[data-activity-title="Activity Conflict E2E"]`);
+        expect(await imported.length).toBe(3);
+    });
+
+    it('should cancel duplicate activity review without applying any rows', async () => {
+        await navigateTo('profile');
+        await setDialogMockPath(ACTIVITY_CSV_CONFLICTS);
+        await $('#profile-btn-import-csv').click();
+        const overlay = await getTopmostVisibleOverlay('#activity-conflict-cancel');
+        await $('#activity-conflict-cancel').click();
+        await waitForOverlayToDisappear(overlay);
+
+        await navigateTo('dashboard');
+        const imported = $$(`.dashboard-activity-item[data-activity-title="Activity Conflict E2E"]`);
+        expect(await imported.length).toBe(3);
+    });
+
     it('should reject activity CSV import when a row has an invalid date format', async () => {
         await navigateTo('profile');
 
@@ -104,6 +145,20 @@ describe('CUJ: Bulk Management (Data Import)', () => {
         const invalidRow = $(`.dashboard-activity-item[data-activity-title="Should Not Import - Invalid Date Row"]`);
         expect(await validLookingRow.isExisting()).toBe(false);
         expect(await invalidRow.isExisting()).toBe(false);
+    });
+
+    it('should reject negative activity metrics before applying any CSV rows', async () => {
+        await navigateTo('profile');
+        await setDialogMockPath(ACTIVITY_CSV_NEGATIVE);
+        await $('#profile-btn-import-csv').click();
+
+        await dismissAlert('Import failed: Invalid activity CSV row 3: Activity duration cannot be negative');
+
+        await navigateTo('dashboard');
+        const validLookingRow = $(`.dashboard-activity-item[data-activity-title="Should Not Import - Valid Before Negative"]`);
+        const negativeRow = $(`.dashboard-activity-item[data-activity-title="Should Not Import - Negative Duration"]`);
+        expect(await validLookingRow.isExisting()).toBe(false);
+        expect(await negativeRow.isExisting()).toBe(false);
     });
 
     it('should reject the entire activity CSV when default and legacy media types conflict', async () => {

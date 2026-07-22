@@ -29,6 +29,23 @@ export async function resolveConflicts(action: 'keep' | 'replace', expectSuccess
     }
 }
 
+export async function resolveActivityConflicts(
+    action: 'skip_possible_overlaps' | 'import_all',
+    expectedSuccessText?: string,
+): Promise<void> {
+    const overlay = await getTopmostVisibleOverlay('#activity-conflict-confirm');
+    for await (const radio of $$(`input[value="${action}"]`)) {
+        await radio.waitForClickable({ timeout: 5000 });
+        await radio.click();
+        await browser.waitUntil(async () => await radio.isSelected(), { timeout: 1000 });
+    }
+    const confirm = $('#activity-conflict-confirm');
+    await confirm.waitForClickable({ timeout: 5000 });
+    await confirm.click();
+    await waitForOverlayToDisappear(overlay);
+    await dismissAlert(expectedSuccessText, 10000);
+}
+
 /**
  * High-level helper to trigger metadata fetching for a given URL.
  */

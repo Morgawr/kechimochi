@@ -19,6 +19,9 @@ import type {
     TimelinePageRequest,
     MediaCsvRow,
     MediaConflict,
+    ActivityCsvAnalysis,
+    ActivityCsvImportRequest,
+    ActivityCsvImportResult,
     Milestone,
     ProfilePicture,
     LocalHttpApiConfig,
@@ -55,6 +58,9 @@ export type {
     TimelinePageRequest,
     MediaCsvRow,
     MediaConflict,
+    ActivityCsvAnalysis,
+    ActivityCsvImportRequest,
+    ActivityCsvImportResult,
     Milestone,
     ProfilePicture,
     LocalHttpApiConfig,
@@ -134,8 +140,10 @@ export interface AppServices {
     saveLocalHttpApiConfig(config: LocalHttpApiConfig): Promise<LocalHttpApiStatus>;
 
     // ── File-based operations (no filesystem paths exposed to callers) ────────
-    /** Opens a file picker and imports the selected activities CSV. */
-    pickAndImportActivities(): Promise<number | null>;
+    /** Opens a file picker and analyzes an activities CSV without writing data. */
+    analyzeActivitiesCsvFromPick(): Promise<ActivityCsvAnalysis | null>;
+    /** Applies a fully reviewed activities CSV import. */
+    applyActivityImport(request: ActivityCsvImportRequest): Promise<ActivityCsvImportResult>;
     /** Picks a destination (or triggers browser download) and exports activity logs. */
     exportActivities(startDate?: string, endDate?: string): Promise<number | null>;
     /** Opens a file picker and analyses the selected media library CSV for conflicts. */
