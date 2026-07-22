@@ -521,12 +521,9 @@ private async handleBack() {
         return leftIds.every((id) => {
             const leftMetric = left[Number(id)];
             const rightMetric = right[Number(id)];
-            return Boolean(
-                rightMetric
-                && leftMetric.firstActivityDate === rightMetric.firstActivityDate
-                && leftMetric.lastActivityDate === rightMetric.lastActivityDate
-                && leftMetric.totalMinutes === rightMetric.totalMinutes
-            );
+            return leftMetric.firstActivityDate === rightMetric?.firstActivityDate
+                && leftMetric.lastActivityDate === rightMetric?.lastActivityDate
+                && leftMetric.totalMinutes === rightMetric?.totalMinutes;
         });
     }
 
