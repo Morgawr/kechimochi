@@ -705,6 +705,19 @@ describe('MediaView', () => {
         });
     });
 
+    it('keeps in-memory sort state when a later snapshot still reports the old settings', async () => {
+        vi.mocked(api.getAllMedia).mockResolvedValue([]);
+        const component = new MediaView(container);
+        await renderAndWaitForBrowser(component);
+
+        const onFilterChange = vi.mocked(MediaLibraryBrowser).mock.calls[0][4];
+        onFilterChange({ groupByType: true });
+
+        await component.loadData();
+
+        expect(component.state.libraryFilters.groupByType).toBe(true);
+    });
+
     it('stores the preferred layout when the user changes it', async () => {
         vi.mocked(api.getAllMedia).mockResolvedValue([]);
         const component = new MediaView(container);

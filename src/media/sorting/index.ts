@@ -5,7 +5,6 @@ export {
     inferExtraFieldValueType,
     LIBRARY_BUILTIN_SORT_KEYS,
     parseLeadingNumber,
-    sortStagesNeedMetrics,
 } from './library_sort';
 export type {
     LibraryBuiltinSortKey,

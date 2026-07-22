@@ -23,7 +23,6 @@ export {
     parseLibrarySortStages,
     reconcileEnumOrder,
     serializeLibrarySortStages,
-    sortStagesNeedMetrics,
     toLibraryItemRows,
     toSortFieldOptionValue,
 } from './sorting';
