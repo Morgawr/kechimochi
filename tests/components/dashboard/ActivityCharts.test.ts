@@ -81,7 +81,7 @@ describe('ActivityCharts', () => {
         expect((container.querySelector('#btn-chart-next') as HTMLButtonElement).disabled).toBe(false);
     });
 
-    it('marks chart data ready only after constructing the current snapshot generation', async () => {
+    it('marks aggregate data before chart construction and visualizations after', async () => {
         const component = new ActivityCharts(
             container,
             {
@@ -98,15 +98,19 @@ describe('ActivityCharts', () => {
 
         component.render();
         const layout = container.querySelector<HTMLElement>('#activity-charts-grid');
+        const pieCanvas = container.querySelector<HTMLCanvasElement>('#pieChart');
         expect(layout?.dataset.dashboardRequestId).toBeUndefined();
+        expect(pieCanvas?.dataset.dashboardRequestId).toBe('41');
         await waitForChartConstruction();
         expect(layout?.dataset.dashboardRequestId).toBe('41');
 
         component.updatePendingParams({ timeRangeDays: 30 });
         expect(layout?.dataset.dashboardRequestId).toBeUndefined();
+        expect(pieCanvas?.dataset.dashboardRequestId).toBeUndefined();
 
         vi.clearAllMocks();
         component.setState({ snapshotRequestId: 42 });
+        expect(pieCanvas?.dataset.dashboardRequestId).toBe('42');
         await waitForChartConstruction();
         expect(layout?.dataset.dashboardRequestId).toBe('42');
     });

@@ -289,12 +289,13 @@ export async function waitForCurrentPieChartData(
 async function readCurrentPieChartData(): Promise<PieChartData | null> {
     return browser.execute(() => {
         const root = document.querySelector<HTMLElement>('.dashboard-root');
-        const charts = document.querySelector<HTMLElement>('#activity-charts-grid');
         const currentRequestId = root?.dataset.dashboardRequestId;
-        if (!currentRequestId || charts?.dataset.dashboardRequestId !== currentRequestId) return null;
+        if (!currentRequestId) return null;
 
-        const canvas = charts.querySelector<HTMLCanvasElement>('#pieChart');
-        if (!canvas?.dataset.labels || !canvas.dataset.values) return null;
+        const canvas = root.querySelector<HTMLCanvasElement>('#pieChart');
+        if (canvas?.dataset.dashboardRequestId !== currentRequestId
+            || !canvas.dataset.labels
+            || !canvas.dataset.values) return null;
         try {
             const labels: unknown = JSON.parse(canvas.dataset.labels);
             const values: unknown = JSON.parse(canvas.dataset.values);

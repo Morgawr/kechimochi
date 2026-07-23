@@ -31,6 +31,11 @@ interface ChartGroup {
     label: string;
 }
 
+interface PieChartData {
+    labels: string[];
+    values: number[];
+}
+
 export class ActivityCharts extends Component<ActivityChartsState> {
     private pieChartInstance: ChartInstance | null = null;
     private barChartInstance: ChartInstance | null = null;
@@ -230,6 +235,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         const layout = this.container.querySelector<HTMLElement>('#activity-charts-grid');
         if (!layout) return;
         delete layout.dataset.dashboardRequestId;
+        delete layout.querySelector<HTMLCanvasElement>('#pieChart')?.dataset.dashboardRequestId;
         this.syncControlState(layout);
     }
 
@@ -243,6 +249,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         const pieCanvas = layout.querySelector<HTMLCanvasElement>('#pieChart')!;
         const barCanvas = layout.querySelector<HTMLCanvasElement>('#barChart')!;
         if (!pieCanvas || !barCanvas) return;
+        delete pieCanvas.dataset.dashboardRequestId;
 
         const colors = this.getChartColors();
         const rangeLogs = this.state.logs ?? this.state.rangeData?.bucket_totals.map((bucket, index) => ({
@@ -262,13 +269,26 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         layout.dataset.timeRangeDays = String(this.state.timeRangeDays);
         layout.dataset.timeRangeOffset = String(this.state.timeRangeOffset);
 
+        // Publish the current aggregate data independently of Chart.js. Tests
+        // and other DOM consumers that inspect the data should not have to wait
+        // for the lazy chart module or the sibling activity chart to finish
+        // constructing.
+        const pieData = this.preparePieChartData(timeRange);
+        pieCanvas.dataset.groupBy = this.state.groupByMode;
+        pieCanvas.dataset.metric = this.state.metric;
+        pieCanvas.dataset.labels = JSON.stringify(pieData.labels);
+        pieCanvas.dataset.values = JSON.stringify(pieData.values);
+        if (snapshotRequestId !== undefined) {
+            pieCanvas.dataset.dashboardRequestId = snapshotRequestId.toString();
+        }
+
         const importStarted = performanceNow();
         const Chart = await loadChartConstructor();
         logPerformance('chart_import', 'chart_js', performanceNow() - importStarted);
         if (generation !== this.renderGeneration || !this.container.contains(layout)) return;
 
         this.destroyChartInstances();
-        this.createPieChart(Chart, pieCanvas, colors, timeRange);
+        this.createPieChart(Chart, pieCanvas, colors, pieData);
         this.createBarChart(Chart, barCanvas, colors, timeRange);
         if (snapshotRequestId !== undefined) {
             layout.dataset.dashboardRequestId = snapshotRequestId.toString();
@@ -286,14 +306,13 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         ];
     }
 
-    private createPieChart(Chart: ChartConstructor, canvas: HTMLCanvasElement, colors: string[], timeRange: ActivityRange) {
+    private preparePieChartData(timeRange: ActivityRange): PieChartData {
         const { groupByMode } = this.state;
         const logs = this.state.logs ?? [];
         const { validStart, validEnd } = timeRange;
         const isInRange = (log: ActivitySummary) => log.date >= validStart && log.date <= validEnd;
         const activeGroups = this.getActiveGroups(logs, isInRange, groupByMode);
         const pieTypeMap = new Map<string, number>();
-        const style = getComputedStyle(document.body);
 
         measureSynchronous('aggregation', 'dashboard_pie_data', () => {
             if (this.state.rangeData) {
@@ -314,19 +333,21 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         }, { points: this.state.rangeData?.series.length ?? logs.length });
 
         const sortedEntries = Array.from(pieTypeMap.entries()).sort((a, b) => b[1] - a[1]);
-        const displayLabels = sortedEntries.map(([key]) => activeGroups.get(key) ?? key);
+        return {
+            labels: sortedEntries.map(([key]) => activeGroups.get(key) ?? key),
+            values: sortedEntries.map(([, value]) => value),
+        };
+    }
 
-        canvas.dataset.groupBy = groupByMode;
-        canvas.dataset.metric = this.state.metric;
-        canvas.dataset.labels = JSON.stringify(displayLabels);
-        canvas.dataset.values = JSON.stringify(sortedEntries.map(entry => entry[1]));
+    private createPieChart(Chart: ChartConstructor, canvas: HTMLCanvasElement, colors: string[], data: PieChartData) {
+        const style = getComputedStyle(document.body);
 
         this.pieChartInstance = measureSynchronous('chart_construction', 'dashboard_pie_chart', () => new Chart(canvas, {
             type: 'doughnut',
             data: {
-                labels: displayLabels,
+                labels: data.labels,
                 datasets: [{
-                    data: sortedEntries.map(e => e[1]),
+                    data: data.values,
                     backgroundColor: colors,
                     borderWidth: 0
                 }]
@@ -335,7 +356,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    legend: { display: pieTypeMap.size <= 6, position: 'bottom', labels: { color: style.getPropertyValue('--text-secondary').trim() ||'#f0f0f5' } },
+                    legend: { display: data.labels.length <= 6, position: 'bottom', labels: { color: style.getPropertyValue('--text-secondary').trim() ||'#f0f0f5' } },
                     tooltip: {
                         callbacks: {
                             label: (context) => {
