@@ -1,8 +1,13 @@
 use std::fs;
 use std::fs::File;
+#[cfg(not(target_os = "android"))]
 use std::fs::OpenOptions;
-use std::io::{Read, Seek, Write};
+#[cfg(not(target_os = "android"))]
+use std::io::Seek;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+#[cfg(any(target_os = "android", test))]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
@@ -26,12 +31,15 @@ pub const PENDING_SYNC_STATE_VERSION: i64 = 1;
 const SYNC_LOCK_FILE: &str = "sync.lock";
 pub const SYNC_OPERATION_IN_PROGRESS_ERROR: &str = "Another sync operation is already in progress";
 
-// Sync operations already serialize their network workflow with `sync.lock`,
-// but ordinary database writers can mark the profile dirty while that workflow
-// is running. Serialize the short local state-file transactions separately so
-// a dirty read-modify-write cannot resurrect an older pending phase after a
-// newer phase was saved or cleared.
+// Sync operations already serialize their network workflow through
+// `acquire_sync_lock`, but ordinary database writers can mark the profile dirty
+// while that workflow is running. Serialize the short local state-file
+// transactions separately so a dirty read-modify-write cannot resurrect an
+// older pending phase after a newer phase was saved or cleared.
 static SYNC_STATE_FILES_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
+
+#[cfg(target_os = "android")]
+static ANDROID_SYNC_LOCK: AtomicBool = AtomicBool::new(false);
 
 fn lock_sync_state_files() -> MutexGuard<'static, ()> {
     SYNC_STATE_FILES_MUTEX
@@ -531,16 +539,43 @@ pub fn mark_sync_dirty_if_configured(app_dir: &Path) -> Result<bool, String> {
     Ok(updated.is_some())
 }
 
+#[cfg(any(target_os = "android", test))]
+#[derive(Debug)]
+struct ProcessSyncLockGuard<'a> {
+    held: &'a AtomicBool,
+}
+
+#[cfg(any(target_os = "android", test))]
+impl Drop for ProcessSyncLockGuard<'_> {
+    fn drop(&mut self) {
+        self.held.store(false, Ordering::Release);
+    }
+}
+
+#[cfg(any(target_os = "android", test))]
+fn acquire_process_sync_lock(held: &AtomicBool) -> Result<ProcessSyncLockGuard<'_>, String> {
+    held.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+        .map(|_| ProcessSyncLockGuard { held })
+        .map_err(|_| SYNC_OPERATION_IN_PROGRESS_ERROR.to_string())
+}
+
 #[derive(Debug)]
 pub struct SyncLockGuard {
+    #[cfg(not(target_os = "android"))]
     // The operating system owns the lifetime of this advisory lock. Keeping
     // the file handle alive holds the lock, and closing it (including after a
     // crash) releases the lock automatically. The lock file itself is
     // intentionally persistent so no caller can unlink a locked inode and
     // create a second, independently lockable file at the same path.
     _file: File,
+    #[cfg(target_os = "android")]
+    // Android runs these commands in one application process, but async sync
+    // work must still exclude destructive commands such as reset and restore.
+    // The process-local guard is Send-safe while held across network awaits.
+    _process_guard: ProcessSyncLockGuard<'static>,
 }
 
+#[cfg(not(target_os = "android"))]
 pub fn acquire_sync_lock(app_dir: &Path) -> Result<SyncLockGuard, String> {
     ensure_sync_dir(app_dir)?;
     let path = sync_lock_path(app_dir);
@@ -569,6 +604,21 @@ pub fn acquire_sync_lock(app_dir: &Path) -> Result<SyncLockGuard, String> {
     file.sync_data().map_err(|e| e.to_string())?;
 
     Ok(SyncLockGuard { _file: file })
+}
+
+#[cfg(target_os = "android")]
+pub fn acquire_sync_lock(app_dir: &Path) -> Result<SyncLockGuard, String> {
+    ensure_sync_dir(app_dir)?;
+    let process_guard = acquire_process_sync_lock(&ANDROID_SYNC_LOCK)?;
+
+    // v0.3.0 created this file before Rust reported that Android file locking
+    // was unsupported. It has no authority under the process-local guard and
+    // should not keep the sync directory alive after an upgrade.
+    let _ = fs::remove_file(sync_lock_path(app_dir));
+
+    Ok(SyncLockGuard {
+        _process_guard: process_guard,
+    })
 }
 
 pub fn clear_sync_runtime_files(app_dir: &Path) -> Result<(), String> {
@@ -1072,6 +1122,22 @@ mod tests {
     }
 
     #[test]
+    fn process_sync_lock_prevents_parallel_operations_and_releases_on_drop() {
+        fn assert_send<T: Send>() {}
+        assert_send::<ProcessSyncLockGuard<'static>>();
+
+        let held = AtomicBool::new(false);
+        let guard = acquire_process_sync_lock(&held).unwrap();
+
+        let error = acquire_process_sync_lock(&held).unwrap_err();
+        assert_eq!(error, SYNC_OPERATION_IN_PROGRESS_ERROR);
+
+        drop(guard);
+        let _next_guard = acquire_process_sync_lock(&held).unwrap();
+    }
+
+    #[test]
+    #[cfg(not(target_os = "android"))]
     fn sync_lock_release_allows_reacquire_without_deleting_lock_file() {
         let temp_dir = TempDir::new().unwrap();
         let guard = acquire_sync_lock(temp_dir.path()).unwrap();
@@ -1082,6 +1148,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_os = "android"))]
     fn sync_lock_reuses_an_unlocked_file_regardless_of_stale_metadata() {
         let temp_dir = TempDir::new().unwrap();
         ensure_sync_dir(temp_dir.path()).unwrap();
