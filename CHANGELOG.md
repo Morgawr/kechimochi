@@ -6,6 +6,12 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07-24
+
+EMERGENCY BUGFIX: On Android, release 0.3.0 failed to sync with Google Drive due
+to a bug. This 0.3.1 release fixes that bug. If you missed the full patch notes
+for version 0.3.0, please take a look at https://github.com/Morgawr/kechimochi/releases#release-v0.3.0
+
 ## [0.3.0] - 2026-07-23
 
 ### Added

@@ -7,12 +7,29 @@
 import { waitForAppReady } from '../../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../../helpers/navigation.js';
 
+async function getSyncConflictsFromBackend(): Promise<unknown[]> {
+  return browser.execute(async () => {
+    const invoke = (globalThis as unknown as {
+      __TAURI_INTERNALS__: {
+        invoke: <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
+      };
+    }).__TAURI_INTERNALS__.invoke;
+    return invoke<unknown[]>('get_sync_conflicts');
+  });
+}
+
 describe('Android: fresh-install smoke', () => {
   it('should launch the app without crashing', async () => {
     await waitForAppReady();
 
     const appElement = await $('#app');
     expect(await appElement.isExisting()).toBe(true);
+  });
+
+  it('should acquire the Android sync-operation guard', async () => {
+    await waitForAppReady();
+
+    expect(await getSyncConflictsFromBackend()).toEqual([]);
   });
 
   it('should display the main navigation', async () => {
