@@ -545,11 +545,30 @@ export async function performActivityEdit(
     newNotes?: string,
     newActivityType?: string,
 ): Promise<void> {
-    const editBtn = $(btnSelector);
-    await editBtn.waitForDisplayed({ timeout: 5000 });
-    await editBtn.scrollIntoView();
-    await editBtn.waitForClickable({ timeout: 3000 });
-    await editBtn.click();
+    await browser.waitUntil(async () => {
+        return browser.execute((selector) => {
+            const button = Array.from(document.querySelectorAll(selector)).find((node) => {
+                if (!(node instanceof HTMLElement)) return false;
+
+                const style = globalThis.getComputedStyle(node);
+                const rect = node.getBoundingClientRect();
+                return style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && rect.width > 0
+                    && rect.height > 0;
+            });
+
+            if (!(button instanceof HTMLElement)) return false;
+
+            button.scrollIntoView({ block: 'center', inline: 'center' });
+            button.click();
+            return true;
+        }, btnSelector).catch(() => false);
+    }, {
+        timeout: 5000,
+        interval: 100,
+        timeoutMsg: `Could not click a visible edit activity button matching "${btnSelector}"`,
+    });
 
     const overlay = await getTopmostVisibleOverlay('#add-activity-form', 5000);
     const modal = overlay.$('.modal-content');
