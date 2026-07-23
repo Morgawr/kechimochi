@@ -30,6 +30,12 @@ async function clickSaveCardButton(buttonSelector: string): Promise<void> {
   await button.click();
 }
 
+async function setMetricToggle(useCharacters: boolean): Promise<void> {
+  const option = $(useCharacters ? '#report-card-metric-characters' : '#report-card-metric-time');
+  await option.waitForClickable({ timeout: 5000 });
+  await option.click();
+}
+
 async function saveCardToDisk(buttonSelector: string, savePath: string): Promise<void> {
   await applyDialogMock(savePath);
   await clickSaveCardButton(buttonSelector);
@@ -79,6 +85,7 @@ function expectValidPng(filePath: string): Buffer {
 describe('CUJ: Report Card (shareable PNG export)', () => {
   let activityCardPath: string;
   let contentCardPath: string;
+  let charactersContentCardPath: string;
   let activityCardBytes: Buffer;
   let contentCardBytes: Buffer;
 
@@ -87,6 +94,7 @@ describe('CUJ: Report Card (shareable PNG export)', () => {
     const baseDir = process.env.SPEC_STAGE_DIR || os.tmpdir();
     activityCardPath = path.join(baseDir, `kechimochi_card_activity_${Date.now()}.png`);
     contentCardPath = path.join(baseDir, `kechimochi_card_content_${Date.now()}.png`);
+    charactersContentCardPath = path.join(baseDir, `kechimochi_card_content_chars_${Date.now()}.png`);
   });
 
   after(() => {
@@ -94,6 +102,7 @@ describe('CUJ: Report Card (shareable PNG export)', () => {
     if (isDesktop() && !process.env.SPEC_STAGE_DIR) {
       if (fs.existsSync(activityCardPath)) fs.unlinkSync(activityCardPath);
       if (fs.existsSync(contentCardPath)) fs.unlinkSync(contentCardPath);
+      if (fs.existsSync(charactersContentCardPath)) fs.unlinkSync(charactersContentCardPath);
     }
   });
 
@@ -110,17 +119,30 @@ describe('CUJ: Report Card (shareable PNG export)', () => {
     }
   });
 
-  it('saves the content-breakdown card as a valid PNG', async () => {
+  it('saves the content-breakdown card as a valid PNG for both the time and characters metrics', async () => {
     if (!(await verifyActiveView('profile'))) {
       await navigateTo('profile');
     }
 
+    // Default metric (time).
+    await setMetricToggle(false);
     if (isDesktop()) {
       await saveCardToDisk('#profile-btn-save-card-content', contentCardPath);
       contentCardBytes = expectValidPng(contentCardPath);
     } else if (isWeb()) {
       contentCardBytes = await saveCardToWebGlobal('#profile-btn-save-card-content');
       expectValidPngBytes(contentCardBytes);
+    }
+
+    await setMetricToggle(true);
+    if (isDesktop()) {
+      await saveCardToDisk('#profile-btn-save-card-content', charactersContentCardPath);
+      const charactersCardBytes = expectValidPng(charactersContentCardPath);
+      expect(charactersCardBytes.equals(contentCardBytes)).toBe(false);
+    } else if (isWeb()) {
+      const charactersCardBytes = await saveCardToWebGlobal('#profile-btn-save-card-content');
+      expectValidPngBytes(charactersCardBytes);
+      expect(charactersCardBytes.equals(contentCardBytes)).toBe(false);
     }
   });
 

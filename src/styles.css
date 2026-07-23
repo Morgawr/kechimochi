@@ -1906,14 +1906,14 @@ input:focus, select:focus {
   flex-wrap: wrap;
 }
 
-.media-layout-toggle-shell {
+.toggle-shell {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 0.35rem;
 }
 
-.media-layout-toggle {
+.toggle {
   display: inline-flex;
   align-items: center;
   padding: 0.2rem;
@@ -1923,7 +1923,7 @@ input:focus, select:focus {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
-.media-layout-toggle-option {
+.toggle-option {
   border: none;
   background: transparent;
   color: var(--text-secondary);
@@ -1937,12 +1937,12 @@ input:focus, select:focus {
   transition: background-color var(--transition-fast), color var(--transition-fast), opacity var(--transition-fast);
 }
 
-.media-layout-toggle-option.is-active {
+.toggle-option.is-active {
   background: var(--accent-green);
   color: #0f1b15;
 }
 
-.media-layout-toggle-option:disabled {
+.toggle-option:disabled {
   cursor: not-allowed;
   opacity: 0.45;
 }
@@ -4240,7 +4240,7 @@ input:checked + .slider:before {
     width: 100%;
   }
 
-  .media-layout-toggle-shell {
+  .toggle-shell {
     display: none;
   }
 

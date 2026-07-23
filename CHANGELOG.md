@@ -6,6 +6,9 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+### Added
+ - Business cards now show time *and* characters. Added toggle for choice of which metric to calculate percentages by.
+
 ## [0.3.1] - 2026-07-24
 
 EMERGENCY BUGFIX: On Android, release 0.3.0 failed to sync with Google Drive due

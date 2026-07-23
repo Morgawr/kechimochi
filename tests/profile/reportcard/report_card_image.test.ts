@@ -149,13 +149,14 @@ describe('renderReportCardImage', () => {
             profileName: 'Alice Example',
             profilePictureDataUrl: null,
             initials: 'AE',
-            subtitle: 'Time by activity',
+            subtitle: 'Activity breakdown',
             slices: [
-                { label: 'Reading', minutes: 90, percent: 75 },
-                { label: 'Watching', minutes: 30, percent: 25 },
+                { label: 'Reading', minutes: 90, characters: 5000, percent: 75 },
+                { label: 'Watching', minutes: 30, characters: 800, percent: 25 },
             ],
             generatedAtIso: '2026-07-21T01:02:03.000Z',
             themeColors,
+            metric: 'time',
             ...overrides,
         };
     }
@@ -177,6 +178,7 @@ describe('renderReportCardImage', () => {
             fill: vi.fn(),
             stroke: vi.fn(),
             fillText: vi.fn(),
+            measureText: vi.fn(() => ({ width: 100 })),
         } as unknown as CanvasRenderingContext2D;
     }
 
@@ -198,20 +200,21 @@ describe('renderReportCardImage', () => {
             callback(outputBlob);
         });
 
-        class MockImage {
-            onload: (() => void) | null = null;
-            onerror: (() => void) | null = null;
-
-            set src(_source: string) {
-                queueMicrotask(() => {
-                    if (imageOutcome === 'error') {
-                        this.onerror?.();
-                    } else {
-                        this.onload?.();
-                    }
-                });
-            }
-        }
+        const MockImage = vi.fn().mockImplementation(function (this: { onload: (() => void) | null; onerror: (() => void) | null }) {
+            this.onload = null;
+            this.onerror = null;
+            Object.defineProperty(this, 'src', {
+                set: () => {
+                    queueMicrotask(() => {
+                        if (imageOutcome === 'error') {
+                            this.onerror?.();
+                        } else {
+                            this.onload?.();
+                        }
+                    });
+                },
+            });
+        });
 
         vi.stubGlobal('Image', MockImage);
     });
@@ -226,15 +229,16 @@ describe('renderReportCardImage', () => {
 
         expect(blob).toBe(outputBlob);
         expect(context.scale).toHaveBeenCalledWith(2, 2);
-        expect(context.fillRect).toHaveBeenCalledWith(0, 0, 600, 340);
+        expect(context.fillRect).toHaveBeenCalledWith(0, 0, 720, 340);
         expect(context.fillText).toHaveBeenCalledWith('AE', 70, 80);
         expect(context.fillText).toHaveBeenCalledWith('Alice Example', 120, 78);
-        expect(context.fillText).toHaveBeenCalledWith('Time by activity', 120, 100);
+        expect(context.fillText).toHaveBeenCalledWith('Activity breakdown', 120, 100);
         expect(context.fillText).toHaveBeenCalledWith('Reading', 60, 158);
-        expect(context.fillText).toHaveBeenCalledWith('1h 30m', 230, 158);
-        expect(context.fillText).toHaveBeenCalledWith('(75%)', 320, 158);
-        expect(context.fillText).toHaveBeenCalledWith('kechimochi', 504, 316);
-        expect(context.fillText).toHaveBeenCalledWith('as of 2026-07-21', 36, 316);
+        expect(context.fillText).toHaveBeenCalledWith('5,000ch', 305, 158);
+        expect(context.fillText).toHaveBeenCalledWith('1h 30m', 430, 158);
+        expect(context.fillText).toHaveBeenCalledWith('(75%)', 505, 158);
+        expect(context.fillText).toHaveBeenCalledWith('kechimochi', 624, 316);
+        expect(context.fillText).toHaveBeenCalledWith('as of 2026-07-21 · percentages calculated based on time', 36, 316);
 
         const [chartCanvas, chartConfig] = chartMocks.create.mock.calls[0];
         expect(chartCanvas.width).toBe(260);
@@ -255,11 +259,11 @@ describe('renderReportCardImage', () => {
                 devicePixelRatio: 1,
             },
         });
-        expect(context.drawImage).toHaveBeenCalledWith(chartCanvas, 430, 95, 130, 130);
+        expect(context.drawImage).toHaveBeenCalledWith(chartCanvas, 550, 95, 130, 130);
         expect(chartMocks.destroy).toHaveBeenCalledOnce();
 
-        const canvas = vi.mocked(HTMLCanvasElement.prototype.toBlob).mock.instances[0];
-        expect(canvas.width).toBe(1200);
+        const canvas = vi.mocked(HTMLCanvasElement.prototype.toBlob).mock.instances[0] as unknown as HTMLCanvasElement;
+        expect(canvas.width).toBe(1440);
         expect(canvas.height).toBe(680);
         expect(HTMLCanvasElement.prototype.toBlob).toHaveBeenCalledWith(expect.any(Function), 'image/png');
     });
@@ -267,7 +271,8 @@ describe('renderReportCardImage', () => {
     it('draws a loaded profile image inside the avatar clip', async () => {
         await renderReportCardImage(buildOptions({ profilePictureDataUrl: 'data:image/png;base64,avatar' }));
 
-        const imageDraw = vi.mocked(context.drawImage).mock.calls.find(call => call.length === 5 && call[1] === 34);
+        const drawImageCalls = vi.mocked(context.drawImage).mock.calls as unknown as unknown[][];
+        const imageDraw = drawImageCalls.find(call => call.length === 5 && call[1] === 34);
         expect(imageDraw).toEqual([expect.anything(), 34, 44, 72, 72]);
         expect(context.clip).toHaveBeenCalledOnce();
         expect(context.fillText).not.toHaveBeenCalledWith('AE', 70, 80);
@@ -279,6 +284,33 @@ describe('renderReportCardImage', () => {
         await renderReportCardImage(buildOptions({ profilePictureDataUrl: 'data:image/png;base64,broken' }));
 
         expect(context.fillText).toHaveBeenCalledWith('AE', 70, 80);
+    });
+
+    it('draws the characters-based footer label when metric is characters', async () => {
+        await renderReportCardImage(buildOptions({ metric: 'characters' }));
+
+        expect(context.fillText).toHaveBeenCalledWith('as of 2026-07-21 · percentages calculated based on characters', 36, 316);
+    });
+
+    it('draws the donut from character values when metric is characters', async () => {
+        await renderReportCardImage(buildOptions({ metric: 'characters' }));
+
+        const [, chartConfig] = chartMocks.create.mock.calls[0];
+        expect(chartConfig).toMatchObject({
+            data: { datasets: [{ data: [5000, 800] }] },
+        });
+    });
+
+    it('right-aligns the chars, time, and percent columns to non-colliding anchors', async () => {
+        await renderReportCardImage(buildOptions({
+            slices: [
+                { label: 'Visual Novel', minutes: 20535, characters: 9_999_999_999, percent: 48 },
+            ],
+        }));
+
+        expect(context.fillText).toHaveBeenCalledWith('9,999,999,999ch', 305, 158);
+        expect(context.fillText).toHaveBeenCalledWith('342h 15m', 430, 158);
+        expect(context.fillText).toHaveBeenCalledWith('(48%)', 505, 158);
     });
 
     it('renders the empty state without a chart or date footer', async () => {

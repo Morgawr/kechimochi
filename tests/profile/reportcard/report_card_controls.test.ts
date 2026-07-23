@@ -2,12 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReportCardData } from '../../../src/profile/reportcard/report_card_controls';
 import {
     renderReportCardButtons,
+    reportCardSubtitle,
     saveReportCard,
     wireReportCardButtons,
 } from '../../../src/profile/reportcard/report_card_controls';
 
 const mocks = vi.hoisted(() => ({
-    aggregateTimeByCategory: vi.fn(),
+    aggregateCategorySlices: vi.fn(),
     buildReportCardFileName: vi.fn(),
     customAlert: vi.fn(),
     loggerError: vi.fn(),
@@ -17,7 +18,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../../../src/profile/reportcard/report_card_data', () => ({
-    aggregateTimeByCategory: mocks.aggregateTimeByCategory,
+    aggregateCategorySlices: mocks.aggregateCategorySlices,
 }));
 
 vi.mock('../../../src/profile/reportcard/report_card_image', () => ({
@@ -39,7 +40,7 @@ vi.mock('../../../src/logger', () => ({
 }));
 
 describe('report card controls', () => {
-    const slices = [{ label: 'Reading', minutes: 90, percent: 100 }];
+    const slices = [{ label: 'Reading', minutes: 90, characters: 5000, percent: 100 }];
     const themeColors = {
         backgroundColor: '#111111',
         cardBackgroundColor: '#222222',
@@ -56,6 +57,10 @@ describe('report card controls', () => {
             profilePicture: {
                 mime_type: 'image/png',
                 base64_data: 'avatar-data',
+                byte_size: 11,
+                width: 1,
+                height: 1,
+                updated_at: '2026-07-21T00:00:00Z',
             },
             logs: [],
             mediaList: [],
@@ -65,7 +70,7 @@ describe('report card controls', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
-        mocks.aggregateTimeByCategory.mockReturnValue(slices);
+        mocks.aggregateCategorySlices.mockReturnValue(slices);
         mocks.resolveReportCardThemeColors.mockReturnValue(themeColors);
         mocks.renderReportCardImage.mockResolvedValue(imageBlob);
         mocks.buildReportCardFileName.mockReturnValue('kechimochi_card_activity_Alice_Example.png');
@@ -77,29 +82,73 @@ describe('report card controls', () => {
         vi.useRealTimers();
     });
 
-    it('renders enabled save buttons when logged time is available', () => {
+    describe('reportCardSubtitle', () => {
+        it('names the grouping dimension', () => {
+            expect(reportCardSubtitle('activity')).toBe('Activity breakdown');
+            expect(reportCardSubtitle('content')).toBe('Content breakdown');
+        });
+    });
+
+    it('renders a Business Card panel with enabled save buttons when logged time is available', () => {
         const root = renderReportCardButtons(true);
 
-        expect(root.querySelectorAll('button')).toHaveLength(2);
+        expect(root.classList.contains('card')).toBe(true);
+        expect(root.textContent).toContain('Business Card');
+        expect(root.querySelectorAll('button.btn-primary')).toHaveLength(2);
         expect((root.querySelector('#profile-btn-save-card-activity') as HTMLButtonElement).disabled).toBe(false);
         expect((root.querySelector('#profile-btn-save-card-content') as HTMLButtonElement).disabled).toBe(false);
-        expect(root.textContent).toContain('Save Card — Activity');
-        expect(root.textContent).toContain('Save Card — Content');
+        expect(root.textContent).toContain('Save Card: Activity');
+        expect(root.textContent).toContain('Save Card: Content');
     });
 
     it('disables both save buttons when no time has been logged', () => {
         const root = renderReportCardButtons(false);
 
-        expect(Array.from(root.querySelectorAll('button')).every(button => button.disabled)).toBe(true);
+        const saveButtons = root.querySelectorAll<HTMLButtonElement>('button.btn-primary');
+        expect(saveButtons).toHaveLength(2);
+        expect(Array.from(saveButtons).every(button => button.disabled)).toBe(true);
+    });
+
+    it('renders the Time/Characters metric toggle defaulting to time', () => {
+        const root = renderReportCardButtons(true);
+
+        const timeOption = root.querySelector('#report-card-metric-time') as HTMLButtonElement;
+        const charactersOption = root.querySelector('#report-card-metric-characters') as HTMLButtonElement;
+        expect(timeOption).not.toBeNull();
+        expect(charactersOption).not.toBeNull();
+        expect(timeOption.classList.contains('is-active')).toBe(true);
+        expect(charactersOption.classList.contains('is-active')).toBe(false);
+        expect(root.textContent).toContain('Time');
+        expect(root.textContent).toContain('Char');
+    });
+
+    it('activates the clicked metric option', () => {
+        const root = renderReportCardButtons(true);
+        wireReportCardButtons(root, () => buildData());
+        const timeOption = root.querySelector('#report-card-metric-time') as HTMLButtonElement;
+        const charactersOption = root.querySelector('#report-card-metric-characters') as HTMLButtonElement;
+
+        expect(timeOption.classList.contains('is-active')).toBe(true);
+        expect(charactersOption.classList.contains('is-active')).toBe(false);
+
+        charactersOption.click();
+
+        expect(timeOption.classList.contains('is-active')).toBe(false);
+        expect(charactersOption.classList.contains('is-active')).toBe(true);
+
+        timeOption.click();
+
+        expect(timeOption.classList.contains('is-active')).toBe(true);
+        expect(charactersOption.classList.contains('is-active')).toBe(false);
     });
 
     it('alerts without rendering when aggregation produces no slices', async () => {
-        mocks.aggregateTimeByCategory.mockReturnValue([]);
+        mocks.aggregateCategorySlices.mockReturnValue([]);
         const data = buildData();
 
-        await saveReportCard('activity', data);
+        await saveReportCard('activity', data, 'time');
 
-        expect(mocks.aggregateTimeByCategory).toHaveBeenCalledWith(data.logs, data.mediaList, 'activity');
+        expect(mocks.aggregateCategorySlices).toHaveBeenCalledWith(data.logs, data.mediaList, 'activity', 'time');
         expect(mocks.customAlert).toHaveBeenCalledWith(
             'Nothing to show',
             'There is no logged time to build this card yet.',
@@ -113,16 +162,17 @@ describe('report card controls', () => {
         vi.setSystemTime(new Date('2026-07-21T12:34:56.000Z'));
         const data = buildData();
 
-        await saveReportCard('activity', data);
+        await saveReportCard('activity', data, 'time');
 
         expect(mocks.renderReportCardImage).toHaveBeenCalledWith({
             profileName: 'Alice Example',
             profilePictureDataUrl: 'data:image/png;base64,avatar-data',
             initials: 'AE',
-            subtitle: 'Time by activity',
+            subtitle: 'Activity breakdown',
             slices,
             generatedAtIso: '2026-07-21T12:34:56.000Z',
             themeColors,
+            metric: 'time',
         });
         expect(mocks.buildReportCardFileName).toHaveBeenCalledWith('Alice Example', 'activity');
         expect(mocks.saveReportCardImage).toHaveBeenCalledWith(
@@ -132,15 +182,27 @@ describe('report card controls', () => {
         expect(mocks.customAlert).toHaveBeenCalledWith('Success', 'Report card image saved.');
     });
 
+    it('threads the characters metric through aggregation and rendering', async () => {
+        const data = buildData();
+
+        await saveReportCard('content', data, 'characters');
+
+        expect(mocks.aggregateCategorySlices).toHaveBeenCalledWith(data.logs, data.mediaList, 'content', 'characters');
+        expect(mocks.renderReportCardImage).toHaveBeenCalledWith(expect.objectContaining({
+            subtitle: 'Content breakdown',
+            metric: 'characters',
+        }));
+    });
+
     it('uses the content subtitle and does not claim success when saving is cancelled', async () => {
         mocks.saveReportCardImage.mockResolvedValue(false);
 
-        await saveReportCard('content', buildData({ profilePicture: null }));
+        await saveReportCard('content', buildData({ profilePicture: null }), 'time');
 
-        expect(mocks.aggregateTimeByCategory).toHaveBeenCalledWith([], [], 'content');
+        expect(mocks.aggregateCategorySlices).toHaveBeenCalledWith([], [], 'content', 'time');
         expect(mocks.renderReportCardImage).toHaveBeenCalledWith(expect.objectContaining({
             profilePictureDataUrl: null,
-            subtitle: 'Time by content',
+            subtitle: 'Content breakdown',
         }));
         expect(mocks.customAlert).not.toHaveBeenCalled();
     });
@@ -174,7 +236,17 @@ describe('report card controls', () => {
 
         (root.querySelector('#profile-btn-save-card-content') as HTMLButtonElement).click();
 
-        await vi.waitFor(() => expect(mocks.aggregateTimeByCategory).toHaveBeenCalledWith([], [], 'content'));
+        await vi.waitFor(() => expect(mocks.aggregateCategorySlices).toHaveBeenCalledWith([], [], 'content', 'time'));
+    });
+
+    it('reads the active metric option at click time and passes it to saveReportCard', async () => {
+        const root = renderReportCardButtons(true);
+        wireReportCardButtons(root, () => buildData());
+        (root.querySelector('#report-card-metric-characters') as HTMLButtonElement).click();
+
+        (root.querySelector('#profile-btn-save-card-activity') as HTMLButtonElement).click();
+
+        await vi.waitFor(() => expect(mocks.aggregateCategorySlices).toHaveBeenCalledWith([], [], 'activity', 'characters'));
     });
 
     it('reports save failures and still restores the button', async () => {

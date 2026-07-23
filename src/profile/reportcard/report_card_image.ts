@@ -1,21 +1,28 @@
-import type { CategorySlice, ReportCardDimension } from './report_card_data';
-import { formatDurationHm } from './report_card_data';
+import type { CategorySlice, ReportCardDimension, ReportCardMetric } from './report_card_data';
+import { formatCharacters, formatDurationHm } from './report_card_data';
 import { loadChartConstructor } from '../../chart_loader';
 import { logPerformance, measureSynchronous, performanceNow } from '../../performance';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const CARD_WIDTH = 600;
+const CARD_WIDTH = 720;
 const CARD_HEIGHT = 340;
 const RENDER_SCALE = 2;
 
 const DONUT_SIZE = 130;
-const DONUT_X = 430;
+const DONUT_X = 550;
 const DONUT_Y = 95;
 
 const AVATAR_RADIUS = 36;
 const AVATAR_CENTER_X = 70;
 const AVATAR_CENTER_Y = 80;
+
+// Right-edge anchors for the legend's right-aligned numeric columns, ordered
+// name → chars → time → percent → donut. Sized so the worst-case values
+// ("9,999,999,999ch" and a 5-digit-hour duration) never collide.
+const CHARS_COLUMN_RIGHT_X = 305;
+const TIME_COLUMN_RIGHT_X = 430;
+const PERCENT_COLUMN_RIGHT_X = 505;
 
 // ── Exported types ────────────────────────────────────────────────────────────
 
@@ -36,6 +43,7 @@ export interface ReportCardImageOptions {
     slices: CategorySlice[];
     generatedAtIso: string;
     themeColors: ReportCardThemeColors;
+    metric: ReportCardMetric;
 }
 
 // ── Pure helpers ───────────────────────────────────
@@ -153,6 +161,7 @@ function drawAvatarFromInitials(
 async function drawDonutChart(
     context: CanvasRenderingContext2D,
     slices: CategorySlice[],
+    metric: ReportCardMetric,
     chartColors: string[],
     destinationX: number,
     destinationY: number,
@@ -177,7 +186,7 @@ async function drawDonutChart(
         data: {
             labels: slices.map(slice => slice.label),
             datasets: [{
-                data: slices.map(slice => slice.minutes),
+                data: slices.map(slice => metric === 'time' ? slice.minutes : slice.characters),
                 backgroundColor: slices.map((_, index) => chartColors[index % chartColors.length]),
                 borderWidth: 0,
             }],
@@ -205,7 +214,7 @@ async function drawDonutChart(
  * host devicePixelRatio) so output is deterministic across machines.
  */
 export async function renderReportCardImage(options: ReportCardImageOptions): Promise<Blob> {
-    const { profileName, profilePictureDataUrl, initials, subtitle, slices, generatedAtIso, themeColors } = options;
+    const { profileName, profilePictureDataUrl, initials, subtitle, slices, generatedAtIso, themeColors, metric } = options;
 
     await document.fonts.ready;
 
@@ -257,13 +266,12 @@ export async function renderReportCardImage(options: ReportCardImageOptions): Pr
     context.font = '13px system-ui, sans-serif';
     context.fillText(subtitle, headerX, AVATAR_CENTER_Y + 20);
 
-    // ── Legend rows (swatch + label + duration + percent) ─────────────────────
+    // ── Legend rows (swatch + label + chars + duration + percent) ─────────────
     const rowStartY = 158;
     const rowHeight = 30;
     const swatchX = 40;
     const swatchRadius = 6;
     const labelX = 60;
-    const valueX = 230;
 
     if (slices.length === 0) {
         context.fillStyle = themeColors.secondaryTextColor;
@@ -285,20 +293,26 @@ export async function renderReportCardImage(options: ReportCardImageOptions): Pr
         context.fillStyle = themeColors.primaryTextColor;
         context.font = '14px system-ui, sans-serif';
         context.textBaseline = 'alphabetic';
+        context.textAlign = 'left';
         context.fillText(slice.label, labelX, rowY);
 
-        // Duration + percentage share.
+        // Characters, duration, and percentage share, right-aligned to fixed anchors.
+        context.textAlign = 'right';
         context.fillStyle = themeColors.primaryTextColor;
+        context.font = '14px system-ui, sans-serif';
+        context.fillText(formatCharacters(slice.characters), CHARS_COLUMN_RIGHT_X, rowY);
+
         context.font = 'bold 14px system-ui, sans-serif';
-        context.fillText(formatDurationHm(slice.minutes), valueX, rowY);
+        context.fillText(formatDurationHm(slice.minutes), TIME_COLUMN_RIGHT_X, rowY);
 
         context.fillStyle = themeColors.secondaryTextColor;
         context.font = '12px system-ui, sans-serif';
-        context.fillText(`(${slice.percent}%)`, valueX + 90, rowY);
+        context.fillText(`(${slice.percent}%)`, PERCENT_COLUMN_RIGHT_X, rowY);
     });
+    context.textAlign = 'left';
 
     // ── Donut chart ────────────────────────────────────────────────────────
-    await drawDonutChart(context, slices, themeColors.chartColors, DONUT_X, DONUT_Y, DONUT_SIZE);
+    await drawDonutChart(context, slices, metric, themeColors.chartColors, DONUT_X, DONUT_Y, DONUT_SIZE);
 
     // ── App name / branding ───────────────────────────────────────────────────
     context.fillStyle = themeColors.secondaryTextColor;
@@ -307,13 +321,14 @@ export async function renderReportCardImage(options: ReportCardImageOptions): Pr
     context.textBaseline = 'alphabetic';
     context.fillText('kechimochi', CARD_WIDTH - frameMargin - 80, CARD_HEIGHT - frameMargin - 8);
 
-    // ── Footer: "as of <date>" ────────────────────────────────────────────────
+    // ── Footer: "as of <date> · percentages calculated based on <metric>" ─────
     if (generatedAtIso) {
-        const dateLabel = `as of ${new Date(generatedAtIso).toISOString().split('T')[0]}`;
+        const date = new Date(generatedAtIso).toISOString().split('T')[0];
+        const footerLabel = `as of ${date} · percentages calculated based on ${metric}`;
         context.fillStyle = themeColors.secondaryTextColor;
         context.font = '11px system-ui, sans-serif';
         context.textAlign = 'left';
-        context.fillText(dateLabel, frameMargin + 20, CARD_HEIGHT - frameMargin - 8);
+        context.fillText(footerLabel, frameMargin + 20, CARD_HEIGHT - frameMargin - 8);
     }
 
     return new Promise<Blob>((resolve, reject) => {
