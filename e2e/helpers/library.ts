@@ -2,7 +2,13 @@
  * Library (Media Grid) helpers.
  */
 import { Logger } from '../../src/logger';
-import { waitForNoActiveOverlays, waitForSelectorDisplayed, safeClick as safeClickBySelector } from './common.js';
+import {
+    getTopmostVisibleOverlay,
+    safeClick as safeClickBySelector,
+    waitForNoActiveOverlays,
+    waitForOverlayToDisappear,
+    waitForSelectorDisplayed,
+} from './common.js';
 import { setText, setSelect } from './form-controls.js';
 import { navigateTo, verifyActiveView } from './navigation.js';
 
@@ -158,12 +164,13 @@ export async function addMedia(title: string, type: string, contentType?: string
 
     await waitForNoActiveOverlays(5_000).catch(() => undefined);
 
-    const addBtn = $('#btn-add-media-grid');
-    await addBtn.waitForDisplayed({ timeout: 5000 });
+    await waitForSelectorDisplayed('#btn-add-media-grid', 5000);
     await safeClickBySelector('#btn-add-media-grid');
 
-    const titleInput = $('#add-media-title');
-    await titleInput.waitForDisplayed({ timeout: 5000 });
+    // Re-query modal controls instead of holding WebDriver element handles.
+    // On web, the modal can visibly mount after a render replaced the node
+    // behind a captured handle, leaving that handle reporting "not displayed".
+    await waitForSelectorDisplayed('#add-media-title', 5000);
     await setText('#add-media-title', title);
 
     if (variant) {
@@ -176,11 +183,8 @@ export async function addMedia(title: string, type: string, contentType?: string
         await setSelect('#add-media-content-type', { text: contentType });
     }
 
-    const confirmBtn = $('#add-media-confirm');
-    await confirmBtn.waitForDisplayed({ timeout: 5000 });
-    
-    const { getTopmostVisibleOverlay, waitForOverlayToDisappear } = await import('./common.js');
-    const overlay = await getTopmostVisibleOverlay('#add-media-confirm');
+    await waitForSelectorDisplayed('#add-media-confirm', 5000);
+    const overlay = await getTopmostVisibleOverlay('#add-media-confirm', 5000);
     await safeClickBySelector('#add-media-confirm');
     await waitForOverlayToDisappear(overlay);
 

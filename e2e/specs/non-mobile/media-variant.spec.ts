@@ -4,7 +4,12 @@ import { addMedia, clickMediaItem, isMediaVisible, setSearchQuery } from '../../
 import { backToGrid, logActivityFromDetail } from '../../helpers/media-detail.js';
 import { logActivity } from '../../helpers/dashboard.js';
 import { setText } from '../../helpers/form-controls.js';
-import { dismissAlert } from '../../helpers/common.js';
+import {
+  clickTopmostOverlayChild,
+  dismissAlert,
+  waitForNoActiveOverlays,
+  waitForTopmostOverlayText,
+} from '../../helpers/common.js';
 
 async function waitForSingleMediaDetailLog(expectedDurationMinutes: string): Promise<void> {
   await browser.waitUntil(async () => browser.execute((durationMinutes) => {
@@ -67,10 +72,9 @@ describe('Media Variant CUJ', () => {
     expect(quickLogVariantText).toContain('Anime Edition');
     await quickLogItem.click();
 
-    const modalVariant = $('#activity-media-variant');
-    await modalVariant.waitForDisplayed({ timeout: 5000 });
-    expect(await modalVariant.getText()).toBe('Anime Edition');
-    await $('#activity-cancel').click();
+    await waitForTopmostOverlayText('#activity-media-variant', 'Anime Edition', 5000);
+    await clickTopmostOverlayChild('#activity-cancel', 5000);
+    await waitForNoActiveOverlays();
   });
 
   it('keeps activity identity isolated across media with the same title', async () => {
