@@ -1,6 +1,8 @@
 import { Milestone } from './api';
 import { buildCalendar } from './calendar';
 import { createCancelableOverlay, customAlert } from './modal_base';
+import { escapeAttribute } from './html';
+import { DURATION_INPUT_PLACEHOLDER, DURATION_INPUT_TOOLTIP, wireDurationInput } from './time';
 
 type MilestoneDefaults = {
     duration?: number;
@@ -24,23 +26,10 @@ export async function showAddMilestoneModal(mediaTitle: string, mediaUid: string
         const hasExistingDate = typeof existingDate === 'string' && existingDate.length > 0;
         let selectedDate: string | undefined = hasExistingDate ? existingDate : undefined;
         const initialDuration = Math.max(0, Math.floor(existingMilestone?.duration ?? defaults.duration ?? 0));
-        const initialHours = Math.floor(initialDuration / 60);
-        const initialMinutes = initialDuration % 60;
         const initialCharacters = Math.max(0, Math.floor(existingMilestone?.characters ?? defaults.characters ?? 0));
 
         overlay.innerHTML = `
             <style>
-                /* Remove spin buttons */
-                #milestone-hours::-webkit-outer-spin-button,
-                #milestone-minutes::-webkit-outer-spin-button,
-                #milestone-hours::-webkit-inner-spin-button,
-                #milestone-minutes::-webkit-inner-spin-button {
-                    -webkit-appearance: none;
-                    margin: 0;
-                }
-                #milestone-hours, #milestone-minutes {
-                    -moz-appearance: textfield;
-                }
                 .milestone-input:focus {
                     border-color: var(--accent-blue) !important;
                     outline: none;
@@ -56,12 +45,8 @@ export async function showAddMilestoneModal(mediaTitle: string, mediaUid: string
                     
                     <div style="display: flex; flex-direction: column; gap: 0.3rem;">
                         <label style="font-size: 0.85rem; color: var(--text-secondary);">Duration</label>
-                        <div style="display: flex; align-items: center; gap: 0.5rem;">
-                            <input type="number" id="milestone-hours" class="milestone-input" value="${initialHours}" min="0" style="width: 70px; background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); text-align: center;" />
-                            <span style="font-size: 0.85rem;">h</span>
-                            <input type="number" id="milestone-minutes" class="milestone-input" value="${initialMinutes}" min="0" style="width: 70px; background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); text-align: center;" />
-                            <span style="font-size: 0.85rem;">m</span>
-                        </div>
+                        <input type="text" id="milestone-duration" class="milestone-input" autocomplete="off" placeholder="${escapeAttribute(DURATION_INPUT_PLACEHOLDER)}" title="${escapeAttribute(DURATION_INPUT_TOOLTIP)}" value="${initialDuration > 0 ? String(initialDuration) : ''}" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); width: 100%;" />
+                        <div id="milestone-duration-hint" class="duration-hint"></div>
                     </div>
 
                     <div style="display: flex; flex-direction: column; gap: 0.3rem;">
@@ -87,11 +72,13 @@ export async function showAddMilestoneModal(mediaTitle: string, mediaUid: string
         `;
 
         const nameInput = overlay.querySelector<HTMLInputElement>('#milestone-name')!;
-        const hoursInput = overlay.querySelector<HTMLInputElement>('#milestone-hours')!;
-        const minutesInput = overlay.querySelector<HTMLInputElement>('#milestone-minutes')!;
+        const durationInput = overlay.querySelector<HTMLInputElement>('#milestone-duration')!;
+        const durationHint = overlay.querySelector<HTMLElement>('#milestone-duration-hint')!;
+        const confirmButton = overlay.querySelector<HTMLButtonElement>('#milestone-confirm')!;
         const recordDateCheckbox = overlay.querySelector<HTMLInputElement>('#milestone-record-date')!;
         const calendarContainer = overlay.querySelector<HTMLElement>('#milestone-calendar-container')!;
         const charactersInput = overlay.querySelector<HTMLInputElement>('#milestone-characters')!;
+        const { getDurationMinutes } = wireDurationInput(durationInput, durationHint, confirmButton);
         nameInput.value = existingMilestone?.name ?? '';
         if (hasExistingDate) {
             buildCalendar(overlay.querySelector<HTMLElement>('#milestone-calendar')!, existingDate, (d) => {
@@ -106,10 +93,10 @@ export async function showAddMilestoneModal(mediaTitle: string, mediaUid: string
                 return;
             }
 
-            const hours = Number.parseInt(hoursInput.value) || 0;
-            const mins = Number.parseInt(minutesInput.value) || 0;
+            const totalDuration = getDurationMinutes();
+            if (totalDuration === null) return;
+
             const characters = Number.parseInt(charactersInput.value) || 0;
-            const totalDuration = (hours * 60) + mins;
 
             if (totalDuration === 0 && characters === 0) {
                 customAlert("Input Required", "Please enter either duration or characters.");
@@ -128,7 +115,7 @@ export async function showAddMilestoneModal(mediaTitle: string, mediaUid: string
             });
         };
 
-        [nameInput, hoursInput, minutesInput, charactersInput].forEach(el => {
+        [nameInput, durationInput, charactersInput].forEach(el => {
             el.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') {
                     handleConfirm();
@@ -150,7 +137,7 @@ export async function showAddMilestoneModal(mediaTitle: string, mediaUid: string
         });
 
         overlay.querySelector('#milestone-cancel')!.addEventListener('click', dismiss);
-        overlay.querySelector('#milestone-confirm')!.addEventListener('click', handleConfirm);
+        confirmButton.addEventListener('click', handleConfirm);
         nameInput.focus();
     });
 }

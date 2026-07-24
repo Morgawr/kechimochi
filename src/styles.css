@@ -468,6 +468,20 @@ a {
   font-size: 0.9rem;
 }
 
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.duration-hint {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.duration-hint.is-invalid {
+  color: var(--accent-red);
+}
+
 .btn-primary {
   background-color: var(--accent-green);
   color: var(--accent-text);

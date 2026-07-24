@@ -6,6 +6,9 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+### Added
+ - Activity and milestone duration fields now accept free-form time like `2h30m`, `90`, or `1d2h 30m4s` instead of raw minutes.
+
 ## [0.3.1] - 2026-07-24
 
 EMERGENCY BUGFIX: On Android, release 0.3.0 failed to sync with Google Drive due

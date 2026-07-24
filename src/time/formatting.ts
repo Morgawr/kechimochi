@@ -1,3 +1,6 @@
+const MINUTES_PER_HOUR = 60;
+const MINUTES_PER_DAY = 1440;
+
 /**
  * Represents time split into hours and minutes.
  */
@@ -12,10 +15,29 @@ export interface TimeParts {
  * @returns An object containing hours and minutes.
  */
 export function toTimeParts(totalMinutes: number): TimeParts {
+    const roundedMinutes = Math.max(0, Math.round(totalMinutes));
     return {
-        hours: Math.floor(totalMinutes / 60),
-        minutes: Math.round(totalMinutes % 60)
+        hours: Math.floor(roundedMinutes / MINUTES_PER_HOUR),
+        minutes: roundedMinutes % MINUTES_PER_HOUR
     };
+}
+
+/**
+ * Formats duration as compactly as possible, largest unit first and zero units omitted:
+ * "1d 2h 30m", "2h", "45m". Zero renders as "0m".
+ */
+export function formatCompactDuration(totalMinutes: number): string {
+    const roundedMinutes = Math.max(0, Math.round(totalMinutes));
+    const days = Math.floor(roundedMinutes / MINUTES_PER_DAY);
+    const hours = Math.floor((roundedMinutes % MINUTES_PER_DAY) / MINUTES_PER_HOUR);
+    const minutes = roundedMinutes % MINUTES_PER_HOUR;
+
+    const parts: string[] = [];
+    if (days > 0) parts.push(`${days}d`);
+    if (hours > 0) parts.push(`${hours}h`);
+    if (minutes > 0 || parts.length === 0) parts.push(`${minutes}m`);
+
+    return parts.join(' ');
 }
 
 /**
@@ -49,7 +71,7 @@ export function formatStatsDuration(totalMinutes: number, skipZeroMinutes: boole
 export function formatLoggedDuration(totalMinutes: number, capitalizeMinutes: boolean = false): string {
     const minLabel = capitalizeMinutes ? 'Minutes' : 'minutes';
     const minStr = `${totalMinutes} ${minLabel}`;
-    if (totalMinutes >= 60) {
+    if (totalMinutes >= MINUTES_PER_HOUR) {
         return `${minStr} (${formatHhMm(totalMinutes)})`;
     }
     return minStr;

@@ -327,8 +327,7 @@ async function openMilestoneModal(): Promise<ChainablePromiseElement> {
 
 async function populateMilestoneForm(overlay: ChainablePromiseElement, values: MilestoneFormValues): Promise<string | null> {
     await setText('#milestone-name', values.name);
-    await setText('#milestone-hours', values.hours);
-    await setText('#milestone-minutes', values.minutes);
+    await setText('#milestone-duration', `${values.hours}h${values.minutes}m`);
     await setText('#milestone-characters', values.characters ?? '0');
 
     let selectedDate: string | null = null;
@@ -384,17 +383,16 @@ export async function addMilestone(name: string, hours: string, minutes: string,
     return selectedDate;
 }
 
-export async function getMilestonePrefillValues(): Promise<{ hours: string; minutes: string; characters: string; }> {
+export async function getMilestonePrefillValues(): Promise<{ duration: string; characters: string; }> {
     const overlay = await openMilestoneModal();
-    const hours = await overlay.$('#milestone-hours').getValue() as string;
-    const minutes = await overlay.$('#milestone-minutes').getValue() as string;
+    const duration = await overlay.$('#milestone-duration').getValue() as string;
     const characters = await overlay.$('#milestone-characters').getValue() as string;
 
     await safeClick(() => overlay.$('#milestone-cancel'));
     await waitForOverlayToDisappear(overlay, 5000);
     await waitForMilestoneActionToSettle();
 
-    return { hours, minutes, characters };
+    return { duration, characters };
 }
 
 export async function submitInvalidMilestone(name: string, hours: string, minutes: string, characters: string = '0'): Promise<void> {
