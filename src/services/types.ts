@@ -22,6 +22,10 @@ import type {
     ActivityCsvAnalysis,
     ActivityCsvImportRequest,
     ActivityCsvImportResult,
+    ApplyDatabaseRecoveryRequest,
+    DatabaseRecoveryPlan,
+    DatabaseRecoveryResult,
+    FullBackupImportResult,
     Milestone,
     ProfilePicture,
     LocalHttpApiConfig,
@@ -61,6 +65,10 @@ export type {
     ActivityCsvAnalysis,
     ActivityCsvImportRequest,
     ActivityCsvImportResult,
+    ApplyDatabaseRecoveryRequest,
+    DatabaseRecoveryPlan,
+    DatabaseRecoveryResult,
+    FullBackupImportResult,
     Milestone,
     ProfilePicture,
     LocalHttpApiConfig,
@@ -115,6 +123,8 @@ export interface AppServices {
     getUsername(): Promise<string>;
     getAppVersion(): Promise<string>;
     getStartupError(): Promise<string | null>;
+    getDatabaseRecoveryPlan(): Promise<DatabaseRecoveryPlan | null>;
+    applyDatabaseRecovery(request: ApplyDatabaseRecoveryRequest): Promise<DatabaseRecoveryResult>;
     shouldSkipLegacyLocalProfileMigration(): Promise<boolean>;
     getProfilePicture(): Promise<ProfilePicture | null>;
     deleteProfilePicture(): Promise<void>;
@@ -155,7 +165,7 @@ export interface AppServices {
 
     // ── Full Backup operations ──────────────────────────────────────────────
     pickAndExportFullBackup(localStorageData: string, version: string): Promise<boolean>;
-    pickAndImportFullBackup(): Promise<string | null>;
+    pickAndImportFullBackup(): Promise<FullBackupImportResult | null>;
 
     // ── Milestone operations ────────────────────────────────────────────────
     getMilestones(mediaUid: string): Promise<Milestone[]>;

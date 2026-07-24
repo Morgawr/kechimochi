@@ -53,7 +53,7 @@ export async function getActiveLibraryLayout(): Promise<LibraryLayoutMode> {
  * than branching on platform.
  */
 export async function isLayoutToggleAvailable(): Promise<boolean> {
-    const shell = $('.media-layout-toggle-shell');
+    const shell = $('.toggle-shell');
     return await shell.isDisplayed().catch(() => false);
 }
 

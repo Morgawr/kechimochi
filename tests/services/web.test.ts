@@ -251,6 +251,28 @@ describe('WebServices', () => {
         expect(fetchMock).toHaveBeenCalledWith('/api/startup-error');
     });
 
+    it('loads and applies generic database recovery plans', async () => {
+        const plan = { session_token: 'session', issues: [], media: [] };
+        const result = { safety_backup_path: '/kechimochi/recovery.zip' };
+        fetchMock
+            .mockResolvedValueOnce(okJson(plan))
+            .mockResolvedValueOnce(okJson(result));
+        const request = {
+            session_token: 'session',
+            resolutions: [],
+            local_storage: '{}',
+        };
+
+        await expect(services.getDatabaseRecoveryPlan()).resolves.toEqual(plan);
+        await expect(services.applyDatabaseRecovery(request)).resolves.toEqual(result);
+        expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/database-recovery');
+        expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/database-recovery/apply', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(request),
+        });
+    });
+
     it('exports activities with query params and triggers a download', async () => {
         const blob = new Blob(['csv']);
         fetchMock.mockResolvedValue(okBlob(blob));
@@ -371,14 +393,20 @@ describe('WebServices', () => {
         expect(anchorClick).toHaveBeenCalledTimes(2);
     });
 
-    it('imports a picked full backup zip and unwraps localStorage', async () => {
+    it('imports a picked full backup zip and returns the import outcome', async () => {
         const file = new File(['zip'], 'backup.zip', { type: 'application/zip' });
         mockFilePicker(file);
-        fetchMock.mockResolvedValue(okJson({ localStorage: '{"restored":true}' }));
+        fetchMock.mockResolvedValue(okJson({
+            status: 'imported',
+            local_storage: '{"restored":true}',
+        }));
 
         const result = await services.pickAndImportFullBackup();
 
-        expect(result).toBe('{"restored":true}');
+        expect(result).toEqual({
+            status: 'imported',
+            local_storage: '{"restored":true}',
+        });
         expect(fetchMock).toHaveBeenCalledWith('/api/import/full-backup', expect.objectContaining({
             method: 'POST',
             body: expect.any(FormData),

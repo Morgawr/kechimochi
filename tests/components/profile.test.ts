@@ -888,7 +888,10 @@ describe('ProfileView', () => {
         vi.mocked(api.getSetting).mockResolvedValue('0');
         vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
         vi.mocked(modals.customConfirm).mockResolvedValue(true);
-        vi.mocked(api.importFullBackup).mockResolvedValue('{"theme":"dark"}');
+        vi.mocked(api.importFullBackup).mockResolvedValue({
+            status: 'imported',
+            local_storage: '{"theme":"dark"}',
+        });
 
         // Mock window.location.reload
         const originalLocation = globalThis.location;
@@ -1613,7 +1616,10 @@ describe('ProfileView', () => {
             .mockResolvedValueOnce(true)
             .mockResolvedValueOnce(true);
         vi.mocked(api.clearSyncBackups).mockRejectedValueOnce(new Error('clear failed'));
-        vi.mocked(api.importFullBackup).mockResolvedValueOnce('{not valid json');
+        vi.mocked(api.importFullBackup).mockResolvedValueOnce({
+            status: 'imported',
+            local_storage: '{not valid json',
+        });
         vi.mocked(modals.customPrompt).mockResolvedValueOnce('WIPE_EVERYTHING');
 
         const view = new ProfileView(container);

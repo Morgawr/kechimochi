@@ -380,6 +380,76 @@ export interface Milestone {
     date?: string;
 }
 
+export interface RecoveryMilestone {
+    id: number;
+    name: string;
+    duration: number;
+    characters: number;
+    date?: string;
+}
+
+export interface OrphanedMilestoneGroup {
+    group_token: string;
+    media_title: string;
+    milestones: RecoveryMilestone[];
+}
+
+export interface RecoveryMediaOption {
+    uid: string;
+    title: string;
+    variant: string;
+    status: string;
+    tracking_status: string;
+}
+
+export type DatabaseRecoveryIssue = {
+    kind: 'orphaned_milestone_groups';
+    groups: OrphanedMilestoneGroup[];
+};
+
+export interface DatabaseRecoveryPlan {
+    session_token: string;
+    issues: DatabaseRecoveryIssue[];
+    media: RecoveryMediaOption[];
+}
+
+export type DatabaseRecoveryResolution =
+    | {
+        kind: 'attach_milestone_group';
+        group_token: string;
+        media_uid: string;
+    }
+    | {
+        kind: 'create_media_for_milestone_group';
+        group_token: string;
+        variant: string;
+    }
+    | {
+        kind: 'discard_milestone_group';
+        group_token: string;
+    };
+
+export interface ApplyDatabaseRecoveryRequest {
+    session_token: string;
+    resolutions: DatabaseRecoveryResolution[];
+    local_storage: string;
+}
+
+export interface DatabaseRecoveryResult {
+    safety_backup_path: string;
+    local_storage?: string;
+}
+
+export type FullBackupImportResult =
+    | {
+        status: 'imported';
+        local_storage: string;
+    }
+    | {
+        status: 'recovery_required';
+        plan: DatabaseRecoveryPlan;
+    };
+
 export interface ProfilePicture {
     mime_type: string;
     base64_data: string;

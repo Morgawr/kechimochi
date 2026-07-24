@@ -140,6 +140,7 @@ export function makeConfig(
           : undefined,
         overrideSchemaVersion: setup.overrideSchemaVersion,
         freshInstall: setup.freshInstall,
+        needsDatabaseRecoveryFixture: setup.needsDatabaseRecoveryFixture,
       });
       process.env.KECHIMOCHI_DATA_DIR = testDirectory;
 

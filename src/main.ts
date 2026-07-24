@@ -9,6 +9,7 @@ import {
     setSetting,
     getProfilePicture,
     getStartupError,
+    getDatabaseRecoveryPlan,
     getSyncStatus,
     shouldSkipLegacyLocalProfileMigration,
 } from './api';
@@ -35,6 +36,7 @@ import {
     stringifySyncEnablementError,
 } from './sync_enablement';
 import {applyTheme, resolveEffectiveTheme} from "./theme.ts";
+import { renderDatabaseRecoveryScreen } from './database_recovery';
 
 // Support global date mocking for E2E tests
 let mockDateStr: string | null = null;
@@ -240,6 +242,12 @@ export class App {
         }
         if (startupError) {
             renderStartupErrorScreen(startupError);
+            return null;
+        }
+
+        const recoveryPlan = await getDatabaseRecoveryPlan();
+        if (recoveryPlan) {
+            renderDatabaseRecoveryScreen(recoveryPlan);
             return null;
         }
 

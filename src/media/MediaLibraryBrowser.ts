@@ -493,11 +493,11 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
                     </div>
 
                     <div class="media-grid-toolbar-controls">
-                        <div class="media-layout-toggle-shell">
-                            <div class="media-layout-toggle" role="group" aria-label="Library layout toggle">
+                        <div class="toggle-shell">
+                            <div class="toggle" role="group" aria-label="Library layout toggle">
                                 <button
                                     type="button"
-                                    class="media-layout-toggle-option ${activeLayout === 'grid' ? 'is-active' : ''}"
+                                    class="toggle-option ${activeLayout === 'grid' ? 'is-active' : ''}"
                                     id="btn-layout-grid"
                                     aria-pressed="${activeLayout === 'grid'}"
                                     ${this.state.isGridSupported ? '' : 'disabled'}
@@ -506,7 +506,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
                                 </button>
                                 <button
                                     type="button"
-                                    class="media-layout-toggle-option ${activeLayout === 'list' ? 'is-active' : ''}"
+                                    class="toggle-option ${activeLayout === 'list' ? 'is-active' : ''}"
                                     id="btn-layout-list"
                                     aria-pressed="${activeLayout === 'list'}"
                                 >

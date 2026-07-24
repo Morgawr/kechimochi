@@ -625,6 +625,36 @@ describe('main.ts initialization', () => {
         await vi.waitFor(() => expect(mockWindow.close).toHaveBeenCalled());
     });
 
+    it('should enter generic database recovery mode before constructing the application', async () => {
+        vi.mocked(api.getDatabaseRecoveryPlan).mockResolvedValue({
+            session_token: 'session',
+            issues: [{
+                kind: 'orphaned_milestone_groups',
+                groups: [{
+                    group_token: 'group',
+                    media_title: 'SS',
+                    milestones: [{
+                        id: 2,
+                        name: 'Recovered milestone',
+                        duration: 5,
+                        characters: 810,
+                        date: '2026-04-01',
+                    }],
+                }],
+            }],
+            media: [],
+        });
+
+        const { App } = await import('../src/main');
+        const app = await App.start();
+
+        expect(app).toBeNull();
+        expect(api.initializeUserDb).not.toHaveBeenCalled();
+        expect(document.querySelector('#database-recovery-title')?.textContent)
+            .toBe('Some data needs your help');
+        expect(document.body.textContent).toContain('Recovered milestone');
+    });
+
     it('should show lock owner details when another process owns the data directory', async () => {
         vi.mocked(api.getStartupError).mockResolvedValue(
             'Unable to obtain unique lock. Some other process is already running Kechimochi (pid=4242).\n\nLock owner details:\npid=4242\nkind=web'
