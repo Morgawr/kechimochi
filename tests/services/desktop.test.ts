@@ -96,6 +96,25 @@ describe('DesktopServices', () => {
         expect(invoke).toHaveBeenNthCalledWith(2, 'get_timeline_page', { request: timelineRequest });
     });
 
+    it('routes generic database recovery through dedicated IPC commands', async () => {
+        const plan = { session_token: 'session', issues: [], media: [] };
+        vi.mocked(invoke)
+            .mockResolvedValueOnce(plan)
+            .mockResolvedValueOnce({ safety_backup_path: '/kechimochi/recovery.zip' });
+        const request = {
+            session_token: 'session',
+            resolutions: [],
+            local_storage: '{}',
+        };
+
+        await expect(services.getDatabaseRecoveryPlan()).resolves.toEqual(plan);
+        await expect(services.applyDatabaseRecovery(request)).resolves.toEqual({
+            safety_backup_path: '/kechimochi/recovery.zip',
+        });
+        expect(invoke).toHaveBeenNthCalledWith(1, 'get_database_recovery_plan');
+        expect(invoke).toHaveBeenNthCalledWith(2, 'apply_database_recovery', { request });
+    });
+
     it('formats dev and release app versions correctly', async () => {
         const globals = globalThis as Record<string, unknown>;
         globals.__APP_VERSION__ = '0.1.0-dev.hash123';

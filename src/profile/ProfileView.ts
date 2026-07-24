@@ -30,6 +30,7 @@ import {
     getLocalHttpApiStatus,
     saveLocalHttpApiConfig,
 } from '../api';
+import { renderDatabaseRecoveryScreen } from '../database_recovery';
 import {
     customPrompt,
     customAlert,
@@ -1733,10 +1734,14 @@ export class ProfileView extends Component<ProfileState> {
         root.querySelector('#profile-btn-import-full-backup')?.addEventListener('click', async () => {
             if (await customConfirm("Import Full Backup", "IMPORTING A FULL BACKUP WILL COMPLETELY REPLACE PREVIOUS DATA. Are you sure you want to proceed?", "btn-danger", "Import")) {
                 try {
-                    const newStorageStr = await importFullBackup();
-                    if (newStorageStr) {
+                    const importResult = await importFullBackup();
+                    if (importResult?.status === 'recovery_required') {
+                        renderDatabaseRecoveryScreen(importResult.plan);
+                        return;
+                    }
+                    if (importResult?.status === 'imported') {
                         try {
-                            const newStorage = JSON.parse(newStorageStr);
+                            const newStorage = JSON.parse(importResult.local_storage);
                             localStorage.clear();
                             for (const [key, value] of Object.entries(newStorage)) {
                                 localStorage.setItem(key, value as string);

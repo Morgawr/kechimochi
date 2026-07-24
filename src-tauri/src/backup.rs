@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tauri::async_runtime::spawn_blocking;
 use tauri::{AppHandle, State};
 use walkdir::WalkDir;
@@ -11,11 +11,37 @@ use zip::write::SimpleFileOptions;
 use zip::{ZipArchive, ZipWriter};
 
 use crate::app_file_io;
+use crate::database_recovery;
 use crate::db;
 use crate::sync_state;
-use crate::DbState;
+use crate::{DbState, StartupMode, StartupState};
 
 pub const BACKUP_FORMAT_VERSION: i64 = 1;
+
+#[derive(Debug, Clone)]
+pub struct PreparedFullBackup {
+    pub staging_dir: PathBuf,
+    pub local_storage: String,
+}
+
+pub enum PreparedFullBackupOutcome {
+    Ready(PreparedFullBackup),
+    RecoveryRequired {
+        prepared: PreparedFullBackup,
+        plan: database_recovery::DatabaseRecoveryPlan,
+    },
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum FullBackupImportResult {
+    Imported {
+        local_storage: String,
+    },
+    RecoveryRequired {
+        plan: database_recovery::DatabaseRecoveryPlan,
+    },
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct BackupManifest {
@@ -197,17 +223,45 @@ pub fn export_full_backup_internal(
 pub fn import_full_backup(
     app_handle: AppHandle,
     state: State<DbState>,
+    startup_state: State<StartupState>,
     file_path: String,
-) -> Result<String, String> {
+) -> Result<FullBackupImportResult, String> {
     let app_dir = db::get_data_dir(&app_handle);
+    {
+        let mode = startup_state
+            .mode
+            .lock()
+            .map_err(|error| error.to_string())?;
+        if !matches!(*mode, StartupMode::Ready) {
+            return Err("Finish the current database recovery before importing a backup.".into());
+        }
+    }
     let _sync_guard = sync_state::acquire_sync_lock(&app_dir)?;
     let zip_file = app_file_io::open_input_file(&app_handle, &file_path)?;
-    let import_result = {
-        let mut conn_guard = state.conn.lock().map_err(|e| e.to_string())?;
-        import_full_backup_from_reader_internal(&app_dir, &mut conn_guard, zip_file)
-    }?;
-    sync_state::clear_sync_runtime_files(&app_dir)?;
-    Ok(import_result)
+    match prepare_full_backup_from_reader_internal(&app_dir, zip_file)? {
+        PreparedFullBackupOutcome::Ready(prepared) => {
+            let local_storage = {
+                let mut conn_guard = state.conn.lock().map_err(|e| e.to_string())?;
+                install_prepared_full_backup(&app_dir, &mut conn_guard, &prepared)?
+            };
+            sync_state::clear_sync_runtime_files(&app_dir)?;
+            Ok(FullBackupImportResult::Imported { local_storage })
+        }
+        PreparedFullBackupOutcome::RecoveryRequired { prepared, plan } => {
+            let session = database_recovery::DatabaseRecoverySession {
+                plan: plan.clone(),
+                target: database_recovery::DatabaseRecoveryTarget::StagedFullBackup {
+                    staging_dir: prepared.staging_dir,
+                    local_storage: prepared.local_storage,
+                },
+            };
+            *startup_state
+                .mode
+                .lock()
+                .map_err(|error| error.to_string())? = StartupMode::RecoveryRequired(session);
+            Ok(FullBackupImportResult::RecoveryRequired { plan })
+        }
+    }
 }
 
 pub fn import_full_backup_internal(
@@ -225,6 +279,24 @@ pub fn import_full_backup_from_reader_internal<R: Read + io::Seek>(
     conn_guard: &mut rusqlite::Connection,
     zip_file: R,
 ) -> Result<String, String> {
+    match prepare_full_backup_from_reader_internal(app_dir, zip_file)? {
+        PreparedFullBackupOutcome::Ready(prepared) => {
+            install_prepared_full_backup(app_dir, conn_guard, &prepared)
+        }
+        PreparedFullBackupOutcome::RecoveryRequired { prepared, .. } => {
+            let _ = fs::remove_dir_all(prepared.staging_dir);
+            Err(
+                "The backup contains data that requires interactive database recovery. Import it from the Kechimochi app."
+                    .to_string(),
+            )
+        }
+    }
+}
+
+pub fn prepare_full_backup_from_reader_internal<R: Read + io::Seek>(
+    app_dir: &Path,
+    zip_file: R,
+) -> Result<PreparedFullBackupOutcome, String> {
     let mut archive =
         ZipArchive::new(zip_file).map_err(|e| format!("Failed to read zip archive: {}", e))?;
 
@@ -289,6 +361,35 @@ pub fn import_full_backup_from_reader_internal<R: Read + io::Seek>(
         "{}".to_string()
     };
 
+    let database_outcome = match database_recovery::open_database(extract_dir.clone(), None) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            let _ = fs::remove_dir_all(&extract_dir);
+            return Err(format!("Failed to initialize restored database: {error}"));
+        }
+    };
+    let prepared = PreparedFullBackup {
+        staging_dir: extract_dir,
+        local_storage: local_storage_json,
+    };
+    match database_outcome {
+        database_recovery::DatabaseOpenOutcome::Ready(connection) => {
+            drop(connection);
+            Ok(PreparedFullBackupOutcome::Ready(prepared))
+        }
+        database_recovery::DatabaseOpenOutcome::RecoveryRequired(plan) => {
+            Ok(PreparedFullBackupOutcome::RecoveryRequired { prepared, plan })
+        }
+    }
+}
+
+pub fn install_prepared_full_backup(
+    app_dir: &Path,
+    conn_guard: &mut rusqlite::Connection,
+    prepared: &PreparedFullBackup,
+) -> Result<String, String> {
+    let extract_dir = &prepared.staging_dir;
+    let backup_dir = app_dir.join("backup_tmp");
     let files_to_swap = vec![
         "kechimochi_user.db",
         "kechimochi_user.db-wal",
@@ -312,7 +413,7 @@ pub fn import_full_backup_from_reader_internal<R: Read + io::Seek>(
             if let Err(e) = fs::rename(&current_path, &backup_path) {
                 // If we fail here, try to rollback what we've moved so far
                 rollback_backup(app_dir, &backup_dir, &files_to_swap);
-                let _ = fs::remove_dir_all(&extract_dir);
+                let _ = fs::remove_dir_all(extract_dir);
                 *conn_guard = db::init_db(app_dir.to_path_buf(), None)
                     .unwrap_or_else(|_| Connection::open_in_memory().unwrap());
                 return Err(format!("Failed to move {} to backup: {}", file_name, e));
@@ -328,7 +429,7 @@ pub fn import_full_backup_from_reader_internal<R: Read + io::Seek>(
             if let Err(e) = fs::rename(&extracted_path, &active_path) {
                 // Rollback if failure
                 rollback_backup(app_dir, &backup_dir, &files_to_swap);
-                let _ = fs::remove_dir_all(&extract_dir);
+                let _ = fs::remove_dir_all(extract_dir);
                 *conn_guard = db::init_db(app_dir.to_path_buf(), None)
                     .unwrap_or_else(|_| Connection::open_in_memory().unwrap());
                 return Err(format!(
@@ -344,16 +445,16 @@ pub fn import_full_backup_from_reader_internal<R: Read + io::Seek>(
         Ok(new_conn) => {
             *conn_guard = new_conn;
             // Success cleanup
-            let _ = fs::remove_dir_all(&extract_dir);
+            let _ = fs::remove_dir_all(extract_dir);
             let _ = fs::remove_dir_all(&backup_dir);
-            Ok(local_storage_json)
+            Ok(prepared.local_storage.clone())
         }
         Err(e) => {
             // DB init failed, rollback
             rollback_backup(app_dir, &backup_dir, &files_to_swap);
             *conn_guard = db::init_db(app_dir.to_path_buf(), None)
                 .unwrap_or_else(|_| Connection::open_in_memory().unwrap());
-            let _ = fs::remove_dir_all(&extract_dir);
+            let _ = fs::remove_dir_all(extract_dir);
             Err(format!("Failed to initialize DB after restore: {}", e))
         }
     }
@@ -596,6 +697,167 @@ mod tests {
         assert_eq!(logs.len(), 1);
         assert_eq!(logs[0].title, "Legacy VN");
         assert_eq!(logs[0].duration_minutes, 45);
+
+        fs::remove_dir_all(source_dir).ok();
+        fs::remove_dir_all(target_dir).ok();
+    }
+
+    #[test]
+    fn test_broken_full_backup_stays_staged_until_interactive_recovery() {
+        let source_dir = unique_temp_dir("backup_recovery_source");
+        let target_dir = unique_temp_dir("backup_recovery_target");
+        fs::create_dir_all(&source_dir).unwrap();
+        fs::create_dir_all(&target_dir).unwrap();
+
+        let source_conn = db::init_db(source_dir.clone(), None).unwrap();
+        let imported_media_id = db::add_media_with_id(
+            &source_conn,
+            &models::Media {
+                id: None,
+                uid: None,
+                title: "Renamed import".to_string(),
+                variant: "Novel".to_string(),
+                default_activity_type: "Reading".to_string(),
+                status: "Active".to_string(),
+                language: "Japanese".to_string(),
+                description: String::new(),
+                cover_image: String::new(),
+                extra_data: "{}".to_string(),
+                content_type: "Novel".to_string(),
+                tracking_status: "Ongoing".to_string(),
+            },
+        )
+        .unwrap();
+        let imported_media_uid: String = source_conn
+            .query_row(
+                "SELECT uid FROM shared.media WHERE id = ?1",
+                rusqlite::params![imported_media_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        db::add_milestone(
+            &source_conn,
+            &models::Milestone {
+                id: None,
+                media_uid: Some(imported_media_uid.clone()),
+                media_title: "Renamed import".to_string(),
+                name: "Imported milestone".to_string(),
+                duration: 20,
+                characters: 900,
+                date: Some("2026-07-01".to_string()),
+            },
+        )
+        .unwrap();
+        source_conn
+            .execute(
+                "UPDATE main.milestones
+                 SET media_uid = 'missing-import-uid', media_title = 'Legacy import title'",
+                [],
+            )
+            .unwrap();
+        source_conn
+            .execute_batch(
+                "PRAGMA main.user_version = 5;
+                 PRAGMA shared.user_version = 5;
+                 PRAGMA main.wal_checkpoint(TRUNCATE);
+                 PRAGMA shared.wal_checkpoint(TRUNCATE);",
+            )
+            .unwrap();
+        drop(source_conn);
+
+        let zip_path = source_dir.join("recovery-backup.zip");
+        let manifest = BackupManifest {
+            backup_format_version: BACKUP_FORMAT_VERSION,
+            app_version: "0.3.1".to_string(),
+            db_schema_version: 5,
+            created_at: Utc::now().to_rfc3339(),
+        };
+        write_backup_archive(
+            &source_dir,
+            &zip_path,
+            r#"{"theme":"restored"}"#,
+            "0.3.1",
+            Some(&manifest),
+        );
+
+        let mut target_conn = db::init_db(target_dir.clone(), None).unwrap();
+        db::add_media_with_id(
+            &target_conn,
+            &models::Media {
+                id: None,
+                uid: None,
+                title: "Existing live data".to_string(),
+                variant: String::new(),
+                default_activity_type: "Reading".to_string(),
+                status: "Active".to_string(),
+                language: "Japanese".to_string(),
+                description: String::new(),
+                cover_image: String::new(),
+                extra_data: "{}".to_string(),
+                content_type: "Novel".to_string(),
+                tracking_status: "Ongoing".to_string(),
+            },
+        )
+        .unwrap();
+
+        let prepared = match prepare_full_backup_from_reader_internal(
+            &target_dir,
+            File::open(&zip_path).unwrap(),
+        )
+        .unwrap()
+        {
+            PreparedFullBackupOutcome::RecoveryRequired { prepared, plan } => {
+                assert_eq!(
+                    db::get_all_media(&target_conn).unwrap()[0].title,
+                    "Existing live data"
+                );
+                (prepared, plan)
+            }
+            PreparedFullBackupOutcome::Ready(_) => {
+                panic!("broken backup should require interactive recovery")
+            }
+        };
+
+        let group = match &prepared.1.issues[0] {
+            database_recovery::DatabaseRecoveryIssue::OrphanedMilestoneGroups { groups } => {
+                &groups[0]
+            }
+        };
+        let applied = database_recovery::apply_database_recovery(
+            &prepared.0.staging_dir,
+            &prepared.1,
+            database_recovery::ApplyDatabaseRecoveryRequest {
+                session_token: prepared.1.session_token.clone(),
+                resolutions: vec![
+                    database_recovery::DatabaseRecoveryResolution::AttachMilestoneGroup {
+                        group_token: group.group_token.clone(),
+                        media_uid: imported_media_uid.clone(),
+                    },
+                ],
+                local_storage: "{}".to_string(),
+            },
+        )
+        .unwrap();
+        drop(applied.connection);
+        let restored_storage =
+            install_prepared_full_backup(&target_dir, &mut target_conn, &prepared.0).unwrap();
+
+        assert_eq!(restored_storage, r#"{"theme":"restored"}"#);
+        assert_eq!(
+            db::get_all_media(&target_conn).unwrap()[0].title,
+            "Renamed import"
+        );
+        let milestone_parent: (String, String) = target_conn
+            .query_row(
+                "SELECT media_uid, media_title FROM main.milestones",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            milestone_parent,
+            (imported_media_uid, "Renamed import".to_string())
+        );
 
         fs::remove_dir_all(source_dir).ok();
         fs::remove_dir_all(target_dir).ok();

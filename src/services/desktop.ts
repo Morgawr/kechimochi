@@ -32,6 +32,10 @@ import type {
     ActivityCsvAnalysis,
     ActivityCsvImportRequest,
     ActivityCsvImportResult,
+    ApplyDatabaseRecoveryRequest,
+    DatabaseRecoveryPlan,
+    DatabaseRecoveryResult,
+    FullBackupImportResult,
     Milestone,
     ProfilePicture,
     LocalHttpApiConfig,
@@ -127,6 +131,10 @@ export class DesktopServices implements AppServices {
 
     getUsername():                           Promise<string>          { return invoke('get_username'); }
     getStartupError():                       Promise<string | null>   { return invoke('get_startup_error'); }
+    getDatabaseRecoveryPlan():                Promise<DatabaseRecoveryPlan | null> { return invoke('get_database_recovery_plan'); }
+    applyDatabaseRecovery(request: ApplyDatabaseRecoveryRequest): Promise<DatabaseRecoveryResult> {
+        return invoke('apply_database_recovery', { request });
+    }
     shouldSkipLegacyLocalProfileMigration(): Promise<boolean>        { return invoke('should_skip_legacy_local_profile_migration'); }
     getProfilePicture():                     Promise<ProfilePicture | null> { return invoke('get_profile_picture'); }
     deleteProfilePicture():                  Promise<void>            { return invoke('delete_profile_picture'); }
@@ -212,7 +220,7 @@ export class DesktopServices implements AppServices {
         return true;
     }
 
-    async pickAndImportFullBackup(): Promise<string | null> {
+    async pickAndImportFullBackup(): Promise<FullBackupImportResult | null> {
         const selected = this.getMockOpenPath() ?? await tauriOpen({ multiple: false, filters: [{ name: 'ZIP', extensions: ['zip'] }] });
         if (!selected || typeof selected !== 'string') return null;
         return invoke('import_full_backup', { filePath: selected });

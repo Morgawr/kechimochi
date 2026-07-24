@@ -114,6 +114,8 @@ export function createMainApiMock() {
         initializeUserDb: vi.fn(() => Promise.resolve()),
         getUsername: vi.fn(() => Promise.resolve('os-user')),
         getStartupError: vi.fn(() => Promise.resolve(null)),
+        getDatabaseRecoveryPlan: vi.fn(() => Promise.resolve(null)),
+        applyDatabaseRecovery: vi.fn(() => Promise.resolve({ safety_backup_path: '/kechimochi/recovery.zip' })),
         shouldSkipLegacyLocalProfileMigration: vi.fn(() => Promise.resolve(false)),
         getSetting: vi.fn((key: string) => Promise.resolve(getDefaultSettingValue(key))),
         setSetting: vi.fn(() => Promise.resolve()),
@@ -256,6 +258,8 @@ export function resetMainApiMocks(mockedApi: ApiModule) {
     vi.mocked(mockedApi.initializeUserDb).mockResolvedValue();
     vi.mocked(mockedApi.getUsername).mockResolvedValue('os-user');
     vi.mocked(mockedApi.getStartupError).mockResolvedValue(null);
+    vi.mocked(mockedApi.getDatabaseRecoveryPlan).mockResolvedValue(null);
+    vi.mocked(mockedApi.applyDatabaseRecovery).mockResolvedValue({ safety_backup_path: '/kechimochi/recovery.zip' });
     vi.mocked(mockedApi.shouldSkipLegacyLocalProfileMigration).mockResolvedValue(false);
     vi.mocked(mockedApi.getSetting).mockImplementation(async (key) => getDefaultSettingValue(key));
     vi.mocked(mockedApi.setSetting).mockResolvedValue();

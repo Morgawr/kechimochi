@@ -4601,3 +4601,259 @@ button:hover{
 .media-list-item-wrapper{
   padding-top: 0.1rem; /*fixes the cuttof when hovering*/
 }
+.database-recovery-root {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: clamp(1rem, 3vw, 2.5rem);
+    background: linear-gradient(180deg, var(--bg-darkest), var(--bg-dark));
+}
+
+.database-recovery-dialog {
+    width: min(960px, 96vw);
+    max-height: min(900px, 94vh);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    background: color-mix(in srgb, var(--bg-dark) 94%, black);
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+}
+
+.database-recovery-header,
+.database-recovery-footer {
+    padding: 1.4rem 1.6rem;
+}
+
+.database-recovery-header {
+    border-bottom: 1px solid var(--border-color);
+}
+
+.database-recovery-header h1,
+.database-recovery-group h2 {
+    margin: 0.35rem 0 0;
+}
+
+.database-recovery-header > p:last-child {
+    margin: 0.75rem 0 0;
+    color: var(--text-secondary);
+    line-height: 1.55;
+}
+
+.database-recovery-eyebrow {
+    color: var(--accent-red, #ff7b7b);
+    font-size: 0.76rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.database-recovery-groups {
+    min-height: 0;
+    overflow-y: auto;
+    padding: 1.25rem 1.6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.database-recovery-group {
+    padding: 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+}
+
+.database-recovery-group-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.database-recovery-count {
+    flex: none;
+    padding: 0.3rem 0.55rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.07);
+    color: var(--text-secondary);
+    font-size: 0.76rem;
+}
+
+.database-recovery-milestones {
+    margin: 0.9rem 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    list-style: none;
+}
+
+.database-recovery-milestone {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.45rem 0.6rem;
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.035);
+}
+
+.database-recovery-milestone-name {
+    overflow-wrap: anywhere;
+}
+
+.database-recovery-milestone-meta,
+.database-recovery-media-state {
+    color: var(--text-secondary);
+    font-size: 0.76rem;
+}
+
+.database-recovery-milestone-meta {
+    flex: none;
+}
+
+.database-recovery-actions {
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.45rem;
+    border: 0;
+}
+
+.database-recovery-actions legend {
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+}
+
+.database-recovery-actions label {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    cursor: pointer;
+}
+
+.database-recovery-discard-choice {
+    color: var(--accent-red, #ff7b7b);
+}
+
+.database-recovery-action-panel {
+    margin-top: 0.9rem;
+    padding: 0.8rem;
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.035);
+}
+
+.database-recovery-action-panel > label {
+    display: block;
+    margin-bottom: 0.45rem;
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+}
+
+.database-recovery-action-panel input[type="text"] {
+    width: 100%;
+    padding: 0.6rem 0.7rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-dark);
+    color: var(--text-primary);
+}
+
+.database-recovery-action-panel > p,
+.database-recovery-selection {
+    margin: 0.45rem 0 0;
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+}
+
+.database-recovery-combobox {
+    position: relative;
+}
+
+.database-recovery-media-options {
+    position: absolute;
+    z-index: 10;
+    top: calc(100% + 0.35rem);
+    left: 0;
+    right: 0;
+    max-height: 15rem;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--bg-card) 96%, black);
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.3);
+}
+
+.database-recovery-media-option {
+    width: 100%;
+    padding: 0.65rem 0.8rem;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+    gap: 0.15rem 0.75rem;
+    border: 0;
+    background: transparent;
+    color: var(--text-primary);
+    text-align: left;
+    cursor: pointer;
+}
+
+.database-recovery-media-option:hover,
+.database-recovery-media-option.is-highlighted {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.database-recovery-media-variant {
+    color: var(--text-secondary);
+}
+
+.database-recovery-media-state {
+    grid-column: 1 / -1;
+}
+
+.database-recovery-discard-panel,
+.database-recovery-error {
+    color: var(--accent-red, #ff7b7b);
+}
+
+.database-recovery-error {
+    margin: 0;
+    padding: 0 1.6rem 0.8rem;
+}
+
+.database-recovery-footer {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    border-top: 1px solid var(--border-color);
+}
+
+@media (max-width: 640px) {
+    .database-recovery-root {
+        padding: 0;
+    }
+
+    .database-recovery-dialog {
+        width: 100%;
+        max-height: 100vh;
+        min-height: 100vh;
+        border: 0;
+        border-radius: 0;
+    }
+
+    .database-recovery-header,
+    .database-recovery-footer,
+    .database-recovery-groups {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+
+    .database-recovery-milestone {
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .database-recovery-footer {
+        flex-direction: column-reverse;
+    }
+}
