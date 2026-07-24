@@ -2,8 +2,8 @@ import { DurationParseResult, parseDuration } from './duration_parsing';
 import { formatCompactDuration } from './formatting';
 
 const DURATION_HINT_INVALID_CLASS = 'is-invalid';
-const DURATION_HINT_UNRECOGNIZED_TEXT = 'Unrecognized duration. Use a number for minutes, or combine units d/h/m/s, e.g. 1h30m.';
-const DURATION_HINT_TOO_LARGE_TEXT = 'That duration is too large to record.';
+const DURATION_HINT_UNRECOGNIZED_TEXT = 'Unrecognized duration. Try 90, 1h30m, or 2h 15.';
+const DURATION_HINT_TOO_LARGE_TEXT = 'That duration is too large.';
 const DURATION_ERROR_DELAY_MS = 600;
 
 function describeParsedDuration(minutes: number): string {
