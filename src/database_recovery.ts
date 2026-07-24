@@ -399,7 +399,7 @@ export function renderDatabaseRecoveryScreen(plan: DatabaseRecoveryPlan): void {
                     </p>
                 </header>
                 <div class="database-recovery-groups">
-                    ${groups.map(renderGroup).join('')}
+                    ${groups.map((group, index) => renderGroup(group, index)).join('')}
                 </div>
                 <p class="database-recovery-error" role="alert" hidden></p>
                 <footer class="database-recovery-footer">
