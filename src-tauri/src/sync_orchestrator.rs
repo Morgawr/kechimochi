@@ -5899,7 +5899,8 @@ mod tests {
             local_value: Some("Legacy local".to_string()),
             remote_value: Some("Legacy remote".to_string()),
         };
-        sync_state::save_pending_conflicts(temp_dir.path(), &[conflict.clone()]).unwrap();
+        sync_state::save_pending_conflicts(temp_dir.path(), std::slice::from_ref(&conflict))
+            .unwrap();
         let token = legacy_sync_conflict_token(&conflict).unwrap();
         sync_state::save_completed_resolution(
             temp_dir.path(),

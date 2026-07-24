@@ -46,6 +46,12 @@ export interface SpecSetupDescriptor {
   needsSyncBackupFixture?: boolean;
 
   /**
+   * When true, the legacy fixture contains a renamed media entry and a pair of
+   * milestones still carrying its old title, forcing startup recovery.
+   */
+  needsDatabaseRecoveryFixture?: boolean;
+
+  /**
    * When true, the app environment gets the file-backed token store path so
    * CI does not depend on desktop keyring availability.
    */
@@ -70,6 +76,7 @@ const DEFAULT_DESCRIPTOR: Required<SpecSetupDescriptor> = {
   freshInstall: false,
   needsSyncMock: false,
   needsSyncBackupFixture: false,
+  needsDatabaseRecoveryFixture: false,
   needsTokenStoreOverride: false,
   skipLegacyLocalProfileMigration: false,
   instanceLockOwner: '',
@@ -110,6 +117,10 @@ const SPEC_SETUP_REGISTRY: Record<string, SpecSetupDescriptor> = {
   // Fixture DBs with a far-future schema version.
   'startup-schema-mismatch': {
     overrideSchemaVersion: 999,
+  },
+
+  'database-recovery': {
+    needsDatabaseRecoveryFixture: true,
   },
 
   // A readable owner record plus a debug-only forced contention signal lets

@@ -49,9 +49,8 @@ fn query_library_settings(conn: &Connection, timings: &mut Timings) -> Result<Li
     })?;
 
     Ok(timings.aggregate(|| {
-        let boolean_setting = |key: &str, default: bool| {
-            values.get(key).map_or(default, |value| value == "true")
-        };
+        let boolean_setting =
+            |key: &str, default: bool| values.get(key).map_or(default, |value| value == "true");
         let preferred_layout = match values.get("library_layout_mode").map(String::as_str) {
             Some("list") => "list",
             _ => "grid",

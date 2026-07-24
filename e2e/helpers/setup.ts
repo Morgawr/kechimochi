@@ -19,6 +19,7 @@ interface PrepareTestDirOptions {
   extraSettings?: Record<string, string>;
   overrideSchemaVersion?: number;
   freshInstall?: boolean;
+  needsDatabaseRecoveryFixture?: boolean;
 }
 
 function seedSettings(dbPath: string, settings: Record<string, string>): void {
@@ -34,6 +35,64 @@ function seedSettings(dbPath: string, settings: Record<string, string>): void {
     tx(Object.entries(settings));
   } finally {
     db.close();
+  }
+}
+
+function seedDatabaseRecoveryFixture(userDbPath: string, sharedDbPath: string): void {
+  const legacyTitle = '薬屋のひとりごと';
+  const renamedTitle = '薬屋のひとりごと 改';
+  const sharedDb = new Database(sharedDbPath);
+  const userDb = new Database(userDbPath);
+  try {
+    // Materialize the schema-5 shape first. The production failure happened
+    // after UID support existed, not in the older unversioned schema.
+    sharedDb.exec(`
+      ALTER TABLE media ADD COLUMN uid TEXT;
+      UPDATE media SET uid = 'e2e-media-' || id;
+      ALTER TABLE media ADD COLUMN variant TEXT NOT NULL DEFAULT '';
+      ALTER TABLE media RENAME COLUMN media_type TO default_activity_type;
+      PRAGMA user_version = 5;
+    `);
+    userDb.exec(`
+      ALTER TABLE activity_logs ADD COLUMN notes TEXT NOT NULL DEFAULT '';
+      ALTER TABLE settings ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';
+      UPDATE settings SET updated_at = '2026-07-24T00:00:00Z';
+      ALTER TABLE milestones ADD COLUMN media_uid TEXT;
+      CREATE TABLE IF NOT EXISTS profile_picture (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        mime_type TEXT NOT NULL,
+        base64_data TEXT NOT NULL,
+        byte_size INTEGER NOT NULL,
+        width INTEGER NOT NULL,
+        height INTEGER NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+    const mediaUids = new Map(
+      sharedDb.prepare('SELECT title, uid FROM media').all()
+        .map(row => {
+          const typed = row as { title: string; uid: string };
+          return [typed.title, typed.uid] as const;
+        }),
+    );
+    const updateMilestoneUid = userDb.prepare(
+      'UPDATE milestones SET media_uid = ? WHERE media_title = ?',
+    );
+    for (const [title, uid] of mediaUids) {
+      updateMilestoneUid.run(uid, title);
+    }
+    sharedDb.prepare('UPDATE media SET title = ? WHERE title = ?').run(renamedTitle, legacyTitle);
+    userDb.prepare(`
+      INSERT INTO milestones (media_uid, media_title, name, duration, characters, date)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run('missing-e2e-media-uid', legacyTitle, 'Recovery fixture second milestone', 25, 1800, '2024-03-09');
+    userDb.prepare(
+      'UPDATE milestones SET media_uid = ? WHERE media_title = ?',
+    ).run('missing-e2e-media-uid', legacyTitle);
+    userDb.pragma('user_version = 5');
+  } finally {
+    userDb.close();
+    sharedDb.close();
   }
 }
 
@@ -72,6 +131,10 @@ export function prepareTestDir(options: PrepareTestDirOptions = {}): string {
     fs.copyFileSync(srcShared, destShared);
   } else {
     throw new Error(`Fixture file not found: ${srcShared}`);
+  }
+
+  if (options.needsDatabaseRecoveryFixture) {
+    seedDatabaseRecoveryFixture(destUser, destShared);
   }
 
   if (typeof options.overrideSchemaVersion === 'number') {

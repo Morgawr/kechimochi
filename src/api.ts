@@ -41,6 +41,10 @@ export type {
   ActivityCsvConflictResolution,
   ActivityCsvImportRequest,
   ActivityCsvImportResult,
+  ApplyDatabaseRecoveryRequest,
+  DatabaseRecoveryPlan,
+  DatabaseRecoveryResult,
+  FullBackupImportResult,
   Milestone,
   ProfilePicture,
   LocalHttpApiConfig,
@@ -77,6 +81,10 @@ import type {
   MediaConflict,
   ActivityCsvImportRequest,
   ActivityCsvImportResult,
+  ApplyDatabaseRecoveryRequest,
+  DatabaseRecoveryPlan,
+  DatabaseRecoveryResult,
+  FullBackupImportResult,
   Milestone,
   ProfilePicture,
   LocalHttpApiConfig,
@@ -145,6 +153,12 @@ export function setSetting(key: string, value: string): Promise<void> { return g
 export function getUsername(): Promise<string> { return getServices().getUsername(); }
 export function getAppVersion(): Promise<string> { return getServices().getAppVersion(); }
 export function getStartupError(): Promise<string | null> { return getServices().getStartupError(); }
+export function getDatabaseRecoveryPlan(): Promise<DatabaseRecoveryPlan | null> {
+  return getServices().getDatabaseRecoveryPlan();
+}
+export function applyDatabaseRecovery(request: ApplyDatabaseRecoveryRequest): Promise<DatabaseRecoveryResult> {
+  return getServices().applyDatabaseRecovery(request);
+}
 export function shouldSkipLegacyLocalProfileMigration(): Promise<boolean> {
   return getServices().shouldSkipLegacyLocalProfileMigration();
 }
@@ -234,6 +248,6 @@ export function exportFullBackup(localStorageData: string, version: string): Pro
   return getServices().pickAndExportFullBackup(localStorageData, version);
 }
 
-export function importFullBackup(): Promise<string | null> {
+export function importFullBackup(): Promise<FullBackupImportResult | null> {
   return getServices().pickAndImportFullBackup();
 }

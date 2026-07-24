@@ -2,6 +2,7 @@ pub mod app_file_io;
 pub mod backup;
 pub mod csv_import;
 pub mod dashboard_data;
+pub mod database_recovery;
 pub mod db;
 pub mod http_api;
 pub mod instance_lock;
@@ -42,8 +43,15 @@ pub struct DbState {
     pub conn: Arc<Mutex<Connection>>,
 }
 
+#[derive(Debug, Clone)]
+pub enum StartupMode {
+    Ready,
+    RecoveryRequired(database_recovery::DatabaseRecoverySession),
+    Blocked(String),
+}
+
 pub struct StartupState {
-    pub error: Option<String>,
+    pub mode: Mutex<StartupMode>,
 }
 
 const SYNC_COMMAND_TIMEOUT_SECS: u64 = 120;
@@ -1525,7 +1533,103 @@ fn disconnect_google_drive(app_handle: tauri::AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn get_startup_error(state: State<'_, StartupState>) -> Option<String> {
-    state.error.clone()
+    match &*state
+        .mode
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+    {
+        StartupMode::Blocked(error) => Some(error.clone()),
+        StartupMode::Ready | StartupMode::RecoveryRequired(_) => None,
+    }
+}
+
+#[tauri::command]
+fn get_database_recovery_plan(
+    state: State<'_, StartupState>,
+) -> Option<database_recovery::DatabaseRecoveryPlan> {
+    match &*state
+        .mode
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+    {
+        StartupMode::RecoveryRequired(session) => Some(session.plan.clone()),
+        StartupMode::Ready | StartupMode::Blocked(_) => None,
+    }
+}
+
+#[tauri::command]
+fn apply_database_recovery(
+    app_handle: tauri::AppHandle,
+    db_state: State<'_, DbState>,
+    startup_state: State<'_, StartupState>,
+    request: database_recovery::ApplyDatabaseRecoveryRequest,
+) -> Result<database_recovery::DatabaseRecoveryResult, String> {
+    let mut mode = startup_state
+        .mode
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let session = match &*mode {
+        StartupMode::RecoveryRequired(session) => session.clone(),
+        StartupMode::Ready => return Err("The database does not require recovery.".to_string()),
+        StartupMode::Blocked(error) => {
+            return Err(format!("Database recovery is unavailable: {error}"));
+        }
+    };
+
+    let app_dir = db::get_data_dir(&app_handle);
+    let recovery_dir = match &session.target {
+        database_recovery::DatabaseRecoveryTarget::ActiveDatabase => app_dir.clone(),
+        database_recovery::DatabaseRecoveryTarget::StagedFullBackup { staging_dir, .. } => {
+            staging_dir.clone()
+        }
+    };
+    let _sync_guard = match &session.target {
+        database_recovery::DatabaseRecoveryTarget::ActiveDatabase => None,
+        database_recovery::DatabaseRecoveryTarget::StagedFullBackup { .. } => {
+            Some(sync_state::acquire_sync_lock(&app_dir)?)
+        }
+    };
+    match database_recovery::apply_database_recovery(&recovery_dir, &session.plan, request) {
+        Ok(applied) => {
+            let result = match &session.target {
+                database_recovery::DatabaseRecoveryTarget::ActiveDatabase => {
+                    *db_state.conn.lock().map_err(|error| error.to_string())? = applied.connection;
+                    applied.result
+                }
+                database_recovery::DatabaseRecoveryTarget::StagedFullBackup {
+                    staging_dir,
+                    local_storage,
+                } => {
+                    let mut result = applied.result;
+                    database_recovery::preserve_safety_backup(&app_dir, &mut result)?;
+                    drop(applied.connection);
+                    let prepared = backup::PreparedFullBackup {
+                        staging_dir: staging_dir.clone(),
+                        local_storage: local_storage.clone(),
+                    };
+                    let imported_local_storage = {
+                        let mut connection =
+                            db_state.conn.lock().map_err(|error| error.to_string())?;
+                        backup::install_prepared_full_backup(&app_dir, &mut connection, &prepared)?
+                    };
+                    sync_state::clear_sync_runtime_files(&app_dir)?;
+                    result.local_storage = Some(imported_local_storage);
+                    result
+                }
+            };
+            *mode = StartupMode::Ready;
+            Ok(result)
+        }
+        Err(error) => {
+            if let Ok(Some(updated_plan)) = database_recovery::analyze_database(&recovery_dir) {
+                *mode = StartupMode::RecoveryRequired(database_recovery::DatabaseRecoverySession {
+                    plan: updated_plan,
+                    target: session.target,
+                });
+            }
+            Err(error)
+        }
+    }
 }
 
 #[tauri::command]
@@ -1594,14 +1698,22 @@ pub fn run() {
             #[cfg(not(desktop))]
             let lock_startup_error: Option<String> = None;
 
-            let (conn, startup_error) = if let Some(error) = lock_startup_error {
+            let (conn, startup_mode) = if let Some(error) = lock_startup_error {
                 (
                     rusqlite::Connection::open_in_memory().unwrap(),
-                    Some(error),
+                    StartupMode::Blocked(error),
                 )
             } else if user_db_path.exists() {
-                match db::init_db(app_dir, None) {
-                    Ok(conn) => (conn, None),
+                match database_recovery::open_database(app_dir, None) {
+                    Ok(database_recovery::DatabaseOpenOutcome::Ready(conn)) => {
+                        (conn, StartupMode::Ready)
+                    }
+                    Ok(database_recovery::DatabaseOpenOutcome::RecoveryRequired(plan)) => (
+                        rusqlite::Connection::open_in_memory().unwrap(),
+                        StartupMode::RecoveryRequired(
+                            database_recovery::DatabaseRecoverySession::active_database(plan),
+                        ),
+                    ),
                     Err(err) => {
                         let error_message = format!(
                             "Kechimochi could not open this database safely.\n\n{}\n\nUse a newer version of the app that supports this database schema.",
@@ -1610,22 +1722,25 @@ pub fn run() {
 
                         (
                             rusqlite::Connection::open_in_memory().unwrap(),
-                            Some(error_message),
+                            StartupMode::Blocked(error_message),
                         )
                     }
                 }
             } else {
                 // If no user DB exists, start with a temporary in-memory db.
                 // The frontend will force the user to create an initial profile and call initialize_user_db.
-                (rusqlite::Connection::open_in_memory().unwrap(), None)
+                (
+                    rusqlite::Connection::open_in_memory().unwrap(),
+                    StartupMode::Ready,
+                )
             };
-            let startup_blocked = startup_error.is_some();
+            let startup_blocked = !matches!(startup_mode, StartupMode::Ready);
             let db_conn = Arc::new(Mutex::new(conn));
             app.manage(DbState {
                 conn: db_conn.clone(),
             });
             app.manage(StartupState {
-                error: startup_error,
+                mode: Mutex::new(startup_mode),
             });
             let local_http_api_config = if startup_blocked {
                 LocalHttpApiConfig::default()
@@ -1751,6 +1866,8 @@ pub fn run() {
             disconnect_google_drive,
             clear_sync_backups,
             get_startup_error,
+            get_database_recovery_plan,
+            apply_database_recovery,
             get_local_http_api_status,
             save_local_http_api_config,
             set_setting,

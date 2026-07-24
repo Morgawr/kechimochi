@@ -14,7 +14,8 @@ use std::sync::Arc;
 use axum::{
     body::Body,
     extract::{rejection::JsonRejection, Multipart, Path, Query, State},
-    http::{header, HeaderMap, StatusCode},
+    http::{header, HeaderMap, Request, StatusCode},
+    middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{any, get, post, put},
     Json, Router,
@@ -25,8 +26,8 @@ use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
 
 use kechimochi_lib::{
-    csv_import, dashboard_data, db, get_username_logic, instance_lock, library_data, models,
-    profile_picture, read_performance, sync_state, timeline_data,
+    csv_import, dashboard_data, database_recovery, db, get_username_logic, instance_lock,
+    library_data, models, profile_picture, read_performance, sync_state, timeline_data,
 };
 
 // ── Error handling ────────────────────────────────────────────────────────────
@@ -117,11 +118,18 @@ type HandlerResult<T> = std::result::Result<T, AppError>;
 
 // ── Shared state ──────────────────────────────────────────────────────────────
 
+#[derive(Debug, Clone)]
+enum WebStartupMode {
+    Ready,
+    RecoveryRequired(database_recovery::DatabaseRecoverySession),
+    Blocked(String),
+}
+
 struct AppState {
     conn: Mutex<rusqlite::Connection>,
     data_dir: PathBuf,
     static_dir: PathBuf,
-    startup_error: Option<String>,
+    startup_mode: Mutex<WebStartupMode>,
 }
 
 type Shared = Arc<AppState>;
@@ -146,21 +154,43 @@ async fn main() {
 
     let instance_lock =
         instance_lock::acquire_instance_lock(&data_dir, instance_lock::InstanceKind::Web);
-    let startup_error = instance_lock
+    let lock_startup_error = instance_lock
         .as_ref()
         .err()
         .map(std::string::ToString::to_string);
-    if let Some(error) = &startup_error {
+    if let Some(error) = &lock_startup_error {
         eprintln!("[kechimochi] startup blocked: {error}");
     }
 
     let user_db_path = data_dir.join("kechimochi_user.db");
-    let conn = if startup_error.is_some() {
-        rusqlite::Connection::open_in_memory().expect("Failed to open in-memory DB")
+    let (conn, startup_mode) = if let Some(error) = lock_startup_error {
+        (
+            rusqlite::Connection::open_in_memory().expect("Failed to open in-memory DB"),
+            WebStartupMode::Blocked(error),
+        )
     } else if user_db_path.exists() {
-        db::init_db(data_dir.clone(), None).expect("Failed to open database")
+        match database_recovery::open_database(data_dir.clone(), None) {
+            Ok(database_recovery::DatabaseOpenOutcome::Ready(connection)) => {
+                (connection, WebStartupMode::Ready)
+            }
+            Ok(database_recovery::DatabaseOpenOutcome::RecoveryRequired(plan)) => (
+                rusqlite::Connection::open_in_memory().expect("Failed to open in-memory DB"),
+                WebStartupMode::RecoveryRequired(
+                    database_recovery::DatabaseRecoverySession::active_database(plan),
+                ),
+            ),
+            Err(error) => (
+                rusqlite::Connection::open_in_memory().expect("Failed to open in-memory DB"),
+                WebStartupMode::Blocked(format!(
+                    "Kechimochi could not open this database safely.\n\n{error}"
+                )),
+            ),
+        }
     } else {
-        rusqlite::Connection::open_in_memory().expect("Failed to open in-memory DB")
+        (
+            rusqlite::Connection::open_in_memory().expect("Failed to open in-memory DB"),
+            WebStartupMode::Ready,
+        )
     };
 
     // Keep the successful guard alive until the server exits. A blocked server
@@ -172,7 +202,7 @@ async fn main() {
         conn: Mutex::new(conn),
         data_dir,
         static_dir: static_dir.clone(),
-        startup_error,
+        startup_mode: Mutex::new(startup_mode),
     });
 
     let app = build_app_router(state);
@@ -193,18 +223,7 @@ fn build_app_router(state: Shared) -> Router {
         .allow_methods(Any)
         .allow_headers(Any);
 
-    if state.startup_error.is_some() {
-        return Router::new()
-            .route("/api/startup-error", get(get_startup_error_handler))
-            .route("/api", any(startup_blocked_api))
-            .route("/api/*path", any(startup_blocked_api))
-            .route("/", get(serve_spa_index))
-            .route("/*path", get(serve_static_or_spa))
-            .with_state(state)
-            .layer(cors);
-    }
-
-    Router::new()
+    let normal_api = Router::new()
         // Media
         .route("/api/media", get(get_all_media).post(add_media))
         .route(
@@ -258,7 +277,6 @@ fn build_app_router(state: Shared) -> Router {
         // Settings
         .route("/api/settings/:key", get(get_setting).put(set_setting))
         // Utility
-        .route("/api/startup-error", get(get_startup_error_handler))
         .route("/api/username", get(get_username))
         .route("/api/version", get(get_version))
         .route("/api/activities/clear", post(clear_activities))
@@ -291,6 +309,19 @@ fn build_app_router(state: Shared) -> Router {
         // Any unmatched /api route should remain an API 404, not SPA fallback.
         .route("/api", any(api_not_found))
         .route("/api/*path", any(api_not_found))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            require_ready_database,
+        ));
+
+    Router::new()
+        .route("/api/startup-error", get(get_startup_error_handler))
+        .route("/api/database-recovery", get(get_database_recovery_handler))
+        .route(
+            "/api/database-recovery/apply",
+            post(apply_database_recovery_handler),
+        )
+        .merge(normal_api)
         .route("/", get(serve_spa_index))
         .route("/*path", get(serve_static_or_spa))
         .with_state(state)
@@ -326,16 +357,123 @@ async fn api_not_found() -> (StatusCode, &'static str) {
 }
 
 async fn get_startup_error_handler(State(s): State<Shared>) -> Json<Option<String>> {
-    Json(s.startup_error.clone())
+    let mode = s.startup_mode.lock().await;
+    Json(match &*mode {
+        WebStartupMode::Blocked(error) => Some(error.clone()),
+        WebStartupMode::Ready | WebStartupMode::RecoveryRequired(_) => None,
+    })
 }
 
-async fn startup_blocked_api(State(s): State<Shared>) -> (StatusCode, String) {
-    (
-        StatusCode::SERVICE_UNAVAILABLE,
-        s.startup_error
-            .clone()
-            .unwrap_or_else(|| "Kechimochi startup is blocked".to_string()),
-    )
+async fn get_database_recovery_handler(
+    State(s): State<Shared>,
+) -> Json<Option<database_recovery::DatabaseRecoveryPlan>> {
+    let mode = s.startup_mode.lock().await;
+    Json(match &*mode {
+        WebStartupMode::RecoveryRequired(session) => Some(session.plan.clone()),
+        WebStartupMode::Ready | WebStartupMode::Blocked(_) => None,
+    })
+}
+
+async fn apply_database_recovery_handler(
+    State(s): State<Shared>,
+    Json(request): Json<database_recovery::ApplyDatabaseRecoveryRequest>,
+) -> HandlerResult<Json<database_recovery::DatabaseRecoveryResult>> {
+    let mut mode = s.startup_mode.lock().await;
+    let session = match &*mode {
+        WebStartupMode::RecoveryRequired(session) => session.clone(),
+        WebStartupMode::Ready => {
+            return Err(AppError::BadRequest(
+                "The database does not require recovery.".to_string(),
+            ));
+        }
+        WebStartupMode::Blocked(error) => {
+            return Err(AppError::BadRequest(format!(
+                "Database recovery is unavailable: {error}"
+            )));
+        }
+    };
+
+    let recovery_dir = match &session.target {
+        database_recovery::DatabaseRecoveryTarget::ActiveDatabase => s.data_dir.clone(),
+        database_recovery::DatabaseRecoveryTarget::StagedFullBackup { staging_dir, .. } => {
+            staging_dir.clone()
+        }
+    };
+    let _sync_guard = match &session.target {
+        database_recovery::DatabaseRecoveryTarget::ActiveDatabase => None,
+        database_recovery::DatabaseRecoveryTarget::StagedFullBackup { .. } => {
+            Some(sync_state::acquire_sync_lock(&s.data_dir).map_err(map_sync_operation_error)?)
+        }
+    };
+    match database_recovery::apply_database_recovery(&recovery_dir, &session.plan, request) {
+        Ok(applied) => {
+            let result = match &session.target {
+                database_recovery::DatabaseRecoveryTarget::ActiveDatabase => {
+                    *s.conn.lock().await = applied.connection;
+                    applied.result
+                }
+                database_recovery::DatabaseRecoveryTarget::StagedFullBackup {
+                    staging_dir,
+                    local_storage,
+                } => {
+                    let mut result = applied.result;
+                    database_recovery::preserve_safety_backup(&s.data_dir, &mut result)
+                        .map_err(AppError::Internal)?;
+                    drop(applied.connection);
+                    let prepared = kechimochi_lib::backup::PreparedFullBackup {
+                        staging_dir: staging_dir.clone(),
+                        local_storage: local_storage.clone(),
+                    };
+                    let imported_local_storage = {
+                        let mut connection = s.conn.lock().await;
+                        kechimochi_lib::backup::install_prepared_full_backup(
+                            &s.data_dir,
+                            &mut connection,
+                            &prepared,
+                        )
+                        .map_err(AppError::Internal)?
+                    };
+                    sync_state::clear_sync_runtime_files(&s.data_dir)
+                        .map_err(AppError::Internal)?;
+                    result.local_storage = Some(imported_local_storage);
+                    result
+                }
+            };
+            *mode = WebStartupMode::Ready;
+            Ok(Json(result))
+        }
+        Err(error) => {
+            if let Ok(Some(updated_plan)) = database_recovery::analyze_database(&recovery_dir) {
+                *mode =
+                    WebStartupMode::RecoveryRequired(database_recovery::DatabaseRecoverySession {
+                        plan: updated_plan,
+                        target: session.target,
+                    });
+            }
+            Err(AppError::BadRequest(error))
+        }
+    }
+}
+
+async fn require_ready_database(
+    State(s): State<Shared>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    let unavailable = {
+        let mode = s.startup_mode.lock().await;
+        match &*mode {
+            WebStartupMode::Ready => None,
+            WebStartupMode::RecoveryRequired(_) => {
+                Some("Database recovery must be completed before using this API.".to_string())
+            }
+            WebStartupMode::Blocked(error) => Some(error.clone()),
+        }
+    };
+    if let Some(message) = unavailable {
+        return (StatusCode::SERVICE_UNAVAILABLE, message).into_response();
+    }
+    next.run(request).await
 }
 
 async fn serve_spa_index(State(s): State<Shared>) -> HandlerResult<Response> {
@@ -934,7 +1072,7 @@ async fn export_full_backup_handler(
 async fn import_full_backup_handler(
     State(s): State<Shared>,
     mut multipart: Multipart,
-) -> HandlerResult<Json<serde_json::Value>> {
+) -> HandlerResult<Json<kechimochi_lib::backup::FullBackupImportResult>> {
     let tmp = field_to_tempfile(&mut multipart).await?;
     let path = tmp
         .path()
@@ -942,18 +1080,41 @@ async fn import_full_backup_handler(
         .ok_or_else(|| AppError::Internal("Invalid temp path".into()))?
         .to_owned();
 
-    let ls = {
-        let _sync_guard =
-            sync_state::acquire_sync_lock(&s.data_dir).map_err(map_sync_operation_error)?;
-        let mut conn = s.conn.lock().await;
-        let local_storage =
-            kechimochi_lib::backup::import_full_backup_internal(&s.data_dir, &mut conn, &path)
-                .ae()?;
-        sync_state::clear_sync_runtime_files(&s.data_dir).ae()?;
-        local_storage
-    };
-
-    Ok(Json(serde_json::json!({ "localStorage": ls })))
+    let _sync_guard =
+        sync_state::acquire_sync_lock(&s.data_dir).map_err(map_sync_operation_error)?;
+    let zip_file = std::fs::File::open(path).ae()?;
+    match kechimochi_lib::backup::prepare_full_backup_from_reader_internal(&s.data_dir, zip_file)
+        .ae()?
+    {
+        kechimochi_lib::backup::PreparedFullBackupOutcome::Ready(prepared) => {
+            let local_storage = {
+                let mut connection = s.conn.lock().await;
+                kechimochi_lib::backup::install_prepared_full_backup(
+                    &s.data_dir,
+                    &mut connection,
+                    &prepared,
+                )
+                .ae()?
+            };
+            sync_state::clear_sync_runtime_files(&s.data_dir).ae()?;
+            Ok(Json(
+                kechimochi_lib::backup::FullBackupImportResult::Imported { local_storage },
+            ))
+        }
+        kechimochi_lib::backup::PreparedFullBackupOutcome::RecoveryRequired { prepared, plan } => {
+            *s.startup_mode.lock().await =
+                WebStartupMode::RecoveryRequired(database_recovery::DatabaseRecoverySession {
+                    plan: plan.clone(),
+                    target: database_recovery::DatabaseRecoveryTarget::StagedFullBackup {
+                        staging_dir: prepared.staging_dir,
+                        local_storage: prepared.local_storage,
+                    },
+                });
+            Ok(Json(
+                kechimochi_lib::backup::FullBackupImportResult::RecoveryRequired { plan },
+            ))
+        }
+    }
 }
 
 // ── Cover images ──────────────────────────────────────────────────────────────
@@ -1227,7 +1388,7 @@ mod tests {
             conn: Mutex::new(conn),
             data_dir,
             static_dir: PathBuf::from("dist"),
-            startup_error: None,
+            startup_mode: Mutex::new(WebStartupMode::Ready),
         })
     }
 
@@ -1239,7 +1400,7 @@ mod tests {
             conn: Mutex::new(conn),
             data_dir,
             static_dir: PathBuf::from("dist"),
-            startup_error: None,
+            startup_mode: Mutex::new(WebStartupMode::Ready),
         })
     }
 
@@ -1303,10 +1464,10 @@ mod tests {
 
     #[tokio::test]
     async fn startup_error_route_reports_lock_owner_and_blocks_other_apis() {
-        let mut state = setup_state();
+        let state = setup_state();
         let state_dir = state.data_dir.clone();
         let startup_error = "Unable to obtain unique lock. Some other process is already running Kechimochi (pid=4242).\n\nLock owner details:\npid=4242\nkind=desktop";
-        Arc::get_mut(&mut state).unwrap().startup_error = Some(startup_error.to_string());
+        *state.startup_mode.lock().await = WebStartupMode::Blocked(startup_error.to_string());
 
         let startup_response = build_app_router(state.clone())
             .oneshot(
@@ -1342,6 +1503,105 @@ mod tests {
             .unwrap();
         assert!(String::from_utf8_lossy(&mutation_body).contains("pid=4242"));
 
+        let _ = std::fs::remove_dir_all(state_dir);
+    }
+
+    #[tokio::test]
+    async fn database_recovery_route_blocks_normal_apis_and_resumes_after_repair() {
+        let state = setup_disk_state();
+        let state_dir = state.data_dir.clone();
+        let media_uid = {
+            let connection = state.conn.lock().await;
+            let media_id =
+                db::add_media_with_id(&connection, &sample_media("Renamed parent")).unwrap();
+            let media_uid = db::get_all_media(&connection)
+                .unwrap()
+                .into_iter()
+                .find(|media| media.id == Some(media_id))
+                .and_then(|media| media.uid)
+                .unwrap();
+            db::add_milestone(
+                &connection,
+                &sample_milestone(&media_uid, "Broken milestone", 15),
+            )
+            .unwrap();
+            connection
+                .execute(
+                    "UPDATE main.milestones
+                     SET media_uid = 'missing-web-uid', media_title = 'Legacy parent'",
+                    [],
+                )
+                .unwrap();
+            connection
+                .execute_batch(
+                    "PRAGMA main.user_version = 5;
+                     PRAGMA shared.user_version = 5;",
+                )
+                .unwrap();
+            media_uid
+        };
+        let plan = database_recovery::analyze_database(&state.data_dir)
+            .unwrap()
+            .unwrap();
+        *state.startup_mode.lock().await = WebStartupMode::RecoveryRequired(
+            database_recovery::DatabaseRecoverySession::active_database(plan.clone()),
+        );
+
+        assert_eq!(
+            get_database_recovery_handler(State(state.clone())).await.0,
+            Some(plan.clone())
+        );
+        let blocked_response = build_app_router(state.clone())
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/api/media")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(blocked_response.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+        let group_token = match &plan.issues[0] {
+            database_recovery::DatabaseRecoveryIssue::OrphanedMilestoneGroups { groups } => {
+                groups[0].group_token.clone()
+            }
+        };
+        let result = apply_database_recovery_handler(
+            State(state.clone()),
+            Json(database_recovery::ApplyDatabaseRecoveryRequest {
+                session_token: plan.session_token,
+                resolutions: vec![
+                    database_recovery::DatabaseRecoveryResolution::AttachMilestoneGroup {
+                        group_token,
+                        media_uid: media_uid.clone(),
+                    },
+                ],
+                local_storage: "{}".to_string(),
+            }),
+        )
+        .await
+        .unwrap()
+        .0;
+        assert!(result.local_storage.is_none());
+        assert!(std::path::Path::new(&result.safety_backup_path).exists());
+        assert!(matches!(
+            *state.startup_mode.lock().await,
+            WebStartupMode::Ready
+        ));
+
+        let connection = state.conn.lock().await;
+        let repaired: (String, String) = connection
+            .query_row(
+                "SELECT media_uid, media_title FROM main.milestones",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(repaired, (media_uid, "Renamed parent".to_string()));
+        drop(connection);
+
+        drop(state);
         let _ = std::fs::remove_dir_all(state_dir);
     }
 
@@ -1393,9 +1653,13 @@ mod tests {
 
         let mut update_body = sample_media("Updated Title");
         update_body.id = Some(media_b_id);
-        let _ = update_media(State(state.clone()), Path(media_a_id), Json(update_body.into()))
-            .await
-            .unwrap();
+        let _ = update_media(
+            State(state.clone()),
+            Path(media_a_id),
+            Json(update_body.into()),
+        )
+        .await
+        .unwrap();
 
         let all = get_all_media(State(state)).await.unwrap().0;
         let updated_a = all.iter().find(|m| m.id == Some(media_a_id)).unwrap();
@@ -1943,7 +2207,11 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(result["localStorage"], r#"{"restored":true}"#);
+        let kechimochi_lib::backup::FullBackupImportResult::Imported { local_storage } = result
+        else {
+            panic!("valid backup should import without recovery");
+        };
+        assert_eq!(local_storage, r#"{"restored":true}"#);
         let conn = state.conn.lock().await;
         let media = db::get_all_media(&conn).unwrap();
         drop(conn);

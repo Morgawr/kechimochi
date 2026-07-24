@@ -30,6 +30,10 @@ import type {
     ActivityCsvAnalysis,
     ActivityCsvImportRequest,
     ActivityCsvImportResult,
+    ApplyDatabaseRecoveryRequest,
+    DatabaseRecoveryPlan,
+    DatabaseRecoveryResult,
+    FullBackupImportResult,
     Milestone,
     ProfilePicture,
     LocalHttpApiConfig,
@@ -223,6 +227,10 @@ export class WebServices implements AppServices {
     getUsername():                           Promise<string>            { return get('/username'); }
     getAppVersion():                         Promise<string>            { return Promise.resolve(getBuildVersion()); }
     getStartupError():                       Promise<string | null>     { return get('/startup-error'); }
+    getDatabaseRecoveryPlan():                Promise<DatabaseRecoveryPlan | null> { return get('/database-recovery'); }
+    applyDatabaseRecovery(request: ApplyDatabaseRecoveryRequest): Promise<DatabaseRecoveryResult> {
+        return post('/database-recovery/apply', request);
+    }
     shouldSkipLegacyLocalProfileMigration(): Promise<boolean>          { return Promise.resolve(false); }
     getProfilePicture():                     Promise<ProfilePicture | null> { return get('/profile-picture'); }
     deleteProfilePicture():                  Promise<void>              { return del('/profile-picture'); }
@@ -325,15 +333,14 @@ export class WebServices implements AppServices {
         return true;
     }
 
-    async pickAndImportFullBackup(): Promise<string | null> {
+    async pickAndImportFullBackup(): Promise<FullBackupImportResult | null> {
         const file = await pickFile('.zip');
         if (!file) return null;
         const form = new FormData();
         form.append('file', file);
         const res = await fetch(apiUrl('/import/full-backup'), { method: 'POST', body: form });
         if (!res.ok) throw new Error(await res.text());
-        const { localStorage: ls } = await res.json();
-        return ls as string;
+        return res.json() as Promise<FullBackupImportResult>;
     }
 
     // ── Milestone operations ─────────────────────────────────────────────────
