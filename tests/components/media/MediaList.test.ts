@@ -10,6 +10,7 @@ vi.mock('../../../src/media/MediaListItem', () => ({
     MediaListItem: vi.fn().mockImplementation(() => ({
         render: vi.fn(),
         destroy: vi.fn(),
+        reconcileCoverUrl: vi.fn().mockResolvedValue(undefined),
     })),
 }));
 
@@ -99,6 +100,28 @@ describe('MediaList', () => {
 
         expect(MediaListItem).toHaveBeenCalledTimes(25);
         expect(env.requestAnimationFrameSpy).toHaveBeenCalled();
+    });
+
+    it('reconciles covers without rebuilding the retained list', async () => {
+        const component = new MediaList(
+            env.container,
+            {
+                rows: toLibraryItemRows(createCollectionMediaList(2)),
+                metricsByMediaId: {},
+                isMetricsLoading: false,
+            },
+            vi.fn(),
+        );
+        component.render();
+        const itemInstances = vi.mocked(MediaListItem).mock.results
+            .map(result => result.value as { reconcileCoverUrl: ReturnType<typeof vi.fn> });
+
+        await component.reconcileCoverUrls();
+
+        expect(MediaListItem).toHaveBeenCalledTimes(2);
+        itemInstances.forEach(instance => {
+            expect(instance.reconcileCoverUrl).toHaveBeenCalledOnce();
+        });
     });
 
     it('stops queued batch rendering after destroy', () => {

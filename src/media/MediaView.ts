@@ -657,6 +657,13 @@ private async handleBack() {
         if (root) root.dataset.libraryRequestId = requestId.toString();
     }
 
+    private async reconcileRenderedLibraryCoverUrls(): Promise<void> {
+        const libraryBrowser = this.activeSubComponent as (Component & {
+            reconcileCoverUrls?: () => Promise<void>;
+        }) | null;
+        await libraryBrowser?.reconcileCoverUrls?.();
+    }
+
     async loadData(jumpToId?: number) {
         if (this.state.isLoading && jumpToId === undefined) return;
         const requestId = ++this.loadRequestId;
@@ -682,6 +689,8 @@ private async handleBack() {
             if (enumOrders) Object.assign(nextState, enumOrders);
             if (this.canReuseRenderedLibrary(nextState)) {
                 this.state = { ...this.state, ...nextState };
+                await this.reconcileRenderedLibraryCoverUrls();
+                if (this.isStaleLoad(requestId)) return;
             } else {
                 this.setState(nextState);
             }

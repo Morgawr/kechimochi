@@ -19,6 +19,7 @@ vi.mock('../../src/media/MediaLibraryBrowser', () => ({
     MediaLibraryBrowser: vi.fn().mockImplementation(() => ({
         render: vi.fn(),
         destroy: vi.fn(),
+        reconcileCoverUrls: vi.fn().mockResolvedValue(undefined),
     })),
 }));
 
@@ -241,8 +242,12 @@ describe('MediaView', () => {
 
         await component.loadData();
 
+        const browserInstance = vi.mocked(MediaLibraryBrowser).mock.results[0].value as {
+            reconcileCoverUrls: ReturnType<typeof vi.fn>;
+        };
         expect(api.getLibrarySnapshot).toHaveBeenCalledTimes(2);
         expect(MediaLibraryBrowser).toHaveBeenCalledTimes(1);
+        expect(browserInstance.reconcileCoverUrls).toHaveBeenCalledOnce();
         expect(container.querySelector('#media-root')).toBe(initialRoot);
         expect(initialRoot?.getAttribute('data-library-request-id')).toBe('2');
     });

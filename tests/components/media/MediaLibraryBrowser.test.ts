@@ -9,14 +9,24 @@ import { showAddMediaModal } from '../../../src/media/modal';
 import { MediaGrid } from '../../../src/media/MediaGrid';
 import { MediaList } from '../../../src/media/MediaList';
 
-const listInstances: Array<{ render: ReturnType<typeof vi.fn>; destroy: ReturnType<typeof vi.fn> }> = [];
+interface LayoutInstance {
+    render: ReturnType<typeof vi.fn>;
+    destroy: ReturnType<typeof vi.fn>;
+    reconcileCoverUrls: ReturnType<typeof vi.fn>;
+}
+
+const gridInstances: LayoutInstance[] = [];
+const listInstances: LayoutInstance[] = [];
 
 vi.mock('../../../src/media/MediaGrid', () => ({
     MediaGrid: vi.fn().mockImplementation(() => {
-        return {
+        const instance = {
             render: vi.fn(),
             destroy: vi.fn(),
+            reconcileCoverUrls: vi.fn().mockResolvedValue(undefined),
         };
+        gridInstances.push(instance);
+        return instance;
     }),
 }));
 
@@ -25,6 +35,7 @@ vi.mock('../../../src/media/MediaList', () => ({
         const instance = {
             render: vi.fn(),
             destroy: vi.fn(),
+            reconcileCoverUrls: vi.fn().mockResolvedValue(undefined),
         };
         listInstances.push(instance);
         return instance;
@@ -82,6 +93,7 @@ describe('MediaLibraryBrowser', () => {
     beforeEach(() => {
         container = document.createElement('div');
         vi.clearAllMocks();
+        gridInstances.length = 0;
         listInstances.length = 0;
         vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => {
             callback(0);
@@ -150,6 +162,29 @@ describe('MediaLibraryBrowser', () => {
         const onVisibleListMediaClick = vi.mocked(MediaList).mock.calls[0][2];
         onVisibleListMediaClick(1);
         expect(onListMediaClick).toHaveBeenCalledWith({ mediaId: 1, navigationIds: [1, 3] });
+    });
+
+    it('delegates retained cover reconciliation to the active layout', async () => {
+        const component = new MediaLibraryBrowser(
+            container,
+            createState({
+                mediaList: [{
+                    id: 1,
+                    title: 'Retained',
+                    status: 'Active',
+                    content_type: 'Anime',
+                    tracking_status: 'Ongoing',
+                } as Media],
+            }),
+            vi.fn(),
+            vi.fn(),
+        );
+        component.render();
+
+        await component.reconcileCoverUrls();
+
+        expect(gridInstances[0]?.reconcileCoverUrls).toHaveBeenCalledOnce();
+        expect(MediaGrid).toHaveBeenCalledOnce();
     });
 
     it('sorts by the passed-in content type and tracking status order instead of the declaration order', () => {

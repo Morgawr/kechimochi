@@ -51,6 +51,10 @@ export const MEDIA_LIST_COVER: ProgressiveCoverPresentation = {
  */
 export abstract class ProgressiveCoverComponent<State extends ProgressiveCoverState> extends Component<State> {
     private readonly stopCoverLoading: () => void;
+    private readonly coverRef: string | null;
+    private readonly presentation: ProgressiveCoverPresentation;
+    private isDestroyed = false;
+    private reconcileRequestId = 0;
 
     protected constructor(
         container: HTMLElement,
@@ -62,6 +66,8 @@ export abstract class ProgressiveCoverComponent<State extends ProgressiveCoverSt
         const coverRef = initialState.media.cover_image?.trim();
         const initialSrc = coverRef ? MediaCoverLoader.getCached(coverRef) : null;
         super(container, { ...initialState, imgSrc: initialSrc });
+        this.coverRef = coverRef || null;
+        this.presentation = presentation;
         this.stopCoverLoading = startProgressiveCoverLoad({
             element: container,
             coverRef,
@@ -76,7 +82,44 @@ export abstract class ProgressiveCoverComponent<State extends ProgressiveCoverSt
         });
     }
 
+    /**
+     * Reconciles a cover retained by a mounted collection item with the shared
+     * cache. Desktop cache eviction revokes blob URLs, so a hidden library can
+     * otherwise keep rendering an invalid URL after another view reloads it.
+     */
+    public async reconcileCoverUrl(): Promise<void> {
+        const currentSrc = this.state.imgSrc;
+        if (
+            this.isDestroyed
+            || !this.coverRef
+            || !currentSrc?.startsWith('blob:')
+        ) {
+            return;
+        }
+
+        const cachedSrc = MediaCoverLoader.getCached(this.coverRef);
+        if (cachedSrc === currentSrc) {
+            return;
+        }
+
+        const requestId = ++this.reconcileRequestId;
+        const nextSrc = cachedSrc ?? await MediaCoverLoader.load(this.coverRef);
+        if (!nextSrc || this.isDestroyed || requestId !== this.reconcileRequestId) {
+            return;
+        }
+
+        this.state.imgSrc = nextSrc;
+        commitProgressiveCoverImage(
+            this.container,
+            this.presentation,
+            nextSrc,
+            this.state.media.title,
+        );
+    }
+
     public override destroy(): void {
+        this.isDestroyed = true;
+        this.reconcileRequestId += 1;
         this.stopCoverLoading();
         super.destroy();
     }

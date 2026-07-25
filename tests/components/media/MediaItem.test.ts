@@ -6,6 +6,7 @@ import {
     triggerLatestIntersection,
 } from './media_cover_test_utils';
 import { MediaItem } from '../../../src/media/MediaItem';
+import { MediaCoverLoader } from '../../../src/media/cover_loader';
 import * as api from '../../../src/api';
 import { Media } from '../../../src/api';
 
@@ -106,6 +107,31 @@ describe('MediaItem', () => {
         await vi.waitUntil(() => second.state.imgSrc === 'blob:cached');
 
         expect(api.readFileBytes).toHaveBeenCalledTimes(1);
+    });
+
+    it('reconciles a retained cover after its desktop object URL is invalidated', async () => {
+        vi.mocked(api.readFileBytes).mockResolvedValue([1, 2, 3]);
+        globalThis.URL.createObjectURL = vi.fn()
+            .mockReturnValueOnce('blob:retained-cover-1')
+            .mockReturnValueOnce('blob:retained-cover-2');
+
+        const media = {
+            title: 'Retained Cover',
+            cover_image: '/path/to/retained.jpg',
+            status: 'Active',
+        };
+        const component = new MediaItem(container, media as unknown as Media, vi.fn(), undefined, true);
+        component.render();
+        await vi.waitFor(() => {
+            expect(container.querySelector('img')?.getAttribute('src')).toBe('blob:retained-cover-1');
+        });
+
+        MediaCoverLoader.clear();
+        await component.reconcileCoverUrl();
+
+        expect(container.querySelector('img')?.getAttribute('src')).toBe('blob:retained-cover-2');
+        expect(api.readFileBytes).toHaveBeenCalledTimes(2);
+        component.destroy();
     });
 
 

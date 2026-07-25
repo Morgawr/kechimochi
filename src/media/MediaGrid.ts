@@ -30,6 +30,10 @@ export class MediaGrid extends Component<MediaGridState> {
         this.destroyRenderedItems();
     }
 
+    public async reconcileCoverUrls(): Promise<void> {
+        await Promise.all(this.childItems.map(item => item.reconcileCoverUrl()));
+    }
+
     render() {
         this.currentRenderId += 1;
         const renderId = this.currentRenderId;

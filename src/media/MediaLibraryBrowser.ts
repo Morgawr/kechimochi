@@ -189,7 +189,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
     private readonly onFilterChange?: (filters: MediaLibraryFilters) => void;
     private readonly onLayoutChange?: (layout: LibraryLayoutMode) => void;
     private readonly onGridZoomChange?: (gridZoom: number) => void;
-    private activeLayoutComponent: Component | null = null;
+    private activeLayoutComponent: MediaGrid | MediaList | null = null;
     private shellRendered = false;
     private memoizedExtraDataMediaList: Media[] | null = null;
     private memoizedExtraDataIndex: Map<number, Record<string, string>> = new Map();
@@ -243,6 +243,10 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         }
         this.activeLayoutComponent?.destroy?.();
         super.destroy();
+    }
+
+    public async reconcileCoverUrls(): Promise<void> {
+        await this.activeLayoutComponent?.reconcileCoverUrls();
     }
 
     render() {

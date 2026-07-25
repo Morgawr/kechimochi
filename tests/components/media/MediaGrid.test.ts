@@ -10,6 +10,7 @@ vi.mock('../../../src/media/MediaItem', () => ({
     MediaItem: vi.fn().mockImplementation(() => ({
         render: vi.fn(),
         destroy: vi.fn(),
+        reconcileCoverUrl: vi.fn().mockResolvedValue(undefined),
     })),
 }));
 
@@ -57,6 +58,24 @@ describe('MediaGrid', () => {
 
         expect(MediaItem).toHaveBeenCalledTimes(22);
         expect(env.requestAnimationFrameSpy).toHaveBeenCalled();
+    });
+
+    it('reconciles covers without rebuilding the retained grid', async () => {
+        const component = new MediaGrid(
+            env.container,
+            { rows: toLibraryItemRows(createCollectionMediaList(2)), gridZoom: 100 },
+            vi.fn(),
+        );
+        component.render();
+        const itemInstances = vi.mocked(MediaItem).mock.results
+            .map(result => result.value as { reconcileCoverUrl: ReturnType<typeof vi.fn> });
+
+        await component.reconcileCoverUrls();
+
+        expect(MediaItem).toHaveBeenCalledTimes(2);
+        itemInstances.forEach(instance => {
+            expect(instance.reconcileCoverUrl).toHaveBeenCalledOnce();
+        });
     });
 
     it('keeps the first batch bounded across many sections', () => {

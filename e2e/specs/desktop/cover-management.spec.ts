@@ -64,6 +64,21 @@ describe('CUJ: Manual Cover Management', () => {
       'Quick Log cover became a broken image after resizing the library and returning to the dashboard',
     );
 
+    // Simulate the shared invalidation signal used after a cover-changing data
+    // operation while both dashboard and library remain mounted. Returning to
+    // an unchanged library must reconcile its retained blob URL without relying
+    // on a grid-zoom rebuild.
+    await browser.execute(() => {
+      globalThis.dispatchEvent(new CustomEvent('local-data-changed', {
+        detail: { coversChanged: true },
+      }));
+    });
+    await navigateTo('media');
+    await waitForDecodedImage(
+      `.media-grid-item[data-title="${title}"] img`,
+      'Library cover remained invalid after returning from Quick Log without changing grid zoom',
+    );
+
     await openTimeline();
     await searchTimeline(title);
     await $('.timeline-cover-image').waitForDisplayed({ timeout: 10000 });
