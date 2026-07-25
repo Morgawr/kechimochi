@@ -16,6 +16,19 @@ async function waitForDetailVariant(expectedVariant: string): Promise<void> {
   });
 }
 
+async function waitForVariantLinks(expectedVariants: string[]): Promise<void> {
+  await browser.waitUntil(async () => browser.execute((variants) => {
+    const renderedVariants = Array.from(
+      document.querySelectorAll<HTMLElement>('.media-variant-link'),
+      link => link.dataset.mediaVariant ?? '',
+    );
+    return variants.every(variant => renderedVariants.includes(variant));
+  }, expectedVariants), {
+    timeout: 5000,
+    timeoutMsg: `Expected variant links for ${expectedVariants.join(' and ')}`,
+  });
+}
+
 describe('Media Variant Navigation', () => {
   const title = 'Variant Navigation Test';
 
@@ -35,8 +48,7 @@ describe('Media Variant Navigation', () => {
 
     const variantNavigation = $('.media-variant-navigation');
     await variantNavigation.waitForDisplayed({ timeout: 5000 });
-    expect(await variantNavigation.getText()).toContain('Anime');
-    expect(await variantNavigation.getText()).toContain('Manga');
+    await waitForVariantLinks(['Anime', 'Manga']);
     expect(await $('[data-media-variant="Anime"]').getAttribute('aria-current')).toBe('page');
 
     await $('[data-media-variant="Manga"]').click();
