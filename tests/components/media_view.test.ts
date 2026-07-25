@@ -454,6 +454,7 @@ describe('MediaView', () => {
             expect(detailProps?.[1]).toEqual(expect.objectContaining({ id: 30 }));
             expect((detailProps?.[3] as Media[]).map((media) => media.id)).toEqual([30, 20]);
             expect(detailProps?.[4]).toBe(0);
+            expect((detailProps?.[6] as Media[]).map((media) => media.id)).toEqual([10, 20, 30, 40]);
         });
         expect(api.getAllMedia).toHaveBeenCalledTimes(1);
 
@@ -473,6 +474,34 @@ describe('MediaView', () => {
         await vi.waitFor(() => {
             const browserProps = vi.mocked(MediaLibraryBrowser).mock.calls.at(-1)?.[1];
             expect((browserProps?.mediaList as Media[]).map((media) => media.id)).toEqual([10, 20, 30, 40]);
+        });
+    });
+
+    it('opens a same-title variant outside the visible detail navigation context', async () => {
+        const mockMedia = [
+            { id: 10, title: 'Shared Title', variant: 'Anime' },
+            { id: 20, title: 'Shared Title', variant: 'Manga' },
+            { id: 30, title: 'Other Title', variant: '' },
+        ];
+        vi.mocked(api.getAllMedia).mockResolvedValue(mockMedia as unknown as Media[]);
+        vi.mocked(api.getLogsForMedia).mockResolvedValue([]);
+
+        const component = new MediaView(container);
+        await renderAndWaitForBrowser(component);
+
+        const onSelect = vi.mocked(MediaLibraryBrowser).mock.calls[0][2];
+        onSelect({ mediaId: 10, navigationIds: [10, 30] });
+        await vi.waitFor(() => expect(MediaDetail).toHaveBeenCalled());
+
+        const detailCallbacks = vi.mocked(MediaDetail).mock.calls.at(-1)?.[5];
+        detailCallbacks.onNavigateToMedia?.(20);
+
+        await vi.waitFor(() => {
+            expect(api.getLogsForMedia).toHaveBeenLastCalledWith(20);
+            const detailProps = vi.mocked(MediaDetail).mock.calls.at(-1);
+            expect(detailProps?.[1]).toEqual(expect.objectContaining({ id: 20, variant: 'Manga' }));
+            expect((detailProps?.[3] as Media[]).map(media => media.id)).toEqual([10, 30, 20]);
+            expect((detailProps?.[6] as Media[]).map(media => media.id)).toEqual([10, 20, 30]);
         });
     });
 

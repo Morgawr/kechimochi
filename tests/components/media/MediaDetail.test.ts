@@ -95,6 +95,7 @@ describe('MediaDetail', () => {
         onNext: vi.fn(),
         onPrev: vi.fn(),
         onNavigate: vi.fn(),
+        onNavigateToMedia: vi.fn(),
         onDelete: vi.fn(),
     };
 
@@ -122,6 +123,35 @@ describe('MediaDetail', () => {
         expect(container.textContent).toContain('Writer');
         expect(container.querySelector('#media-variant')?.textContent)
             .toBe('(Optional) Describe variant...');
+        expect(container.querySelector('.media-variant-navigation')).toBeNull();
+    });
+
+    it('links every same-title library variant and marks the current one', () => {
+        const anime = { ...mockMedia, id: 1, variant: 'Anime' } as Media;
+        const manga = { ...mockMedia, id: 2, uid: 'uid-manga', variant: 'Manga' } as Media;
+        const base = { ...mockMedia, id: 3, uid: 'uid-base', variant: '' } as Media;
+        const unrelated = { ...mockMedia, id: 4, uid: 'uid-other', title: 'Other Title', variant: 'Anime' } as Media;
+        const caseVariant = { ...mockMedia, id: 5, uid: 'uid-case', title: 'test media', variant: 'Novel' } as Media;
+        const component = new MediaDetail(
+            container,
+            anime,
+            [],
+            [anime],
+            0,
+            mockCallbacks,
+            [unrelated, manga, anime, base, caseVariant],
+        );
+
+        component.render();
+
+        const links = Array.from(container.querySelectorAll<HTMLButtonElement>('.media-variant-link'));
+        expect(links.map(link => link.textContent?.trim())).toEqual(['(no variant)', 'Anime', 'Manga']);
+        expect(container.querySelector('.media-variant-link.is-current')?.textContent?.trim()).toBe('Anime');
+        expect(container.querySelector('.media-variant-link.is-current')?.getAttribute('aria-current')).toBe('page');
+        expect(container.querySelector('[data-media-variant="Novel"]')).toBeNull();
+
+        container.querySelector<HTMLButtonElement>('[data-media-variant="Manga"]')?.click();
+        expect(mockCallbacks.onNavigateToMedia).toHaveBeenCalledWith(2);
     });
 
     it('should render and edit the media variant', async () => {

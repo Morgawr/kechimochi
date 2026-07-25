@@ -245,6 +245,20 @@ export class MediaView extends Component<MediaViewState> {
         await this.loadDetailLogs(media, requestId);
     }
 
+    private async navigateToMedia(mediaId: number) {
+        let nextIndex = this.state.detailMediaList.findIndex(media => media.id === mediaId);
+        if (nextIndex === -1) {
+            const media = this.state.libraryMediaList.find(entry => entry.id === mediaId);
+            if (!media) {
+                Logger.warn('Related media was not present in the loaded library', mediaId);
+                return;
+            }
+            this.state.detailMediaList = [...this.state.detailMediaList, media];
+            nextIndex = this.state.detailMediaList.length - 1;
+        }
+        await this.navigateToDetailIndex(nextIndex);
+    }
+
     private async loadDetailLogs(media: Media, requestId: number) {
         if (typeof media.id !== 'number') return;
 
@@ -738,8 +752,10 @@ private async handleBack() {
                 onNext: () => { this.runAsync(this.navigateDetail(1), 'Failed to navigate to next media'); },
                 onPrev: () => { this.runAsync(this.navigateDetail(-1), 'Failed to navigate to previous media'); },
                 onNavigate: (index) => { this.runAsync(this.navigateToDetailIndex(index), 'Failed to navigate to selected media'); },
+                onNavigateToMedia: (mediaId) => { this.runAsync(this.navigateToMedia(mediaId), 'Failed to navigate to related media variant'); },
                 onDelete: () => { this.runAsync(this.exitDetail(true), 'Failed to refresh library after delete'); },
             },
+            this.state.libraryMediaList,
         );
         this.activeSubComponent.render();
     }

@@ -1,6 +1,6 @@
 import { Logger } from '../logger';
 import { Component } from '../component';
-import { html, escapeHTML, rawHtml } from '../html';
+import { html, escapeAttribute, escapeHTML, rawHtml } from '../html';
 import { Media, ActivitySummary, Milestone, updateMedia, deleteMedia, getSetting, getMilestones, addMilestone, updateMilestone, deleteMilestone, clearMilestones, getLogsForMedia, downloadAndSaveImage } from '../api';
 import { customAlert, customConfirm, customPrompt } from '../modal_base';
 import { showLogActivityModal } from '../activity_modal';
@@ -32,8 +32,10 @@ export class MediaDetail extends Component<MediaDetailState> {
     private readonly onNext: () => void;
     private readonly onPrev: () => void;
     private readonly onNavigate: (index: number) => void;
+    private readonly onNavigateToMedia: (mediaId: number) => void;
     private readonly onDelete: () => void;
     private readonly mediaList: Media[];
+    private readonly libraryMediaList: Media[];
     private readonly currentIndex: number;
     private readonly onViewportResize: () => void;
     private readonly onGlobalPointerDown: (event: PointerEvent) => void;
@@ -71,7 +73,23 @@ export class MediaDetail extends Component<MediaDetailState> {
         this.render();
     }
 
-    constructor(container: HTMLElement, media: Media, logs: ActivitySummary[], mediaList: Media[], currentIndex: number, callbacks: { onBack: () => void, onBackToLibrary: () => void, onNext: () => void, onPrev: () => void, onNavigate: (index: number) => void, onDelete: () => void }) {
+    constructor(
+        container: HTMLElement,
+        media: Media,
+        logs: ActivitySummary[],
+        mediaList: Media[],
+        currentIndex: number,
+        callbacks: {
+            onBack: () => void,
+            onBackToLibrary: () => void,
+            onNext: () => void,
+            onPrev: () => void,
+            onNavigate: (index: number) => void,
+            onNavigateToMedia?: (mediaId: number) => void,
+            onDelete: () => void,
+        },
+        libraryMediaList: Media[] = mediaList,
+    ) {
         super(container, {
             media,
             logs,
@@ -86,7 +104,9 @@ export class MediaDetail extends Component<MediaDetailState> {
         this.onNext = callbacks.onNext;
         this.onPrev = callbacks.onPrev;
         this.onNavigate = callbacks.onNavigate;
+        this.onNavigateToMedia = callbacks.onNavigateToMedia ?? (() => undefined);
         this.onDelete = callbacks.onDelete;
+        this.libraryMediaList = libraryMediaList;
         this.onViewportResize = () => this.syncViewportLayout();
         this.onGlobalPointerDown = (event: PointerEvent) => this.handleGlobalPointerDown(event);
         this.onGlobalKeyDown = (event: KeyboardEvent) => this.handleGlobalKeyDown(event);
@@ -349,6 +369,47 @@ export class MediaDetail extends Component<MediaDetailState> {
         `;
     }
 
+    private getSameTitleVariants(media: Media): Media[] {
+        return this.libraryMediaList
+            .filter(entry => entry.title === media.title && typeof entry.id === 'number')
+            .sort((left, right) => {
+                const leftVariant = left.variant?.trim() || '';
+                const rightVariant = right.variant?.trim() || '';
+                if (!leftVariant && rightVariant) return -1;
+                if (leftVariant && !rightVariant) return 1;
+                return leftVariant.localeCompare(rightVariant, undefined, { numeric: true })
+                    || left.id! - right.id!;
+            });
+    }
+
+    private renderVariantNavigation(media: Media): string {
+        const variants = this.getSameTitleVariants(media);
+        if (variants.length < 2) return '';
+
+        const links = variants.map(entry => {
+            const label = entry.variant?.trim() || '(no variant)';
+            const isCurrent = entry.id === media.id;
+            const currentAttributes = isCurrent ? ' aria-current="page" disabled' : '';
+            return `
+                <button
+                    type="button"
+                    class="media-variant-link${isCurrent ? ' is-current' : ''}"
+                    data-media-id="${entry.id}"
+                    data-media-variant="${escapeAttribute(entry.variant || '')}"
+                    aria-label="${escapeAttribute(`Open ${entry.title} variant ${label}`)}"
+                    ${currentAttributes}
+                >${escapeHTML(label)}</button>
+            `;
+        }).join('');
+
+        return `
+            <nav class="media-variant-navigation" aria-label="Variants">
+                <span class="media-variant-navigation-label">Variants</span>
+                <div class="media-variant-links">${links}</div>
+            </nav>
+        `;
+    }
+
     render() {
         this.clear();
         const { media, imgSrc, logs, isDescriptionExpanded } = this.state;
@@ -447,6 +508,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                                 </button>
                                 <div id="media-variant" title="Double click to edit variant" style="margin-top: 0.3rem; color: var(--text-secondary); cursor: pointer; font-size: 1rem; font-style: ${media.variant ? 'normal' : 'italic'};">${media.variant || '(Optional) Describe variant...'}</div>
                             </div>
+                            ${rawHtml(this.renderVariantNavigation(media))}
                             ${rawHtml(this.renderHeaderActions(media))}
                         </div>
 
@@ -756,6 +818,14 @@ export class MediaDetail extends Component<MediaDetailState> {
         root.querySelector('#media-next')?.addEventListener('click', this.onNext);
         root.querySelector('#media-prev')?.addEventListener('click', this.onPrev);
         root.querySelector('#media-select')?.addEventListener('change', (e) => this.onNavigate(Number.parseInt((e.target as HTMLSelectElement).value, 10)));
+        root.querySelectorAll<HTMLElement>('.media-variant-link:not(.is-current)').forEach(link => {
+            link.addEventListener('click', () => {
+                const mediaId = Number.parseInt(link.dataset.mediaId || '', 10);
+                if (Number.isFinite(mediaId)) {
+                    this.onNavigateToMedia(mediaId);
+                }
+            });
+        });
 
         this.attachCoverUploadListener(root.querySelector<HTMLElement>('#media-cover-img'));
 
