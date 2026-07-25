@@ -21,14 +21,17 @@ export function getExtraDataValue(extraData: Record<string, string>, key: string
 function stringifyExtraDataValue(value: unknown): string {
     if (typeof value === 'string') return value;
     if (value === null || value === undefined) return '';
-    if (typeof value === 'object') {
-        try {
-            return JSON.stringify(value);
-        } catch {
-            return String(value);
-        }
+    if (typeof value === 'number' || typeof value === 'bigint') {
+        return value.toString();
     }
-    return String(value);
+    if (typeof value === 'boolean') return value ? 'true' : 'false';
+    if (typeof value !== 'object') return '';
+
+    try {
+        return JSON.stringify(value) ?? '';
+    } catch {
+        return '';
+    }
 }
 
 export function normalizeExtraData(extraData: unknown): Record<string, string> {

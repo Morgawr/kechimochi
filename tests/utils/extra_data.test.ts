@@ -36,6 +36,13 @@ describe('extra_data utils', () => {
         });
     });
 
+    it('should normalize unserializable objects without default object stringification', () => {
+        const circular: { self?: unknown } = {};
+        circular.self = circular;
+
+        expect(normalizeExtraData({ Circular: circular })).toEqual({ Circular: '' });
+    });
+
     it('should treat prototype-like keys as ordinary data', () => {
         const input = JSON.parse('{"__proto__":"safe","constructor":"also safe"}');
         const normalized = normalizeExtraData(input);
