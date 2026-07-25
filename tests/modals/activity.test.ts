@@ -363,21 +363,12 @@ describe('modals/activity.ts', () => {
             });
         });
 
-        it('should reject negative duration or character counts before calling the backend', async () => {
+        it('should reject a negative character count before calling the backend', async () => {
             vi.mocked(api.getAllMedia).mockResolvedValue([{ id: 10, title: 'Validation', status: 'Active', tracking_status: 'Ongoing' }] as unknown as Media[]);
             const { customAlert } = await import('../../src/modal_base');
 
             showLogActivityModal(10);
             await vi.waitFor(() => document.querySelector('#add-activity-form'));
-            (document.querySelector('#activity-duration') as HTMLInputElement).value = '-1';
-            (document.querySelector('#activity-characters') as HTMLInputElement).value = '100';
-            document.querySelector('#add-activity-form')!.dispatchEvent(new Event('submit'));
-            await vi.waitFor(() => expect(customAlert).toHaveBeenCalledWith(
-                'Invalid Duration',
-                'Activity duration cannot be negative.',
-            ));
-            expect(api.addLog).not.toHaveBeenCalled();
-
             (document.querySelector('#activity-duration') as HTMLInputElement).value = '10';
             (document.querySelector('#activity-characters') as HTMLInputElement).value = '-1';
             document.querySelector('#add-activity-form')!.dispatchEvent(new Event('submit'));
@@ -385,6 +376,23 @@ describe('modals/activity.ts', () => {
                 'Invalid Characters',
                 'Activity character count cannot be negative.',
             ));
+            expect(api.addLog).not.toHaveBeenCalled();
+        });
+
+        it('should leave the submit button disabled and not submit for an unparseable duration', async () => {
+            vi.mocked(api.getAllMedia).mockResolvedValue([{ id: 10, title: 'Validation', status: 'Active', tracking_status: 'Ongoing' }] as unknown as Media[]);
+
+            showLogActivityModal(10);
+            await vi.waitFor(() => document.querySelector('#add-activity-form'));
+
+            const durationInput = document.querySelector('#activity-duration') as HTMLInputElement;
+            durationInput.value = '-1';
+            durationInput.dispatchEvent(new Event('input'));
+
+            const submitButton = document.querySelector('#activity-submit') as HTMLButtonElement;
+            expect(submitButton.disabled).toBe(true);
+
+            submitButton.click();
             expect(api.addLog).not.toHaveBeenCalled();
         });
 

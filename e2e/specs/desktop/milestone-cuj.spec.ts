@@ -71,10 +71,10 @@ describe('Milestone CUJ Test', () => {
         // Milestone defaults should be prefilled from current activity totals.
         await logActivityFromDetail(mediaTitle, '121', '1000');
         const prefill = await getMilestonePrefillValues();
-        expect(prefill).toEqual({ hours: '2', minutes: '1', characters: '1000' });
+        expect(prefill).toEqual({ duration: '121', characters: '1000' });
 
         // Add standard milestone (121m -> 2h1min)
-        await addMilestone('First Milestone', prefill.hours, prefill.minutes, prefill.characters);
+        await addMilestone('First Milestone', '0', prefill.duration, prefill.characters);
 
         await browser.waitUntil(async () => {
             const firstMilestone = $(`.milestone-item[data-milestone-name="First Milestone"]`);

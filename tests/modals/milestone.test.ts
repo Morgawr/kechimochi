@@ -17,12 +17,11 @@ describe('modals/milestone.ts', () => {
         await vi.waitFor(() => document.querySelector('#milestone-confirm'));
 
         const nameInput = document.querySelector('#milestone-name') as HTMLInputElement;
-        const hoursInput = document.querySelector('#milestone-hours') as HTMLInputElement;
-        const minutesInput = document.querySelector('#milestone-minutes') as HTMLInputElement;
+        const durationInput = document.querySelector('#milestone-duration') as HTMLInputElement;
 
         nameInput.value = 'Finish Chapter 1';
-        hoursInput.value = '2';
-        minutesInput.value = '30';
+        durationInput.value = '2h30m';
+        durationInput.dispatchEvent(new Event('input'));
 
         (document.querySelector('#milestone-confirm') as HTMLElement).click();
 
@@ -47,7 +46,9 @@ describe('modals/milestone.ts', () => {
 
         const nameInput = document.querySelector('#milestone-name') as HTMLInputElement;
         nameInput.value = 'Milestone with Date';
-        (document.querySelector('#milestone-minutes') as HTMLInputElement).value = '10';
+        const durationInput = document.querySelector('#milestone-duration') as HTMLInputElement;
+        durationInput.value = '10m';
+        durationInput.dispatchEvent(new Event('input'));
 
         (document.querySelector('#milestone-confirm') as HTMLElement).click();
 
@@ -67,15 +68,43 @@ describe('modals/milestone.ts', () => {
 
     it('should prefill duration and characters from defaults', async () => {
         showAddMilestoneModal('Test Media', 'uid-test-media', { duration: 125, characters: 3210 });
-        await vi.waitFor(() => document.querySelector('#milestone-hours'));
+        await vi.waitFor(() => document.querySelector('#milestone-duration'));
 
-        const hoursInput = document.querySelector('#milestone-hours') as HTMLInputElement;
-        const minutesInput = document.querySelector('#milestone-minutes') as HTMLInputElement;
+        const durationInput = document.querySelector('#milestone-duration') as HTMLInputElement;
         const charactersInput = document.querySelector('#milestone-characters') as HTMLInputElement;
 
-        expect(hoursInput.value).toBe('2');
-        expect(minutesInput.value).toBe('5');
+        expect(durationInput.value).toBe('125');
         expect(charactersInput.value).toBe('3210');
+    });
+
+    it('should disable the confirm button for unparseable duration input', async () => {
+        showAddMilestoneModal('Test Media', 'uid-test-media');
+        await vi.waitFor(() => document.querySelector('#milestone-duration'));
+
+        const durationInput = document.querySelector('#milestone-duration') as HTMLInputElement;
+        durationInput.value = '12:20';
+        durationInput.dispatchEvent(new Event('input'));
+
+        expect((document.querySelector('#milestone-confirm') as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    it('should not confirm on Enter while the duration is unparseable', async () => {
+        const promise = showAddMilestoneModal('Test Media', 'uid-test-media');
+        let confirmed = false;
+        promise.then(() => { confirmed = true; });
+        await vi.waitFor(() => document.querySelector('#milestone-duration'));
+
+        (document.querySelector('#milestone-name') as HTMLInputElement).value = 'Bad duration';
+        const durationInput = document.querySelector('#milestone-duration') as HTMLInputElement;
+        durationInput.value = '12:20';
+        durationInput.dispatchEvent(new Event('input'));
+        (document.querySelector('#milestone-characters') as HTMLInputElement).value = '1000';
+
+        durationInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(confirmed).toBe(false);
     });
 
     it('should prefill and update existing milestone in edit mode', async () => {
@@ -92,8 +121,7 @@ describe('modals/milestone.ts', () => {
         await vi.waitFor(() => document.querySelector('#milestone-confirm'));
 
         expect((document.querySelector('h3') as HTMLElement).textContent).toContain('Edit Milestone');
-        expect((document.querySelector('#milestone-hours') as HTMLInputElement).value).toBe('2');
-        expect((document.querySelector('#milestone-minutes') as HTMLInputElement).value).toBe('5');
+        expect((document.querySelector('#milestone-duration') as HTMLInputElement).value).toBe('125');
         expect((document.querySelector('#milestone-characters') as HTMLInputElement).value).toBe('900');
         expect((document.querySelector('#milestone-record-date') as HTMLInputElement).checked).toBe(true);
         expect(buildCalendar).toHaveBeenCalledWith(document.querySelector('#milestone-calendar'), '2025-05-14', expect.any(Function));

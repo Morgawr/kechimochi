@@ -13,7 +13,8 @@ import { ACTIVITY_TYPES } from './constants';
 import { buildCalendar } from './calendar';
 import { customPrompt, customAlert, createCancelableOverlay } from './modal_base';
 import { Logger } from './logger';
-import { escapeHTML } from './html';
+import { escapeHTML, escapeAttribute } from './html';
+import { DURATION_INPUT_PLACEHOLDER, DURATION_INPUT_TOOLTIP, wireDurationInput } from './time';
 
 type ActivityType = typeof ACTIVITY_TYPES[number];
 
@@ -227,8 +228,9 @@ export async function showLogActivityModal(prefillMediaId?: number, editLog?: Ac
                     </div>
                     <div style="display: flex; gap: 1rem; width: 100%;">
                         <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.5rem;">
-                            <label style="font-size: 0.85rem; color: var(--text-secondary);">Duration (mins)</label>
-                            <input type="number" id="activity-duration" value="${editLog?.duration_minutes || 0}" min="0" step="1" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); width: 100%;" />
+                            <label style="font-size: 0.85rem; color: var(--text-secondary);">Duration</label>
+                            <input type="text" id="activity-duration" autocomplete="off" placeholder="${escapeAttribute(DURATION_INPUT_PLACEHOLDER)}" title="${escapeAttribute(DURATION_INPUT_TOOLTIP)}" value="${editLog ? String(editLog.duration_minutes) : ''}" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); width: 100%;" />
+                            <div id="activity-duration-hint" class="duration-hint"></div>
                         </div>
                         <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.5rem;">
                             <label style="font-size: 0.85rem; color: var(--text-secondary);">Characters</label>
@@ -245,7 +247,7 @@ export async function showLogActivityModal(prefillMediaId?: number, editLog?: Ac
                     </div>
                     <div style="display: flex; justify-content: flex-end; gap: 1rem; margin-top: 0.5rem;">
                         <button type="button" class="btn btn-ghost" id="activity-cancel">Cancel</button>
-                        <button type="submit" class="btn btn-primary">${editLog ? 'Update Activity' : 'Log Activity'}</button>
+                        <button type="submit" class="btn btn-primary" id="activity-submit">${editLog ? 'Update Activity' : 'Log Activity'}</button>
                     </div>
                 </form>
             </div>`;
@@ -256,6 +258,11 @@ export async function showLogActivityModal(prefillMediaId?: number, editLog?: Ac
         // Set default date for mobile input
         const mobileDateInput = overlay.querySelector<HTMLInputElement>('#mobile-date-input')!;
         mobileDateInput.value = selectedDate;
+
+        const durationInput = overlay.querySelector<HTMLInputElement>('#activity-duration')!;
+        const durationHint = overlay.querySelector<HTMLElement>('#activity-duration-hint')!;
+        const submitButton = overlay.querySelector<HTMLButtonElement>('#activity-submit')!;
+        const { getDurationMinutes } = wireDurationInput(durationInput, durationHint, submitButton);
 
         const titleInput = overlay.querySelector<HTMLInputElement>('#activity-media')!;
         const suggestionList = overlay.querySelector<HTMLElement>('#activity-media-suggestions')!;
@@ -418,7 +425,7 @@ export async function showLogActivityModal(prefillMediaId?: number, editLog?: Ac
         syncSelectedMediaContext(initialMedia, false);
 
         if (editLog || initialMedia) {
-            overlay.querySelector<HTMLInputElement>('#activity-duration')!.focus();
+            durationInput.focus();
         } else {
             titleInput.focus();
         }
@@ -477,7 +484,7 @@ export async function showLogActivityModal(prefillMediaId?: number, editLog?: Ac
             e.preventDefault();
             const mediaTitleRaw = overlay.querySelector<HTMLInputElement>('#activity-media')!.value.trim();
             const mediaTitle = mediaTitleRaw || (editLog ? editLog.title : '');
-            const duration = Number.parseInt(overlay.querySelector<HTMLInputElement>('#activity-duration')!.value, 10) || 0;
+            const duration = getDurationMinutes();
             const characters = Number.parseInt(overlay.querySelector<HTMLInputElement>('#activity-characters')!.value, 10) || 0;
             
             // Use mobile date input if visible, otherwise use calendar date
@@ -491,10 +498,7 @@ export async function showLogActivityModal(prefillMediaId?: number, editLog?: Ac
                 await customAlert("Required Field", "Please enter a Media Title.");
                 return;
             }
-            if (duration < 0) {
-                await customAlert("Invalid Duration", "Activity duration cannot be negative.");
-                return;
-            }
+            if (duration === null) return;
             if (characters < 0) {
                 await customAlert("Invalid Characters", "Activity character count cannot be negative.");
                 return;
