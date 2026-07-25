@@ -35,6 +35,7 @@ const MAX_DRIVE_JSON_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_DRIVE_BINARY_RESPONSE_BYTES: usize = 512 * 1024 * 1024;
 const MAX_DRIVE_ERROR_RESPONSE_BYTES: usize = 64 * 1024;
 const MAX_SNAPSHOT_JSON_BYTES: usize = 512 * 1024 * 1024;
+const MANIFEST_READ_STABILITY_ATTEMPTS: usize = 3;
 pub const MAX_SYNC_COVER_BLOB_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -90,7 +91,7 @@ impl RemoteSyncManifest {
 pub struct RemoteManifestFile {
     pub file: DriveFileMetadata,
     pub manifest: RemoteSyncManifest,
-    pub etag: Option<String>,
+    pub etag: String,
 }
 
 fn compare_manifest_candidates(left: &RemoteManifestFile, right: &RemoteManifestFile) -> Ordering {
@@ -332,7 +333,21 @@ pub struct GoogleDriveClient<T: DriveTransport = ReqwestDriveTransport> {
     auth_config: GoogleOAuthClientConfig,
     api_base_url: String,
     upload_base_url: String,
+    etag_api_base_url: String,
+    etag_upload_base_url: String,
     transport: T,
+}
+
+#[derive(Debug, Deserialize)]
+struct DriveV2Etag {
+    etag: String,
+}
+
+fn drive_v2_base_url(v3_base_url: &str) -> String {
+    let trimmed = v3_base_url.trim_end_matches('/');
+    trimmed
+        .strip_suffix("/v3")
+        .map_or_else(|| trimmed.to_string(), |prefix| format!("{prefix}/v2"))
 }
 
 pub fn manifest_file_name(profile_id: &str) -> String {
@@ -582,6 +597,8 @@ impl GoogleDriveClient<ReqwestDriveTransport> {
             auth_config,
             api_base_url: api_base_url.trim_end_matches('/').to_string(),
             upload_base_url: upload_base_url.trim_end_matches('/').to_string(),
+            etag_api_base_url: drive_v2_base_url(api_base_url),
+            etag_upload_base_url: drive_v2_base_url(upload_base_url),
             transport,
         })
     }
@@ -599,6 +616,8 @@ impl<T: DriveTransport> GoogleDriveClient<T> {
             auth_config,
             api_base_url: api_base_url.trim_end_matches('/').to_string(),
             upload_base_url: upload_base_url.trim_end_matches('/').to_string(),
+            etag_api_base_url: drive_v2_base_url(api_base_url),
+            etag_upload_base_url: drive_v2_base_url(upload_base_url),
             transport,
         }
     }
@@ -693,6 +712,78 @@ impl<T: DriveTransport> GoogleDriveClient<T> {
             .await
     }
 
+    async fn fetch_file_etag(
+        &self,
+        token_store: &dyn SecureTokenStore,
+        file_id: &str,
+    ) -> Result<String, String> {
+        let access_token = self.access_token(token_store).await?;
+        let mut url = Url::parse(&format!("{}/files/{}", self.etag_api_base_url, file_id))
+            .map_err(|e| e.to_string())?;
+        url.query_pairs_mut().append_pair("fields", "etag");
+        let response = self
+            .transport
+            .request_json(Method::GET, url.as_str(), &access_token, None, None)
+            .await?;
+        let metadata: DriveV2Etag = serde_json::from_value(response)
+            .map_err(|e| format!("Google Drive did not return file revision metadata: {e}"))?;
+        if metadata.etag.trim().is_empty() {
+            return Err("Google Drive returned a blank file revision identifier".to_string());
+        }
+        Ok(metadata.etag)
+    }
+
+    async fn download_manifest_by_id(
+        &self,
+        token_store: &dyn SecureTokenStore,
+        file_id: &str,
+    ) -> Result<(Vec<u8>, String), String> {
+        for _ in 0..MANIFEST_READ_STABILITY_ATTEMPTS {
+            let etag_before = self.fetch_file_etag(token_store, file_id).await?;
+            let bytes = self
+                .download_app_data_file_by_id_with_limit(
+                    token_store,
+                    file_id,
+                    MAX_DRIVE_JSON_RESPONSE_BYTES,
+                )
+                .await?;
+            let etag_after = self.fetch_file_etag(token_store, file_id).await?;
+            if etag_before == etag_after {
+                return Ok((bytes, etag_after));
+            }
+        }
+
+        Err(
+            "The cloud sync manifest kept changing while it was being read. Please sync again."
+                .to_string(),
+        )
+    }
+
+    async fn conditionally_update_manifest(
+        &self,
+        token_store: &dyn SecureTokenStore,
+        file_id: &str,
+        bytes: &[u8],
+        etag: &str,
+    ) -> Result<(), String> {
+        let access_token = self.access_token(token_store).await?;
+        let url = format!(
+            "{}/files/{file_id}?uploadType=media&fields=id",
+            self.etag_upload_base_url
+        );
+        self.transport
+            .request_json_with_headers(
+                Method::PUT,
+                &url,
+                &access_token,
+                Some("application/json".to_string()),
+                Some(bytes.to_vec()),
+                vec![("If-Match".to_string(), etag.to_string())],
+            )
+            .await?;
+        Ok(())
+    }
+
     pub async fn upload_app_data_file(
         &self,
         token_store: &dyn SecureTokenStore,
@@ -700,7 +791,6 @@ impl<T: DriveTransport> GoogleDriveClient<T> {
         mime_type: &str,
         bytes: &[u8],
         existing_file_id: Option<&str>,
-        if_match: Option<&str>,
     ) -> Result<DriveFileMetadata, String> {
         let access_token = self.access_token(token_store).await?;
         let url = match existing_file_id {
@@ -730,22 +820,10 @@ impl<T: DriveTransport> GoogleDriveClient<T> {
             Method::POST
         };
 
-        let response = if let Some(etag) = if_match {
-            self.transport
-                .request_json_with_headers(
-                    method,
-                    &url,
-                    &access_token,
-                    Some(content_type),
-                    Some(body),
-                    vec![("If-Match".to_string(), etag.to_string())],
-                )
-                .await?
-        } else {
-            self.transport
-                .request_json(method, &url, &access_token, Some(content_type), Some(body))
-                .await?
-        };
+        let response = self
+            .transport
+            .request_json(method, &url, &access_token, Some(content_type), Some(body))
+            .await?;
         serde_json::from_value(response).map_err(|e| e.to_string())
     }
 
@@ -762,11 +840,7 @@ impl<T: DriveTransport> GoogleDriveClient<T> {
 
         for file in files {
             let (bytes, etag) = self
-                .download_app_data_file_by_id_with_etag(
-                    token_store,
-                    &file.id,
-                    MAX_DRIVE_JSON_RESPONSE_BYTES,
-                )
+                .download_manifest_by_id(token_store, &file.id)
                 .await
                 .map_err(|e| format!("Failed to download manifest '{}': {e}", file.name))?;
             let manifest = parse_manifest_bytes(&bytes)
@@ -817,11 +891,7 @@ impl<T: DriveTransport> GoogleDriveClient<T> {
         let mut candidates = Vec::with_capacity(files.len());
         for file in files {
             let (bytes, etag) = self
-                .download_app_data_file_by_id_with_etag(
-                    token_store,
-                    &file.id,
-                    MAX_DRIVE_JSON_RESPONSE_BYTES,
-                )
+                .download_manifest_by_id(token_store, &file.id)
                 .await
                 .map_err(|e| format!("Failed to download manifest '{file_name}': {e}"))?;
             let manifest = parse_manifest_bytes(&bytes)
@@ -869,28 +939,17 @@ impl<T: DriveTransport> GoogleDriveClient<T> {
                 manifest.remote_generation
             ));
         }
-        if existing.is_some()
-            && existing
-                .as_ref()
-                .and_then(|remote| remote.etag.as_ref())
-                .is_none()
-        {
-            return Err(format!(
-                "Google Drive did not provide an ETag for manifest '{file_name}'; refusing an unsafe overwrite"
-            ));
-        }
-
         let bytes = serialize_manifest_bytes(manifest)?;
-        let upload = self
-            .upload_app_data_file(
-                token_store,
-                &file_name,
-                "application/json",
-                &bytes,
-                existing.as_ref().map(|remote| remote.file.id.as_str()),
-                existing.as_ref().and_then(|remote| remote.etag.as_deref()),
-            )
-            .await;
+        let upload = match existing.as_ref() {
+            Some(remote) => self
+                .conditionally_update_manifest(token_store, &remote.file.id, &bytes, &remote.etag)
+                .await
+                .map(|()| remote.file.clone()),
+            None => {
+                self.upload_app_data_file(token_store, &file_name, "application/json", &bytes, None)
+                    .await
+            }
+        };
         let file = match upload {
             Ok(file) => file,
             Err(error) if is_precondition_failure(&error) => {
@@ -957,7 +1016,6 @@ impl<T: DriveTransport> GoogleDriveClient<T> {
                 &file_name,
                 "application/gzip",
                 &archive.gzipped_bytes,
-                None,
                 None,
             )
             .await?;
@@ -1076,7 +1134,6 @@ impl<T: DriveTransport> GoogleDriveClient<T> {
             &blob_file_name(sha256),
             "application/octet-stream",
             bytes,
-            None,
             None,
         )
         .await
@@ -1404,8 +1461,7 @@ mod tests {
                                 "Test Drive response exceeded the {max_response_bytes} byte limit"
                             ));
                         }
-                        let etag = transport.etag_for_file_url(&url);
-                        Ok((bytes, etag))
+                        Ok((bytes, None))
                     }
                     MemoryDriveResponse::Json(_) => {
                         Err("Expected byte response but transport returned JSON".to_string())
@@ -1479,6 +1535,21 @@ mod tests {
                 };
             }
 
+            if method == Method::GET && path.contains("/drive/v2/files/") {
+                let file_id = path
+                    .rsplit('/')
+                    .next()
+                    .ok_or_else(|| "Missing file id".to_string())?;
+                let state = self.state.lock().unwrap();
+                let file = state
+                    .files
+                    .get(file_id)
+                    .ok_or_else(|| "File not found".to_string())?;
+                return Ok(MemoryDriveResponse::Json(serde_json::json!({
+                    "etag": format!("\"{}\"", file.modified_time)
+                })));
+            }
+
             if method == Method::POST && path.ends_with("/upload/drive/v3/files") {
                 let content_type =
                     content_type.ok_or_else(|| "Missing upload Content-Type".to_string())?;
@@ -1529,6 +1600,31 @@ mod tests {
                 return Ok(MemoryDriveResponse::Json(file_to_json(updated)));
             }
 
+            if method == Method::PUT && path.contains("/upload/drive/v2/files/") {
+                let body = body.ok_or_else(|| "Missing upload body".to_string())?;
+                let file_id = path
+                    .rsplit('/')
+                    .next()
+                    .ok_or_else(|| "Missing file id".to_string())?;
+
+                let mut state = self.state.lock().unwrap();
+                let modified_time = next_timestamp(&mut state);
+                let file = state
+                    .files
+                    .get_mut(file_id)
+                    .ok_or_else(|| "File not found".to_string())?;
+                file.bytes = body;
+                file.modified_time = modified_time;
+                if let Some(content_type) = content_type {
+                    file.mime_type = content_type;
+                }
+                let name = file.name.clone();
+                maybe_overwrite_manifest_after_write(&mut state, &name);
+                return Ok(MemoryDriveResponse::Json(serde_json::json!({
+                    "id": file_id
+                })));
+            }
+
             Err(format!("Unhandled transport request: {} {}", method, url))
         }
 
@@ -1548,7 +1644,7 @@ mod tests {
             url: &str,
             headers: &[(String, String)],
         ) -> Result<(), String> {
-            if method != Method::PATCH {
+            if method != Method::PATCH && method != Method::PUT {
                 return Ok(());
             }
             let Some((_, expected)) = headers
@@ -2023,6 +2119,47 @@ mod tests {
 
         let error = decompress_with_limit(&compressed, 64).unwrap_err();
         assert!(error.contains("64 byte limit"));
+    }
+
+    #[tokio::test]
+    async fn existing_manifest_update_uses_metadata_etag_when_media_has_no_etag() {
+        let transport = build_transport();
+        let client = build_client(transport.clone());
+        let token_store = test_token_store();
+        let mut previous_manifest = RemoteSyncManifest::new(
+            "prof_legacy",
+            "Morg",
+            "snap_previous",
+            "sha_previous",
+            7,
+            "2026-04-02T12:29:00Z",
+            "dev_previous",
+        );
+        previous_manifest.db_schema_version = 4;
+        insert_test_file(
+            &transport,
+            &manifest_file_name("prof_legacy"),
+            "application/json",
+            serialize_manifest_bytes(&previous_manifest).unwrap(),
+        )
+        .await;
+
+        let next_manifest = RemoteSyncManifest::new(
+            "prof_legacy",
+            "Morg",
+            "snap_current",
+            "sha_current",
+            8,
+            "2026-04-02T12:30:00Z",
+            "dev_current",
+        );
+        let outcome = client
+            .upsert_manifest_and_confirm(&token_store, &next_manifest)
+            .await
+            .unwrap();
+
+        assert!(outcome.race_won);
+        assert_eq!(outcome.confirmed_manifest, next_manifest);
     }
 
     #[tokio::test]

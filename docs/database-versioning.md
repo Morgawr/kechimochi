@@ -121,6 +121,10 @@ remote manifest or snapshot whose database schema version is newer than the
 client supports. Upgrade that client before syncing; do not try to translate a
 newer snapshot through an older app.
 
+Older supported cloud snapshots remain readable. The next sync merges them
+through the current data model and publishes a current-schema snapshot and
+manifest without requiring the user to recreate or reconnect the sync profile.
+
 The current newer-schema check first inspects every existing database file
 read-only, including a legacy fallback profile when one would be copied. It then
 checks the attached bundle again before persistent connection settings such as

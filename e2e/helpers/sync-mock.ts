@@ -411,7 +411,12 @@ async function handleAuthRequest(req: IncomingMessage, res: ServerResponse, url:
 }
 
 async function handleDriveRequest(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
-    if (!url.pathname.startsWith('/drive/v3') && !url.pathname.startsWith('/upload/drive/v3')) {
+    if (
+        !url.pathname.startsWith('/drive/v3')
+        && !url.pathname.startsWith('/upload/drive/v3')
+        && !url.pathname.startsWith('/drive/v2')
+        && !url.pathname.startsWith('/upload/drive/v2')
+    ) {
         return false;
     }
 
@@ -428,6 +433,11 @@ async function handleDriveRequest(req: IncomingMessage, res: ServerResponse, url
         return true;
     }
 
+    if (req.method === 'GET' && url.pathname.startsWith('/drive/v2/files/')) {
+        handleLegacyFileMetadata(currentState, res, url);
+        return true;
+    }
+
     if (req.method === 'POST' && url.pathname === '/upload/drive/v3/files') {
         await handleCreateUpload(currentState, req, res);
         return true;
@@ -435,6 +445,11 @@ async function handleDriveRequest(req: IncomingMessage, res: ServerResponse, url
 
     if (req.method === 'PATCH' && url.pathname.startsWith('/upload/drive/v3/files/')) {
         await handleUpdateUpload(currentState, req, res, url);
+        return true;
+    }
+
+    if (req.method === 'PUT' && url.pathname.startsWith('/upload/drive/v2/files/')) {
+        await handleConditionalMediaUpdate(currentState, req, res, url);
         return true;
     }
 
@@ -459,11 +474,22 @@ function handleDownloadFile(currentState: SyncMockState, res: ServerResponse, ur
     }
 
     if (url.searchParams.get('alt') === 'media') {
-        sendBytes(res, 200, file.mimeType, file.bytes, { etag: fileEtag(file) });
+        sendBytes(res, 200, file.mimeType, file.bytes);
         return;
     }
 
     sendJson(res, 200, fileToJson(file));
+}
+
+function handleLegacyFileMetadata(currentState: SyncMockState, res: ServerResponse, url: URL): void {
+    const fileId = url.pathname.split('/').pop() || '';
+    const file = currentState.files.get(fileId);
+    if (!file) {
+        sendJson(res, 404, { error: 'file_not_found' });
+        return;
+    }
+
+    sendJson(res, 200, { etag: fileEtag(file) });
 }
 
 async function handleCreateUpload(
@@ -526,6 +552,38 @@ async function handleUpdateUpload(
     };
     currentState.files.set(fileId, updated);
     sendJson(res, 200, fileToJson(updated));
+}
+
+async function handleConditionalMediaUpdate(
+    currentState: SyncMockState,
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: URL,
+): Promise<void> {
+    const fileId = url.pathname.split('/').pop() || '';
+    const existing = currentState.files.get(fileId);
+    if (!existing) {
+        sendJson(res, 404, { error: 'file_not_found' });
+        return;
+    }
+
+    const ifMatch = req.headers['if-match'];
+    if (typeof ifMatch !== 'string' || ifMatch !== fileEtag(existing)) {
+        sendJson(res, 412, { error: 'precondition_failed' });
+        return;
+    }
+
+    const bytes = await readRequestBody(req);
+    const updated: StoredFile = {
+        ...existing,
+        mimeType: typeof req.headers['content-type'] === 'string'
+            ? req.headers['content-type']
+            : existing.mimeType,
+        bytes,
+        modifiedTime: nextTimestamp(currentState),
+    };
+    currentState.files.set(fileId, updated);
+    sendJson(res, 200, { id: updated.id });
 }
 
 export async function startSyncMockServer(): Promise<SyncMockServerConfig> {

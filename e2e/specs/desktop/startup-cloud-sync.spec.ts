@@ -1,7 +1,12 @@
 import { waitForAppReady } from '../../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../../helpers/navigation.js';
 import { isMediaVisible } from '../../helpers/library.js';
-import { completeFirstRunSyncImport, openCloudSyncCard, waitForSyncCardText } from '../../helpers/sync.js';
+import {
+  completeFirstRunSyncImport,
+  openCloudSyncCard,
+  runSyncNow,
+  waitForSyncCardText,
+} from '../../helpers/sync.js';
 import { readRemoteProfile, seedRemoteSyncProfile, waitForRemoteProfileCount } from '../../helpers/sync-mock.js';
 
 const REMOTE_PROFILE_NAME = 'REMOTEUSER';
@@ -59,5 +64,14 @@ describe('CUJ: Startup Cloud Sync', () => {
       timeout: 10_000,
       timeoutMsg: 'Remote theme did not apply after first-run sync import',
     });
+  });
+
+  it('should transparently publish the legacy cloud profile at schema v7', async () => {
+    await navigateTo('profile');
+    await runSyncNow('Cloud Sync completed successfully');
+
+    const upgraded = readRemoteProfile(remoteProfileId);
+    expect(upgraded.manifest.db_schema_version).toBe(7);
+    expect(upgraded.snapshot.db_schema_version).toBe(7);
   });
 });

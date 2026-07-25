@@ -4335,8 +4335,7 @@ mod tests {
                                 "Test Drive response exceeded the {max_response_bytes} byte limit"
                             ));
                         }
-                        let etag = transport.etag_for_file_url(&url);
-                        Ok((bytes, etag))
+                        Ok((bytes, None))
                     }
                     MemoryDriveResponse::Json(_) => {
                         Err("Expected byte response but transport returned JSON".to_string())
@@ -4440,6 +4439,21 @@ mod tests {
                 };
             }
 
+            if method == Method::GET && path.contains("/drive/v2/files/") {
+                let file_id = path
+                    .rsplit('/')
+                    .next()
+                    .ok_or_else(|| "Missing file id".to_string())?;
+                let state = self.state.lock().unwrap();
+                let file = state
+                    .files
+                    .get(file_id)
+                    .ok_or_else(|| "File not found".to_string())?;
+                return Ok(MemoryDriveResponse::Json(serde_json::json!({
+                    "etag": format!("\"{}\"", file.modified_time)
+                })));
+            }
+
             if method == Method::POST && path.ends_with("/upload/drive/v3/files") {
                 let content_type =
                     content_type.ok_or_else(|| "Missing upload Content-Type".to_string())?;
@@ -4490,6 +4504,31 @@ mod tests {
                 return Ok(MemoryDriveResponse::Json(file_to_json(updated)));
             }
 
+            if method == Method::PUT && path.contains("/upload/drive/v2/files/") {
+                let body = body.ok_or_else(|| "Missing upload body".to_string())?;
+                let file_id = path
+                    .rsplit('/')
+                    .next()
+                    .ok_or_else(|| "Missing file id".to_string())?;
+
+                let mut state = self.state.lock().unwrap();
+                let modified_time = next_timestamp(&mut state);
+                let file = state
+                    .files
+                    .get_mut(file_id)
+                    .ok_or_else(|| "File not found".to_string())?;
+                file.bytes = body;
+                file.modified_time = modified_time;
+                if let Some(content_type) = content_type {
+                    file.mime_type = content_type;
+                }
+                let name = file.name.clone();
+                maybe_overwrite_manifest_after_write(&mut state, &name);
+                return Ok(MemoryDriveResponse::Json(serde_json::json!({
+                    "id": file_id
+                })));
+            }
+
             Err(format!("Unhandled transport request: {} {}", method, url))
         }
 
@@ -4509,7 +4548,7 @@ mod tests {
             url: &str,
             headers: &[(String, String)],
         ) -> Result<(), String> {
-            if method != Method::PATCH {
+            if method != Method::PATCH && method != Method::PUT {
                 return Ok(());
             }
             let Some((_, expected)) = headers
@@ -6999,6 +7038,105 @@ mod tests {
             manifest_before.manifest.remote_generation,
             manifest_after.manifest.remote_generation
         );
+    }
+
+    #[tokio::test]
+    async fn sync_transparently_upgrades_every_shipped_legacy_cloud_schema() {
+        for legacy_schema_version in 2..db::CURRENT_SCHEMA_VERSION {
+            let (temp_dir, conn) = setup_app();
+            let transport = MemoryDriveTransport::new();
+            let client = build_client(transport.clone());
+            let token_store = test_token_store();
+
+            add_media(&conn, &format!("Legacy schema {legacy_schema_version}"));
+            create_remote_sync_profile_with_client(
+                temp_dir.path(),
+                &conn,
+                &client,
+                &token_store,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+            let config = sync_state::load_sync_config(temp_dir.path())
+                .unwrap()
+                .unwrap();
+            let current_manifest =
+                load_remote_manifest(&client, &token_store, &config.sync_profile_id)
+                    .await
+                    .unwrap();
+            let mut legacy_snapshot =
+                download_remote_snapshot(&client, &token_store, &current_manifest)
+                    .await
+                    .unwrap();
+            legacy_snapshot.db_schema_version = legacy_schema_version;
+            let legacy_archive = sync_drive::archive_snapshot(&legacy_snapshot).unwrap();
+            let mut legacy_manifest = current_manifest.manifest.clone();
+            legacy_manifest.db_schema_version = legacy_schema_version;
+            legacy_manifest.snapshot_sha256 = legacy_archive.sha256;
+
+            {
+                let mut state = transport.state.lock().unwrap();
+                let snapshot_modified_time = next_timestamp(&mut state);
+                let manifest_modified_time = next_timestamp(&mut state);
+                let snapshot_name = sync_drive::snapshot_file_name(
+                    &config.sync_profile_id,
+                    &legacy_snapshot.snapshot_id,
+                );
+                let snapshot_file = state
+                    .files
+                    .values_mut()
+                    .find(|file| file.name == snapshot_name)
+                    .unwrap();
+                snapshot_file.bytes = legacy_archive.gzipped_bytes;
+                snapshot_file.modified_time = snapshot_modified_time;
+
+                let manifest_name = sync_drive::manifest_file_name(&config.sync_profile_id);
+                let manifest_file = state
+                    .files
+                    .values_mut()
+                    .find(|file| file.name == manifest_name)
+                    .unwrap();
+                manifest_file.bytes = serde_json::to_vec(&legacy_manifest).unwrap();
+                manifest_file.modified_time = manifest_modified_time;
+            }
+            sync_state::save_base_snapshot(temp_dir.path(), &legacy_snapshot).unwrap();
+
+            let result = run_sync_with_client(temp_dir.path(), &conn, &client, &token_store, None)
+                .await
+                .unwrap();
+
+            assert!(
+                !result.lost_race,
+                "schema {legacy_schema_version} should upgrade without a race"
+            );
+            assert_eq!(
+                result.sync_status.state,
+                sync_state::SyncConnectionState::ConnectedClean
+            );
+            let upgraded_manifest =
+                load_remote_manifest(&client, &token_store, &config.sync_profile_id)
+                    .await
+                    .unwrap();
+            assert_eq!(
+                upgraded_manifest.manifest.db_schema_version,
+                db::CURRENT_SCHEMA_VERSION
+            );
+            assert_eq!(
+                upgraded_manifest.manifest.remote_generation,
+                legacy_manifest.remote_generation + 1
+            );
+            let upgraded_snapshot =
+                download_remote_snapshot(&client, &token_store, &upgraded_manifest)
+                    .await
+                    .unwrap();
+            assert_eq!(
+                upgraded_snapshot.db_schema_version,
+                db::CURRENT_SCHEMA_VERSION
+            );
+        }
     }
 
     #[tokio::test]
