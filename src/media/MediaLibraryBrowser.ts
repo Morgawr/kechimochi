@@ -974,7 +974,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
                 const rule = this.state.filterRules[ruleIndex];
                 const fieldName = this.getExtraDataFacets().valuedFieldNames
                     .find(name => name.toLowerCase() === select.value.toLowerCase());
-                if (!rule || rule.kind !== 'extra' || fieldName === undefined) return;
+                if (rule?.kind !== 'extra' || fieldName === undefined) return;
 
                 const valueKind = getLibraryExtraFieldValueKind(this.getExtraDataIndex(), fieldName);
                 rule.fieldName = fieldName;
@@ -988,7 +988,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
             select.addEventListener('change', () => {
                 const ruleIndex = Number(select.dataset.ruleIndex);
                 const rule = this.state.filterRules[ruleIndex];
-                if (!rule || rule.kind !== 'extra') return;
+                if (rule?.kind !== 'extra') return;
 
                 rule.operator = select.value as LibraryExtraFilterOperator;
                 this.applyPresentationStateChange();
@@ -999,7 +999,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
             input.addEventListener('input', () => {
                 const ruleIndex = Number(input.dataset.ruleIndex);
                 const rule = this.state.filterRules[ruleIndex];
-                if (!rule || rule.kind !== 'extra') return;
+                if (rule?.kind !== 'extra') return;
 
                 rule.value = input.value;
                 this.renderContent(this.container.querySelector<HTMLElement>('#media-library-content')!);

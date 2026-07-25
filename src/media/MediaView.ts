@@ -582,8 +582,7 @@ private async handleBack() {
         return left.length === right.length && left.every((rule, index) => {
             const other = right[index];
             if (
-                !other
-                || rule.kind !== other.kind
+                rule.kind !== other?.kind
                 || rule.join !== other.join
                 || rule.negated !== other.negated
             ) {
