@@ -8,6 +8,10 @@ import {
   setSearchQuery,
   setMediaTypeFilters,
   setTrackingStatusFilters,
+  setBooleanTagFilters,
+  addExtraFieldFilterRule,
+  clearExtraFieldFilterRules,
+  setLibraryFilterRuleLogic,
   setHideArchived,
   waitForLibraryItemCount,
   waitForListCount,
@@ -34,6 +38,8 @@ async function resetLibraryFilters() {
   await setSearchQuery('');
   await setTrackingStatusFilters([]);
   await setMediaTypeFilters([]);
+  await setBooleanTagFilters([]);
+  await clearExtraFieldFilterRules();
   await setHideArchived(false);
 }
 
@@ -214,6 +220,109 @@ describe('CUJ: Library Exploration (Search & Filter)', () => {
     } finally {
       await resetLibraryFilters();
       await setLibraryLayout('grid');
+    }
+  });
+
+  it('should keep the filter container stable across repeated hide-archived toggles', async () => {
+    await navigateTo('media');
+    await resetLibraryFilters();
+
+    const readHeaderShape = () => browser.execute(() => {
+      const header = document.getElementById('media-library-header');
+      const directShells = header
+        ? Array.from(header.children).filter(child => child.classList.contains('media-grid-toolbar-shell'))
+        : [];
+      return {
+        directShellCount: directShells.length,
+        totalShellCount: header?.querySelectorAll('.media-grid-toolbar-shell').length ?? 0,
+        width: directShells[0]?.getBoundingClientRect().width ?? 0,
+      };
+    });
+
+    const initialShape = await readHeaderShape();
+    for (let toggleIndex = 0; toggleIndex < 6; toggleIndex += 1) {
+      await setHideArchived(toggleIndex % 2 === 0);
+    }
+    const finalShape = await readHeaderShape();
+
+    expect(initialShape.directShellCount).toBe(1);
+    expect(finalShape.directShellCount).toBe(1);
+    expect(finalShape.totalShellCount).toBe(1);
+    expect(Math.abs(finalShape.width - initialShape.width)).toBeLessThanOrEqual(1);
+  });
+
+  it('should filter by library-derived boolean tags and extra field rules', async () => {
+    await navigateTo('media');
+    await resetLibraryFilters();
+
+    try {
+      const booleanTagChoices = await browser.execute(() => {
+        const select = document.querySelector<HTMLSelectElement>('#media-boolean-tag-add');
+        return select ? Array.from(select.options, option => option.textContent?.trim() || '') : [];
+      });
+      expect(booleanTagChoices).toContain('amazing');
+      expect(booleanTagChoices).not.toContain('Platform');
+      expect(await $$('.media-filter-chip[data-filter-group="booleanTag"]').length).toBe(0);
+
+      await setBooleanTagFilters(['amazing']);
+      await waitForLibraryItemCount(4, {
+        timeoutMsg: 'Boolean tag filter did not show the four tagged fixture entries',
+      });
+      expect(await $('#media-boolean-tag-add').isExisting()).toBe(false);
+      expect(await isMediaVisible('ハイキュー!!')).toBe(true);
+      expect(await isMediaNotVisible('STEINS;GATE')).toBe(true);
+
+      await setBooleanTagFilters([]);
+      await addExtraFieldFilterRule({
+        fieldName: 'Character Count',
+        operator: 'greaterThan',
+        value: '60000',
+      });
+
+      const valuedFieldChoices = await browser.execute(() => {
+        const select = document.querySelector<HTMLSelectElement>(
+          '.media-extra-filter-field[data-rule-index="0"]',
+        );
+        return select ? Array.from(select.options, option => option.textContent?.trim() || '') : [];
+      });
+      expect(valuedFieldChoices).toContain('Character Count');
+      expect(valuedFieldChoices).toContain('Platform');
+      expect(valuedFieldChoices).not.toContain('amazing');
+
+      await waitForLibraryItemCount(2, {
+        timeoutMsg: 'Numeric extra field rule did not keep the two entries over 60,000',
+      });
+      expect(await isMediaVisible('ペルソナ5')).toBe(true);
+      expect(await isMediaVisible('薬屋のひとりごと')).toBe(true);
+      expect(await isMediaNotVisible('WHITE ALBUM 2')).toBe(true);
+
+      const platformRuleIndex = await addExtraFieldFilterRule({
+        fieldName: 'Platform',
+        operator: 'contains',
+        value: 'PS1',
+        logic: 'or',
+      });
+      await waitForLibraryItemCount(3, {
+        timeoutMsg: 'OR did not include media matching either field rule',
+      });
+      expect(await isMediaVisible('WHITE ALBUM 2')).toBe(true);
+
+      await setLibraryFilterRuleLogic(platformRuleIndex, 'andNot');
+      await waitForLibraryItemCount(1, {
+        timeoutMsg: 'AND NOT did not exclude media matching the platform rule',
+      });
+      expect(await isMediaVisible('薬屋のひとりごと')).toBe(true);
+
+      await setLibraryFilterRuleLogic(platformRuleIndex, 'and');
+      await setBooleanTagFilters(['amazing']);
+
+      await waitForLibraryItemCount(1, {
+        timeoutMsg: 'Combined field and boolean-tag rules did not narrow to one entry',
+      });
+      expect(await isMediaVisible('ペルソナ5')).toBe(true);
+      expect(await $('#btn-toggle-filters .media-grid-filter-count').getText()).toBe('3');
+    } finally {
+      await resetLibraryFilters();
     }
   });
 

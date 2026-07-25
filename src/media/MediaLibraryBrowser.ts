@@ -14,6 +14,20 @@ import {
 import { measureSynchronous } from '../performance';
 import { resolveDisplayContentType } from './content_type';
 import {
+    filterMediaByExtraData,
+    getDefaultLibraryExtraFilterOperator,
+    getLibraryExtraDataFacets,
+    getLibraryExtraFieldValueKind,
+    isLibraryFilterRuleReady,
+    LIBRARY_NUMERIC_FILTER_OPERATORS,
+    LIBRARY_TEXT_FILTER_OPERATORS,
+    revalidateLibraryFilterRules,
+    type LibraryExtraDataFacets,
+    type LibraryExtraFilterOperator,
+    type LibraryExtraFilterRule,
+    type LibraryFilterRule,
+} from './filtering';
+import {
     applyLibrarySort,
     buildExtraDataIndex,
     buildLibraryRows,
@@ -34,6 +48,7 @@ interface MediaLibraryBrowserState {
     typeFilters: string[];
     statusFilters: string[];
     hideArchived: boolean;
+    filterRules: LibraryFilterRule[];
     preferredLayout: LibraryLayoutMode;
     gridZoom: number;
     isGridSupported: boolean;
@@ -51,8 +66,9 @@ interface MediaLibraryBrowserState {
 
 type MediaLibraryBrowserInitialState = Omit<
     MediaLibraryBrowserState,
-    'filtersExpanded' | 'sortStages' | 'groupByType' | 'keepOngoingFirst' | 'keepArchivedLast' | 'sortExpanded' | 'contentTypeOrder' | 'trackingStatusOrder'
+    'filtersExpanded' | 'filterRules' | 'sortStages' | 'groupByType' | 'keepOngoingFirst' | 'keepArchivedLast' | 'sortExpanded' | 'contentTypeOrder' | 'trackingStatusOrder'
 > & {
+    filterRules?: LibraryFilterRule[];
     sortStages?: LibrarySortStage[];
     groupByType?: boolean;
     keepOngoingFirst?: boolean;
@@ -66,6 +82,7 @@ export interface MediaLibraryFilters {
     typeFilters?: string[];
     statusFilters?: string[];
     hideArchived?: boolean;
+    filterRules?: LibraryFilterRule[];
     sortStages?: LibrarySortStage[];
     groupByType?: boolean;
     keepOngoingFirst?: boolean;
@@ -92,6 +109,20 @@ const LIBRARY_BUILTIN_SORT_LABELS: Record<LibraryBuiltinSortKey, string> = {
 };
 
 const LIBRARY_SORT_TIEBREAKER_NOTE = 'Ties broken by last activity (newest first)';
+const LIBRARY_FILTER_EXPRESSION_NOTE = 'AND is evaluated before OR. NOT inverts the rule it precedes.';
+
+const LIBRARY_EXTRA_FILTER_OPERATOR_LABELS: Record<LibraryExtraFilterOperator, string> = {
+    contains: 'Contains',
+    notContains: 'Does not contain',
+    equals: 'Equals',
+    notEquals: 'Does not equal',
+    startsWith: 'Starts with',
+    endsWith: 'Ends with',
+    greaterThan: 'Greater than (>)',
+    greaterThanOrEqual: 'At least (≥)',
+    lessThan: 'Less than (<)',
+    lessThanOrEqual: 'At most (≤)',
+};
 
 interface SortSwitchConfig {
     id: string;
@@ -163,6 +194,10 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
     private memoizedExtraDataMediaList: Media[] | null = null;
     private memoizedExtraDataIndex: Map<number, Record<string, string>> = new Map();
     private memoizedExtraFieldNames: string[] = [];
+    private memoizedExtraDataFacets: LibraryExtraDataFacets = {
+        valuedFieldNames: [],
+        booleanTagNames: [],
+    };
     private searchRenderTimer: ReturnType<typeof setTimeout> | null = null;
 
     constructor(
@@ -174,10 +209,16 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         onLayoutChange?: (layout: LibraryLayoutMode) => void,
         onGridZoomChange?: (gridZoom: number) => void,
     ) {
+        const initialExtraDataIndex = buildExtraDataIndex(initialState.mediaList);
+        const revalidatedFilterRules = revalidateLibraryFilterRules(
+            initialState.filterRules ?? [],
+            initialExtraDataIndex,
+        );
         super(container, {
             ...initialState,
             typeFilters: [...new Set(initialState.typeFilters)],
             statusFilters: [...new Set(initialState.statusFilters)],
+            filterRules: revalidatedFilterRules,
             gridZoom: normalizeLibraryGridZoom(initialState.gridZoom),
             filtersExpanded: false,
             sortStages: initialState.sortStages ?? [],
@@ -242,9 +283,16 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
     }
 
     private getVisibleMediaList(): Media[] {
-        const { mediaList, searchQuery, typeFilters, statusFilters, hideArchived } = this.state;
+        const {
+            mediaList,
+            searchQuery,
+            typeFilters,
+            statusFilters,
+            hideArchived,
+            filterRules,
+        } = this.state;
         const normalizedQuery = searchQuery.toLowerCase();
-        const filteredList = mediaList.filter((media) => {
+        const standardFilteredList = mediaList.filter((media) => {
             const matchesQuery = media.title.toLowerCase().includes(normalizedQuery)
                 || (media.variant || '').toLowerCase().includes(normalizedQuery);
             const mediaType = resolveDisplayContentType(media);
@@ -254,13 +302,19 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
             const archiveMatch = !hideArchived || !isArchived;
             return matchesQuery && typeMatch && statusMatch && archiveMatch;
         });
+        const extraDataIndex = this.getExtraDataIndex();
+        const filteredList = filterMediaByExtraData(
+            standardFilteredList,
+            filterRules,
+            extraDataIndex,
+        );
 
         return applyLibrarySort(filteredList, {
             stages: this.state.sortStages,
             keepOngoingFirst: this.state.keepOngoingFirst,
             keepArchivedLast: this.state.keepArchivedLast,
             metricsByMediaId: this.state.listMetricsByMediaId,
-            extraDataIndex: this.getExtraDataIndex(),
+            extraDataIndex,
             contentTypeOrder: this.state.contentTypeOrder,
             trackingStatusOrder: this.state.trackingStatusOrder,
         });
@@ -276,16 +330,32 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         return this.memoizedExtraFieldNames;
     }
 
+    private getExtraDataFacets(): LibraryExtraDataFacets {
+        this.refreshExtraDataMemo();
+        return this.memoizedExtraDataFacets;
+    }
+
     private refreshExtraDataMemo() {
         if (this.memoizedExtraDataMediaList === this.state.mediaList) return;
 
         this.memoizedExtraDataIndex = buildExtraDataIndex(this.state.mediaList);
         this.memoizedExtraFieldNames = getUniqueExtraFieldNames(this.memoizedExtraDataIndex);
+        this.memoizedExtraDataFacets = getLibraryExtraDataFacets(this.memoizedExtraDataIndex);
         this.memoizedExtraDataMediaList = this.state.mediaList;
     }
 
     private getActiveFilterCount(): number {
-        return this.state.statusFilters.length + this.state.typeFilters.length;
+        const extraDataIndex = this.getExtraDataIndex();
+        const readyRuleCount = this.state.filterRules.filter(rule => (
+            isLibraryFilterRuleReady(
+                rule,
+                extraDataIndex,
+                this.memoizedExtraDataFacets,
+            )
+        )).length;
+        return this.state.statusFilters.length
+            + this.state.typeFilters.length
+            + readyRuleCount;
     }
 
     private getSortLevelCount(): number {
@@ -312,6 +382,145 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
                 <div class="media-grid-filter-label">${label}</div>
                 <div class="media-grid-chip-list" role="group" aria-label="${label} filters">
                     ${chips}
+                </div>
+            </div>
+        `;
+    }
+
+    private renderExtraFilterFieldOptions(rule: LibraryExtraFilterRule, valuedFieldNames: string[]): string {
+        return valuedFieldNames.map((fieldName) => {
+            const isSelected = fieldName.toLowerCase() === rule.fieldName.toLowerCase();
+            return `<option value="${escapeAttribute(fieldName)}" ${isSelected ? 'selected' : ''}>${escapeHTML(fieldName)}</option>`;
+        }).join('');
+    }
+
+    private renderExtraFilterOperatorOptions(rule: LibraryExtraFilterRule): string {
+        const valueKind = getLibraryExtraFieldValueKind(this.getExtraDataIndex(), rule.fieldName);
+        const operators = valueKind === 'numeric'
+            ? LIBRARY_NUMERIC_FILTER_OPERATORS
+            : LIBRARY_TEXT_FILTER_OPERATORS;
+
+        return operators.map((operator) => (
+            `<option value="${operator}" ${operator === rule.operator ? 'selected' : ''}>${LIBRARY_EXTRA_FILTER_OPERATOR_LABELS[operator]}</option>`
+        )).join('');
+    }
+
+    private renderFilterLogicOptions(rule: LibraryFilterRule, ruleIndex: number): string {
+        let selectedValue: string;
+        if (ruleIndex === 0) {
+            selectedValue = rule.negated ? 'not' : 'match';
+        } else {
+            selectedValue = rule.join;
+            if (rule.negated) selectedValue += 'Not';
+        }
+        const options = ruleIndex === 0
+            ? [
+                { value: 'match', label: 'Match' },
+                { value: 'not', label: 'NOT' },
+            ]
+            : [
+                { value: 'and', label: 'AND' },
+                { value: 'or', label: 'OR' },
+                { value: 'andNot', label: 'AND NOT' },
+                { value: 'orNot', label: 'OR NOT' },
+            ];
+
+        return options.map(({ value, label }) => (
+            `<option value="${value}" ${value === selectedValue ? 'selected' : ''}>${label}</option>`
+        )).join('');
+    }
+
+    private renderExtraFilterRule(
+        rule: LibraryExtraFilterRule,
+        ruleIndex: number,
+        valuedFieldNames: string[],
+    ): string {
+        const valueKind = getLibraryExtraFieldValueKind(this.getExtraDataIndex(), rule.fieldName);
+        const inputMode = valueKind === 'numeric' ? 'inputmode="decimal"' : '';
+
+        return `
+            <div class="media-extra-filter-rule" data-rule-kind="extra" data-rule-index="${ruleIndex}">
+                <select class="media-filter-logic" data-rule-index="${ruleIndex}" aria-label="Rule ${ruleIndex + 1} logic">
+                    ${this.renderFilterLogicOptions(rule, ruleIndex)}
+                </select>
+                <select class="media-extra-filter-field" data-rule-index="${ruleIndex}" aria-label="Field rule ${ruleIndex + 1} field">
+                    ${this.renderExtraFilterFieldOptions(rule, valuedFieldNames)}
+                </select>
+                <select class="media-extra-filter-operator" data-rule-index="${ruleIndex}" aria-label="Field rule ${ruleIndex + 1} operator">
+                    ${this.renderExtraFilterOperatorOptions(rule)}
+                </select>
+                <input
+                    type="text"
+                    class="media-extra-filter-value"
+                    data-rule-index="${ruleIndex}"
+                    aria-label="Field rule ${ruleIndex + 1} value"
+                    placeholder="Value"
+                    value="${escapeAttribute(rule.value)}"
+                    ${inputMode}
+                    autocomplete="off"
+                />
+                <button type="button" class="media-filter-rule-remove" data-rule-index="${ruleIndex}" aria-label="Remove field rule ${ruleIndex + 1}">×</button>
+            </div>
+        `;
+    }
+
+    private renderBooleanTagFilterRule(rule: LibraryFilterRule, ruleIndex: number): string {
+        if (rule.kind !== 'booleanTag') return '';
+
+        return `
+            <div class="media-extra-filter-rule" data-rule-kind="booleanTag" data-rule-index="${ruleIndex}">
+                <select class="media-filter-logic" data-rule-index="${ruleIndex}" aria-label="Rule ${ruleIndex + 1} logic">
+                    ${this.renderFilterLogicOptions(rule, ruleIndex)}
+                </select>
+                <div class="media-boolean-tag-condition" aria-label="Boolean tag ${escapeAttribute(rule.tagName)}">
+                    <span>Tag</span>
+                    <strong>${escapeHTML(rule.tagName)}</strong>
+                </div>
+                <button type="button" class="media-filter-rule-remove" data-rule-index="${ruleIndex}" aria-label="Remove boolean tag rule ${ruleIndex + 1}">×</button>
+            </div>
+        `;
+    }
+
+    private renderFilterRules(valuedFieldNames: string[], booleanTagNames: string[]): string {
+        if (valuedFieldNames.length === 0 && booleanTagNames.length === 0) return '';
+
+        const rulesMarkup = this.state.filterRules.map((rule, ruleIndex) => (
+            rule.kind === 'extra'
+                ? this.renderExtraFilterRule(rule, ruleIndex, valuedFieldNames)
+                : this.renderBooleanTagFilterRule(rule, ruleIndex)
+        )).join('');
+        const selectedBooleanTags = new Set(
+            this.state.filterRules
+                .filter(rule => rule.kind === 'booleanTag')
+                .map(rule => rule.tagName.toLowerCase()),
+        );
+        const availableBooleanTagNames = booleanTagNames
+            .filter(tagName => !selectedBooleanTags.has(tagName.toLowerCase()));
+        const availableBooleanTagOptions = availableBooleanTagNames
+            .map(tagName => `<option value="${escapeAttribute(tagName)}">${escapeHTML(tagName)}</option>`)
+            .join('');
+        const booleanTagSelector = availableBooleanTagNames.length > 0
+            ? `
+                <select id="media-boolean-tag-add" class="media-boolean-tag-add" aria-label="Add tag filter">
+                    <option value="">+ Add tag…</option>
+                    ${availableBooleanTagOptions}
+                </select>
+            `
+            : '';
+        const fieldRuleButton = valuedFieldNames.length > 0
+            ? '<button type="button" class="media-sort-add-level" id="btn-add-extra-filter-rule">+ Add filter rule</button>'
+            : '';
+
+        return `
+            <div class="media-grid-filter-row">
+                <div class="media-grid-filter-label">Rules</div>
+                <div class="media-extra-filter-builder">
+                    <div class="media-extra-filter-rules" id="media-filter-rules">${rulesMarkup}</div>
+                    <div class="media-filter-add-controls">
+                        ${booleanTagSelector}
+                        ${fieldRuleButton}
+                    </div>
+                    <p class="media-extra-filter-note">${LIBRARY_FILTER_EXPRESSION_NOTE}</p>
                 </div>
             </div>
         `;
@@ -453,6 +662,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         const uniqueTypes = this.getUniqueTypes();
         const activeLayout = this.getActiveLayout();
         const activeFilterCount = this.getActiveFilterCount();
+        const { valuedFieldNames, booleanTagNames } = this.getExtraDataFacets();
         const compactHint = this.state.isGridSupported
             ? ''
             : '<span class="media-layout-hint">Grid re-enables when the window is wider.</span>';
@@ -462,6 +672,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
             <div id="media-grid-filter-tray" class="media-grid-filter-tray">
                 ${this.renderFilterChipGroup('Status', 'status', TRACKING_STATUSES, this.state.statusFilters)}
                 ${this.renderFilterChipGroup('Type', 'type', uniqueTypes, this.state.typeFilters)}
+                ${this.renderFilterRules(valuedFieldNames, booleanTagNames)}
                 <div class="media-grid-filter-row">
                     <div class="media-grid-filter-label">Other</div>
                     <div class="media-grid-archive-toggle" style="display: flex; align-items: center; gap: 0.5rem;">
@@ -674,10 +885,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
 
                 if (group === 'status') {
                     this.updateMultiFilter('statusFilters', value, [...TRACKING_STATUSES]);
-                    return;
-                }
-
-                if (group === 'type') {
+                } else {
                     this.updateMultiFilter('typeFilters', value, this.getUniqueTypes());
                 }
             });
@@ -686,9 +894,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         const hideArchived = header.querySelector<HTMLInputElement>('#grid-hide-archived');
         hideArchived?.addEventListener('change', () => {
             this.state.hideArchived = hideArchived.checked;
-            this.renderHeader(header);
-            this.renderContent(this.container.querySelector<HTMLElement>('#media-library-content')!);
-            this.notifyFilterChange();
+            this.applyPresentationStateChange();
         });
 
         header.querySelector('#btn-layout-grid')?.addEventListener('click', () => {
@@ -715,7 +921,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
             const switchInput = header.querySelector<HTMLInputElement>(`#${id}`);
             switchInput?.addEventListener('change', () => {
                 this.state[stateKey] = switchInput.checked;
-                this.applySortStateChange();
+                this.applyPresentationStateChange();
             });
         });
 
@@ -730,7 +936,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
                 if (!parsedField) return;
 
                 stage.field = parsedField;
-                this.applySortStateChange();
+                this.applyPresentationStateChange();
             });
         });
 
@@ -742,7 +948,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
                 if (!stage || !direction) return;
 
                 stage.direction = direction;
-                this.applySortStateChange();
+                this.applyPresentationStateChange();
             });
         });
 
@@ -750,7 +956,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
             button.addEventListener('click', () => {
                 const stageIndex = Number(button.dataset.levelIndex);
                 this.state.sortStages = this.state.sortStages.filter((_, index) => index !== stageIndex);
-                this.applySortStateChange();
+                this.applyPresentationStateChange();
             });
         });
 
@@ -759,7 +965,112 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
             const usedFieldKeys = new Set(this.state.sortStages.map((stage) => toSortFieldOptionValue(stage.field)));
             const nextField = this.pickNextAvailableSortField(usedFieldKeys, extraFieldNames);
             this.state.sortStages = [...this.state.sortStages, { field: nextField, direction: 'ascending' }];
-            this.applySortStateChange();
+            this.applyPresentationStateChange();
+        });
+
+        header.querySelectorAll<HTMLSelectElement>('.media-extra-filter-field').forEach((select) => {
+            select.addEventListener('change', () => {
+                const ruleIndex = Number(select.dataset.ruleIndex);
+                const rule = this.state.filterRules[ruleIndex];
+                const fieldName = this.getExtraDataFacets().valuedFieldNames
+                    .find(name => name.toLowerCase() === select.value.toLowerCase());
+                if (!rule || rule.kind !== 'extra' || fieldName === undefined) return;
+
+                const valueKind = getLibraryExtraFieldValueKind(this.getExtraDataIndex(), fieldName);
+                rule.fieldName = fieldName;
+                rule.operator = getDefaultLibraryExtraFilterOperator(valueKind);
+                rule.value = '';
+                this.applyPresentationStateChange();
+            });
+        });
+
+        header.querySelectorAll<HTMLSelectElement>('.media-extra-filter-operator').forEach((select) => {
+            select.addEventListener('change', () => {
+                const ruleIndex = Number(select.dataset.ruleIndex);
+                const rule = this.state.filterRules[ruleIndex];
+                if (!rule || rule.kind !== 'extra') return;
+
+                rule.operator = select.value as LibraryExtraFilterOperator;
+                this.applyPresentationStateChange();
+            });
+        });
+
+        header.querySelectorAll<HTMLInputElement>('.media-extra-filter-value').forEach((input) => {
+            input.addEventListener('input', () => {
+                const ruleIndex = Number(input.dataset.ruleIndex);
+                const rule = this.state.filterRules[ruleIndex];
+                if (!rule || rule.kind !== 'extra') return;
+
+                rule.value = input.value;
+                this.renderContent(this.container.querySelector<HTMLElement>('#media-library-content')!);
+                this.updateFilterCountBadge(header);
+                this.notifyFilterChange();
+            });
+        });
+
+        header.querySelectorAll<HTMLSelectElement>('.media-filter-logic').forEach((select) => {
+            select.addEventListener('change', () => {
+                const ruleIndex = Number(select.dataset.ruleIndex);
+                const rule = this.state.filterRules[ruleIndex];
+                if (!rule) return;
+
+                const logic = select.value;
+                rule.join = logic.startsWith('or') ? 'or' : 'and';
+                rule.negated = logic === 'not' || logic.endsWith('Not');
+                this.applyPresentationStateChange();
+            });
+        });
+
+        header.querySelectorAll<HTMLButtonElement>('.media-filter-rule-remove').forEach((button) => {
+            button.addEventListener('click', () => {
+                const ruleIndex = Number(button.dataset.ruleIndex);
+                this.state.filterRules = this.state.filterRules
+                    .filter((_, index) => index !== ruleIndex);
+                this.applyPresentationStateChange();
+            });
+        });
+
+        header.querySelector('#btn-add-extra-filter-rule')?.addEventListener('click', () => {
+            const fieldName = this.getExtraDataFacets().valuedFieldNames[0];
+            if (fieldName === undefined) return;
+
+            const valueKind = getLibraryExtraFieldValueKind(this.getExtraDataIndex(), fieldName);
+            this.state.filterRules = [
+                ...this.state.filterRules,
+                {
+                    kind: 'extra',
+                    fieldName,
+                    operator: getDefaultLibraryExtraFilterOperator(valueKind),
+                    value: '',
+                    join: 'and',
+                    negated: false,
+                },
+            ];
+            this.applyPresentationStateChange();
+        });
+
+        header.querySelector<HTMLSelectElement>('#media-boolean-tag-add')?.addEventListener('change', (event) => {
+            const select = event.currentTarget as HTMLSelectElement;
+            if (select.value === '') return;
+
+            const tagName = this.getExtraDataFacets().booleanTagNames
+                .find(name => name.toLowerCase() === select.value.toLowerCase());
+            const isAlreadySelected = this.state.filterRules.some(rule => (
+                rule.kind === 'booleanTag'
+                && rule.tagName.toLowerCase() === tagName?.toLowerCase()
+            ));
+            if (tagName === undefined || isAlreadySelected) return;
+
+            this.state.filterRules = [
+                ...this.state.filterRules,
+                {
+                    kind: 'booleanTag',
+                    tagName,
+                    join: 'and',
+                    negated: false,
+                },
+            ];
+            this.applyPresentationStateChange();
         });
     }
 
@@ -778,10 +1089,30 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         return { kind: 'builtin', key: 'default' };
     }
 
-    private applySortStateChange() {
+    private applyPresentationStateChange() {
         this.renderHeader(this.container.querySelector<HTMLElement>('#media-library-header')!);
         this.renderContent(this.container.querySelector<HTMLElement>('#media-library-content')!);
         this.notifyFilterChange();
+    }
+
+    private updateFilterCountBadge(header: HTMLElement) {
+        const button = header.querySelector<HTMLButtonElement>('#btn-toggle-filters');
+        if (!button) return;
+
+        const count = this.getActiveFilterCount();
+        let badge = button.querySelector<HTMLElement>('.media-grid-filter-count');
+        if (count === 0) {
+            badge?.remove();
+            return;
+        }
+
+        if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'media-grid-filter-count';
+            button.querySelector('svg')?.before(badge);
+        }
+        badge.setAttribute('aria-label', `${count} active library filters`);
+        badge.textContent = count.toString();
     }
 
     private setLayout(layout: LibraryLayoutMode) {
@@ -855,7 +1186,11 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         }
     }
 
-    private updateMultiFilter(key: 'statusFilters' | 'typeFilters', value: string, availableValues: string[]) {
+    private updateMultiFilter(
+        key: 'statusFilters' | 'typeFilters',
+        value: string,
+        availableValues: string[],
+    ) {
         const currentValues = this.state[key];
         let nextValues: string[];
 
@@ -890,6 +1225,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
             typeFilters: [...this.state.typeFilters],
             statusFilters: [...this.state.statusFilters],
             hideArchived: this.state.hideArchived,
+            filterRules: this.state.filterRules.map(rule => ({ ...rule })),
             sortStages: this.state.sortStages.map((stage) => ({ ...stage })),
             groupByType: this.state.groupByType,
             keepOngoingFirst: this.state.keepOngoingFirst,

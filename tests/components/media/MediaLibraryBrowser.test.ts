@@ -3,6 +3,7 @@ import { Media } from '../../../src/api';
 import * as api from '../../../src/api';
 import { MediaLibraryBrowser } from '../../../src/media/MediaLibraryBrowser';
 import type { LibraryLayoutMode } from '../../../src/media/library_types';
+import type { LibraryFilterRule } from '../../../src/media/filtering';
 import type { LibraryRow } from '../../../src/media/sorting';
 import { showAddMediaModal } from '../../../src/media/modal';
 import { MediaGrid } from '../../../src/media/MediaGrid';
@@ -44,6 +45,7 @@ const createState = (overrides: Partial<{
     typeFilters: string[];
     statusFilters: string[];
     hideArchived: boolean;
+    filterRules: LibraryFilterRule[];
     preferredLayout: LibraryLayoutMode;
     gridZoom: number;
     isGridSupported: boolean;
@@ -55,6 +57,7 @@ const createState = (overrides: Partial<{
     typeFilters: [],
     statusFilters: [],
     hideArchived: false,
+    filterRules: [],
     preferredLayout: 'grid' as LibraryLayoutMode,
     gridZoom: 100,
     isGridSupported: true,
@@ -441,6 +444,7 @@ describe('MediaLibraryBrowser', () => {
             statusFilters: ['Ongoing'],
             typeFilters: [],
             hideArchived: false,
+            filterRules: [],
             sortStages: [],
             groupByType: false,
             keepOngoingFirst: true,
@@ -454,6 +458,7 @@ describe('MediaLibraryBrowser', () => {
             statusFilters: [],
             typeFilters: [],
             hideArchived: false,
+            filterRules: [],
             sortStages: [],
             groupByType: false,
             keepOngoingFirst: true,
@@ -466,6 +471,7 @@ describe('MediaLibraryBrowser', () => {
             statusFilters: [],
             typeFilters: ['Anime'],
             hideArchived: false,
+            filterRules: [],
             sortStages: [],
             groupByType: false,
             keepOngoingFirst: true,
@@ -478,11 +484,162 @@ describe('MediaLibraryBrowser', () => {
             statusFilters: [],
             typeFilters: [],
             hideArchived: false,
+            filterRules: [],
             sortStages: [],
             groupByType: false,
             keepOngoingFirst: true,
             keepArchivedLast: true,
         });
+    });
+
+    it('builds a compact mixed-rule expression from current-library fields and boolean tags', () => {
+        const onFilterChange = vi.fn();
+        const mediaList = [
+            {
+                id: 1,
+                title: 'Alpha',
+                status: 'Active',
+                content_type: 'Visual Novel',
+                tracking_status: 'Ongoing',
+                extra_data: JSON.stringify({
+                    'Character Count': '70,000',
+                    Platform: 'PC / PS1',
+                    Amazing: '',
+                }),
+            },
+            {
+                id: 2,
+                title: 'Beta',
+                status: 'Active',
+                content_type: 'Visual Novel',
+                tracking_status: 'Ongoing',
+                extra_data: JSON.stringify({
+                    'Character Count': '50,000',
+                    Platform: 'PS1',
+                    Amazing: '',
+                }),
+            },
+            {
+                id: 3,
+                title: 'Gamma',
+                status: 'Active',
+                content_type: 'Visual Novel',
+                tracking_status: 'Ongoing',
+                extra_data: JSON.stringify({
+                    'Character Count': '80,000',
+                    Platform: 'Switch',
+                    Favorite: '',
+                }),
+            },
+        ] as Media[];
+        const component = new MediaLibraryBrowser(
+            container,
+            createState({ mediaList }),
+            vi.fn(),
+            vi.fn(),
+            onFilterChange,
+        );
+
+        component.render();
+        (container.querySelector('#btn-toggle-filters') as HTMLButtonElement).click();
+
+        expect(container.querySelector('[data-filter-group="booleanTag"]')).toBeNull();
+        expect(container.querySelector('[data-filter-group="booleanTag"][data-filter-value="Platform"]')).toBeNull();
+        const tagSelector = container.querySelector('#media-boolean-tag-add') as HTMLSelectElement;
+        expect(Array.from(tagSelector.options, option => option.textContent)).toEqual([
+            '+ Add tag…',
+            'Amazing',
+            'Favorite',
+        ]);
+        expect(container.querySelector('#btn-add-extra-filter-rule')?.textContent).toBe('+ Add filter rule');
+
+        tagSelector.value = 'Amazing';
+        tagSelector.dispatchEvent(new Event('change'));
+        expect(container.querySelector('[data-rule-kind="booleanTag"]')?.textContent).toContain('Amazing');
+        expect(Array.from(
+            (container.querySelector('#media-boolean-tag-add') as HTMLSelectElement).options,
+            option => option.textContent,
+        )).toEqual(['+ Add tag…', 'Favorite']);
+        expect(latestGridRows().map(row => (row as { media: Media }).media.title)).toEqual(['Alpha', 'Beta']);
+
+        const remainingTagSelector = container.querySelector('#media-boolean-tag-add') as HTMLSelectElement;
+        remainingTagSelector.value = 'Favorite';
+        remainingTagSelector.dispatchEvent(new Event('change'));
+        expect(container.querySelector('#media-boolean-tag-add')).toBeNull();
+
+        const removeFavorite = container.querySelector(
+            '[data-rule-kind="booleanTag"][data-rule-index="1"] .media-filter-rule-remove',
+        ) as HTMLButtonElement;
+        removeFavorite.click();
+        expect(Array.from(
+            (container.querySelector('#media-boolean-tag-add') as HTMLSelectElement).options,
+            option => option.textContent,
+        )).toEqual(['+ Add tag…', 'Favorite']);
+
+        (container.querySelector('#btn-add-extra-filter-rule') as HTMLButtonElement).click();
+
+        const firstField = container.querySelector('.media-extra-filter-field[data-rule-index="1"]') as HTMLSelectElement;
+        expect(Array.from(firstField.options, option => option.textContent)).toEqual(['Character Count', 'Platform']);
+        expect(firstField.value).toBe('Character Count');
+
+        const firstOperator = container.querySelector('.media-extra-filter-operator[data-rule-index="1"]') as HTMLSelectElement;
+        expect(firstOperator.value).toBe('greaterThan');
+        expect(Array.from(firstOperator.options, option => option.value)).toContain('greaterThanOrEqual');
+
+        const firstValue = container.querySelector('.media-extra-filter-value[data-rule-index="1"]') as HTMLInputElement;
+        firstValue.value = '60000';
+        firstValue.dispatchEvent(new Event('input'));
+        expect(latestGridRows().map(row => (row as { media: Media }).media.title)).toEqual(['Alpha']);
+        expect(container.querySelector('#btn-toggle-filters .media-grid-filter-count')?.textContent).toBe('2');
+
+        (container.querySelector('#btn-add-extra-filter-rule') as HTMLButtonElement).click();
+        const secondField = container.querySelector('.media-extra-filter-field[data-rule-index="2"]') as HTMLSelectElement;
+        secondField.value = 'Platform';
+        secondField.dispatchEvent(new Event('change'));
+
+        const secondOperator = container.querySelector('.media-extra-filter-operator[data-rule-index="2"]') as HTMLSelectElement;
+        expect(secondOperator.value).toBe('contains');
+        const secondLogic = container.querySelector('.media-filter-logic[data-rule-index="2"]') as HTMLSelectElement;
+        expect(Array.from(secondLogic.options, option => option.textContent)).toEqual([
+            'AND',
+            'OR',
+            'AND NOT',
+            'OR NOT',
+        ]);
+        secondLogic.value = 'or';
+        secondLogic.dispatchEvent(new Event('change'));
+
+        const secondValue = container.querySelector('.media-extra-filter-value[data-rule-index="2"]') as HTMLInputElement;
+        secondValue.value = 'Switch';
+        secondValue.dispatchEvent(new Event('input'));
+        expect(latestGridRows().map(row => (row as { media: Media }).media.title)).toEqual(['Alpha', 'Gamma']);
+
+        const rerenderedSecondLogic = container.querySelector('.media-filter-logic[data-rule-index="2"]') as HTMLSelectElement;
+        rerenderedSecondLogic.value = 'andNot';
+        rerenderedSecondLogic.dispatchEvent(new Event('change'));
+        expect(latestGridRows().map(row => (row as { media: Media }).media.title)).toEqual(['Alpha']);
+        expect(container.querySelector('#btn-toggle-filters .media-grid-filter-count')?.textContent).toBe('3');
+        expect(onFilterChange).toHaveBeenLastCalledWith(expect.objectContaining({
+            filterRules: [
+                { kind: 'booleanTag', tagName: 'Amazing', join: 'and', negated: false },
+                {
+                    kind: 'extra',
+                    fieldName: 'Character Count',
+                    operator: 'greaterThan',
+                    value: '60000',
+                    join: 'and',
+                    negated: false,
+                },
+                {
+                    kind: 'extra',
+                    fieldName: 'Platform',
+                    operator: 'contains',
+                    value: 'Switch',
+                    join: 'and',
+                    negated: true,
+                },
+            ],
+        }));
     });
 
     it('notifies parent state when shared search and hide-archived filters change', async () => {
@@ -512,6 +669,7 @@ describe('MediaLibraryBrowser', () => {
                 statusFilters: [],
                 typeFilters: [],
                 hideArchived: false,
+                filterRules: [],
                 sortStages: [],
                 groupByType: false,
                 keepOngoingFirst: true,
@@ -529,11 +687,41 @@ describe('MediaLibraryBrowser', () => {
             statusFilters: [],
             typeFilters: [],
             hideArchived: true,
+            filterRules: [],
             sortStages: [],
             groupByType: false,
             keepOngoingFirst: true,
             keepArchivedLast: true,
         });
+    });
+
+    it('does not recursively nest the library header after repeated hide-archived changes', () => {
+        const component = new MediaLibraryBrowser(
+            container,
+            createState({
+                mediaList: [
+                    { id: 1, title: 'Active', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' },
+                    { id: 2, title: 'Archived', status: 'Archived', content_type: 'Manga', tracking_status: 'Complete' },
+                ] as Media[],
+            }),
+            vi.fn(),
+            vi.fn(),
+        );
+
+        component.render();
+        (container.querySelector('#btn-toggle-filters') as HTMLButtonElement).click();
+
+        for (let toggleIndex = 0; toggleIndex < 6; toggleIndex += 1) {
+            const hideArchived = container.querySelector('#grid-hide-archived') as HTMLInputElement;
+            hideArchived.checked = !hideArchived.checked;
+            hideArchived.dispatchEvent(new Event('change'));
+
+            const headerContainer = container.querySelector('#media-library-header') as HTMLElement;
+            expect(headerContainer.children).toHaveLength(1);
+            expect(headerContainer.querySelectorAll('.media-grid-toolbar-shell')).toHaveLength(1);
+            expect(headerContainer.querySelector('.media-grid-toolbar-shell .media-grid-toolbar-shell')).toBeNull();
+            expect(container.querySelector('#btn-toggle-filters')?.getAttribute('aria-expanded')).toBe('true');
+        }
     });
 
     describe('sort pane', () => {

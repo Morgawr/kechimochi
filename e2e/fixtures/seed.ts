@@ -65,14 +65,14 @@ function mediaEntryFromRow([title, media_type, status, description, content_type
 // ---------- Media entries (all Japanese) ----------
 const MEDIA_ENTRY_ROWS: SeedMediaEntryRow[] = [
   ['ある魔女が死ぬまで', 'Reading', 'Complete', '魔女と少女の物語。感動的なファンタジー小説。', 'Novel', { extra_data: JSON.stringify({ source_url: 'https://example.com/novel1' }) }],
-  ['薬屋のひとりごと', 'Reading', 'Active', '後宮で働く薬師の少女が様々な事件を解決していく物語。', 'Novel'],
+  ['薬屋のひとりごと', 'Reading', 'Active', '後宮で働く薬師の少女が様々な事件を解決していく物語。', 'Novel', { extra_data: JSON.stringify({ 'Character Count': '80,000', Platform: 'PC', amazing: '' }) }],
   ['呪術廻戦', 'Reading', 'Active', '呪いをめぐる少年たちの戦いを描いたダークファンタジー。', 'Manga'],
-  ['ハイキュー!!', 'Watching', 'Complete', 'バレーボールに青春をかける高校生たちの物語。', 'Anime'],
+  ['ハイキュー!!', 'Watching', 'Complete', 'バレーボールに青春をかける高校生たちの物語。', 'Anime', { extra_data: JSON.stringify({ amazing: '' }) }],
   ['STEINS;GATE', 'Playing', 'Complete', 'タイムリープをテーマにしたサイエンスフィクション。', 'Visual Novel'],
-  ['ペルソナ5', 'Playing', 'Active', '心の怪盗団として活躍するRPG。', 'Videogame'],
+  ['ペルソナ5', 'Playing', 'Active', '心の怪盗団として活躍するRPG。', 'Videogame', { extra_data: JSON.stringify({ 'Character Count': '70,000', Platform: 'PS1 / PS4', amazing: '' }) }],
   ['本好きの下剋上', 'Reading', 'Active', '本を愛する少女が異世界で本を作るために奮闘する物語。', 'Novel'],
   ['葬送のフリーレン', 'Watching', 'Active', '魔王を倒した後のエルフの魔法使いの旅を描いた作品。', 'Anime'],
-  ['WHITE ALBUM 2', 'Playing', 'Paused', '音楽と恋愛をテーマにしたビジュアルノベル。', 'Visual Novel'],
+  ['WHITE ALBUM 2', 'Playing', 'Paused', '音楽と恋愛をテーマにしたビジュアルノベル。', 'Visual Novel', { extra_data: JSON.stringify({ 'Character Count': '55,000', Platform: 'PS1', amazing: '' }) }],
   ['ダンジョン飯', 'Reading', 'Archived', 'ダンジョンの中でモンスターを料理して食べる冒険者たちの物語。', 'Manga', { tracking_status: 'Complete' }],
 ];
 

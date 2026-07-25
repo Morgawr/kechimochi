@@ -326,6 +326,79 @@ export async function setTrackingStatusFilters(statuses: string[]): Promise<void
     await setFilterGroup('status', statuses);
 }
 
+export async function setBooleanTagFilters(tags: string[]): Promise<void> {
+    await setFiltersExpanded(true);
+
+    while (await $$('.media-extra-filter-rule[data-rule-kind="booleanTag"]').length > 0) {
+        await safeClickBySelector(
+            '.media-extra-filter-rule[data-rule-kind="booleanTag"] .media-filter-rule-remove',
+        );
+        await waitForLibraryRefresh();
+    }
+
+    for (const tag of tags) {
+        await setSelect('#media-boolean-tag-add', { text: tag });
+        await waitForLibraryRefresh();
+    }
+}
+
+export async function clearExtraFieldFilterRules(): Promise<void> {
+    await setFiltersExpanded(true);
+
+    while (await $$('.media-extra-filter-rule[data-rule-kind="extra"]').length > 0) {
+        await safeClickBySelector(
+            '.media-extra-filter-rule[data-rule-kind="extra"] .media-filter-rule-remove',
+        );
+        await waitForLibraryRefresh();
+    }
+}
+
+export type LibraryFilterRuleLogic = 'and' | 'or' | 'andNot' | 'orNot';
+
+export async function addExtraFieldFilterRule({
+    fieldName,
+    operator,
+    value,
+    logic = 'and',
+}: {
+    fieldName: string;
+    operator: string;
+    value: string;
+    logic?: LibraryFilterRuleLogic;
+}): Promise<number> {
+    await setFiltersExpanded(true);
+    await safeClickBySelector('#btn-add-extra-filter-rule');
+
+    const extraRuleRows = await $$('.media-extra-filter-rule[data-rule-kind="extra"]');
+    const ruleIndexValue = await extraRuleRows[extraRuleRows.length - 1]?.getAttribute('data-rule-index');
+    const ruleIndex = Number(ruleIndexValue);
+    if (!Number.isInteger(ruleIndex) || ruleIndex < 0) {
+        throw new Error('No extra field filter rule was added');
+    }
+
+    await setSelect(`.media-extra-filter-field[data-rule-index="${ruleIndex}"]`, { text: fieldName });
+    await setSelect(`.media-extra-filter-operator[data-rule-index="${ruleIndex}"]`, { value: operator });
+    await setLibraryFilterRuleLogic(ruleIndex, logic);
+    await setText(`.media-extra-filter-value[data-rule-index="${ruleIndex}"]`, value);
+    await waitForLibraryRefresh();
+    return ruleIndex;
+}
+
+export async function setLibraryFilterRuleLogic(
+    ruleIndex: number,
+    logic: LibraryFilterRuleLogic,
+): Promise<void> {
+    if (ruleIndex === 0 && logic !== 'and' && logic !== 'andNot') {
+        throw new Error('The first library filter rule cannot start with OR');
+    }
+    let value: string = logic;
+    if (ruleIndex === 0) {
+        value = logic === 'andNot' ? 'not' : 'match';
+    }
+    await setSelect(`.media-filter-logic[data-rule-index="${ruleIndex}"]`, { value });
+    await waitForLibraryRefresh();
+}
+
 /**
  * Toggle the "Hide Archived" checkbox in the library grid.
  */
@@ -348,7 +421,9 @@ export async function setHideArchived(hide: boolean): Promise<void> {
         // The input itself is hidden (opacity 0), so we click the slider (.slider)
         const slider = checkbox.nextElement();
         await slider.click();
-        await browser.waitUntil(async () => (await checkbox.isSelected()) === hide, {
+        await browser.waitUntil(async () => (
+            await $('#grid-hide-archived').isSelected().catch(() => !hide)
+        ) === hide, {
             timeout: 3_000,
             timeoutMsg: `"Hide Archived" did not become ${hide ? 'checked' : 'unchecked'}`
         });

@@ -727,6 +727,7 @@ describe('MediaView', () => {
             statusFilters: ['Ongoing'],
             typeFilters: ['Anime'],
             hideArchived: true,
+            filterRules: [],
             sortStages: [],
             groupByType: false,
             keepOngoingFirst: true,
