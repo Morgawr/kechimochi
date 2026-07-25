@@ -690,7 +690,10 @@ mod tests {
             })
             .unwrap();
         assert_eq!(stored_uid, expected_uid);
-        assert_eq!(db::get_bundle_schema_version(&connection).unwrap(), 6);
+        assert_eq!(
+            db::get_bundle_schema_version(&connection).unwrap(),
+            db::CURRENT_SCHEMA_VERSION
+        );
     }
 
     #[test]
@@ -735,7 +738,7 @@ mod tests {
     }
 
     #[test]
-    fn attaching_a_group_repairs_and_finishes_schema_six_without_a_version_bump() {
+    fn attaching_a_group_repairs_and_finishes_the_latest_schema() {
         let directory = TempDir::new().unwrap();
         let expected_uid = create_broken_database(&directory, "Renamed Title", "Old Title");
         let DatabaseOpenOutcome::RecoveryRequired(plan) =
@@ -761,7 +764,7 @@ mod tests {
 
         assert_eq!(
             db::get_bundle_schema_version(&applied.connection).unwrap(),
-            6
+            db::CURRENT_SCHEMA_VERSION
         );
         let repaired: (String, String) = applied
             .connection
@@ -840,7 +843,7 @@ mod tests {
         assert_eq!(milestone_count, 0);
         assert_eq!(
             db::get_bundle_schema_version(&discarded.connection).unwrap(),
-            6
+            db::CURRENT_SCHEMA_VERSION
         );
     }
 }

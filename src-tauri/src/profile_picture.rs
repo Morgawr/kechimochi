@@ -1,23 +1,45 @@
-use std::io::Cursor;
+use std::io::{Cursor, Read};
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use image::{
     codecs::jpeg::JpegEncoder, imageops::FilterType, DynamicImage, GenericImageView, ImageFormat,
+    ImageReader, Limits,
 };
 
 use crate::models::ProfilePicture;
 
 pub const MAX_PROFILE_PICTURE_BYTES: usize = 3 * 1024 * 1024;
 pub const MAX_PROFILE_PICTURE_DIMENSION: u32 = 640;
+pub const MAX_PROFILE_PICTURE_SOURCE_BYTES: usize = 32 * 1024 * 1024;
+const MAX_PROFILE_PICTURE_SOURCE_DIMENSION: u32 = 16_384;
+const MAX_PROFILE_PICTURE_DECODE_ALLOC: u64 = 128 * 1024 * 1024;
 
 pub fn process_profile_picture_file(path: &str) -> Result<ProfilePicture, String> {
-    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let metadata = file.metadata().map_err(|e| e.to_string())?;
+    if metadata.len() > MAX_PROFILE_PICTURE_SOURCE_BYTES as u64 {
+        return Err(format!(
+            "Profile picture source exceeds the {} byte limit",
+            MAX_PROFILE_PICTURE_SOURCE_BYTES
+        ));
+    }
+    let mut bytes = Vec::new();
+    (&mut file)
+        .take(MAX_PROFILE_PICTURE_SOURCE_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
     process_profile_picture_bytes(&bytes)
 }
 
 pub fn process_profile_picture_bytes(bytes: &[u8]) -> Result<ProfilePicture, String> {
     if bytes.is_empty() {
         return Err("Profile picture file is empty".to_string());
+    }
+    if bytes.len() > MAX_PROFILE_PICTURE_SOURCE_BYTES {
+        return Err(format!(
+            "Profile picture source exceeds the {} byte limit",
+            MAX_PROFILE_PICTURE_SOURCE_BYTES
+        ));
     }
 
     let format = image::guess_format(bytes)
@@ -27,7 +49,14 @@ pub fn process_profile_picture_bytes(bytes: &[u8]) -> Result<ProfilePicture, Str
         _ => return Err("Unsupported profile picture format. Use PNG, JPEG, or WebP.".to_string()),
     }
 
-    let mut image = image::load_from_memory_with_format(bytes, format)
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(MAX_PROFILE_PICTURE_SOURCE_DIMENSION);
+    limits.max_image_height = Some(MAX_PROFILE_PICTURE_SOURCE_DIMENSION);
+    limits.max_alloc = Some(MAX_PROFILE_PICTURE_DECODE_ALLOC);
+    let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
+    reader.limits(limits);
+    let mut image = reader
+        .decode()
         .map_err(|e| format!("Failed to decode profile picture: {e}"))?;
 
     if image.width() > MAX_PROFILE_PICTURE_DIMENSION
@@ -115,5 +144,30 @@ mod tests {
     fn rejects_invalid_bytes() {
         let err = process_profile_picture_bytes(b"not an image").unwrap_err();
         assert!(err.contains("Unsupported profile picture format"));
+    }
+
+    #[test]
+    fn rejects_source_dimensions_before_allocating_the_full_image() {
+        let image = DynamicImage::ImageRgb8(ImageBuffer::from_pixel(
+            MAX_PROFILE_PICTURE_SOURCE_DIMENSION + 1,
+            1,
+            Rgb([255, 0, 0]),
+        ));
+        let bytes = encode_png(&image);
+
+        let err = process_profile_picture_bytes(&bytes).unwrap_err();
+        assert!(err.contains("Failed to decode profile picture"));
+    }
+
+    #[test]
+    fn rejects_oversized_source_files_before_reading_them() {
+        let source = tempfile::NamedTempFile::new().unwrap();
+        source
+            .as_file()
+            .set_len(MAX_PROFILE_PICTURE_SOURCE_BYTES as u64 + 1)
+            .unwrap();
+
+        let err = process_profile_picture_file(source.path().to_str().unwrap()).unwrap_err();
+        assert!(err.contains("source exceeds"));
     }
 }

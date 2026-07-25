@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 
 use image::ImageFormat;
@@ -7,6 +8,7 @@ use rusqlite::Connection;
 use sha2::{Digest, Sha256};
 
 use crate::db;
+use crate::sync_drive::MAX_SYNC_COVER_BLOB_BYTES;
 use crate::sync_snapshot::{self, SyncSnapshot};
 
 pub trait CoverBlobStore {
@@ -41,8 +43,7 @@ pub fn upload_missing_cover_blobs(
         let path = local_blobs
             .get(&hash)
             .ok_or_else(|| format!("Local cover blob '{hash}' is missing"))?;
-        let bytes = fs::read(path)
-            .map_err(|e| format!("Failed to read local cover blob '{hash}' from '{path}': {e}"))?;
+        let bytes = read_local_cover_blob(path, &hash)?;
         validate_cover_blob_bytes(&hash, &bytes)?;
 
         if store.blob_exists(&hash)? {
@@ -106,7 +107,7 @@ pub fn materialize_snapshot_cover_blobs(
         };
 
         if media.cover_image != target_path {
-            db::update_media_cover_image_by_uid(conn, uid, &target_path)?;
+            db::update_media_cover_image_by_uid(conn, uid, &target_path, covers_dir)?;
             updated_media_uids.insert(uid.clone());
         }
     }
@@ -154,6 +155,12 @@ fn validate_cover_blob_bytes(expected_hash: &str, bytes: &[u8]) -> Result<(), St
             "Cover blob '{expected_hash}' is corrupted or empty"
         ));
     }
+    if bytes.len() > MAX_SYNC_COVER_BLOB_BYTES {
+        return Err(format!(
+            "Cover blob '{expected_hash}' exceeds the supported {} byte limit",
+            MAX_SYNC_COVER_BLOB_BYTES
+        ));
+    }
 
     let actual_hash = compute_sha256_hex(bytes);
     if actual_hash != expected_hash {
@@ -161,15 +168,33 @@ fn validate_cover_blob_bytes(expected_hash: &str, bytes: &[u8]) -> Result<(), St
             "Cover blob '{expected_hash}' is corrupted (expected hash {expected_hash}, got {actual_hash})"
         ));
     }
-
     Ok(())
 }
 
-fn materialize_cover_blob(
+fn read_local_cover_blob(path: &str, hash: &str) -> Result<Vec<u8>, String> {
+    let mut file = fs::File::open(path)
+        .map_err(|e| format!("Failed to open local cover blob '{hash}' from '{path}': {e}"))?;
+    if file.metadata().map_err(|e| e.to_string())?.len() > MAX_SYNC_COVER_BLOB_BYTES as u64 {
+        return Err(format!(
+            "Cover blob '{hash}' exceeds the supported {} byte limit",
+            MAX_SYNC_COVER_BLOB_BYTES
+        ));
+    }
+    let mut bytes = Vec::new();
+    (&mut file)
+        .take(MAX_SYNC_COVER_BLOB_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("Failed to read local cover blob '{hash}' from '{path}': {e}"))?;
+    validate_cover_blob_bytes(hash, &bytes)?;
+    Ok(bytes)
+}
+
+pub(crate) fn materialize_cover_blob(
     covers_dir: &Path,
     sha256: &str,
     bytes: &[u8],
 ) -> Result<PathBuf, String> {
+    validate_cover_blob_bytes(sha256, bytes)?;
     fs::create_dir_all(covers_dir).map_err(|e| e.to_string())?;
 
     let extension = extension_for_cover_blob(bytes);
@@ -182,7 +207,16 @@ fn materialize_cover_blob(
         }
     }
 
-    fs::write(&path, bytes).map_err(|e| e.to_string())?;
+    let mut staged = tempfile::NamedTempFile::new_in(covers_dir).map_err(|e| e.to_string())?;
+    staged.write_all(bytes).map_err(|e| e.to_string())?;
+    staged.as_file_mut().sync_all().map_err(|e| e.to_string())?;
+    let installed = staged
+        .persist(&path)
+        .map_err(|error| error.error.to_string())?;
+    installed.sync_all().map_err(|e| e.to_string())?;
+    if let Ok(directory) = fs::File::open(covers_dir) {
+        let _ = directory.sync_all();
+    }
     Ok(path)
 }
 
@@ -416,6 +450,7 @@ mod tests {
             &dest_conn,
             "uid-1",
             wrong_cover.to_string_lossy().as_ref(),
+            dest_dir.path(),
         )
         .unwrap();
 

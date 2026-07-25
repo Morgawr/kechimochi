@@ -17,7 +17,7 @@ import type {
     TimelineEvent,
     TimelinePage,
     TimelinePageRequest,
-    MediaCsvRow,
+    MediaCsvImportSelection,
     MediaConflict,
     ActivityCsvAnalysis,
     ActivityCsvImportRequest,
@@ -61,6 +61,7 @@ export type {
     TimelinePage,
     TimelinePageRequest,
     MediaCsvRow,
+    MediaCsvImportSelection,
     MediaConflict,
     ActivityCsvAnalysis,
     ActivityCsvImportRequest,
@@ -161,7 +162,7 @@ export interface AppServices {
     /** Picks a destination (or triggers browser download) and exports the media library. */
     exportMediaLibrary(profileName: string): Promise<number | null>;
     /** Applies the pre-approved list of media rows returned by analyzeMediaCsvFromPick. */
-    applyMediaImport(records: MediaCsvRow[]): Promise<number>;
+    applyMediaImport(records: MediaCsvImportSelection[]): Promise<number>;
 
     // ── Full Backup operations ──────────────────────────────────────────────
     pickAndExportFullBackup(localStorageData: string, version: string): Promise<boolean>;

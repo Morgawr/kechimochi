@@ -27,7 +27,7 @@ import type {
     TimelineEvent,
     TimelinePage,
     TimelinePageRequest,
-    MediaCsvRow,
+    MediaCsvImportSelection,
     MediaConflict,
     ActivityCsvAnalysis,
     ActivityCsvImportRequest,
@@ -205,7 +205,7 @@ export class DesktopServices implements AppServices {
         return invoke('export_media_csv', { filePath: savePath });
     }
 
-    applyMediaImport(records: MediaCsvRow[]): Promise<number> {
+    applyMediaImport(records: MediaCsvImportSelection[]): Promise<number> {
         return invoke('apply_media_import', { records });
     }
 

@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use axum::{
     body::Body,
-    extract::{rejection::JsonRejection, Multipart, Path, Query, State},
+    extract::{rejection::JsonRejection, DefaultBodyLimit, Multipart, Path, Query, State},
     http::{header, HeaderMap, Request, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -22,12 +22,15 @@ use axum::{
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio::sync::Mutex;
+use tokio_util::io::ReaderStream;
 use tower_http::cors::{Any, CorsLayer};
 
 use kechimochi_lib::{
     csv_import, dashboard_data, database_recovery, db, get_username_logic, instance_lock,
-    library_data, models, profile_picture, read_performance, sync_state, timeline_data,
+    library_data, models, profile_picture, read_performance, remote_fetch, sync_state,
+    timeline_data,
 };
 
 // ── Error handling ────────────────────────────────────────────────────────────
@@ -56,6 +59,8 @@ fn map_media_write_error(error: rusqlite::Error) -> AppError {
     } else if message.contains("cannot be blank")
         || message.contains("requires an id")
         || message.contains("cannot be changed")
+        || message.contains("Media extra_data")
+        || (message.contains("Media ") && message.contains("not found"))
     {
         AppError::BadRequest(message)
     } else {
@@ -65,10 +70,7 @@ fn map_media_write_error(error: rusqlite::Error) -> AppError {
 
 fn map_milestone_write_error(error: rusqlite::Error) -> AppError {
     let message = error.to_string();
-    if message.contains("Milestone must")
-        || message.contains("Milestone update requires")
-        || message.contains("Media with uid")
-    {
+    if message.contains("Milestone ") || message.contains("Media with uid") {
         AppError::BadRequest(message)
     } else {
         AppError::Internal(message)
@@ -77,9 +79,8 @@ fn map_milestone_write_error(error: rusqlite::Error) -> AppError {
 
 fn map_activity_write_error(error: rusqlite::Error) -> AppError {
     let message = error.to_string();
-    if message.contains("Activity duration cannot be negative")
-        || message.contains("Activity character count cannot be negative")
-        || message.contains("Activity must have either duration or characters")
+    if message.contains("Activity ")
+        || (message.contains("Media ") && message.contains("not found"))
     {
         AppError::BadRequest(message)
     } else {
@@ -134,10 +135,19 @@ struct AppState {
 
 type Shared = Arc<AppState>;
 
+const PROFILE_UPLOAD_LIMIT: usize = 8 * 1024 * 1024;
+const CSV_IMPORT_LIMIT: usize = 256 * 1024 * 1024;
+const COVER_UPLOAD_LIMIT: usize = 32 * 1024 * 1024;
+const FULL_BACKUP_IMPORT_LIMIT: usize = 1024 * 1024 * 1024;
+const FULL_BACKUP_EXPORT_LIMIT: usize = 64 * 1024 * 1024;
+const DATABASE_RECOVERY_APPLY_LIMIT: usize = 64 * 1024 * 1024;
+
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 #[tokio::main]
 async fn main() {
+    let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
+    let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
     let data_dir = db::get_data_dir(&db::STANDALONE_DATA_DIR_PROVIDER);
     println!("[kechimochi] data dir: {}", data_dir.display());
 
@@ -207,8 +217,6 @@ async fn main() {
 
     let app = build_app_router(state);
 
-    let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
-    let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
     let addr = format!("{}:{}", host, port);
     println!("[kechimochi] listening on http://{}", addr);
     let listener = tokio::net::TcpListener::bind(&addr)
@@ -272,7 +280,8 @@ fn build_app_router(state: Shared) -> Router {
             "/api/profile-picture",
             get(get_profile_picture_handler)
                 .post(upload_profile_picture_handler)
-                .delete(delete_profile_picture_handler),
+                .delete(delete_profile_picture_handler)
+                .layer(DefaultBodyLimit::max(PROFILE_UPLOAD_LIMIT)),
         )
         // Settings
         .route("/api/settings/:key", get(get_setting).put(set_setting))
@@ -282,27 +291,48 @@ fn build_app_router(state: Shared) -> Router {
         .route("/api/activities/clear", post(clear_activities))
         .route("/api/reset", post(wipe_everything_handler))
         // Import / export
-        .route("/api/import/activities", post(import_activities))
+        .route(
+            "/api/import/activities",
+            post(import_activities).layer(DefaultBodyLimit::max(CSV_IMPORT_LIMIT)),
+        )
         .route(
             "/api/import/activities/analyze",
-            post(analyze_activity_csv_upload),
+            post(analyze_activity_csv_upload).layer(DefaultBodyLimit::max(CSV_IMPORT_LIMIT)),
         )
         .route(
             "/api/import/activities/apply",
-            post(apply_activity_import_handler),
+            post(apply_activity_import_handler).layer(DefaultBodyLimit::max(CSV_IMPORT_LIMIT)),
         )
         .route("/api/export/activities", get(export_activities))
-        .route("/api/import/media/analyze", post(analyze_media_csv_upload))
-        .route("/api/import/media/apply", post(apply_media_import_handler))
+        .route(
+            "/api/import/media/analyze",
+            post(analyze_media_csv_upload).layer(DefaultBodyLimit::max(CSV_IMPORT_LIMIT)),
+        )
+        .route(
+            "/api/import/media/apply",
+            post(apply_media_import_handler).layer(DefaultBodyLimit::max(CSV_IMPORT_LIMIT)),
+        )
         .route("/api/export/media", get(export_media_handler))
-        .route("/api/import/milestones", post(import_milestones))
+        .route(
+            "/api/import/milestones",
+            post(import_milestones).layer(DefaultBodyLimit::max(CSV_IMPORT_LIMIT)),
+        )
         .route("/api/export/milestones", get(export_milestones))
-        .route("/api/export/full-backup", post(export_full_backup_handler))
-        .route("/api/import/full-backup", post(import_full_backup_handler))
+        .route(
+            "/api/export/full-backup",
+            post(export_full_backup_handler).layer(DefaultBodyLimit::max(FULL_BACKUP_EXPORT_LIMIT)),
+        )
+        .route(
+            "/api/import/full-backup",
+            post(import_full_backup_handler).layer(DefaultBodyLimit::max(FULL_BACKUP_IMPORT_LIMIT)),
+        )
         // Covers — specific routes before the parameterised :media_id route
         .route("/api/covers/download", post(download_cover))
         .route("/api/covers/file/:filename", get(serve_cover))
-        .route("/api/covers/:media_id", post(upload_cover))
+        .route(
+            "/api/covers/:media_id",
+            post(upload_cover).layer(DefaultBodyLimit::max(COVER_UPLOAD_LIMIT)),
+        )
         // External proxy
         .route("/api/fetch/json", post(fetch_json_proxy))
         .route("/api/fetch/bytes", post(fetch_bytes_proxy))
@@ -319,7 +349,8 @@ fn build_app_router(state: Shared) -> Router {
         .route("/api/database-recovery", get(get_database_recovery_handler))
         .route(
             "/api/database-recovery/apply",
-            post(apply_database_recovery_handler),
+            post(apply_database_recovery_handler)
+                .layer(DefaultBodyLimit::max(DATABASE_RECOVERY_APPLY_LIMIT)),
         )
         .merge(normal_api)
         .route("/", get(serve_spa_index))
@@ -417,24 +448,31 @@ async fn apply_database_recovery_handler(
                     local_storage,
                 } => {
                     let mut result = applied.result;
-                    database_recovery::preserve_safety_backup(&s.data_dir, &mut result)
-                        .map_err(AppError::Internal)?;
                     drop(applied.connection);
-                    let prepared = kechimochi_lib::backup::PreparedFullBackup {
-                        staging_dir: staging_dir.clone(),
-                        local_storage: local_storage.clone(),
-                    };
-                    let imported_local_storage = {
+                    let staged_result: Result<String, AppError> = async {
+                        database_recovery::preserve_safety_backup(&s.data_dir, &mut result)
+                            .map_err(AppError::Internal)?;
+                        let prepared = kechimochi_lib::backup::PreparedFullBackup {
+                            staging_dir: staging_dir.clone(),
+                            local_storage: local_storage.clone(),
+                        };
                         let mut connection = s.conn.lock().await;
                         kechimochi_lib::backup::install_prepared_full_backup(
                             &s.data_dir,
                             &mut connection,
                             &prepared,
                         )
-                        .map_err(AppError::Internal)?
+                        .map_err(AppError::Internal)
+                    }
+                    .await;
+                    let imported_local_storage = match staged_result {
+                        Ok(local_storage) => local_storage,
+                        Err(error) => {
+                            let _ = std::fs::remove_dir_all(staging_dir);
+                            *mode = WebStartupMode::Ready;
+                            return Err(error);
+                        }
                     };
-                    sync_state::clear_sync_runtime_files(&s.data_dir)
-                        .map_err(AppError::Internal)?;
                     result.local_storage = Some(imported_local_storage);
                     result
                 }
@@ -503,7 +541,12 @@ async fn serve_static_or_spa(
     if !has_bad_component {
         let candidate = s.static_dir.join(req_path);
         if candidate.is_file() {
-            let bytes = std::fs::read(&candidate).ae()?;
+            let canonical_root = std::fs::canonicalize(&s.static_dir).ae()?;
+            let canonical_candidate = std::fs::canonicalize(&candidate).ae()?;
+            if !canonical_candidate.starts_with(&canonical_root) {
+                return serve_spa_index(State(s)).await;
+            }
+            let bytes = std::fs::read(&canonical_candidate).ae()?;
             let content_type = match candidate
                 .extension()
                 .and_then(|e| e.to_str())
@@ -853,8 +896,14 @@ async fn wipe_everything_handler(State(s): State<Shared>) -> HandlerResult<Json<
         sync_state::acquire_sync_lock(&s.data_dir).map_err(map_sync_operation_error)?;
     let mut conn = s.conn.lock().await;
     *conn = rusqlite::Connection::open_in_memory().ae()?;
-    sync_state::clear_sync_runtime_files(&s.data_dir).ae()?;
-    db::wipe_everything(s.data_dir.clone()).ae()?;
+    let reset_result = sync_state::wipe_local_data(&s.data_dir);
+    if let Err(error) = reset_result {
+        if let Ok(connection) = db::init_db(s.data_dir.clone(), None) {
+            *conn = connection;
+        }
+        return Err(AppError::Internal(error));
+    }
+    *conn = db::init_db(s.data_dir.clone(), None).ae()?;
     Ok(Json(()))
 }
 
@@ -924,7 +973,7 @@ async fn export_activities(
         let conn = s.conn.lock().await;
         csv_import::export_logs_csv(&conn, &path, params.start, params.end).ae()?
     };
-    let bytes = std::fs::read(tmp.path()).ae()?;
+    let body = tempfile_body(&tmp)?;
     Response::builder()
         .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
         .header(
@@ -932,7 +981,7 @@ async fn export_activities(
             "attachment; filename=\"activities.csv\"",
         )
         .header("x-row-count", count.to_string())
-        .body(Body::from(bytes))
+        .body(body)
         .ae()
 }
 
@@ -954,7 +1003,7 @@ async fn analyze_media_csv_upload(
 
 async fn apply_media_import_handler(
     State(s): State<Shared>,
-    payload: Result<Json<Vec<csv_import::MediaCsvRow>>, JsonRejection>,
+    payload: Result<Json<Vec<csv_import::MediaCsvImportSelection>>, JsonRejection>,
 ) -> HandlerResult<Json<usize>> {
     let Json(records) = payload.map_err(|error| AppError::BadRequest(error.body_text()))?;
     let covers_dir = s.data_dir.join("covers");
@@ -975,7 +1024,7 @@ async fn export_media_handler(State(s): State<Shared>) -> HandlerResult<Response
         let conn = s.conn.lock().await;
         csv_import::export_media_csv(&conn, &path).ae()?
     };
-    let bytes = std::fs::read(tmp.path()).ae()?;
+    let body = tempfile_body(&tmp)?;
     Response::builder()
         .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
         .header(
@@ -983,7 +1032,7 @@ async fn export_media_handler(State(s): State<Shared>) -> HandlerResult<Response
             "attachment; filename=\"media_library.csv\"",
         )
         .header("x-row-count", count.to_string())
-        .body(Body::from(bytes))
+        .body(body)
         .ae()
 }
 
@@ -1015,7 +1064,7 @@ async fn export_milestones(State(s): State<Shared>) -> HandlerResult<Response> {
         let conn = s.conn.lock().await;
         csv_import::export_milestones_csv(&conn, &path).ae()?
     };
-    let bytes = std::fs::read(tmp.path()).ae()?;
+    let body = tempfile_body(&tmp)?;
     Response::builder()
         .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
         .header(
@@ -1023,7 +1072,7 @@ async fn export_milestones(State(s): State<Shared>) -> HandlerResult<Response> {
             "attachment; filename=\"milestones.csv\"",
         )
         .header("x-row-count", count.to_string())
-        .body(Body::from(bytes))
+        .body(body)
         .ae()
 }
 
@@ -1058,14 +1107,14 @@ async fn export_full_backup_handler(
         .ae()?;
     }
 
-    let bytes = std::fs::read(tmp.path()).ae()?;
+    let body = tempfile_body(&tmp)?;
     Response::builder()
         .header(header::CONTENT_TYPE, "application/zip")
         .header(
             header::CONTENT_DISPOSITION,
             "attachment; filename=\"full_backup.zip\"",
         )
-        .body(Body::from(bytes))
+        .body(body)
         .ae()
 }
 
@@ -1096,7 +1145,6 @@ async fn import_full_backup_handler(
                 )
                 .ae()?
             };
-            sync_state::clear_sync_runtime_files(&s.data_dir).ae()?;
             Ok(Json(
                 kechimochi_lib::backup::FullBackupImportResult::Imported { local_storage },
             ))
@@ -1132,15 +1180,10 @@ async fn upload_cover(
         .await
         .ae()?
         .ok_or_else(|| AppError::Internal("No file field in multipart".into()))?;
-    let filename = field.file_name().unwrap_or("upload").to_owned();
-    let ext = std::path::Path::new(&filename)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("jpg")
-        .to_owned();
     let bytes = field.bytes().await.ae()?.to_vec();
+    let extension = remote_fetch::infer_image_extension(&bytes).map_err(AppError::BadRequest)?;
     let conn = s.conn.lock().await;
-    let path = db::save_cover_bytes(&conn, covers_dir, media_id, bytes, &ext).ae()?;
+    let path = db::save_cover_bytes(&conn, covers_dir, media_id, bytes, &extension).ae()?;
     Ok(Json(serde_json::json!({ "path": path })))
 }
 
@@ -1155,12 +1198,14 @@ async fn serve_cover(
         .and_then(|n| n.to_str())
         .ok_or_else(|| AppError::Internal("Invalid filename".into()))?
         .to_owned();
-    let file_path = s.data_dir.join("covers").join(&safe_name);
-    if !file_path.exists() {
-        return Err(AppError::Internal("Cover not found".into()));
+    let covers_dir = std::fs::canonicalize(s.data_dir.join("covers"))
+        .map_err(|_| AppError::Internal("Cover not found".into()))?;
+    let file_path = std::fs::canonicalize(covers_dir.join(&safe_name))
+        .map_err(|_| AppError::Internal("Cover not found".into()))?;
+    if !file_path.starts_with(&covers_dir) || !file_path.is_file() {
+        return Err(AppError::BadRequest("Invalid cover path".into()));
     }
-    let bytes = std::fs::read(&file_path).ae()?;
-    let etag = format!("\"{:x}\"", Sha256::digest(&bytes));
+    let (file, etag) = open_hashed_file(&file_path).await?;
     if headers
         .get(header::IF_NONE_MATCH)
         .and_then(|value| value.to_str().ok())
@@ -1177,18 +1222,38 @@ async fn serve_cover(
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("jpg")
+        .to_ascii_lowercase()
+        .as_str()
     {
         "png" => "image/png",
         "gif" => "image/gif",
         "webp" => "image/webp",
+        "avif" => "image/avif",
+        "bmp" => "image/bmp",
+        "ico" => "image/x-icon",
         _ => "image/jpeg",
     };
     Response::builder()
         .header(header::CONTENT_TYPE, content_type)
         .header(header::ETAG, etag)
         .header(header::CACHE_CONTROL, "private, no-cache")
-        .body(Body::from(bytes))
+        .body(Body::from_stream(ReaderStream::new(file)))
         .ae()
+}
+
+async fn open_hashed_file(path: &std::path::Path) -> HandlerResult<(tokio::fs::File, String)> {
+    let mut file = tokio::fs::File::open(path).await.ae()?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let count = file.read(&mut buffer).await.ae()?;
+        if count == 0 {
+            break;
+        }
+        hasher.update(&buffer[..count]);
+    }
+    file.seek(std::io::SeekFrom::Start(0)).await.ae()?;
+    Ok((file, format!("\"{:x}\"", hasher.finalize())))
 }
 
 #[derive(Deserialize)]
@@ -1202,28 +1267,19 @@ async fn download_cover(
     Json(body): Json<DownloadCoverBody>,
 ) -> HandlerResult<Json<serde_json::Value>> {
     let covers_dir = s.data_dir.join("covers");
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0")
-        .build()
-        .ae()?;
-    let bytes = client
-        .get(&body.url)
-        .send()
-        .await
-        .ae()?
-        .error_for_status()
-        .ae()?
-        .bytes()
-        .await
-        .ae()?
-        .to_vec();
-    let ext = std::path::Path::new(&body.url)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("jpg");
-    let ext = ext.split('?').next().unwrap_or("jpg").to_owned();
+    let bytes = remote_fetch::fetch_public(remote_fetch::PublicFetchRequest {
+        url: body.url,
+        method: reqwest::Method::GET,
+        body: None,
+        headers: std::collections::HashMap::new(),
+        max_response_bytes: remote_fetch::MAX_BINARY_RESPONSE_BYTES,
+    })
+    .await
+    .map_err(AppError::BadRequest)?
+    .bytes;
+    let extension = remote_fetch::infer_image_extension(&bytes).map_err(AppError::BadRequest)?;
     let conn = s.conn.lock().await;
-    let path = db::save_cover_bytes(&conn, covers_dir, body.media_id, bytes, &ext).ae()?;
+    let path = db::save_cover_bytes(&conn, covers_dir, body.media_id, bytes, &extension).ae()?;
     Ok(Json(serde_json::json!({ "path": path })))
 }
 
@@ -1240,40 +1296,35 @@ struct FetchJsonBody {
 async fn fetch_json_proxy(
     Json(payload): Json<FetchJsonBody>,
 ) -> HandlerResult<Json<serde_json::Value>> {
-    let default_ua = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-    let ua = payload
-        .headers
-        .as_ref()
-        .and_then(|h| h.get("User-Agent"))
-        .map(|s| s.to_owned())
-        .unwrap_or_else(|| default_ua.to_owned());
-
-    let client = reqwest::Client::builder().user_agent(&ua).build().ae()?;
-    let mut req = match payload.method.to_uppercase().as_str() {
-        "POST" => client.post(&payload.url),
-        _ => client.get(&payload.url),
-    };
-    if let Some(ref h) = payload.headers {
-        for (k, v) in h {
-            if k.eq_ignore_ascii_case("User-Agent") {
-                continue;
-            }
-            req = req.header(k, v);
+    let method = match payload.method.to_uppercase().as_str() {
+        "POST" => reqwest::Method::POST,
+        "GET" => reqwest::Method::GET,
+        _ => {
+            return Err(AppError::BadRequest(
+                "Only GET and POST remote requests are supported".to_string(),
+            ));
         }
+    };
+    let mut headers = payload.headers.unwrap_or_default();
+    if payload.body.is_some()
+        && !headers
+            .keys()
+            .any(|name| name.eq_ignore_ascii_case("content-type"))
+    {
+        headers.insert("Content-Type".to_string(), "application/json".to_string());
     }
-    if let Some(b) = payload.body {
-        req = req.header("Content-Type", "application/json").body(b);
-    }
-    let text = req
-        .send()
-        .await
-        .ae()?
-        .error_for_status()
-        .ae()?
-        .text()
-        .await
-        .ae()?;
-    Ok(Json(serde_json::json!({ "data": text })))
+    let response = remote_fetch::fetch_public(remote_fetch::PublicFetchRequest {
+        url: payload.url,
+        method,
+        body: payload.body.map(String::into_bytes),
+        headers,
+        max_response_bytes: remote_fetch::MAX_TEXT_RESPONSE_BYTES,
+    })
+    .await
+    .map_err(AppError::BadRequest)?;
+    Ok(Json(serde_json::json!({
+        "data": String::from_utf8_lossy(&response.bytes)
+    })))
 }
 
 #[derive(Deserialize)]
@@ -1284,21 +1335,16 @@ struct FetchBytesBody {
 async fn fetch_bytes_proxy(
     Json(payload): Json<FetchBytesBody>,
 ) -> HandlerResult<Json<serde_json::Value>> {
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0")
-        .build()
-        .ae()?;
-    let bytes: Vec<u8> = client
-        .get(&payload.url)
-        .send()
-        .await
-        .ae()?
-        .error_for_status()
-        .ae()?
-        .bytes()
-        .await
-        .ae()?
-        .to_vec();
+    let bytes = remote_fetch::fetch_public(remote_fetch::PublicFetchRequest {
+        url: payload.url,
+        method: reqwest::Method::GET,
+        body: None,
+        headers: std::collections::HashMap::new(),
+        max_response_bytes: remote_fetch::MAX_BINARY_RESPONSE_BYTES,
+    })
+    .await
+    .map_err(AppError::BadRequest)?
+    .bytes;
     Ok(Json(serde_json::json!({ "bytes": bytes })))
 }
 
@@ -1307,15 +1353,26 @@ async fn fetch_bytes_proxy(
 /// Reads the first multipart field into a temporary file and returns it.
 /// The caller must keep `tmp` alive until the path has been consumed.
 async fn field_to_tempfile(multipart: &mut Multipart) -> HandlerResult<tempfile::NamedTempFile> {
-    let field = multipart
+    let mut field = multipart
         .next_field()
         .await
         .ae()?
         .ok_or_else(|| AppError::Internal("No file in multipart".into()))?;
-    let bytes = field.bytes().await.ae()?;
     let mut tmp = tempfile::NamedTempFile::new().ae()?;
-    tmp.write_all(&bytes).ae()?;
+    while let Some(chunk) = field.chunk().await.ae()? {
+        tmp.write_all(&chunk).ae()?;
+    }
     Ok(tmp)
+}
+
+fn tempfile_body(tmp: &tempfile::NamedTempFile) -> HandlerResult<Body> {
+    // CSV and backup exporters atomically replace the destination path. Reopen
+    // that installed file by path rather than asking NamedTempFile to verify
+    // that its original inode is still there.
+    let file = std::fs::File::open(tmp.path()).ae()?;
+    Ok(Body::from_stream(ReaderStream::new(
+        tokio::fs::File::from_std(file),
+    )))
 }
 
 #[cfg(test)]
@@ -1423,20 +1480,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn csv_export_streams_the_atomically_installed_file() {
+        let state = setup_state();
+        let state_dir = state.data_dir.clone();
+        let response = export_milestones(State(state.clone())).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let bytes = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
+        assert_eq!(
+            bytes.as_ref(),
+            b"Media Title,Name,Duration,Characters,Date,Media Variant\n"
+        );
+
+        drop(state);
+        let _ = std::fs::remove_dir_all(state_dir);
+    }
+
+    #[tokio::test]
     async fn media_apply_route_maps_forbidden_identifier_json_to_bad_request() {
         let state = setup_state();
         let state_dir = state.data_dir.clone();
         let body = serde_json::json!([{
-            "Title": "No private identity",
-            "Default Activity Type": "Reading",
-            "Status": "Active",
-            "Language": "Japanese",
-            "Description": "",
-            "Content Type": "Novel",
-            "Extra Data": "{}",
-            "Cover Image (Base64)": "",
-            "Variant": "",
-            "Media UID": "private-uid"
+            "incoming": {
+                "Title": "No private identity",
+                "Default Activity Type": "Reading",
+                "Status": "Active",
+                "Language": "Japanese",
+                "Description": "",
+                "Content Type": "Novel",
+                "Extra Data": "{}",
+                "Cover Image (Base64)": "",
+                "Variant": "",
+                "Media UID": "private-uid"
+            },
+            "review_token": "not-reached-for-forbidden-identifier"
         }])
         .to_string();
 
@@ -1453,6 +1532,12 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let bytes = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        assert!(String::from_utf8(bytes.to_vec())
+            .unwrap()
+            .contains("Media UID"));
         let _ = std::fs::remove_dir_all(state_dir);
     }
 
@@ -2052,7 +2137,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_wipe_everything_handler_removes_covers_and_db_files() {
+    async fn test_wipe_everything_handler_reopens_an_empty_database() {
         let state = setup_state();
         let state_dir = state.data_dir.clone();
 
@@ -2073,11 +2158,14 @@ mod tests {
         let _ = wipe_everything_handler(State(state.clone())).await.unwrap();
 
         assert!(!covers_dir.exists());
-        assert!(!state.data_dir.join("kechimochi_user.db").exists());
-        assert!(!state.data_dir.join("kechimochi_shared_media.db").exists());
+        assert!(state.data_dir.join("kechimochi_user.db").exists());
+        assert!(state.data_dir.join("kechimochi_shared_media.db").exists());
         assert!(!sync_state::sync_config_path(&state.data_dir).exists());
         assert!(!sync_state::base_snapshot_path(&state.data_dir).exists());
         assert!(!sync_state::pending_conflicts_path(&state.data_dir).exists());
+        let conn = state.conn.lock().await;
+        assert!(db::get_all_media(&conn).unwrap().is_empty());
+        drop(conn);
 
         let _ = std::fs::remove_dir_all(state_dir);
     }

@@ -7,6 +7,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
+use futures::StreamExt;
 use keyring::{Entry, Error as KeyringError};
 use oauth2::basic::{BasicClient, BasicErrorResponseType, BasicRequestTokenError, BasicTokenType};
 use oauth2::{
@@ -41,6 +42,8 @@ const GOOGLE_USERINFO_ENDPOINT: &str = "https://www.googleapis.com/oauth2/v3/use
 const GOOGLE_OPENID_SCOPE: &str = "openid";
 const GOOGLE_USERINFO_EMAIL_SCOPE: &str = "https://www.googleapis.com/auth/userinfo.email";
 const GOOGLE_USERINFO_PROFILE_SCOPE: &str = "https://www.googleapis.com/auth/userinfo.profile";
+const MAX_USERINFO_RESPONSE_BYTES: usize = 1024 * 1024;
+const MAX_USERINFO_ERROR_BYTES: usize = 64 * 1024;
 const ANDROID_ACCESS_TOKEN_LIFETIME_SECS: i64 = 3600;
 const ANDROID_ACCESS_TOKEN_SENTINEL_REFRESH_TOKEN: &str =
     "__android_google_identity_access_token__";
@@ -870,8 +873,14 @@ async fn load_google_account_email_from_access_token(
         .map_err(|e| e.to_string())?;
 
     let status = response.status();
+    let response_limit = if status.is_success() {
+        MAX_USERINFO_RESPONSE_BYTES
+    } else {
+        MAX_USERINFO_ERROR_BYTES
+    };
+    let body = read_bounded_http_response(response, response_limit).await?;
     if !status.is_success() {
-        let body = response.text().await.unwrap_or_default();
+        let body = String::from_utf8_lossy(&body);
         if body.trim().is_empty() {
             return Err(format!(
                 "Google user info request failed with status {status}."
@@ -880,8 +889,40 @@ async fn load_google_account_email_from_access_token(
         return Err(format!("Google user info request failed: {body}"));
     }
 
-    let user_info: GoogleUserInfoResponse = response.json().await.map_err(|e| e.to_string())?;
+    let user_info: GoogleUserInfoResponse =
+        serde_json::from_slice(&body).map_err(|e| e.to_string())?;
     Ok(user_info.email.filter(|email| !email.trim().is_empty()))
+}
+
+async fn read_bounded_http_response(
+    response: reqwest::Response,
+    limit: usize,
+) -> Result<Vec<u8>, String> {
+    if response
+        .content_length()
+        .is_some_and(|length| length > limit as u64)
+    {
+        return Err(format!(
+            "Google user info response exceeds the supported {limit} byte limit"
+        ));
+    }
+
+    let mut stream = response.bytes_stream();
+    let mut bytes = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| e.to_string())?;
+        let new_length = bytes
+            .len()
+            .checked_add(chunk.len())
+            .ok_or_else(|| "Google user info response size overflowed".to_string())?;
+        if new_length > limit {
+            return Err(format!(
+                "Google user info response exceeds the supported {limit} byte limit"
+            ));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
 }
 
 fn map_refresh_token_error(

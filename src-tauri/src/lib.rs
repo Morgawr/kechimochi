@@ -10,6 +10,7 @@ pub mod library_data;
 pub mod models;
 pub mod profile_picture;
 pub mod read_performance;
+pub mod remote_fetch;
 pub mod sync_auth;
 pub mod sync_cover_blobs;
 pub mod sync_drive;
@@ -23,6 +24,7 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::future::Future;
+use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -58,6 +60,7 @@ const SYNC_COMMAND_TIMEOUT_SECS: u64 = 120;
 const CREATE_SYNC_PROFILE_TIMEOUT_SECS: u64 = 900;
 const RECOVERY_SYNC_TIMEOUT_SECS: u64 = 900;
 const SYNC_PROGRESS_EVENT: &str = "sync-progress";
+const LOCAL_COVER_SOURCE_BYTES: usize = 32 * 1024 * 1024;
 #[cfg(not(target_os = "android"))]
 const SYNC_TEST_AUTO_OPEN_ENV: &str = "KECHIMOCHI_SYNC_TEST_AUTO_OPEN";
 const SKIP_LEGACY_LOCAL_PROFILE_MIGRATION_ENV: &str =
@@ -92,9 +95,10 @@ type SyncDbConn = Arc<Mutex<Connection>>;
 pub struct GoogleAuthMobileState(pub Option<tauri::plugin::PluginHandle<tauri::Wry>>);
 
 const LOCAL_HTTP_API_CONFIG_FILE: &str = "local_http_api.json";
+const LOCAL_HTTP_API_CONFIG_MAX_BYTES: usize = 64 * 1024;
 const DEFAULT_LOCAL_HTTP_API_PORT: u16 = 3031;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalHttpApiConfig {
     #[serde(default)]
@@ -145,10 +149,13 @@ struct LocalHttpApiRuntime {
     config: LocalHttpApiConfig,
     server: Option<LocalHttpApiServer>,
     last_error: Option<String>,
+    revision: u64,
 }
 
+#[derive(Clone)]
 pub struct LocalHttpApiState {
     inner: Arc<Mutex<LocalHttpApiRuntime>>,
+    transition: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl LocalHttpApiState {
@@ -158,7 +165,9 @@ impl LocalHttpApiState {
                 config,
                 server: None,
                 last_error: None,
+                revision: 0,
             })),
+            transition: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
 }
@@ -185,16 +194,8 @@ fn with_conn<T, F>(state: &State<DbState>, operation: F) -> Result<T, String>
 where
     F: FnOnce(&Connection) -> Result<T, String>,
 {
-    let conn = state.conn.lock().unwrap();
+    let conn = state.conn.lock().map_err(|error| error.to_string())?;
     operation(&conn)
-}
-
-fn with_conn_mut<T, F>(state: &State<DbState>, operation: F) -> Result<T, String>
-where
-    F: FnOnce(&mut Connection) -> Result<T, String>,
-{
-    let mut conn = state.conn.lock().unwrap();
-    operation(&mut conn)
 }
 
 /// Dashboard reads can scan several years of aggregates. Run them on Tauri's
@@ -228,13 +229,21 @@ fn mark_sync_dirty(app_handle: &tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-fn run_dirty_command<T, F>(app_handle: &tauri::AppHandle, operation: F) -> Result<T, String>
+fn run_dirty_command<T, F>(
+    app_handle: &tauri::AppHandle,
+    state: &State<'_, DbState>,
+    operation: F,
+) -> Result<T, String>
 where
-    F: FnOnce() -> Result<T, String>,
+    F: FnOnce(&mut Connection) -> Result<T, String>,
 {
-    let result = operation()?;
+    // Sync finalization holds this same database mutex while comparing the live
+    // snapshot and writing Clean. Marking Dirty while holding it means a writer
+    // cannot mark early, wait behind finalization, and then commit after
+    // finalization has overwritten that marker.
+    let mut conn = state.conn.lock().map_err(|error| error.to_string())?;
     mark_sync_dirty(app_handle)?;
-    Ok(result)
+    operation(&mut conn)
 }
 
 fn google_oauth_config(
@@ -277,9 +286,25 @@ fn local_http_api_config_path(app_handle: &tauri::AppHandle) -> std::path::PathB
 
 fn load_local_http_api_config(app_handle: &tauri::AppHandle) -> LocalHttpApiConfig {
     let path = local_http_api_config_path(app_handle);
-    let Ok(bytes) = fs::read(&path) else {
+    let Ok(mut file) = fs::File::open(&path) else {
         return LocalHttpApiConfig::default();
     };
+    if file
+        .metadata()
+        .map(|metadata| metadata.len() > LOCAL_HTTP_API_CONFIG_MAX_BYTES as u64)
+        .unwrap_or(true)
+    {
+        return LocalHttpApiConfig::default();
+    }
+    let mut bytes = Vec::new();
+    if (&mut file)
+        .take(LOCAL_HTTP_API_CONFIG_MAX_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .is_err()
+        || bytes.len() > LOCAL_HTTP_API_CONFIG_MAX_BYTES
+    {
+        return LocalHttpApiConfig::default();
+    }
     serde_json::from_slice(&bytes).unwrap_or_default()
 }
 
@@ -292,7 +317,23 @@ fn write_local_http_api_config(
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let bytes = serde_json::to_vec_pretty(config).map_err(|e| e.to_string())?;
-    fs::write(path, bytes).map_err(|e| e.to_string())
+    if bytes.len() > LOCAL_HTTP_API_CONFIG_MAX_BYTES {
+        return Err(format!(
+            "Local HTTP API configuration exceeds the {} byte limit.",
+            LOCAL_HTTP_API_CONFIG_MAX_BYTES
+        ));
+    }
+    let parent = path
+        .parent()
+        .ok_or_else(|| "Local HTTP API config path has no parent directory.".to_string())?;
+    let mut staged = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
+    staged.write_all(&bytes).map_err(|e| e.to_string())?;
+    staged.as_file_mut().sync_all().map_err(|e| e.to_string())?;
+    staged.persist(&path).map_err(|e| e.error.to_string())?;
+    if let Ok(directory) = fs::File::open(parent) {
+        let _ = directory.sync_all();
+    }
+    Ok(())
 }
 
 fn normalize_local_http_api_config(
@@ -333,14 +374,15 @@ fn normalize_cors_origin(origin: &str) -> Result<String, String> {
             "Invalid CORS origin: {origin}. Use only scheme, host, and optional port."
         ));
     }
-    let host = parsed
-        .host_str()
-        .ok_or_else(|| format!("Invalid CORS origin: {origin}. Missing host."))?;
-    let port = parsed
-        .port()
-        .map(|port| format!(":{port}"))
-        .unwrap_or_default();
-    Ok(format!("{}://{}{}", parsed.scheme(), host, port))
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(format!(
+            "Invalid CORS origin: {origin}. Origins cannot contain credentials."
+        ));
+    }
+    if parsed.host_str().is_none() {
+        return Err(format!("Invalid CORS origin: {origin}. Missing host."));
+    }
+    Ok(parsed.origin().ascii_serialization())
 }
 
 fn local_http_api_status_from_runtime(runtime: &LocalHttpApiRuntime) -> LocalHttpApiStatus {
@@ -426,11 +468,14 @@ async fn start_local_http_api_server(
     );
 
     let task = tokio::spawn(async move {
-        let result = axum::serve(listener, router)
-            .with_graceful_shutdown(async {
-                let _ = shutdown_rx.await;
-            })
-            .await;
+        let result = axum::serve(
+            listener,
+            router.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .with_graceful_shutdown(async {
+            let _ = shutdown_rx.await;
+        })
+        .await;
         if let Err(error) = result {
             eprintln!("[kechimochi] local HTTP API stopped with error: {error}");
         }
@@ -450,10 +495,12 @@ async fn apply_local_http_api_config(
     config: LocalHttpApiConfig,
     persist: bool,
 ) -> Result<LocalHttpApiStatus, String> {
+    let _transition = api_state.transition.lock().await;
     let requested_config = normalize_local_http_api_config(config)?;
-    let old_server = {
+    let (old_server, old_config) = {
         let mut runtime = api_state.inner.lock().unwrap();
-        runtime.server.take()
+        runtime.revision = runtime.revision.saturating_add(1);
+        (runtime.server.take(), runtime.config.clone())
     };
     if let Some(server) = old_server {
         stop_local_http_api_server(server).await;
@@ -461,8 +508,9 @@ async fn apply_local_http_api_config(
 
     let mut actual_config = requested_config.clone();
     let mut last_error = None;
-    let server = if requested_config.enabled {
-        match start_local_http_api_server(app_handle.clone(), conn, &requested_config).await {
+    let mut server = if requested_config.enabled {
+        match start_local_http_api_server(app_handle.clone(), conn.clone(), &requested_config).await
+        {
             Ok(server) => Some(server),
             Err(error) => {
                 actual_config.enabled = false;
@@ -475,7 +523,31 @@ async fn apply_local_http_api_config(
     };
 
     if persist {
-        write_local_http_api_config(&app_handle, &actual_config)?;
+        if let Err(persist_error) = write_local_http_api_config(&app_handle, &actual_config) {
+            if let Some(started_server) = server.take() {
+                stop_local_http_api_server(started_server).await;
+            }
+            let (restored_server, restore_error) = if old_config.enabled {
+                match start_local_http_api_server(app_handle.clone(), conn, &old_config).await {
+                    Ok(server) => (Some(server), None),
+                    Err(error) => (None, Some(error)),
+                }
+            } else {
+                (None, None)
+            };
+            let error = if let Some(restore_error) = restore_error {
+                format!(
+                    "Failed to save local HTTP API settings: {persist_error}; the previous listener also could not be restored: {restore_error}"
+                )
+            } else {
+                format!("Failed to save local HTTP API settings: {persist_error}")
+            };
+            let mut runtime = api_state.inner.lock().unwrap();
+            runtime.config = old_config;
+            runtime.server = restored_server;
+            runtime.last_error = Some(error.clone());
+            return Err(error);
+        }
     }
 
     let mut runtime = api_state.inner.lock().unwrap();
@@ -670,10 +742,8 @@ fn add_media(
     state: State<DbState>,
     media: Media,
 ) -> Result<i64, String> {
-    run_dirty_command(&app_handle, || {
-        with_conn(&state, |conn| {
-            db::add_media_with_id(conn, &media).map_err(|e| e.to_string())
-        })
+    run_dirty_command(&app_handle, &state, |conn| {
+        db::add_media_with_id(conn, &media).map_err(|e| e.to_string())
     })
 }
 
@@ -683,10 +753,8 @@ fn update_media(
     state: State<DbState>,
     media: Media,
 ) -> Result<(), String> {
-    run_dirty_command(&app_handle, || {
-        with_conn(&state, |conn| {
-            db::update_media(conn, &media).map_err(|e| e.to_string())
-        })
+    run_dirty_command(&app_handle, &state, |conn| {
+        db::update_media(conn, &media).map_err(|e| e.to_string())
     })
 }
 
@@ -696,10 +764,8 @@ fn delete_media(
     state: State<DbState>,
     id: i64,
 ) -> Result<(), String> {
-    run_dirty_command(&app_handle, || {
-        with_conn(&state, |conn| {
-            db::delete_media(conn, id).map_err(|e| e.to_string())
-        })
+    run_dirty_command(&app_handle, &state, |conn| {
+        db::delete_media(conn, id).map_err(|e| e.to_string())
     })
 }
 
@@ -709,19 +775,15 @@ fn add_log(
     state: State<DbState>,
     log: ActivityLog,
 ) -> Result<i64, String> {
-    run_dirty_command(&app_handle, || {
-        with_conn(&state, |conn| {
-            db::add_log(conn, &log).map_err(|e| e.to_string())
-        })
+    run_dirty_command(&app_handle, &state, |conn| {
+        db::add_log(conn, &log).map_err(|e| e.to_string())
     })
 }
 
 #[tauri::command]
 fn delete_log(app_handle: tauri::AppHandle, state: State<DbState>, id: i64) -> Result<(), String> {
-    run_dirty_command(&app_handle, || {
-        with_conn(&state, |conn| {
-            db::delete_log(conn, id).map_err(|e| e.to_string())
-        })
+    run_dirty_command(&app_handle, &state, |conn| {
+        db::delete_log(conn, id).map_err(|e| e.to_string())
     })
 }
 
@@ -731,10 +793,8 @@ fn update_log(
     state: State<DbState>,
     log: ActivityLog,
 ) -> Result<(), String> {
-    run_dirty_command(&app_handle, || {
-        with_conn(&state, |conn| {
-            db::update_log(conn, &log).map_err(|e| e.to_string())
-        })
+    run_dirty_command(&app_handle, &state, |conn| {
+        db::update_log(conn, &log).map_err(|e| e.to_string())
     })
 }
 
@@ -857,10 +917,8 @@ fn add_milestone(
     state: State<DbState>,
     milestone: Milestone,
 ) -> Result<i64, String> {
-    run_dirty_command(&app_handle, || {
-        with_conn(&state, |conn| {
-            db::add_milestone(conn, &milestone).map_err(|e| e.to_string())
-        })
+    run_dirty_command(&app_handle, &state, |conn| {
+        db::add_milestone(conn, &milestone).map_err(|e| e.to_string())
     })
 }
 
@@ -870,10 +928,8 @@ fn delete_milestone(
     state: State<DbState>,
     id: i64,
 ) -> Result<(), String> {
-    run_dirty_command(&app_handle, || {
-        with_conn(&state, |conn| {
-            db::delete_milestone(conn, id).map_err(|e| e.to_string())
-        })
+    run_dirty_command(&app_handle, &state, |conn| {
+        db::delete_milestone(conn, id).map_err(|e| e.to_string())
     })
 }
 
@@ -883,10 +939,8 @@ fn delete_milestones_for_media(
     state: State<DbState>,
     media_uid: String,
 ) -> Result<(), String> {
-    run_dirty_command(&app_handle, || {
-        with_conn(&state, |conn| {
-            db::delete_milestones_for_media_uid(conn, &media_uid).map_err(|e| e.to_string())
-        })
+    run_dirty_command(&app_handle, &state, |conn| {
+        db::delete_milestones_for_media_uid(conn, &media_uid).map_err(|e| e.to_string())
     })
 }
 
@@ -896,10 +950,8 @@ fn update_milestone(
     state: State<DbState>,
     milestone: Milestone,
 ) -> Result<(), String> {
-    run_dirty_command(&app_handle, || {
-        with_conn(&state, |conn| {
-            db::update_milestone(conn, &milestone).map_err(|e| e.to_string())
-        })
+    run_dirty_command(&app_handle, &state, |conn| {
+        db::update_milestone(conn, &milestone).map_err(|e| e.to_string())
     })
 }
 
@@ -917,10 +969,8 @@ fn import_milestones_csv(
     file_path: String,
 ) -> Result<usize, String> {
     let file = app_file_io::open_input_file(&app_handle, &file_path)?;
-    run_dirty_command(&app_handle, || {
-        with_conn_mut(&state, |conn| {
-            csv_import::import_milestones_csv_from_reader(conn, file)
-        })
+    run_dirty_command(&app_handle, &state, |conn| {
+        csv_import::import_milestones_csv_from_reader(conn, file)
     })
 }
 
@@ -932,12 +982,11 @@ fn upload_cover_image(
     path: String,
 ) -> Result<String, String> {
     let covers_dir = db::get_data_dir(&app_handle).join("covers");
-    let bytes = app_file_io::read_input_bytes(&app_handle, &path)?;
-    let extension = app_file_io::infer_image_extension(&app_handle, &path, &bytes);
-    run_dirty_command(&app_handle, || {
-        with_conn(&state, |conn| {
-            db::save_cover_bytes(conn, covers_dir, media_id, bytes, &extension)
-        })
+    let bytes =
+        app_file_io::read_input_bytes_with_limit(&app_handle, &path, LOCAL_COVER_SOURCE_BYTES)?;
+    let extension = remote_fetch::infer_image_extension(&bytes)?;
+    run_dirty_command(&app_handle, &state, |conn| {
+        db::save_cover_bytes(conn, covers_dir, media_id, bytes, &extension)
     })
 }
 
@@ -948,20 +997,20 @@ fn read_file_bytes(app_handle: tauri::AppHandle, path: String) -> Result<Vec<u8>
 
 #[tauri::command]
 fn save_binary_file(file_path: String, bytes: Vec<u8>) -> Result<(), String> {
-    std::fs::write(&file_path, &bytes).map_err(|e| e.to_string())
+    app_file_io::write_output_bytes_atomic(&file_path, &bytes)
 }
 
 #[tauri::command]
 async fn fetch_remote_bytes(url: String) -> Result<Vec<u8>, String> {
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let res = client.get(&url).send().await.map_err(|e| e.to_string())?;
-    let res = res.error_for_status().map_err(|e| e.to_string())?;
-    let bytes = res.bytes().await.map_err(|e| e.to_string())?;
-    Ok(bytes.to_vec())
+    remote_fetch::fetch_public(remote_fetch::PublicFetchRequest {
+        url,
+        method: reqwest::Method::GET,
+        body: None,
+        headers: std::collections::HashMap::new(),
+        max_response_bytes: remote_fetch::MAX_BINARY_RESPONSE_BYTES,
+    })
+    .await
+    .map(|response| response.bytes)
 }
 
 #[tauri::command]
@@ -971,42 +1020,28 @@ async fn fetch_external_json(
     body: Option<String>,
     headers: Option<std::collections::HashMap<String, String>>,
 ) -> Result<String, String> {
-    let builder = reqwest::Client::builder();
-
-    // Set a default user agent, then try to override below if provided
-    let default_ua = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-    let ua = if let Some(ref h) = headers {
-        h.get("User-Agent")
-            .map(|s| s.as_str())
-            .unwrap_or(default_ua)
-    } else {
-        default_ua
+    let method = match method.to_uppercase().as_str() {
+        "POST" => reqwest::Method::POST,
+        "GET" => reqwest::Method::GET,
+        _ => return Err("Only GET and POST remote requests are supported".to_string()),
     };
-
-    let client = builder.user_agent(ua).build().map_err(|e| e.to_string())?;
-
-    let mut req = match method.to_uppercase().as_str() {
-        "POST" => client.post(&url),
-        _ => client.get(&url),
-    };
-
-    if let Some(h) = headers {
-        for (k, v) in h.iter() {
-            if k.eq_ignore_ascii_case("User-Agent") {
-                continue;
-            }
-            req = req.header(k, v);
-        }
+    let mut headers = headers.unwrap_or_default();
+    if body.is_some()
+        && !headers
+            .keys()
+            .any(|name| name.eq_ignore_ascii_case("content-type"))
+    {
+        headers.insert("Content-Type".to_string(), "application/json".to_string());
     }
-
-    if let Some(b) = body {
-        req = req.header("Content-Type", "application/json").body(b);
-    }
-
-    let res = req.send().await.map_err(|e| e.to_string())?;
-    let res = res.error_for_status().map_err(|e| e.to_string())?;
-    let text = res.text().await.map_err(|e| e.to_string())?;
-    Ok(text)
+    let response = remote_fetch::fetch_public(remote_fetch::PublicFetchRequest {
+        url,
+        method,
+        body: body.map(String::into_bytes),
+        headers,
+        max_response_bytes: remote_fetch::MAX_TEXT_RESPONSE_BYTES,
+    })
+    .await?;
+    Ok(String::from_utf8_lossy(&response.bytes).into_owned())
 }
 
 #[tauri::command]
@@ -1016,28 +1051,21 @@ async fn download_and_save_image(
     media_id: i64,
     url: String,
 ) -> Result<String, String> {
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let res = client.get(&url).send().await.map_err(|e| e.to_string())?;
-    let res = res.error_for_status().map_err(|e| e.to_string())?;
-    let bytes = res.bytes().await.map_err(|e| e.to_string())?;
-    let bytes_vec = bytes.to_vec();
+    let bytes_vec = remote_fetch::fetch_public(remote_fetch::PublicFetchRequest {
+        url,
+        method: reqwest::Method::GET,
+        body: None,
+        headers: std::collections::HashMap::new(),
+        max_response_bytes: remote_fetch::MAX_BINARY_RESPONSE_BYTES,
+    })
+    .await?
+    .bytes;
+    let extension = remote_fetch::infer_image_extension(&bytes_vec)?;
 
     let covers_dir = db::get_data_dir(&app_handle).join("covers");
 
-    let ext = std::path::Path::new(&url)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("jpg");
-    let ext = ext.split('?').next().unwrap_or("jpg");
-
-    run_dirty_command(&app_handle, || {
-        with_conn(&state, |conn| {
-            db::save_cover_bytes(conn, covers_dir, media_id, bytes_vec, ext)
-        })
+    run_dirty_command(&app_handle, &state, |conn| {
+        db::save_cover_bytes(conn, covers_dir, media_id, bytes_vec, &extension)
     })
 }
 
@@ -1048,10 +1076,8 @@ fn import_csv(
     file_path: String,
 ) -> Result<usize, String> {
     let file = app_file_io::open_input_file(&app_handle, &file_path)?;
-    run_dirty_command(&app_handle, || {
-        with_conn_mut(&state, |conn| {
-            csv_import::import_csv_from_reader(conn, file)
-        })
+    run_dirty_command(&app_handle, &state, |conn| {
+        csv_import::import_csv_from_reader(conn, file)
     })
 }
 
@@ -1073,10 +1099,7 @@ fn apply_activity_import(
     state: State<DbState>,
     request: csv_import::ActivityCsvImportRequest,
 ) -> Result<csv_import::ActivityCsvImportResult, String> {
-    // A harmless false-dirty marker is safer than committing an import and then
-    // reporting failure because the external sync marker could not be written.
-    mark_sync_dirty(&app_handle)?;
-    with_conn_mut(&state, |conn| {
+    run_dirty_command(&app_handle, &state, |conn| {
         csv_import::apply_activity_import(conn, request)
     })
 }
@@ -1116,13 +1139,11 @@ fn analyze_media_csv(
 fn apply_media_import(
     app_handle: tauri::AppHandle,
     state: State<DbState>,
-    records: Vec<csv_import::MediaCsvRow>,
+    records: Vec<csv_import::MediaCsvImportSelection>,
 ) -> Result<usize, String> {
     let covers_dir = db::get_data_dir(&app_handle).join("covers");
-    run_dirty_command(&app_handle, || {
-        with_conn_mut(&state, |conn| {
-            csv_import::apply_media_import(covers_dir, conn, records)
-        })
+    run_dirty_command(&app_handle, &state, |conn| {
+        csv_import::apply_media_import(covers_dir, conn, records)
     })
 }
 
@@ -1140,10 +1161,8 @@ fn initialize_user_db(
 
 #[tauri::command]
 fn clear_activities(app_handle: tauri::AppHandle, state: State<DbState>) -> Result<(), String> {
-    run_dirty_command(&app_handle, || {
-        with_conn(&state, |conn| {
-            db::clear_activities(conn).map_err(|e| e.to_string())
-        })
+    run_dirty_command(&app_handle, &state, |conn| {
+        db::clear_activities(conn).map_err(|e| e.to_string())
     })
 }
 
@@ -1153,8 +1172,15 @@ fn wipe_everything(app_handle: tauri::AppHandle, state: State<DbState>) -> Resul
     let _sync_guard = sync_state::acquire_sync_lock(&app_dir)?;
     let mut conn_guard = state.conn.lock().map_err(|e| e.to_string())?;
     *conn_guard = rusqlite::Connection::open_in_memory().map_err(|e| e.to_string())?;
-    sync_state::clear_sync_runtime_files(&app_dir)?;
-    db::wipe_everything(app_dir)
+    let reset_result = sync_state::wipe_local_data(&app_dir);
+    if let Err(error) = reset_result {
+        if let Ok(connection) = db::init_db(app_dir, None) {
+            *conn_guard = connection;
+        }
+        return Err(error);
+    }
+    *conn_guard = db::init_db(app_dir, None).map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -1164,10 +1190,8 @@ fn set_setting(
     key: String,
     value: String,
 ) -> Result<(), String> {
-    run_dirty_command(&app_handle, || {
-        with_conn(&state, |conn| {
-            db::set_setting(conn, &key, &value).map_err(|e| e.to_string())
-        })
+    run_dirty_command(&app_handle, &state, |conn| {
+        db::set_setting(conn, &key, &value).map_err(|e| e.to_string())
     })
 }
 
@@ -1206,13 +1230,15 @@ fn upload_profile_picture(
     state: State<DbState>,
     path: String,
 ) -> Result<ProfilePicture, String> {
-    let bytes = app_file_io::read_input_bytes(&app_handle, &path)?;
+    let bytes = app_file_io::read_input_bytes_with_limit(
+        &app_handle,
+        &path,
+        profile_picture::MAX_PROFILE_PICTURE_SOURCE_BYTES,
+    )?;
     let profile_picture = profile_picture::process_profile_picture_bytes(&bytes)?;
-    run_dirty_command(&app_handle, || {
-        with_conn(&state, |conn| {
-            db::upsert_profile_picture(conn, &profile_picture).map_err(|e| e.to_string())?;
-            Ok(profile_picture.clone())
-        })
+    run_dirty_command(&app_handle, &state, |conn| {
+        db::upsert_profile_picture(conn, &profile_picture).map_err(|e| e.to_string())?;
+        Ok(profile_picture.clone())
     })
 }
 
@@ -1221,10 +1247,8 @@ fn delete_profile_picture(
     app_handle: tauri::AppHandle,
     state: State<DbState>,
 ) -> Result<(), String> {
-    run_dirty_command(&app_handle, || {
-        with_conn(&state, |conn| {
-            db::delete_profile_picture(conn).map_err(|e| e.to_string())
-        })
+    run_dirty_command(&app_handle, &state, |conn| {
+        db::delete_profile_picture(conn).map_err(|e| e.to_string())
     })
 }
 #[tauri::command]
@@ -1248,6 +1272,7 @@ fn get_sync_status(app_handle: tauri::AppHandle) -> Result<sync_state::SyncStatu
 #[tauri::command]
 fn clear_sync_backups(app_handle: tauri::AppHandle) -> Result<(), String> {
     let app_dir = db::get_data_dir(&app_handle);
+    let _sync_guard = sync_state::acquire_sync_lock(&app_dir)?;
     sync_state::clear_sync_backups(&app_dir)
 }
 
@@ -1601,18 +1626,34 @@ fn apply_database_recovery(
                     local_storage,
                 } => {
                     let mut result = applied.result;
-                    database_recovery::preserve_safety_backup(&app_dir, &mut result)?;
                     drop(applied.connection);
-                    let prepared = backup::PreparedFullBackup {
-                        staging_dir: staging_dir.clone(),
-                        local_storage: local_storage.clone(),
+                    let staged_result = (|| {
+                        database_recovery::preserve_safety_backup(&app_dir, &mut result)?;
+                        let prepared = backup::PreparedFullBackup {
+                            staging_dir: staging_dir.clone(),
+                            local_storage: local_storage.clone(),
+                        };
+                        let imported_local_storage = {
+                            let mut connection =
+                                db_state.conn.lock().map_err(|error| error.to_string())?;
+                            backup::install_prepared_full_backup(
+                                &app_dir,
+                                &mut connection,
+                                &prepared,
+                            )?
+                        };
+                        Ok::<String, String>(imported_local_storage)
+                    })();
+                    let imported_local_storage = match staged_result {
+                        Ok(local_storage) => local_storage,
+                        Err(error) => {
+                            let _ = std::fs::remove_dir_all(staging_dir);
+                            *mode = StartupMode::Ready;
+                            return Err(format!(
+                                "{error} The staged import was closed safely; import the original backup again to retry."
+                            ));
+                        }
                     };
-                    let imported_local_storage = {
-                        let mut connection =
-                            db_state.conn.lock().map_err(|error| error.to_string())?;
-                        backup::install_prepared_full_backup(&app_dir, &mut connection, &prepared)?
-                    };
-                    sync_state::clear_sync_runtime_files(&app_dir)?;
                     result.local_storage = Some(imported_local_storage);
                     result
                 }
@@ -1748,11 +1789,14 @@ pub fn run() {
                 load_local_http_api_config(app.handle())
             };
             let local_http_api_state = LocalHttpApiState::new(local_http_api_config.clone());
-            let local_http_api_inner = local_http_api_state.inner.clone();
-            app.manage(local_http_api_state);
+            app.manage(local_http_api_state.clone());
             if local_http_api_config.enabled && local_http_api_supported() {
                 let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
+                    let _transition = local_http_api_state.transition.lock().await;
+                    if local_http_api_state.inner.lock().unwrap().revision != 0 {
+                        return;
+                    }
                     match start_local_http_api_server(
                         app_handle,
                         db_conn,
@@ -1761,12 +1805,12 @@ pub fn run() {
                     .await
                     {
                         Ok(server) => {
-                            let mut runtime = local_http_api_inner.lock().unwrap();
+                            let mut runtime = local_http_api_state.inner.lock().unwrap();
                             runtime.server = Some(server);
                             runtime.last_error = None;
                         }
                         Err(error) => {
-                            let mut runtime = local_http_api_inner.lock().unwrap();
+                            let mut runtime = local_http_api_state.inner.lock().unwrap();
                             runtime.last_error = Some(error);
                         }
                     }
@@ -1894,6 +1938,29 @@ fn init_google_auth_mobile_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
             Ok(())
         })
         .build()
+}
+
+#[cfg(test)]
+mod local_http_api_config_tests {
+    use super::normalize_cors_origin;
+
+    #[test]
+    fn cors_origin_normalization_preserves_valid_ipv6_brackets() {
+        assert_eq!(
+            normalize_cors_origin("http://[::1]:4173").unwrap(),
+            "http://[::1]:4173"
+        );
+    }
+
+    #[test]
+    fn cors_origin_normalization_rejects_paths() {
+        assert!(normalize_cors_origin("https://example.com/not-an-origin").is_err());
+    }
+
+    #[test]
+    fn cors_origin_normalization_rejects_credentials() {
+        assert!(normalize_cors_origin("https://user:secret@example.com").is_err());
+    }
 }
 
 #[cfg(all(test, desktop))]

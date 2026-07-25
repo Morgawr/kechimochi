@@ -5,7 +5,9 @@ use std::sync::{Arc, Mutex};
 
 use axum::{
     body::Body,
-    extract::{rejection::JsonRejection, Multipart, Path, Query, State},
+    extract::{
+        rejection::JsonRejection, ConnectInfo, DefaultBodyLimit, Multipart, Path, Query, State,
+    },
     http::{header, HeaderMap, HeaderValue, Method, Request, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -15,12 +17,22 @@ use axum::{
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
+use tokio_util::io::ReaderStream;
 use tower_http::cors::{Any, CorsLayer};
 
-use crate::{backup, csv_import, db, get_username_logic, models, profile_picture, sync_state};
+use crate::{
+    backup, csv_import, db, get_username_logic, models, profile_picture, remote_fetch, sync_state,
+};
 
 pub type DirtyCallback = Arc<dyn Fn() -> Result<(), String> + Send + Sync>;
 pub type SharedApiState = Arc<HttpApiState>;
+
+const PROFILE_UPLOAD_LIMIT: usize = 8 * 1024 * 1024;
+const CSV_IMPORT_LIMIT: usize = 256 * 1024 * 1024;
+const COVER_UPLOAD_LIMIT: usize = 32 * 1024 * 1024;
+const FULL_BACKUP_IMPORT_LIMIT: usize = 1024 * 1024 * 1024;
+const FULL_BACKUP_EXPORT_LIMIT: usize = 64 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct HttpApiState {
@@ -99,6 +111,8 @@ fn map_media_write_error(error: rusqlite::Error) -> AppError {
     } else if message.contains("cannot be blank")
         || message.contains("requires an id")
         || message.contains("cannot be changed")
+        || message.contains("Media extra_data")
+        || (message.contains("Media ") && message.contains("not found"))
     {
         AppError::BadRequest(message)
     } else {
@@ -108,10 +122,7 @@ fn map_media_write_error(error: rusqlite::Error) -> AppError {
 
 fn map_milestone_write_error(error: rusqlite::Error) -> AppError {
     let message = error.to_string();
-    if message.contains("Milestone must")
-        || message.contains("Milestone update requires")
-        || message.contains("Media with uid")
-    {
+    if message.contains("Milestone ") || message.contains("Media with uid") {
         AppError::BadRequest(message)
     } else {
         AppError::Internal(message)
@@ -120,9 +131,8 @@ fn map_milestone_write_error(error: rusqlite::Error) -> AppError {
 
 fn map_activity_write_error(error: rusqlite::Error) -> AppError {
     let message = error.to_string();
-    if message.contains("Activity duration cannot be negative")
-        || message.contains("Activity character count cannot be negative")
-        || message.contains("Activity must have either duration or characters")
+    if message.contains("Activity ")
+        || (message.contains("Media ") && message.contains("not found"))
     {
         AppError::BadRequest(message)
     } else {
@@ -164,6 +174,7 @@ pub fn build_api_router(state: SharedApiState, config: HttpApiRouterConfig) -> R
         get(get_profile_picture_handler)
             .post(upload_profile_picture_handler)
             .delete(delete_profile_picture_handler)
+            .layer(DefaultBodyLimit::max(PROFILE_UPLOAD_LIMIT))
     } else {
         get(get_profile_picture_handler)
     };
@@ -201,33 +212,57 @@ pub fn build_api_router(state: SharedApiState, config: HttpApiRouterConfig) -> R
         router = router
             .route("/api/activities/clear", post(clear_activities))
             .route("/api/reset", post(wipe_everything_handler))
-            .route("/api/import/activities", post(import_activities))
+            .route(
+                "/api/import/activities",
+                post(import_activities).layer(DefaultBodyLimit::max(CSV_IMPORT_LIMIT)),
+            )
             .route(
                 "/api/import/activities/analyze",
-                post(analyze_activity_csv_upload),
+                post(analyze_activity_csv_upload).layer(DefaultBodyLimit::max(CSV_IMPORT_LIMIT)),
             )
             .route(
                 "/api/import/activities/apply",
-                post(apply_activity_import_handler),
+                post(apply_activity_import_handler).layer(DefaultBodyLimit::max(CSV_IMPORT_LIMIT)),
             )
             .route("/api/export/activities", get(export_activities))
-            .route("/api/import/media/analyze", post(analyze_media_csv_upload))
-            .route("/api/import/media/apply", post(apply_media_import_handler))
+            .route(
+                "/api/import/media/analyze",
+                post(analyze_media_csv_upload).layer(DefaultBodyLimit::max(CSV_IMPORT_LIMIT)),
+            )
+            .route(
+                "/api/import/media/apply",
+                post(apply_media_import_handler).layer(DefaultBodyLimit::max(CSV_IMPORT_LIMIT)),
+            )
             .route("/api/export/media", get(export_media_handler))
-            .route("/api/import/milestones", post(import_milestones))
+            .route(
+                "/api/import/milestones",
+                post(import_milestones).layer(DefaultBodyLimit::max(CSV_IMPORT_LIMIT)),
+            )
             .route("/api/export/milestones", get(export_milestones))
-            .route("/api/export/full-backup", post(export_full_backup_handler))
-            .route("/api/import/full-backup", post(import_full_backup_handler))
+            .route(
+                "/api/export/full-backup",
+                post(export_full_backup_handler)
+                    .layer(DefaultBodyLimit::max(FULL_BACKUP_EXPORT_LIMIT)),
+            )
+            .route(
+                "/api/import/full-backup",
+                post(import_full_backup_handler)
+                    .layer(DefaultBodyLimit::max(FULL_BACKUP_IMPORT_LIMIT)),
+            )
             .route("/api/covers/download", post(download_cover))
             .route("/api/covers/file/:filename", get(serve_cover))
-            .route("/api/covers/:media_id", post(upload_cover))
+            .route(
+                "/api/covers/:media_id",
+                post(upload_cover).layer(DefaultBodyLimit::max(COVER_UPLOAD_LIMIT)),
+            )
             .route("/api/fetch/json", post(fetch_json_proxy))
             .route("/api/fetch/bytes", post(fetch_bytes_proxy));
     }
 
     router = router
         .route("/api", any(api_not_found))
-        .route("/api/*path", any(api_not_found));
+        .route("/api/*path", any(api_not_found))
+        .layer(middleware::from_fn(validate_mutation_request));
 
     if config.host_policy != HostValidationPolicy::Disabled {
         router = router.layer(middleware::from_fn_with_state(
@@ -257,7 +292,10 @@ pub fn build_api_router(state: SharedApiState, config: HttpApiRouterConfig) -> R
                     CorsLayer::new()
                         .allow_origin(origins)
                         .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
-                        .allow_headers([header::CONTENT_TYPE]),
+                        .allow_headers([
+                            header::CONTENT_TYPE,
+                            header::HeaderName::from_static("x-kechimochi-api"),
+                        ]),
                 )
                 .with_state(state)
         }
@@ -270,13 +308,18 @@ async fn validate_host(
     req: Request<Body>,
     next: Next,
 ) -> Response {
-    let allowed = req
+    let host_allowed = req
         .headers()
         .get(header::HOST)
         .and_then(|value| value.to_str().ok())
         .is_some_and(|host| is_allowed_host(host, policy.policy));
 
-    if allowed {
+    let peer_allowed = req
+        .extensions()
+        .get::<ConnectInfo<std::net::SocketAddr>>()
+        .is_some_and(|ConnectInfo(address)| is_allowed_peer(address.ip(), policy.policy));
+
+    if host_allowed && peer_allowed {
         next.run(req).await
     } else {
         (
@@ -287,12 +330,42 @@ async fn validate_host(
     }
 }
 
+async fn validate_mutation_request(req: Request<Body>, next: Next) -> Response {
+    if matches!(*req.method(), Method::POST | Method::PUT | Method::DELETE) {
+        let is_json = req
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| {
+                value
+                    .split(';')
+                    .next()
+                    .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("application/json"))
+            });
+        let has_api_header = req
+            .headers()
+            .get("x-kechimochi-api")
+            .and_then(|value| value.to_str().ok())
+            == Some("1");
+        if !is_json && !has_api_header {
+            return (
+                StatusCode::FORBIDDEN,
+                "Non-JSON mutations require the X-Kechimochi-API: 1 header",
+            )
+                .into_response();
+        }
+    }
+    next.run(req).await
+}
+
 fn is_allowed_host(host_header: &str, policy: HostValidationPolicy) -> bool {
     if policy == HostValidationPolicy::Disabled {
         return true;
     }
 
-    let host = host_name_without_port(host_header);
+    let Some(host) = host_name_without_port(host_header) else {
+        return false;
+    };
     if host.eq_ignore_ascii_case("localhost") {
         return true;
     }
@@ -314,22 +387,39 @@ fn is_allowed_host(host_header: &str, policy: HostValidationPolicy) -> bool {
     }
 }
 
-fn host_name_without_port(host_header: &str) -> &str {
+fn is_allowed_peer(ip: IpAddr, policy: HostValidationPolicy) -> bool {
+    match (policy, ip) {
+        (HostValidationPolicy::Disabled, _) => true,
+        (HostValidationPolicy::LocalOnly, IpAddr::V4(addr)) => addr.is_loopback(),
+        (HostValidationPolicy::LocalOnly, IpAddr::V6(addr)) => addr.is_loopback(),
+        (HostValidationPolicy::LocalNetwork, IpAddr::V4(addr)) => {
+            addr.is_loopback() || addr.is_private() || addr.is_link_local()
+        }
+        (HostValidationPolicy::LocalNetwork, IpAddr::V6(addr)) => {
+            addr.is_loopback() || is_ipv6_unique_local(&addr) || is_ipv6_unicast_link_local(&addr)
+        }
+    }
+}
+
+fn host_name_without_port(host_header: &str) -> Option<String> {
     let trimmed = host_header.trim();
-    if let Some(rest) = trimmed.strip_prefix('[') {
-        if let Some(end) = rest.find(']') {
-            return &rest[..end];
+    let authority = trimmed.parse::<axum::http::uri::Authority>().ok()?;
+    let authority_host = authority.host();
+    let suffix = trimmed.strip_prefix(authority_host)?;
+    if !suffix.is_empty() {
+        let port = suffix.strip_prefix(':')?;
+        if port.is_empty() || port.parse::<u16>().is_err() {
+            return None;
         }
     }
 
-    if trimmed.matches(':').count() == 1 {
-        return trimmed
-            .split_once(':')
-            .map(|(host, _)| host)
-            .unwrap_or(trimmed);
-    }
-
-    trimmed
+    Some(
+        authority_host
+            .strip_prefix('[')
+            .and_then(|host| host.strip_suffix(']'))
+            .unwrap_or(authority_host)
+            .to_owned(),
+    )
 }
 
 fn is_ipv6_unique_local(addr: &std::net::Ipv6Addr) -> bool {
@@ -345,6 +435,18 @@ fn mark_dirty(state: &HttpApiState) -> HandlerResult<()> {
         callback().map_err(AppError::Internal)?;
     }
     Ok(())
+}
+
+fn with_dirty_conn<T>(
+    state: &HttpApiState,
+    operation: impl FnOnce(&mut Connection) -> HandlerResult<T>,
+) -> HandlerResult<T> {
+    // Sync finalization uses the same database mutex while deciding whether
+    // the profile is Clean. Keep the Dirty marker and mutation behind that
+    // mutex so their order cannot be inverted by an in-flight sync.
+    let mut conn = state.conn.lock().ae()?;
+    mark_dirty(state)?;
+    operation(&mut conn)
 }
 
 async fn api_not_found() -> (StatusCode, &'static str) {
@@ -368,9 +470,9 @@ async fn add_media(
     Json(media): Json<models::HttpMedia>,
 ) -> HandlerResult<Json<i64>> {
     let media = models::Media::try_from(media).map_err(AppError::BadRequest)?;
-    let conn = s.conn.lock().ae()?;
-    let id = db::add_media_with_id(&conn, &media).map_err(map_media_write_error)?;
-    mark_dirty(&s)?;
+    let id = with_dirty_conn(&s, |conn| {
+        db::add_media_with_id(conn, &media).map_err(map_media_write_error)
+    })?;
     Ok(Json(id))
 }
 
@@ -381,9 +483,9 @@ async fn update_media(
 ) -> HandlerResult<Json<()>> {
     let mut media = models::Media::try_from(media).map_err(AppError::BadRequest)?;
     media.id = Some(id);
-    let conn = s.conn.lock().ae()?;
-    db::update_media(&conn, &media).map_err(map_media_write_error)?;
-    mark_dirty(&s)?;
+    with_dirty_conn(&s, |conn| {
+        db::update_media(conn, &media).map_err(map_media_write_error)
+    })?;
     Ok(Json(()))
 }
 
@@ -391,9 +493,7 @@ async fn delete_media_handler(
     State(s): State<SharedApiState>,
     Path(id): Path<i64>,
 ) -> HandlerResult<Json<()>> {
-    let conn = s.conn.lock().ae()?;
-    db::delete_media(&conn, id).ae()?;
-    mark_dirty(&s)?;
+    with_dirty_conn(&s, |conn| db::delete_media(conn, id).ae())?;
     Ok(Json(()))
 }
 
@@ -413,9 +513,9 @@ async fn add_log(
     State(s): State<SharedApiState>,
     Json(log): Json<models::ActivityLog>,
 ) -> HandlerResult<Json<i64>> {
-    let conn = s.conn.lock().ae()?;
-    let id = db::add_log(&conn, &log).map_err(map_activity_write_error)?;
-    mark_dirty(&s)?;
+    let id = with_dirty_conn(&s, |conn| {
+        db::add_log(conn, &log).map_err(map_activity_write_error)
+    })?;
     Ok(Json(id))
 }
 
@@ -425,9 +525,9 @@ async fn update_log_handler(
     Json(mut log): Json<models::ActivityLog>,
 ) -> HandlerResult<Json<()>> {
     log.id = Some(id);
-    let conn = s.conn.lock().ae()?;
-    db::update_log(&conn, &log).map_err(map_activity_write_error)?;
-    mark_dirty(&s)?;
+    with_dirty_conn(&s, |conn| {
+        db::update_log(conn, &log).map_err(map_activity_write_error)
+    })?;
     Ok(Json(()))
 }
 
@@ -435,9 +535,7 @@ async fn delete_log_handler(
     State(s): State<SharedApiState>,
     Path(id): Path<i64>,
 ) -> HandlerResult<Json<()>> {
-    let conn = s.conn.lock().ae()?;
-    db::delete_log(&conn, id).ae()?;
-    mark_dirty(&s)?;
+    with_dirty_conn(&s, |conn| db::delete_log(conn, id).ae())?;
     Ok(Json(()))
 }
 
@@ -482,9 +580,9 @@ async fn add_milestone_handler(
     State(s): State<SharedApiState>,
     Json(milestone): Json<models::Milestone>,
 ) -> HandlerResult<Json<i64>> {
-    let conn = s.conn.lock().ae()?;
-    let id = db::add_milestone(&conn, &milestone).map_err(map_milestone_write_error)?;
-    mark_dirty(&s)?;
+    let id = with_dirty_conn(&s, |conn| {
+        db::add_milestone(conn, &milestone).map_err(map_milestone_write_error)
+    })?;
     Ok(Json(id))
 }
 
@@ -494,9 +592,9 @@ async fn update_milestone_handler(
     Json(mut milestone): Json<models::Milestone>,
 ) -> HandlerResult<Json<()>> {
     milestone.id = Some(id);
-    let conn = s.conn.lock().ae()?;
-    db::update_milestone(&conn, &milestone).map_err(map_milestone_write_error)?;
-    mark_dirty(&s)?;
+    with_dirty_conn(&s, |conn| {
+        db::update_milestone(conn, &milestone).map_err(map_milestone_write_error)
+    })?;
     Ok(Json(()))
 }
 
@@ -504,9 +602,7 @@ async fn delete_milestone_handler(
     State(s): State<SharedApiState>,
     Path(id): Path<i64>,
 ) -> HandlerResult<Json<()>> {
-    let conn = s.conn.lock().ae()?;
-    db::delete_milestone(&conn, id).ae()?;
-    mark_dirty(&s)?;
+    with_dirty_conn(&s, |conn| db::delete_milestone(conn, id).ae())?;
     Ok(Json(()))
 }
 
@@ -514,9 +610,9 @@ async fn clear_milestones_for_media_handler(
     State(s): State<SharedApiState>,
     Path(media_uid): Path<String>,
 ) -> HandlerResult<Json<()>> {
-    let conn = s.conn.lock().ae()?;
-    db::delete_milestones_for_media_uid(&conn, &media_uid).ae()?;
-    mark_dirty(&s)?;
+    with_dirty_conn(&s, |conn| {
+        db::delete_milestones_for_media_uid(conn, &media_uid).ae()
+    })?;
     Ok(Json(()))
 }
 
@@ -552,18 +648,16 @@ async fn upload_profile_picture_handler(
         .ok_or_else(|| AppError::Internal("No file field in multipart".into()))?;
     let bytes = field.bytes().await.ae()?.to_vec();
     let profile_picture = profile_picture::process_profile_picture_bytes(&bytes).ae()?;
-    let conn = s.conn.lock().ae()?;
-    db::upsert_profile_picture(&conn, &profile_picture).ae()?;
-    mark_dirty(&s)?;
+    with_dirty_conn(&s, |conn| {
+        db::upsert_profile_picture(conn, &profile_picture).ae()
+    })?;
     Ok(Json(profile_picture))
 }
 
 async fn delete_profile_picture_handler(
     State(s): State<SharedApiState>,
 ) -> HandlerResult<Json<()>> {
-    let conn = s.conn.lock().ae()?;
-    db::delete_profile_picture(&conn).ae()?;
-    mark_dirty(&s)?;
+    with_dirty_conn(&s, |conn| db::delete_profile_picture(conn).ae())?;
     Ok(Json(()))
 }
 
@@ -585,9 +679,7 @@ async fn set_setting(
     Path(key): Path<String>,
     Json(body): Json<SetSettingBody>,
 ) -> HandlerResult<Json<()>> {
-    let conn = s.conn.lock().ae()?;
-    db::set_setting(&conn, &key, &body.value).ae()?;
-    mark_dirty(&s)?;
+    with_dirty_conn(&s, |conn| db::set_setting(conn, &key, &body.value).ae())?;
     Ok(Json(()))
 }
 
@@ -601,9 +693,7 @@ async fn get_version() -> Json<String> {
 }
 
 async fn clear_activities(State(s): State<SharedApiState>) -> HandlerResult<Json<()>> {
-    let conn = s.conn.lock().ae()?;
-    db::clear_activities(&conn).ae()?;
-    mark_dirty(&s)?;
+    with_dirty_conn(&s, |conn| db::clear_activities(conn).ae())?;
     Ok(Json(()))
 }
 
@@ -612,8 +702,14 @@ async fn wipe_everything_handler(State(s): State<SharedApiState>) -> HandlerResu
         sync_state::acquire_sync_lock(&s.data_dir).map_err(map_sync_operation_error)?;
     let mut conn = s.conn.lock().ae()?;
     *conn = rusqlite::Connection::open_in_memory().ae()?;
-    sync_state::clear_sync_runtime_files(&s.data_dir).ae()?;
-    db::wipe_everything(s.data_dir.clone()).ae()?;
+    let reset_result = sync_state::wipe_local_data(&s.data_dir);
+    if let Err(error) = reset_result {
+        if let Ok(connection) = db::init_db(s.data_dir.clone(), None) {
+            *conn = connection;
+        }
+        return Err(AppError::Internal(error));
+    }
+    *conn = db::init_db(s.data_dir.clone(), None).ae()?;
     Ok(Json(()))
 }
 
@@ -627,11 +723,9 @@ async fn import_activities(
         .to_str()
         .ok_or_else(|| AppError::Internal("Invalid temp path".into()))?
         .to_owned();
-    let count = {
-        let mut conn = s.conn.lock().ae()?;
-        csv_import::import_csv(&mut conn, &path).map_err(map_csv_import_error)?
-    };
-    mark_dirty(&s)?;
+    let count = with_dirty_conn(&s, |conn| {
+        csv_import::import_csv(conn, &path).map_err(map_csv_import_error)
+    })?;
     Ok(Json(serde_json::json!({ "count": count })))
 }
 
@@ -656,13 +750,11 @@ async fn apply_activity_import_handler(
     payload: Result<Json<csv_import::ActivityCsvImportRequest>, JsonRejection>,
 ) -> HandlerResult<Json<csv_import::ActivityCsvImportResult>> {
     let Json(request) = payload.map_err(|error| AppError::BadRequest(error.body_text()))?;
-    // Write the external sync intent first. If this fails, no database rows are
-    // committed and the caller can safely retry the same reviewed import.
-    mark_dirty(&s)?;
-    let mut conn = s.conn.lock().ae()?;
-    csv_import::apply_activity_import(&mut conn, request)
-        .map_err(map_csv_import_error)
-        .map(Json)
+    with_dirty_conn(&s, |conn| {
+        csv_import::apply_activity_import(conn, request)
+            .map_err(map_csv_import_error)
+            .map(Json)
+    })
 }
 
 #[derive(Deserialize)]
@@ -685,7 +777,7 @@ async fn export_activities(
         let conn = s.conn.lock().ae()?;
         csv_import::export_logs_csv(&conn, &path, params.start, params.end).ae()?
     };
-    let bytes = std::fs::read(tmp.path()).ae()?;
+    let body = tempfile_body(&tmp)?;
     Response::builder()
         .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
         .header(
@@ -693,7 +785,7 @@ async fn export_activities(
             "attachment; filename=\"activities.csv\"",
         )
         .header("x-row-count", count.to_string())
-        .body(Body::from(bytes))
+        .body(body)
         .ae()
 }
 
@@ -715,16 +807,13 @@ async fn analyze_media_csv_upload(
 
 async fn apply_media_import_handler(
     State(s): State<SharedApiState>,
-    payload: Result<Json<Vec<csv_import::MediaCsvRow>>, JsonRejection>,
+    payload: Result<Json<Vec<csv_import::MediaCsvImportSelection>>, JsonRejection>,
 ) -> HandlerResult<Json<usize>> {
     let Json(records) = payload.map_err(|error| AppError::BadRequest(error.body_text()))?;
     let covers_dir = s.data_dir.join("covers");
-    let count = {
-        let mut conn = s.conn.lock().ae()?;
-        csv_import::apply_media_import(covers_dir, &mut conn, records)
-            .map_err(map_csv_import_error)?
-    };
-    mark_dirty(&s)?;
+    let count = with_dirty_conn(&s, |conn| {
+        csv_import::apply_media_import(covers_dir, conn, records).map_err(map_csv_import_error)
+    })?;
     Ok(Json(count))
 }
 
@@ -739,7 +828,7 @@ async fn export_media_handler(State(s): State<SharedApiState>) -> HandlerResult<
         let conn = s.conn.lock().ae()?;
         csv_import::export_media_csv(&conn, &path).ae()?
     };
-    let bytes = std::fs::read(tmp.path()).ae()?;
+    let body = tempfile_body(&tmp)?;
     Response::builder()
         .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
         .header(
@@ -747,7 +836,7 @@ async fn export_media_handler(State(s): State<SharedApiState>) -> HandlerResult<
             "attachment; filename=\"media_library.csv\"",
         )
         .header("x-row-count", count.to_string())
-        .body(Body::from(bytes))
+        .body(body)
         .ae()
 }
 
@@ -761,11 +850,9 @@ async fn import_milestones(
         .to_str()
         .ok_or_else(|| AppError::Internal("Invalid temp path".into()))?
         .to_owned();
-    let count = {
-        let mut conn = s.conn.lock().ae()?;
-        csv_import::import_milestones_csv(&mut conn, &path).map_err(map_csv_import_error)?
-    };
-    mark_dirty(&s)?;
+    let count = with_dirty_conn(&s, |conn| {
+        csv_import::import_milestones_csv(conn, &path).map_err(map_csv_import_error)
+    })?;
     Ok(Json(serde_json::json!({ "count": count })))
 }
 
@@ -780,7 +867,7 @@ async fn export_milestones(State(s): State<SharedApiState>) -> HandlerResult<Res
         let conn = s.conn.lock().ae()?;
         csv_import::export_milestones_csv(&conn, &path).ae()?
     };
-    let bytes = std::fs::read(tmp.path()).ae()?;
+    let body = tempfile_body(&tmp)?;
     Response::builder()
         .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
         .header(
@@ -788,7 +875,7 @@ async fn export_milestones(State(s): State<SharedApiState>) -> HandlerResult<Res
             "attachment; filename=\"milestones.csv\"",
         )
         .header("x-row-count", count.to_string())
-        .body(Body::from(bytes))
+        .body(body)
         .ae()
 }
 
@@ -821,14 +908,14 @@ async fn export_full_backup_handler(
         .ae()?;
     }
 
-    let bytes = std::fs::read(tmp.path()).ae()?;
+    let body = tempfile_body(&tmp)?;
     Response::builder()
         .header(header::CONTENT_TYPE, "application/zip")
         .header(
             header::CONTENT_DISPOSITION,
             "attachment; filename=\"full_backup.zip\"",
         )
-        .body(Body::from(bytes))
+        .body(body)
         .ae()
 }
 
@@ -846,11 +933,20 @@ async fn import_full_backup_handler(
     let ls = {
         let _sync_guard =
             sync_state::acquire_sync_lock(&s.data_dir).map_err(map_sync_operation_error)?;
-        let mut conn = s.conn.lock().ae()?;
-        let local_storage =
-            backup::import_full_backup_internal(&s.data_dir, &mut conn, &path).ae()?;
-        sync_state::clear_sync_runtime_files(&s.data_dir).ae()?;
-        local_storage
+        let zip_file = std::fs::File::open(&path).ae()?;
+        match backup::prepare_full_backup_from_reader_internal(&s.data_dir, zip_file).ae()? {
+            backup::PreparedFullBackupOutcome::Ready(prepared) => {
+                let mut conn = s.conn.lock().ae()?;
+                backup::install_prepared_full_backup(&s.data_dir, &mut conn, &prepared).ae()?
+            }
+            backup::PreparedFullBackupOutcome::RecoveryRequired { prepared, .. } => {
+                let _ = std::fs::remove_dir_all(prepared.staging_dir);
+                return Err(AppError::BadRequest(
+                    "This backup requires interactive database recovery in the desktop app."
+                        .to_string(),
+                ));
+            }
+        }
     };
 
     Ok(Json(serde_json::json!({ "localStorage": ls })))
@@ -869,18 +965,11 @@ async fn upload_cover(
         .await
         .ae()?
         .ok_or_else(|| AppError::Internal("No file field in multipart".into()))?;
-    let filename = field.file_name().unwrap_or("upload").to_owned();
-    let ext = std::path::Path::new(&filename)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("jpg")
-        .to_owned();
     let bytes = field.bytes().await.ae()?.to_vec();
-    let path = {
-        let conn = s.conn.lock().ae()?;
-        db::save_cover_bytes(&conn, covers_dir, media_id, bytes, &ext).ae()?
-    };
-    mark_dirty(&s)?;
+    let extension = remote_fetch::infer_image_extension(&bytes).map_err(AppError::BadRequest)?;
+    let path = with_dirty_conn(&s, |conn| {
+        db::save_cover_bytes(conn, covers_dir, media_id, bytes, &extension).ae()
+    })?;
     Ok(Json(serde_json::json!({ "path": path })))
 }
 
@@ -894,12 +983,14 @@ async fn serve_cover(
         .and_then(|n| n.to_str())
         .ok_or_else(|| AppError::Internal("Invalid filename".into()))?
         .to_owned();
-    let file_path = s.data_dir.join("covers").join(&safe_name);
-    if !file_path.exists() {
-        return Err(AppError::Internal("Cover not found".into()));
+    let covers_dir = std::fs::canonicalize(s.data_dir.join("covers"))
+        .map_err(|_| AppError::Internal("Cover not found".into()))?;
+    let file_path = std::fs::canonicalize(covers_dir.join(&safe_name))
+        .map_err(|_| AppError::Internal("Cover not found".into()))?;
+    if !file_path.starts_with(&covers_dir) || !file_path.is_file() {
+        return Err(AppError::BadRequest("Invalid cover path".into()));
     }
-    let bytes = std::fs::read(&file_path).ae()?;
-    let etag = format!("\"{:x}\"", Sha256::digest(&bytes));
+    let (file, etag) = open_hashed_file(&file_path).await?;
     if headers
         .get(header::IF_NONE_MATCH)
         .and_then(|value| value.to_str().ok())
@@ -916,18 +1007,38 @@ async fn serve_cover(
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("jpg")
+        .to_ascii_lowercase()
+        .as_str()
     {
         "png" => "image/png",
         "gif" => "image/gif",
         "webp" => "image/webp",
+        "avif" => "image/avif",
+        "bmp" => "image/bmp",
+        "ico" => "image/x-icon",
         _ => "image/jpeg",
     };
     Response::builder()
         .header(header::CONTENT_TYPE, content_type)
         .header(header::ETAG, etag)
         .header(header::CACHE_CONTROL, "private, no-cache")
-        .body(Body::from(bytes))
+        .body(Body::from_stream(ReaderStream::new(file)))
         .ae()
+}
+
+async fn open_hashed_file(path: &std::path::Path) -> HandlerResult<(tokio::fs::File, String)> {
+    let mut file = tokio::fs::File::open(path).await.ae()?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let count = file.read(&mut buffer).await.ae()?;
+        if count == 0 {
+            break;
+        }
+        hasher.update(&buffer[..count]);
+    }
+    file.seek(std::io::SeekFrom::Start(0)).await.ae()?;
+    Ok((file, format!("\"{:x}\"", hasher.finalize())))
 }
 
 #[derive(Deserialize)]
@@ -941,31 +1052,20 @@ async fn download_cover(
     Json(body): Json<DownloadCoverBody>,
 ) -> HandlerResult<Json<serde_json::Value>> {
     let covers_dir = s.data_dir.join("covers");
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0")
-        .build()
-        .ae()?;
-    let bytes = client
-        .get(&body.url)
-        .send()
-        .await
-        .ae()?
-        .error_for_status()
-        .ae()?
-        .bytes()
-        .await
-        .ae()?
-        .to_vec();
-    let ext = std::path::Path::new(&body.url)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("jpg");
-    let ext = ext.split('?').next().unwrap_or("jpg").to_owned();
-    let path = {
-        let conn = s.conn.lock().ae()?;
-        db::save_cover_bytes(&conn, covers_dir, body.media_id, bytes, &ext).ae()?
-    };
-    mark_dirty(&s)?;
+    let bytes = remote_fetch::fetch_public(remote_fetch::PublicFetchRequest {
+        url: body.url,
+        method: reqwest::Method::GET,
+        body: None,
+        headers: std::collections::HashMap::new(),
+        max_response_bytes: remote_fetch::MAX_BINARY_RESPONSE_BYTES,
+    })
+    .await
+    .map_err(AppError::BadRequest)?
+    .bytes;
+    let extension = remote_fetch::infer_image_extension(&bytes).map_err(AppError::BadRequest)?;
+    let path = with_dirty_conn(&s, |conn| {
+        db::save_cover_bytes(conn, covers_dir, body.media_id, bytes, &extension).ae()
+    })?;
     Ok(Json(serde_json::json!({ "path": path })))
 }
 
@@ -980,40 +1080,35 @@ struct FetchJsonBody {
 async fn fetch_json_proxy(
     Json(payload): Json<FetchJsonBody>,
 ) -> HandlerResult<Json<serde_json::Value>> {
-    let default_ua = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-    let ua = payload
-        .headers
-        .as_ref()
-        .and_then(|h| h.get("User-Agent"))
-        .map(|s| s.to_owned())
-        .unwrap_or_else(|| default_ua.to_owned());
-
-    let client = reqwest::Client::builder().user_agent(&ua).build().ae()?;
-    let mut req = match payload.method.to_uppercase().as_str() {
-        "POST" => client.post(&payload.url),
-        _ => client.get(&payload.url),
-    };
-    if let Some(ref h) = payload.headers {
-        for (k, v) in h {
-            if k.eq_ignore_ascii_case("User-Agent") {
-                continue;
-            }
-            req = req.header(k, v);
+    let method = match payload.method.to_uppercase().as_str() {
+        "POST" => reqwest::Method::POST,
+        "GET" => reqwest::Method::GET,
+        _ => {
+            return Err(AppError::BadRequest(
+                "Only GET and POST remote requests are supported".to_string(),
+            ));
         }
+    };
+    let mut headers = payload.headers.unwrap_or_default();
+    if payload.body.is_some()
+        && !headers
+            .keys()
+            .any(|name| name.eq_ignore_ascii_case("content-type"))
+    {
+        headers.insert("Content-Type".to_string(), "application/json".to_string());
     }
-    if let Some(b) = payload.body {
-        req = req.header("Content-Type", "application/json").body(b);
-    }
-    let text = req
-        .send()
-        .await
-        .ae()?
-        .error_for_status()
-        .ae()?
-        .text()
-        .await
-        .ae()?;
-    Ok(Json(serde_json::json!({ "data": text })))
+    let response = remote_fetch::fetch_public(remote_fetch::PublicFetchRequest {
+        url: payload.url,
+        method,
+        body: payload.body.map(String::into_bytes),
+        headers,
+        max_response_bytes: remote_fetch::MAX_TEXT_RESPONSE_BYTES,
+    })
+    .await
+    .map_err(AppError::BadRequest)?;
+    Ok(Json(serde_json::json!({
+        "data": String::from_utf8_lossy(&response.bytes)
+    })))
 }
 
 #[derive(Deserialize)]
@@ -1024,34 +1119,40 @@ struct FetchBytesBody {
 async fn fetch_bytes_proxy(
     Json(payload): Json<FetchBytesBody>,
 ) -> HandlerResult<Json<serde_json::Value>> {
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0")
-        .build()
-        .ae()?;
-    let bytes: Vec<u8> = client
-        .get(&payload.url)
-        .send()
-        .await
-        .ae()?
-        .error_for_status()
-        .ae()?
-        .bytes()
-        .await
-        .ae()?
-        .to_vec();
+    let bytes = remote_fetch::fetch_public(remote_fetch::PublicFetchRequest {
+        url: payload.url,
+        method: reqwest::Method::GET,
+        body: None,
+        headers: std::collections::HashMap::new(),
+        max_response_bytes: remote_fetch::MAX_BINARY_RESPONSE_BYTES,
+    })
+    .await
+    .map_err(AppError::BadRequest)?
+    .bytes;
     Ok(Json(serde_json::json!({ "bytes": bytes })))
 }
 
 async fn field_to_tempfile(multipart: &mut Multipart) -> HandlerResult<tempfile::NamedTempFile> {
-    let field = multipart
+    let mut field = multipart
         .next_field()
         .await
         .ae()?
         .ok_or_else(|| AppError::Internal("No file in multipart".into()))?;
-    let bytes = field.bytes().await.ae()?;
     let mut tmp = tempfile::NamedTempFile::new().ae()?;
-    tmp.write_all(&bytes).ae()?;
+    while let Some(chunk) = field.chunk().await.ae()? {
+        tmp.write_all(&chunk).ae()?;
+    }
     Ok(tmp)
+}
+
+fn tempfile_body(tmp: &tempfile::NamedTempFile) -> HandlerResult<Body> {
+    // CSV and backup exporters atomically replace the destination path. Reopen
+    // that installed file by path rather than asking NamedTempFile to verify
+    // that its original inode is still there.
+    let file = std::fs::File::open(tmp.path()).ae()?;
+    Ok(Body::from_stream(ReaderStream::new(
+        tokio::fs::File::from_std(file),
+    )))
 }
 
 #[cfg(test)]
@@ -1140,6 +1241,14 @@ mod tests {
         ));
         assert!(!is_allowed_host(
             "example.com",
+            HostValidationPolicy::LocalOnly
+        ));
+        assert!(!is_allowed_host(
+            "[::1]evil",
+            HostValidationPolicy::LocalOnly
+        ));
+        assert!(!is_allowed_host(
+            "127.0.0.1:not-a-port",
             HostValidationPolicy::LocalOnly
         ));
     }
@@ -1338,14 +1447,21 @@ mod tests {
             language: "Japanese".to_string(),
             description: String::new(),
             content_type: "Novel".to_string(),
+            tracking_status: None,
             extra_data: "{}".to_string(),
             cover_image_b64: String::new(),
             variant: "Manga".to_string(),
         };
 
-        let error = apply_media_import_handler(State(state), Ok(Json(vec![invalid])))
-            .await
-            .unwrap_err();
+        let error = apply_media_import_handler(
+            State(state),
+            Ok(Json(vec![csv_import::MediaCsvImportSelection {
+                incoming: invalid,
+                review_token: "not-reached-for-invalid-title".to_string(),
+            }])),
+        )
+        .await
+        .unwrap_err();
         assert!(matches!(error, AppError::BadRequest(_)));
         assert!(matches!(
             map_csv_import_error("disk write failed".to_string()),
@@ -1365,16 +1481,19 @@ mod tests {
             },
         );
         let body = serde_json::json!([{
-            "Title": "No private identity",
-            "Default Activity Type": "Reading",
-            "Status": "Active",
-            "Language": "Japanese",
-            "Description": "",
-            "Content Type": "Novel",
-            "Extra Data": "{}",
-            "Cover Image (Base64)": "",
-            "Variant": "",
-            "Media UID": "private-uid"
+            "incoming": {
+                "Title": "No private identity",
+                "Default Activity Type": "Reading",
+                "Status": "Active",
+                "Language": "Japanese",
+                "Description": "",
+                "Content Type": "Novel",
+                "Extra Data": "{}",
+                "Cover Image (Base64)": "",
+                "Variant": "",
+                "Media UID": "private-uid"
+            },
+            "review_token": "not-reached-for-forbidden-identifier"
         }])
         .to_string();
 
@@ -1391,6 +1510,26 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let bytes = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        assert!(String::from_utf8(bytes.to_vec())
+            .unwrap()
+            .contains("Media UID"));
+    }
+
+    #[tokio::test]
+    async fn csv_export_streams_the_atomically_installed_file() {
+        let response = export_milestones(State(setup_api_state())).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let bytes = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
+        assert_eq!(
+            bytes.as_ref(),
+            b"Media Title,Name,Duration,Characters,Date,Media Variant\n"
+        );
     }
 
     #[tokio::test]
@@ -1505,6 +1644,7 @@ mod tests {
                 Request::builder()
                     .method(Method::POST)
                     .uri("/api/reset")
+                    .header("X-Kechimochi-API", "1")
                     .body(Body::empty())
                     .unwrap(),
             )

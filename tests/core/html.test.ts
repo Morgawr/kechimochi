@@ -38,7 +38,18 @@ describe('core/html.ts', () => {
     describe('escapeHTML', () => {
         it('should escape symbols', () => {
             expect(escapeHTML('<script>')).toBe('&lt;script&gt;');
-            expect(escapeHTML('Content & "more"')).toBe('Content &amp; "more"');
+            expect(escapeHTML(`Content & "more" 'too'`)).toBe(
+                'Content &amp; &quot;more&quot; &#39;too&#39;',
+            );
+        });
+
+        it('prevents a template interpolation from breaking out of an attribute', () => {
+            const payload = `" autofocus onfocus="globalThis.__attributeXss = true`;
+            const el = html`<button title="${payload}">Safe</button>`;
+
+            expect(el.getAttribute('title')).toBe(payload);
+            expect(el.hasAttribute('autofocus')).toBe(false);
+            expect(el.hasAttribute('onfocus')).toBe(false);
         });
     });
 });

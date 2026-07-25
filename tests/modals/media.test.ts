@@ -127,11 +127,33 @@ describe('modals/media.ts', () => {
             (document.querySelector('#import-cancel') as HTMLElement).click();
             await expect(promise).resolves.toBeNull();
         });
+
+        it('escapes cover URLs before inserting them into image attributes', async () => {
+            const maliciousUrl = 'cover.jpg" onerror="window.coverInjected=true';
+            const promise = showImportMergeModal({
+                coverImageUrl: maliciousUrl,
+                extraData: {},
+            } as ScrapedMetadata, {
+                extraData: {},
+            });
+            await vi.waitFor(() => document.querySelector('#import-cancel'));
+
+            const image = document.querySelector('.modal-content img') as HTMLImageElement;
+            expect(image.getAttribute('src')).toBe(maliciousUrl);
+            expect(image.hasAttribute('onerror')).toBe(false);
+
+            (document.querySelector('#import-cancel') as HTMLElement).click();
+            await expect(promise).resolves.toBeNull();
+        });
     });
     describe('showMediaCsvConflictModal', () => {
         it('should resolve conflicting records', async () => {
             const conflicts = [
-                { incoming: { "Title": "M1", "Status": "Ongoing" }, existing: { status: "Not Started" } }
+                {
+                    incoming: { "Title": "M1", "Status": "Ongoing" },
+                    existing: { status: "Not Started" },
+                    review_token: "review-1",
+                }
             ];
             const promise = showMediaCsvConflictModal(conflicts as unknown as MediaConflict[]);
             await vi.waitFor(() => document.querySelector('#conflict-confirm'));
@@ -143,7 +165,8 @@ describe('modals/media.ts', () => {
             
             const result = await promise;
             expect(result).toHaveLength(1);
-            expect(result![0]["Status"]).toBe("Ongoing");
+            expect(result![0].incoming["Status"]).toBe("Ongoing");
+            expect(result![0].review_token).toBe("review-1");
         });
 
         it('escapes incoming CSV titles and statuses before rendering conflicts', async () => {
@@ -155,6 +178,7 @@ describe('modals/media.ts', () => {
             const conflicts = [{
                 incoming: { "Title": title, "Status": incomingStatus },
                 existing: { title, variant: '', status: existingStatus },
+                review_token: "review-xss",
             }];
 
             const promise = showMediaCsvConflictModal(conflicts as unknown as MediaConflict[]);
@@ -209,6 +233,24 @@ describe('modals/media.ts', () => {
              
              const result = await promise;
              expect(result).toBe('https://jiten.moe/decks/101');
+        });
+
+        it('escapes Jiten cover URLs before rendering search results', async () => {
+            const maliciousUrl = 'cover.jpg" onerror="window.jitenCoverInjected=true';
+            vi.mocked(jitenApi.getJitenCoverUrl).mockReturnValueOnce(maliciousUrl);
+            vi.mocked(jitenApi.searchJiten).mockResolvedValue([
+                { deckId: 123, originalTitle: 'Result', mediaType: 4 },
+            ] as unknown as JitenResult[]);
+
+            const promise = showJitenSearchModal({ title: 'Query' } as unknown as Media);
+            await vi.waitFor(() => document.querySelector('.jiten-result-card img'));
+
+            const image = document.querySelector('.jiten-result-card img') as HTMLImageElement;
+            expect(image.getAttribute('src')).toBe(maliciousUrl);
+            expect(image.hasAttribute('onerror')).toBe(false);
+
+            (document.querySelector('#jiten-cancel') as HTMLElement).click();
+            await expect(promise).resolves.toBeNull();
         });
     });
 });

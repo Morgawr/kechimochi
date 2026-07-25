@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
+use std::io::Read as _;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -93,6 +94,8 @@ pub struct SnapshotMediaAggregate {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct SnapshotActivity {
+    #[serde(default)]
+    pub uid: String,
     pub date: String,
     pub activity_type: String,
     pub duration_minutes: i64,
@@ -103,6 +106,8 @@ pub struct SnapshotActivity {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct SnapshotMilestone {
+    #[serde(default)]
+    pub uid: String,
     pub name: String,
     pub duration: i64,
     pub characters: i64,
@@ -163,8 +168,8 @@ where
     P: Fn(SnapshotBuildProgress) + Send + Sync,
 {
     let media_list = db::get_all_media(conn).map_err(|e| e.to_string())?;
-    let all_logs = db::get_logs(conn).map_err(|e| e.to_string())?;
-    let all_milestones = db::get_all_milestones(conn).map_err(|e| e.to_string())?;
+    let all_logs = db::get_sync_activity_rows(conn).map_err(|e| e.to_string())?;
+    let all_milestones = db::get_sync_milestone_rows(conn).map_err(|e| e.to_string())?;
     let profile_picture = db::get_profile_picture(conn).map_err(|e| e.to_string())?;
     let syncable_settings = load_syncable_settings(conn)?;
 
@@ -181,7 +186,7 @@ where
         .into_par_iter()
         .map(|media| {
             let cover_blob_sha256 =
-                compute_cover_blob_sha256_from_path(Path::new(&media.cover_image))?;
+                compute_snapshot_cover_blob_sha256(Path::new(&media.cover_image), &media.title)?;
             let current = processed_media.fetch_add(1, Ordering::Relaxed) + 1;
             if total_media <= SNAPSHOT_PROGRESS_BATCH_SIZE
                 || current == total_media
@@ -231,11 +236,15 @@ where
     }
 
     for log in all_logs {
-        let Some(media_uid) = media_uid_by_id.get(&log.media_id).cloned() else {
-            continue;
-        };
+        let media_uid = media_uid_by_id.get(&log.media_id).cloned().ok_or_else(|| {
+            format!(
+                "Activity '{}' refers to media id {} which does not exist",
+                log.uid, log.media_id
+            )
+        })?;
         if let Some(entry) = library.get_mut(&media_uid) {
             entry.activities.push(SnapshotActivity {
+                uid: log.uid,
                 date: log.date,
                 activity_type: log.activity_type,
                 duration_minutes: log.duration_minutes,
@@ -246,17 +255,13 @@ where
     }
 
     for milestone in all_milestones {
-        let media_uid = milestone
-            .media_uid
-            .as_deref()
-            .map(str::trim)
-            .filter(|uid| !uid.is_empty())
-            .ok_or_else(|| {
-                format!(
-                    "Milestone '{}' for media '{}' is missing its internal media identity",
-                    milestone.name, milestone.media_title
-                )
-            })?;
+        let media_uid = milestone.media_uid.trim();
+        if media_uid.is_empty() {
+            return Err(format!(
+                "Milestone '{}' for media '{}' is missing its internal media identity",
+                milestone.name, milestone.media_title
+            ));
+        }
         let entry = library.get_mut(media_uid).ok_or_else(|| {
             format!(
                 "Milestone '{}' for media '{}' refers to a media identity that does not exist",
@@ -264,6 +269,7 @@ where
             )
         })?;
         entry.milestones.push(SnapshotMilestone {
+            uid: milestone.uid,
             name: milestone.name,
             duration: milestone.duration,
             characters: milestone.characters,
@@ -365,7 +371,62 @@ pub fn snapshot_to_canonical_json(snapshot: &SyncSnapshot) -> Result<String, Str
 }
 
 pub fn parse_snapshot_json(json: &str) -> Result<SyncSnapshot, String> {
-    serde_json::from_str(json).map_err(|e| e.to_string())
+    let mut snapshot: SyncSnapshot = serde_json::from_str(json).map_err(|e| e.to_string())?;
+    normalize_legacy_record_uids(&mut snapshot)?;
+    Ok(snapshot)
+}
+
+fn normalize_legacy_record_uids(snapshot: &mut SyncSnapshot) -> Result<(), String> {
+    for (media_uid, aggregate) in &mut snapshot.library {
+        let mut activity_occurrences: HashMap<(String, String, i64, i64, String), usize> =
+            HashMap::new();
+        for activity in &mut aggregate.activities {
+            let key = (
+                activity.date.clone(),
+                activity.activity_type.clone(),
+                activity.duration_minutes,
+                activity.characters,
+                activity.notes.clone(),
+            );
+            let occurrence = activity_occurrences.entry(key).or_default();
+            if activity.uid.trim().is_empty() {
+                activity.uid = db::legacy_activity_record_uid(
+                    media_uid,
+                    &activity.date,
+                    &activity.activity_type,
+                    activity.duration_minutes,
+                    activity.characters,
+                    &activity.notes,
+                    *occurrence,
+                )?;
+            }
+            *occurrence += 1;
+        }
+
+        let mut milestone_occurrences: HashMap<(String, i64, i64, Option<String>), usize> =
+            HashMap::new();
+        for milestone in &mut aggregate.milestones {
+            let key = (
+                milestone.name.clone(),
+                milestone.duration,
+                milestone.characters,
+                milestone.date.clone(),
+            );
+            let occurrence = milestone_occurrences.entry(key).or_default();
+            if milestone.uid.trim().is_empty() {
+                milestone.uid = db::legacy_milestone_record_uid(
+                    media_uid,
+                    &milestone.name,
+                    milestone.duration,
+                    milestone.characters,
+                    milestone.date.as_deref(),
+                    *occurrence,
+                )?;
+            }
+            *occurrence += 1;
+        }
+    }
+    Ok(())
 }
 
 pub fn apply_snapshot(conn: &Connection, snapshot: &SyncSnapshot) -> Result<(), String> {
@@ -465,8 +526,43 @@ pub fn compute_cover_blob_sha256_from_path(path: &Path) -> Result<Option<String>
         return Ok(None);
     }
 
-    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-    Ok(Some(compute_sha256_hex(&bytes)))
+    let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let count = file.read(&mut buffer).map_err(|e| e.to_string())?;
+        if count == 0 {
+            break;
+        }
+        hasher.update(&buffer[..count]);
+    }
+    let mut output = String::with_capacity(64);
+    for byte in hasher.finalize() {
+        let _ = write!(&mut output, "{byte:02x}");
+    }
+    Ok(Some(output))
+}
+
+fn compute_snapshot_cover_blob_sha256(
+    path: &Path,
+    media_title: &str,
+) -> Result<Option<String>, String> {
+    if path.as_os_str().is_empty() {
+        return Ok(None);
+    }
+    if !path.exists() {
+        return Err(format!(
+            "Cover image for '{media_title}' is missing at '{}'; refusing to publish this as a cover deletion",
+            path.display()
+        ));
+    }
+    if !path.is_file() {
+        return Err(format!(
+            "Cover image for '{media_title}' is not a file: '{}'",
+            path.display()
+        ));
+    }
+    compute_cover_blob_sha256_from_path(path)
 }
 
 fn apply_snapshot_inner(
@@ -548,7 +644,7 @@ fn apply_snapshot_inner(
         .map_err(|e| e.to_string())?;
 
         for activity in &aggregate.activities {
-            db::add_log(
+            db::add_log_with_uid(
                 conn,
                 &ActivityLog {
                     id: None,
@@ -559,12 +655,13 @@ fn apply_snapshot_inner(
                     activity_type: activity.activity_type.clone(),
                     notes: activity.notes.clone(),
                 },
+                &activity.uid,
             )
             .map_err(|e| e.to_string())?;
         }
 
         for milestone in &aggregate.milestones {
-            db::add_milestone(
+            db::add_milestone_with_uid(
                 conn,
                 &Milestone {
                     id: None,
@@ -575,6 +672,7 @@ fn apply_snapshot_inner(
                     characters: milestone.characters,
                     date: milestone.date.clone(),
                 },
+                &milestone.uid,
             )
             .map_err(|e| e.to_string())?;
         }
@@ -653,6 +751,7 @@ fn sort_json_value(value: serde_json::Value) -> serde_json::Value {
     }
 }
 
+#[cfg(test)]
 fn compute_sha256_hex(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     let mut output = String::with_capacity(digest.len() * 2);
@@ -669,6 +768,7 @@ fn activity_sort_key(left: &SnapshotActivity, right: &SnapshotActivity) -> std::
         .then_with(|| left.duration_minutes.cmp(&right.duration_minutes))
         .then_with(|| left.characters.cmp(&right.characters))
         .then_with(|| left.notes.cmp(&right.notes))
+        .then_with(|| left.uid.cmp(&right.uid))
 }
 
 fn milestone_sort_key(left: &SnapshotMilestone, right: &SnapshotMilestone) -> std::cmp::Ordering {
@@ -677,6 +777,7 @@ fn milestone_sort_key(left: &SnapshotMilestone, right: &SnapshotMilestone) -> st
         .then_with(|| left.name.cmp(&right.name))
         .then_with(|| left.duration.cmp(&right.duration))
         .then_with(|| left.characters.cmp(&right.characters))
+        .then_with(|| left.uid.cmp(&right.uid))
 }
 
 fn media_content_eq(left: &SnapshotMediaAggregate, right: &SnapshotMediaAggregate) -> bool {
@@ -815,6 +916,7 @@ mod tests {
         conn.execute_batch(
             "CREATE TABLE main.milestones (
                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 uid TEXT NOT NULL,
                  media_uid TEXT,
                  media_title TEXT NOT NULL,
                  name TEXT NOT NULL,
@@ -823,9 +925,9 @@ mod tests {
                  date TEXT
              );
              INSERT INTO main.milestones (
-                 media_uid, media_title, name, duration, characters, date
+                 uid, media_uid, media_title, name, duration, characters, date
              ) VALUES (
-                 NULL, 'Horimiya', 'Ambiguous legacy checkpoint', 60, 0, '2026-07-21'
+                 'legacy-milestone', '', 'Horimiya', 'Ambiguous legacy checkpoint', 60, 0, '2026-07-21'
              );",
         )
         .unwrap();
@@ -845,6 +947,37 @@ mod tests {
 
         assert!(error.contains("Ambiguous legacy checkpoint"));
         assert!(error.contains("missing its internal media identity"));
+    }
+
+    #[test]
+    fn test_build_snapshot_rejects_a_missing_cover_instead_of_publishing_its_deletion() {
+        let conn = setup_test_db();
+        let missing_path = unique_temp_dir("missing_snapshot_cover").join("cover.png");
+        db::add_media_with_id(
+            &conn,
+            &sample_media(
+                "Missing Cover",
+                missing_path.to_string_lossy().to_string(),
+                "{}",
+            ),
+        )
+        .unwrap();
+
+        let error = build_snapshot(
+            &conn,
+            SnapshotBuildOptions {
+                snapshot_id: "snap_missing_cover",
+                created_at: "2026-07-25T00:00:00Z",
+                created_by_device_id: "dev_test",
+                profile_id: "prof_test",
+                base_snapshot: None,
+                tombstones: &[],
+            },
+        )
+        .unwrap_err();
+
+        assert!(error.contains("Cover image for 'Missing Cover' is missing"));
+        assert!(error.contains("refusing to publish this as a cover deletion"));
     }
 
     #[test]

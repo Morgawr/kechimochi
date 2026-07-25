@@ -22,6 +22,29 @@ describe('extra_data utils', () => {
         expect(normalizeExtraData({ 'Character count': '100', 'character COUNT': '200' })).toEqual({ 'Character count': '200' });
     });
 
+    it('should normalize non-string JSON values without throwing', () => {
+        expect(normalizeExtraData({
+            Count: 42,
+            Enabled: true,
+            Nested: { value: 1 },
+            Empty: null,
+        })).toEqual({
+            Count: '42',
+            Enabled: 'true',
+            Nested: '{"value":1}',
+            Empty: '',
+        });
+    });
+
+    it('should treat prototype-like keys as ordinary data', () => {
+        const input = JSON.parse('{"__proto__":"safe","constructor":"also safe"}');
+        const normalized = normalizeExtraData(input);
+
+        expect(normalized['__proto__']).toBe('safe');
+        expect(normalized.constructor).toBe('also safe');
+        expect(Object.getPrototypeOf(normalized)).toBeNull();
+    });
+
     it('should upsert duplicate keys without adding a second entry', () => {
         expect(upsertExtraDataValue({ 'Author': 'Writer' }, 'author', 'Rewriter')).toEqual({ 'Author': 'Rewriter' });
     });

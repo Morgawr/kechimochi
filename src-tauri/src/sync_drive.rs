@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use std::io::{Read, Write};
@@ -5,6 +6,7 @@ use std::pin::Pin;
 use std::time::Duration;
 
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
+use futures::StreamExt;
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -29,6 +31,11 @@ const DRIVE_FILE_FIELDS: &str = "nextPageToken,files(id,name,mimeType,size,modif
 const LIST_PAGE_SIZE: &str = "100";
 const DRIVE_HTTP_CONNECT_TIMEOUT_SECS: u64 = 15;
 const DRIVE_HTTP_REQUEST_TIMEOUT_SECS: u64 = 300;
+const MAX_DRIVE_JSON_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+const MAX_DRIVE_BINARY_RESPONSE_BYTES: usize = 512 * 1024 * 1024;
+const MAX_DRIVE_ERROR_RESPONSE_BYTES: usize = 64 * 1024;
+const MAX_SNAPSHOT_JSON_BYTES: usize = 512 * 1024 * 1024;
+pub const MAX_SYNC_COVER_BLOB_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DriveFileMetadata {
@@ -83,6 +90,16 @@ impl RemoteSyncManifest {
 pub struct RemoteManifestFile {
     pub file: DriveFileMetadata,
     pub manifest: RemoteSyncManifest,
+    pub etag: Option<String>,
+}
+
+fn compare_manifest_candidates(left: &RemoteManifestFile, right: &RemoteManifestFile) -> Ordering {
+    left.manifest
+        .remote_generation
+        .cmp(&right.manifest.remote_generation)
+        .then_with(|| left.manifest.updated_at.cmp(&right.manifest.updated_at))
+        .then_with(|| left.manifest.snapshot_id.cmp(&right.manifest.snapshot_id))
+        .then_with(|| left.file.id.cmp(&right.file.id))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -143,6 +160,34 @@ pub trait DriveTransport: Clone + Send + Sync + 'static {
         content_type: Option<String>,
         body: Option<Vec<u8>>,
     ) -> TransportFuture<'a, Vec<u8>>;
+
+    fn request_json_with_headers<'a>(
+        &'a self,
+        method: Method,
+        url: &'a str,
+        access_token: &'a str,
+        content_type: Option<String>,
+        body: Option<Vec<u8>>,
+        headers: Vec<(String, String)>,
+    ) -> TransportFuture<'a, serde_json::Value> {
+        if headers.is_empty() {
+            self.request_json(method, url, access_token, content_type, body)
+        } else {
+            Box::pin(async {
+                Err("Drive transport does not support conditional request headers".to_string())
+            })
+        }
+    }
+
+    fn request_bytes_with_etag<'a>(
+        &'a self,
+        method: Method,
+        url: &'a str,
+        access_token: &'a str,
+        content_type: Option<String>,
+        body: Option<Vec<u8>>,
+        max_response_bytes: usize,
+    ) -> TransportFuture<'a, (Vec<u8>, Option<String>)>;
 }
 
 #[derive(Debug, Clone)]
@@ -186,7 +231,8 @@ impl DriveTransport for ReqwestDriveTransport {
 
             let response = request.send().await.map_err(drive_http_error_message)?;
             let response = read_success_response(response).await?;
-            response.json().await.map_err(drive_http_error_message)
+            let bytes = read_bounded_response(response, MAX_DRIVE_JSON_RESPONSE_BYTES).await?;
+            serde_json::from_slice(&bytes).map_err(|error| error.to_string())
         })
     }
 
@@ -212,8 +258,71 @@ impl DriveTransport for ReqwestDriveTransport {
 
             let response = request.send().await.map_err(drive_http_error_message)?;
             let response = read_success_response(response).await?;
-            let bytes = response.bytes().await.map_err(drive_http_error_message)?;
-            Ok(bytes.to_vec())
+            read_bounded_response(response, MAX_DRIVE_BINARY_RESPONSE_BYTES).await
+        })
+    }
+
+    fn request_json_with_headers<'a>(
+        &'a self,
+        method: Method,
+        url: &'a str,
+        access_token: &'a str,
+        content_type: Option<String>,
+        body: Option<Vec<u8>>,
+        headers: Vec<(String, String)>,
+    ) -> TransportFuture<'a, serde_json::Value> {
+        Box::pin(async move {
+            let mut request = self
+                .http_client
+                .request(method, url)
+                .bearer_auth(access_token);
+            if let Some(content_type) = content_type {
+                request = request.header(reqwest::header::CONTENT_TYPE, content_type);
+            }
+            for (name, value) in headers {
+                request = request.header(name, value);
+            }
+            if let Some(body) = body {
+                request = request.body(body);
+            }
+
+            let response = request.send().await.map_err(drive_http_error_message)?;
+            let response = read_success_response(response).await?;
+            let bytes = read_bounded_response(response, MAX_DRIVE_JSON_RESPONSE_BYTES).await?;
+            serde_json::from_slice(&bytes).map_err(|error| error.to_string())
+        })
+    }
+
+    fn request_bytes_with_etag<'a>(
+        &'a self,
+        method: Method,
+        url: &'a str,
+        access_token: &'a str,
+        content_type: Option<String>,
+        body: Option<Vec<u8>>,
+        max_response_bytes: usize,
+    ) -> TransportFuture<'a, (Vec<u8>, Option<String>)> {
+        Box::pin(async move {
+            let mut request = self
+                .http_client
+                .request(method, url)
+                .bearer_auth(access_token);
+            if let Some(content_type) = content_type {
+                request = request.header(reqwest::header::CONTENT_TYPE, content_type);
+            }
+            if let Some(body) = body {
+                request = request.body(body);
+            }
+
+            let response = request.send().await.map_err(drive_http_error_message)?;
+            let response = read_success_response(response).await?;
+            let etag = response
+                .headers()
+                .get(reqwest::header::ETAG)
+                .and_then(|value| value.to_str().ok())
+                .map(ToString::to_string);
+            let bytes = read_bounded_response(response, max_response_bytes).await?;
+            Ok((bytes, etag))
         })
     }
 }
@@ -259,11 +368,7 @@ pub fn parse_archived_snapshot(
     gzipped_bytes: &[u8],
     expected_sha256: &str,
 ) -> Result<SyncSnapshot, String> {
-    let mut decoder = GzDecoder::new(gzipped_bytes);
-    let mut json_bytes = Vec::new();
-    decoder
-        .read_to_end(&mut json_bytes)
-        .map_err(|e| format!("Failed to decompress snapshot archive: {e}"))?;
+    let json_bytes = decompress_with_limit(gzipped_bytes, MAX_SNAPSHOT_JSON_BYTES)?;
 
     let actual_sha256 = compute_sha256_hex(&json_bytes);
     if actual_sha256 != expected_sha256 {
@@ -277,6 +382,21 @@ pub fn parse_archived_snapshot(
     sync_snapshot::parse_snapshot_json(&json)
 }
 
+fn decompress_with_limit(gzipped_bytes: &[u8], limit: usize) -> Result<Vec<u8>, String> {
+    let decoder = GzDecoder::new(gzipped_bytes);
+    let mut limited = decoder.take(limit as u64 + 1);
+    let mut bytes = Vec::new();
+    limited
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("Failed to decompress snapshot archive: {e}"))?;
+    if bytes.len() > limit {
+        return Err(format!(
+            "Remote snapshot expands beyond the supported {limit} byte limit"
+        ));
+    }
+    Ok(bytes)
+}
+
 pub fn validate_remote_manifest_compatibility(manifest: &RemoteSyncManifest) -> Result<(), String> {
     if manifest.sync_protocol_version != SYNC_PROTOCOL_VERSION {
         return Err(format!(
@@ -285,6 +405,12 @@ pub fn validate_remote_manifest_compatibility(manifest: &RemoteSyncManifest) -> 
         ));
     }
 
+    if manifest.db_schema_version < 1 {
+        return Err(format!(
+            "Remote manifest has invalid DB schema version {}",
+            manifest.db_schema_version
+        ));
+    }
     if manifest.db_schema_version > db::CURRENT_SCHEMA_VERSION {
         return Err(format!(
             "Remote manifest requires unsupported DB schema version {} (local supports {})",
@@ -292,8 +418,30 @@ pub fn validate_remote_manifest_compatibility(manifest: &RemoteSyncManifest) -> 
             db::CURRENT_SCHEMA_VERSION
         ));
     }
+    if manifest.profile_id.trim().is_empty() {
+        return Err("Remote manifest has a blank profile id".to_string());
+    }
+    if manifest.snapshot_id.trim().is_empty() {
+        return Err("Remote manifest has a blank snapshot id".to_string());
+    }
+    if manifest.remote_generation < 1 {
+        return Err(format!(
+            "Remote manifest has invalid generation {}",
+            manifest.remote_generation
+        ));
+    }
+    if manifest.remote_generation == i64::MAX {
+        return Err("Remote manifest generation is exhausted".to_string());
+    }
 
     Ok(())
+}
+
+pub fn next_remote_generation(current: i64) -> Result<i64, String> {
+    current
+        .checked_add(1)
+        .filter(|generation| *generation > 0)
+        .ok_or_else(|| format!("Remote manifest generation {current} cannot be incremented"))
 }
 
 pub fn validate_remote_snapshot_compatibility(snapshot: &SyncSnapshot) -> Result<(), String> {
@@ -304,6 +452,12 @@ pub fn validate_remote_snapshot_compatibility(snapshot: &SyncSnapshot) -> Result
         ));
     }
 
+    if snapshot.db_schema_version < 1 {
+        return Err(format!(
+            "Remote snapshot has invalid DB schema version {}",
+            snapshot.db_schema_version
+        ));
+    }
     if snapshot.db_schema_version > db::CURRENT_SCHEMA_VERSION {
         return Err(format!(
             "Remote snapshot requires unsupported DB schema version {} (local supports {})",
@@ -311,9 +465,20 @@ pub fn validate_remote_snapshot_compatibility(snapshot: &SyncSnapshot) -> Result
             db::CURRENT_SCHEMA_VERSION
         ));
     }
+    if snapshot.snapshot_id.trim().is_empty() {
+        return Err("Remote snapshot has a blank snapshot id".to_string());
+    }
+    if snapshot.profile.profile_id.trim().is_empty() {
+        return Err("Remote snapshot has a blank profile id".to_string());
+    }
 
     let mut identities: BTreeMap<(&str, &str), &str> = BTreeMap::new();
+    let mut activity_uids = BTreeSet::new();
+    let mut milestone_uids = BTreeSet::new();
     for (uid, media) in &snapshot.library {
+        if uid.trim().is_empty() {
+            return Err("Remote snapshot contains media with a blank sync UID".to_string());
+        }
         if uid != &media.uid {
             return Err(format!(
                 "Remote snapshot library key '{uid}' does not match media uid '{}'",
@@ -335,6 +500,61 @@ pub fn validate_remote_snapshot_compatibility(snapshot: &SyncSnapshot) -> Result
             };
             return Err(format!(
                 "Remote snapshot contains more than one media entry using '{label}'"
+            ));
+        }
+        if let Some(hash) = media.cover_blob_sha256.as_deref() {
+            if hash.len() != 64
+                || !hash
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            {
+                return Err(format!(
+                    "Remote snapshot media '{uid}' has an invalid cover checksum"
+                ));
+            }
+        }
+        for activity in &media.activities {
+            if activity.uid.trim().is_empty() {
+                return Err(format!(
+                    "Remote snapshot media '{uid}' contains an activity with a blank sync UID"
+                ));
+            }
+            if !activity_uids.insert(activity.uid.as_str()) {
+                return Err(format!(
+                    "Remote snapshot contains duplicate activity sync UID '{}'",
+                    activity.uid
+                ));
+            }
+        }
+        for milestone in &media.milestones {
+            if milestone.uid.trim().is_empty() {
+                return Err(format!(
+                    "Remote snapshot media '{uid}' contains a milestone with a blank sync UID"
+                ));
+            }
+            if !milestone_uids.insert(milestone.uid.as_str()) {
+                return Err(format!(
+                    "Remote snapshot contains duplicate milestone sync UID '{}'",
+                    milestone.uid
+                ));
+            }
+        }
+    }
+    let mut tombstone_uids = BTreeSet::new();
+    for tombstone in &snapshot.tombstones {
+        if tombstone.media_uid.trim().is_empty() {
+            return Err("Remote snapshot contains a tombstone with a blank media UID".to_string());
+        }
+        if !tombstone_uids.insert(tombstone.media_uid.as_str()) {
+            return Err(format!(
+                "Remote snapshot contains duplicate tombstones for media '{}'",
+                tombstone.media_uid
+            ));
+        }
+        if snapshot.library.contains_key(&tombstone.media_uid) {
+            return Err(format!(
+                "Remote snapshot contains both live media and a tombstone for '{}'",
+                tombstone.media_uid
             ));
         }
     }
@@ -431,13 +651,45 @@ impl<T: DriveTransport> GoogleDriveClient<T> {
         token_store: &dyn SecureTokenStore,
         file_id: &str,
     ) -> Result<Vec<u8>, String> {
+        self.download_app_data_file_by_id_with_limit(
+            token_store,
+            file_id,
+            MAX_DRIVE_BINARY_RESPONSE_BYTES,
+        )
+        .await
+    }
+
+    pub(crate) async fn download_app_data_file_by_id_with_limit(
+        &self,
+        token_store: &dyn SecureTokenStore,
+        file_id: &str,
+        max_response_bytes: usize,
+    ) -> Result<Vec<u8>, String> {
+        self.download_app_data_file_by_id_with_etag(token_store, file_id, max_response_bytes)
+            .await
+            .map(|(bytes, _)| bytes)
+    }
+
+    async fn download_app_data_file_by_id_with_etag(
+        &self,
+        token_store: &dyn SecureTokenStore,
+        file_id: &str,
+        max_response_bytes: usize,
+    ) -> Result<(Vec<u8>, Option<String>), String> {
         let access_token = self.access_token(token_store).await?;
         let mut url = Url::parse(&format!("{}/files/{}", self.api_base_url, file_id))
             .map_err(|e| e.to_string())?;
         url.query_pairs_mut().append_pair("alt", "media");
 
         self.transport
-            .request_bytes(Method::GET, url.as_str(), &access_token, None, None)
+            .request_bytes_with_etag(
+                Method::GET,
+                url.as_str(),
+                &access_token,
+                None,
+                None,
+                max_response_bytes,
+            )
             .await
     }
 
@@ -448,6 +700,7 @@ impl<T: DriveTransport> GoogleDriveClient<T> {
         mime_type: &str,
         bytes: &[u8],
         existing_file_id: Option<&str>,
+        if_match: Option<&str>,
     ) -> Result<DriveFileMetadata, String> {
         let access_token = self.access_token(token_store).await?;
         let url = match existing_file_id {
@@ -477,12 +730,23 @@ impl<T: DriveTransport> GoogleDriveClient<T> {
             Method::POST
         };
 
-        serde_json::from_value(
+        let response = if let Some(etag) = if_match {
+            self.transport
+                .request_json_with_headers(
+                    method,
+                    &url,
+                    &access_token,
+                    Some(content_type),
+                    Some(body),
+                    vec![("If-Match".to_string(), etag.to_string())],
+                )
+                .await?
+        } else {
             self.transport
                 .request_json(method, &url, &access_token, Some(content_type), Some(body))
-                .await?,
-        )
-        .map_err(|e| e.to_string())
+                .await?
+        };
+        serde_json::from_value(response).map_err(|e| e.to_string())
     }
 
     pub async fn list_remote_sync_profiles(
@@ -494,18 +758,43 @@ impl<T: DriveTransport> GoogleDriveClient<T> {
             MANIFEST_FILE_PREFIX
         );
         let files = self.list_app_data_files(token_store, Some(&query)).await?;
-        let mut manifests = Vec::new();
+        let mut manifests_by_profile = BTreeMap::<String, RemoteManifestFile>::new();
 
         for file in files {
-            let bytes = self
-                .download_app_data_file_by_id(token_store, &file.id)
+            let (bytes, etag) = self
+                .download_app_data_file_by_id_with_etag(
+                    token_store,
+                    &file.id,
+                    MAX_DRIVE_JSON_RESPONSE_BYTES,
+                )
                 .await
                 .map_err(|e| format!("Failed to download manifest '{}': {e}", file.name))?;
             let manifest = parse_manifest_bytes(&bytes)
                 .map_err(|e| format!("Failed to parse manifest '{}': {e}", file.name))?;
-            manifests.push(RemoteManifestFile { file, manifest });
+            validate_remote_manifest_compatibility(&manifest)
+                .map_err(|e| format!("Manifest '{}' is incompatible: {e}", file.name))?;
+            if file.name != manifest_file_name(&manifest.profile_id) {
+                return Err(format!(
+                    "Manifest file '{}' contains profile id '{}', which does not match its name",
+                    file.name, manifest.profile_id
+                ));
+            }
+            let candidate = RemoteManifestFile {
+                file,
+                manifest,
+                etag,
+            };
+            let replace = manifests_by_profile
+                .get(&candidate.manifest.profile_id)
+                .is_none_or(|current| {
+                    compare_manifest_candidates(&candidate, current) == Ordering::Greater
+                });
+            if replace {
+                manifests_by_profile.insert(candidate.manifest.profile_id.clone(), candidate);
+            }
         }
 
+        let mut manifests = manifests_by_profile.into_values().collect::<Vec<_>>();
         manifests.sort_by(|left, right| {
             right
                 .manifest
@@ -522,47 +811,36 @@ impl<T: DriveTransport> GoogleDriveClient<T> {
         profile_id: &str,
     ) -> Result<Option<RemoteManifestFile>, String> {
         let file_name = manifest_file_name(profile_id);
-        let Some(file) = self
-            .find_unique_app_data_file_by_name(token_store, &file_name)
-            .await?
-        else {
-            return Ok(None);
-        };
-
-        let bytes = self
-            .download_app_data_file_by_id(token_store, &file.id)
-            .await
-            .map_err(|e| format!("Failed to download manifest '{file_name}': {e}"))?;
-        let manifest = parse_manifest_bytes(&bytes)
-            .map_err(|e| format!("Failed to parse manifest '{file_name}': {e}"))?;
-
-        Ok(Some(RemoteManifestFile { file, manifest }))
-    }
-
-    pub async fn upsert_manifest(
-        &self,
-        token_store: &dyn SecureTokenStore,
-        manifest: &RemoteSyncManifest,
-    ) -> Result<RemoteManifestFile, String> {
-        let file_name = manifest_file_name(&manifest.profile_id);
-        let existing = self
-            .find_unique_app_data_file_by_name(token_store, &file_name)
+        let files = self
+            .list_app_data_files_by_name(token_store, &file_name)
             .await?;
-        let bytes = serialize_manifest_bytes(manifest)?;
-        let file = self
-            .upload_app_data_file(
-                token_store,
-                &file_name,
-                "application/json",
-                &bytes,
-                existing.as_ref().map(|file| file.id.as_str()),
-            )
-            .await?;
-
-        Ok(RemoteManifestFile {
-            file,
-            manifest: manifest.clone(),
-        })
+        let mut candidates = Vec::with_capacity(files.len());
+        for file in files {
+            let (bytes, etag) = self
+                .download_app_data_file_by_id_with_etag(
+                    token_store,
+                    &file.id,
+                    MAX_DRIVE_JSON_RESPONSE_BYTES,
+                )
+                .await
+                .map_err(|e| format!("Failed to download manifest '{file_name}': {e}"))?;
+            let manifest = parse_manifest_bytes(&bytes)
+                .map_err(|e| format!("Failed to parse manifest '{file_name}': {e}"))?;
+            validate_remote_manifest_compatibility(&manifest)
+                .map_err(|e| format!("Manifest '{file_name}' is incompatible: {e}"))?;
+            if manifest.profile_id != profile_id {
+                return Err(format!(
+                    "Manifest file '{file_name}' contains profile id '{}' instead of '{profile_id}'",
+                    manifest.profile_id
+                ));
+            }
+            candidates.push(RemoteManifestFile {
+                file,
+                manifest,
+                etag,
+            });
+        }
+        Ok(candidates.into_iter().max_by(compare_manifest_candidates))
     }
 
     pub async fn upsert_manifest_and_confirm(
@@ -570,7 +848,67 @@ impl<T: DriveTransport> GoogleDriveClient<T> {
         token_store: &dyn SecureTokenStore,
         manifest: &RemoteSyncManifest,
     ) -> Result<ManifestWriteOutcome, String> {
-        let written = self.upsert_manifest(token_store, manifest).await?;
+        let file_name = manifest_file_name(&manifest.profile_id);
+        let existing = self
+            .read_manifest(token_store, &manifest.profile_id)
+            .await?;
+        if let Some(existing) = existing.as_ref() {
+            if manifest.remote_generation
+                != next_remote_generation(existing.manifest.remote_generation)?
+            {
+                return Ok(ManifestWriteOutcome {
+                    file: existing.file.clone(),
+                    written_manifest: manifest.clone(),
+                    confirmed_manifest: existing.manifest.clone(),
+                    race_won: false,
+                });
+            }
+        } else if manifest.remote_generation != 1 {
+            return Err(format!(
+                "Cannot create manifest '{file_name}' at generation {}; the first generation must be 1",
+                manifest.remote_generation
+            ));
+        }
+        if existing.is_some()
+            && existing
+                .as_ref()
+                .and_then(|remote| remote.etag.as_ref())
+                .is_none()
+        {
+            return Err(format!(
+                "Google Drive did not provide an ETag for manifest '{file_name}'; refusing an unsafe overwrite"
+            ));
+        }
+
+        let bytes = serialize_manifest_bytes(manifest)?;
+        let upload = self
+            .upload_app_data_file(
+                token_store,
+                &file_name,
+                "application/json",
+                &bytes,
+                existing.as_ref().map(|remote| remote.file.id.as_str()),
+                existing.as_ref().and_then(|remote| remote.etag.as_deref()),
+            )
+            .await;
+        let file = match upload {
+            Ok(file) => file,
+            Err(error) if is_precondition_failure(&error) => {
+                let confirmed = self
+                    .read_manifest(token_store, &manifest.profile_id)
+                    .await?
+                    .ok_or_else(|| {
+                        format!("Manifest '{file_name}' disappeared after a write conflict")
+                    })?;
+                return Ok(ManifestWriteOutcome {
+                    file: confirmed.file,
+                    written_manifest: manifest.clone(),
+                    confirmed_manifest: confirmed.manifest,
+                    race_won: false,
+                });
+            }
+            Err(error) => return Err(error),
+        };
         let confirmed = self
             .read_manifest(token_store, &manifest.profile_id)
             .await?
@@ -582,8 +920,8 @@ impl<T: DriveTransport> GoogleDriveClient<T> {
             })?;
 
         Ok(ManifestWriteOutcome {
-            file: written.file,
-            written_manifest: written.manifest,
+            file,
+            written_manifest: manifest.clone(),
             race_won: confirmed.manifest.snapshot_id == manifest.snapshot_id
                 && confirmed.manifest.remote_generation == manifest.remote_generation,
             confirmed_manifest: confirmed.manifest,
@@ -600,7 +938,7 @@ impl<T: DriveTransport> GoogleDriveClient<T> {
         let archive = archive_snapshot(snapshot)?;
 
         if let Some(file) = self
-            .find_unique_app_data_file_by_name(token_store, &file_name)
+            .find_canonical_app_data_file_by_name(token_store, &file_name)
             .await?
         {
             let existing_bytes = self
@@ -620,6 +958,7 @@ impl<T: DriveTransport> GoogleDriveClient<T> {
                 "application/gzip",
                 &archive.gzipped_bytes,
                 None,
+                None,
             )
             .await?;
 
@@ -638,7 +977,7 @@ impl<T: DriveTransport> GoogleDriveClient<T> {
     ) -> Result<SyncSnapshot, String> {
         let file_name = snapshot_file_name(profile_id, snapshot_id);
         let file = self
-            .find_unique_app_data_file_by_name(token_store, &file_name)
+            .find_canonical_app_data_file_by_name(token_store, &file_name)
             .await?
             .ok_or_else(|| format!("Remote snapshot '{file_name}' is missing"))?;
         let bytes = self
@@ -668,7 +1007,7 @@ impl<T: DriveTransport> GoogleDriveClient<T> {
         sha256: &str,
     ) -> Result<bool, String> {
         Ok(self
-            .find_unique_app_data_file_by_name(token_store, &blob_file_name(sha256))
+            .find_canonical_app_data_file_by_name(token_store, &blob_file_name(sha256))
             .await?
             .is_some())
     }
@@ -705,6 +1044,7 @@ impl<T: DriveTransport> GoogleDriveClient<T> {
         sha256: &str,
         bytes: &[u8],
     ) -> Result<DriveFileMetadata, String> {
+        validate_cover_blob_size(bytes)?;
         let actual_sha256 = compute_sha256_hex(bytes);
         if actual_sha256 != sha256 {
             return Err(format!(
@@ -714,7 +1054,7 @@ impl<T: DriveTransport> GoogleDriveClient<T> {
 
         let file_name = blob_file_name(sha256);
         if let Some(file) = self
-            .find_unique_app_data_file_by_name(token_store, &file_name)
+            .find_canonical_app_data_file_by_name(token_store, &file_name)
             .await?
         {
             return Ok(file);
@@ -730,11 +1070,13 @@ impl<T: DriveTransport> GoogleDriveClient<T> {
         sha256: &str,
         bytes: &[u8],
     ) -> Result<DriveFileMetadata, String> {
+        validate_cover_blob_size(bytes)?;
         self.upload_app_data_file(
             token_store,
             &blob_file_name(sha256),
             "application/octet-stream",
             bytes,
+            None,
             None,
         )
         .await
@@ -746,33 +1088,44 @@ impl<T: DriveTransport> GoogleDriveClient<T> {
         sha256: &str,
     ) -> Result<Option<Vec<u8>>, String> {
         let Some(file) = self
-            .find_unique_app_data_file_by_name(token_store, &blob_file_name(sha256))
+            .find_canonical_app_data_file_by_name(token_store, &blob_file_name(sha256))
             .await?
         else {
             return Ok(None);
         };
 
         let bytes = self
-            .download_app_data_file_by_id(token_store, &file.id)
+            .download_app_data_file_by_id_with_limit(
+                token_store,
+                &file.id,
+                MAX_SYNC_COVER_BLOB_BYTES,
+            )
             .await?;
         Ok(Some(bytes))
     }
 
-    async fn find_unique_app_data_file_by_name(
+    async fn find_canonical_app_data_file_by_name(
         &self,
         token_store: &dyn SecureTokenStore,
         file_name: &str,
     ) -> Result<Option<DriveFileMetadata>, String> {
-        let query = format!("name = '{}' and trashed = false", file_name);
+        Ok(self
+            .list_app_data_files_by_name(token_store, file_name)
+            .await?
+            .into_iter()
+            .next())
+    }
+
+    async fn list_app_data_files_by_name(
+        &self,
+        token_store: &dyn SecureTokenStore,
+        file_name: &str,
+    ) -> Result<Vec<DriveFileMetadata>, String> {
+        let escaped_file_name = file_name.replace('\\', "\\\\").replace('\'', "\\'");
+        let query = format!("name = '{escaped_file_name}' and trashed = false");
         let mut files = self.list_app_data_files(token_store, Some(&query)).await?;
-        match files.len() {
-            0 => Ok(None),
-            1 => Ok(files.pop()),
-            _ => Err(format!(
-                "Found multiple appDataFolder files named '{}'",
-                file_name
-            )),
-        }
+        files.sort_by(|left, right| left.id.cmp(&right.id));
+        Ok(files)
     }
 
     async fn access_token(&self, token_store: &dyn SecureTokenStore) -> Result<String, String> {
@@ -810,13 +1163,52 @@ fn drive_http_error_message(error: reqwest::Error) -> String {
     }
 }
 
+fn is_precondition_failure(error: &str) -> bool {
+    error.contains("412 Precondition Failed")
+        || error.to_ascii_lowercase().contains("precondition failed")
+}
+
+async fn read_bounded_response(
+    response: reqwest::Response,
+    limit: usize,
+) -> Result<Vec<u8>, String> {
+    if let Some(content_length) = response.content_length() {
+        if content_length > limit as u64 {
+            return Err(format!(
+                "Google Drive response is too large ({content_length} bytes; limit is {limit} bytes)"
+            ));
+        }
+    }
+
+    let mut stream = response.bytes_stream();
+    let mut bytes = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(drive_http_error_message)?;
+        let new_len = bytes
+            .len()
+            .checked_add(chunk.len())
+            .ok_or_else(|| "Google Drive response size overflowed".to_string())?;
+        if new_len > limit {
+            return Err(format!(
+                "Google Drive response exceeded the {limit} byte limit"
+            ));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
+}
+
 async fn read_success_response(response: reqwest::Response) -> Result<reqwest::Response, String> {
     let status = response.status();
     if status.is_success() {
         return Ok(response);
     }
 
-    let body = response.text().await.unwrap_or_default();
+    let body = read_bounded_response(response, MAX_DRIVE_ERROR_RESPONSE_BYTES)
+        .await
+        .ok()
+        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+        .unwrap_or_default();
     if body.trim().is_empty() {
         Err(format!(
             "Google Drive API request failed with status {status}"
@@ -844,6 +1236,17 @@ fn compute_sha256_hex(bytes: &[u8]) -> String {
         let _ = write!(&mut output, "{byte:02x}");
     }
     output
+}
+
+fn validate_cover_blob_size(bytes: &[u8]) -> Result<(), String> {
+    if bytes.len() > MAX_SYNC_COVER_BLOB_BYTES {
+        Err(format!(
+            "Cover blob exceeds the supported {} byte limit",
+            MAX_SYNC_COVER_BLOB_BYTES
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -949,6 +1352,61 @@ mod tests {
             Box::pin(async move {
                 match transport.handle_request(method, &url, &access_token, content_type, body)? {
                     MemoryDriveResponse::Bytes(bytes) => Ok(bytes),
+                    MemoryDriveResponse::Json(_) => {
+                        Err("Expected byte response but transport returned JSON".to_string())
+                    }
+                }
+            })
+        }
+
+        fn request_json_with_headers<'a>(
+            &'a self,
+            method: Method,
+            url: &'a str,
+            access_token: &'a str,
+            content_type: Option<String>,
+            body: Option<Vec<u8>>,
+            headers: Vec<(String, String)>,
+        ) -> TransportFuture<'a, serde_json::Value> {
+            let transport = self.clone();
+            let url = url.to_string();
+            let access_token = access_token.to_string();
+            Box::pin(async move {
+                transport.check_if_match(&method, &url, &headers)?;
+                match transport.handle_request(method, &url, &access_token, content_type, body)? {
+                    MemoryDriveResponse::Json(value) => Ok(value),
+                    MemoryDriveResponse::Bytes(_) => {
+                        Err("Expected JSON response but transport returned bytes".to_string())
+                    }
+                }
+            })
+        }
+
+        fn request_bytes_with_etag<'a>(
+            &'a self,
+            method: Method,
+            url: &'a str,
+            access_token: &'a str,
+            content_type: Option<String>,
+            body: Option<Vec<u8>>,
+            max_response_bytes: usize,
+        ) -> TransportFuture<'a, (Vec<u8>, Option<String>)> {
+            let transport = self.clone();
+            let url = url.to_string();
+            let access_token = access_token.to_string();
+            Box::pin(async move {
+                let response =
+                    transport.handle_request(method, &url, &access_token, content_type, body)?;
+                match response {
+                    MemoryDriveResponse::Bytes(bytes) => {
+                        if bytes.len() > max_response_bytes {
+                            return Err(format!(
+                                "Test Drive response exceeded the {max_response_bytes} byte limit"
+                            ));
+                        }
+                        let etag = transport.etag_for_file_url(&url);
+                        Ok((bytes, etag))
+                    }
                     MemoryDriveResponse::Json(_) => {
                         Err("Expected byte response but transport returned JSON".to_string())
                     }
@@ -1074,6 +1532,38 @@ mod tests {
             Err(format!("Unhandled transport request: {} {}", method, url))
         }
 
+        fn etag_for_file_url(&self, url: &str) -> Option<String> {
+            let file_id = Url::parse(url).ok()?.path().rsplit('/').next()?.to_string();
+            self.state
+                .lock()
+                .ok()?
+                .files
+                .get(&file_id)
+                .map(|file| format!("\"{}\"", file.modified_time))
+        }
+
+        fn check_if_match(
+            &self,
+            method: &Method,
+            url: &str,
+            headers: &[(String, String)],
+        ) -> Result<(), String> {
+            if method != Method::PATCH {
+                return Ok(());
+            }
+            let Some((_, expected)) = headers
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case("if-match"))
+            else {
+                return Ok(());
+            };
+            if self.etag_for_file_url(url).as_deref() == Some(expected.as_str()) {
+                Ok(())
+            } else {
+                Err("Google Drive API request failed with status 412 Precondition Failed".into())
+            }
+        }
+
         fn authorize_request(&self, access_token: &str) -> Result<(), String> {
             let state = self.state.lock().unwrap();
             if access_token == state.expected_access_token {
@@ -1138,10 +1628,11 @@ mod tests {
                 content_type: "Videogame".to_string(),
                 tracking_status: "Ongoing".to_string(),
                 extra_data: "{}".to_string(),
-                cover_blob_sha256: Some("blob123".to_string()),
+                cover_blob_sha256: Some("a".repeat(64)),
                 updated_at: "2026-04-02T10:00:00Z".to_string(),
                 updated_by_device_id: "dev_local".to_string(),
                 activities: vec![sync_snapshot::SnapshotActivity {
+                    uid: "activity-1".to_string(),
                     date: "2026-04-01".to_string(),
                     activity_type: "Playing".to_string(),
                     duration_minutes: 90,
@@ -1149,6 +1640,7 @@ mod tests {
                     notes: String::new(),
                 }],
                 milestones: vec![sync_snapshot::SnapshotMilestone {
+                    uid: "milestone-1".to_string(),
                     name: "Finished Intro".to_string(),
                     duration: 90,
                     characters: 0,
@@ -1211,6 +1703,13 @@ mod tests {
         snapshot.library.get_mut("uid-1").unwrap().title = " \t\u{2003}".to_string();
         let blank_title = validate_remote_snapshot_compatibility(&snapshot).unwrap_err();
         assert!(blank_title.contains("blank title"));
+
+        let mut blank_uid_snapshot = sample_snapshot("profile-1", "snapshot-1");
+        let mut media = blank_uid_snapshot.library.remove("uid-1").unwrap();
+        media.uid.clear();
+        blank_uid_snapshot.library.insert(String::new(), media);
+        let blank_uid = validate_remote_snapshot_compatibility(&blank_uid_snapshot).unwrap_err();
+        assert!(blank_uid.contains("blank sync UID"));
     }
 
     #[test]
@@ -1417,6 +1916,61 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn duplicate_manifest_files_converge_on_the_highest_generation() {
+        let transport = build_transport();
+        let client = build_client(transport.clone());
+        let token_store = test_token_store();
+        let older = RemoteSyncManifest::new(
+            "prof_duplicate",
+            "Duplicate",
+            "snap_older",
+            "sha_older",
+            1,
+            "2026-04-02T12:00:00Z",
+            "dev_a",
+        );
+        let newer = RemoteSyncManifest::new(
+            "prof_duplicate",
+            "Duplicate",
+            "snap_newer",
+            "sha_newer",
+            2,
+            "2026-04-02T12:01:00Z",
+            "dev_b",
+        );
+        let file_name = manifest_file_name("prof_duplicate");
+        insert_test_file(
+            &transport,
+            &file_name,
+            "application/json",
+            serialize_manifest_bytes(&older).unwrap(),
+        )
+        .await;
+        insert_test_file(
+            &transport,
+            &file_name,
+            "application/json",
+            serialize_manifest_bytes(&newer).unwrap(),
+        )
+        .await;
+
+        let selected = client
+            .read_manifest(&token_store, "prof_duplicate")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(selected.manifest.snapshot_id, "snap_newer");
+        assert_eq!(selected.manifest.remote_generation, 2);
+
+        let profiles = client
+            .list_remote_sync_profiles(&token_store)
+            .await
+            .unwrap();
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(profiles[0].manifest.snapshot_id, "snap_newer");
+    }
+
+    #[tokio::test]
     async fn upload_and_download_snapshot_round_trip() {
         let transport = build_transport();
         let client = build_client(transport);
@@ -1461,11 +2015,38 @@ mod tests {
         assert!(err.contains("checksum mismatch"));
     }
 
+    #[test]
+    fn snapshot_decompression_enforces_the_actual_output_limit() {
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&[0_u8; 128]).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let error = decompress_with_limit(&compressed, 64).unwrap_err();
+        assert!(error.contains("64 byte limit"));
+    }
+
     #[tokio::test]
     async fn upsert_manifest_and_confirm_detects_lost_race() {
         let transport = build_transport();
         let client = build_client(transport.clone());
         let token_store = test_token_store();
+
+        let previous_manifest = RemoteSyncManifest::new(
+            "prof_1",
+            "Morg",
+            "snap_previous",
+            "sha_previous",
+            2,
+            "2026-04-02T12:29:00Z",
+            "dev_previous",
+        );
+        insert_test_file(
+            &transport,
+            &manifest_file_name("prof_1"),
+            "application/json",
+            serialize_manifest_bytes(&previous_manifest).unwrap(),
+        )
+        .await;
 
         let our_manifest = RemoteSyncManifest::new(
             "prof_1",

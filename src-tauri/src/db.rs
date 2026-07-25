@@ -1,9 +1,10 @@
-use chrono::{SecondsFormat, Utc};
+use chrono::{NaiveDate, SecondsFormat, Utc};
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Result};
 use std::collections::HashMap;
 use std::fs;
-use std::io;
-use std::path::PathBuf;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 use tauri::Manager;
 use uuid::Uuid;
 
@@ -11,7 +12,7 @@ use crate::models::{
     ActivityLog, ActivitySummary, DailyHeatmap, Media, Milestone, ProfilePicture, TimelineEvent,
 };
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 6;
+pub const CURRENT_SCHEMA_VERSION: i64 = 7;
 
 type MigrationFn = fn(&Connection) -> Result<()>;
 
@@ -47,9 +48,17 @@ const VERSIONED_MIGRATIONS: &[Migration] = &[
         to: 6,
         apply: migrate_v5_to_v6_use_media_title_variant_identity,
     },
+    Migration {
+        from: 6,
+        to: 7,
+        apply: migrate_v6_to_v7_add_sync_record_uids,
+    },
 ];
 
 const KECHIMOCHI_SYNC_NAMESPACE: &str = "0718e147-943f-4f0a-977d-5447bb2342f2";
+const KECHIMOCHI_SYNC_RECORD_NAMESPACE: &str = "21d1eeba-2a5d-4e9c-b185-1133c76d6aa7";
+const MAX_ACTIVITY_DURATION_MINUTES: i64 = 5_256_000;
+const MAX_ACTIVITY_CHARACTERS: i64 = 1_000_000_000_000;
 
 const SHARED_MEDIA_COLUMNS: &[&str] = &[
     "id",
@@ -68,6 +77,7 @@ const SHARED_MEDIA_COLUMNS: &[&str] = &[
 
 const ACTIVITY_LOG_COLUMNS: &[&str] = &[
     "id",
+    "uid",
     "media_id",
     "duration_minutes",
     "characters",
@@ -77,6 +87,17 @@ const ACTIVITY_LOG_COLUMNS: &[&str] = &[
 ];
 
 const MILESTONE_COLUMNS: &[&str] = &[
+    "id",
+    "uid",
+    "media_uid",
+    "media_title",
+    "name",
+    "duration",
+    "characters",
+    "date",
+];
+
+const MILESTONE_V6_COLUMNS: &[&str] = &[
     "id",
     "media_uid",
     "media_title",
@@ -123,6 +144,28 @@ struct SharedMediaRow {
     tracking_status: String,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct SyncActivityRow {
+    pub uid: String,
+    pub media_id: i64,
+    pub duration_minutes: i64,
+    pub characters: i64,
+    pub date: String,
+    pub activity_type: String,
+    pub notes: String,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct SyncMilestoneRow {
+    pub uid: String,
+    pub media_uid: String,
+    pub media_title: String,
+    pub name: String,
+    pub duration: i64,
+    pub characters: i64,
+    pub date: Option<String>,
+}
+
 fn sync_namespace_uuid() -> Result<Uuid> {
     Uuid::parse_str(KECHIMOCHI_SYNC_NAMESPACE)
         .map_err(|e| migration_error(format!("Invalid sync namespace UUID: {}", e)))
@@ -138,6 +181,56 @@ fn generate_deterministic_media_uid(title: &str) -> Result<String> {
 
 fn generate_random_media_uid() -> String {
     Uuid::new_v4().to_string()
+}
+
+fn sync_record_namespace_uuid() -> std::result::Result<Uuid, String> {
+    Uuid::parse_str(KECHIMOCHI_SYNC_RECORD_NAMESPACE)
+        .map_err(|error| format!("Invalid sync-record namespace UUID: {error}"))
+}
+
+fn stable_record_uid(payload: serde_json::Value) -> std::result::Result<String, String> {
+    let payload = serde_json::to_vec(&payload).map_err(|error| error.to_string())?;
+    Ok(Uuid::new_v5(&sync_record_namespace_uuid()?, &payload).to_string())
+}
+
+pub(crate) fn legacy_activity_record_uid(
+    media_uid: &str,
+    date: &str,
+    activity_type: &str,
+    duration_minutes: i64,
+    characters: i64,
+    notes: &str,
+    occurrence: usize,
+) -> std::result::Result<String, String> {
+    stable_record_uid(serde_json::json!([
+        "activity",
+        media_uid,
+        date,
+        activity_type,
+        duration_minutes,
+        characters,
+        notes,
+        occurrence
+    ]))
+}
+
+pub(crate) fn legacy_milestone_record_uid(
+    media_uid: &str,
+    name: &str,
+    duration: i64,
+    characters: i64,
+    date: Option<&str>,
+    occurrence: usize,
+) -> std::result::Result<String, String> {
+    stable_record_uid(serde_json::json!([
+        "milestone",
+        media_uid,
+        name,
+        duration,
+        characters,
+        date,
+        occurrence
+    ]))
 }
 
 fn normalize_optional_string(value: Option<String>) -> Option<String> {
@@ -452,7 +545,11 @@ fn latest_schema_is_present(conn: &Connection) -> Result<bool> {
             && latest_media_identity_constraints_are_present(conn)?
             && first_blank_media_title_row(conn)?.is_none()
             && table_has_all_columns(conn, "main", "activity_logs", ACTIVITY_LOG_COLUMNS)?
+            && table_column_is_not_null(conn, "main", "activity_logs", "uid")?
+            && first_blank_record_uid(conn, "activity_logs")?.is_none()
             && table_has_all_columns(conn, "main", "milestones", MILESTONE_COLUMNS)?
+            && table_column_is_not_null(conn, "main", "milestones", "uid")?
+            && first_blank_record_uid(conn, "milestones")?.is_none()
             && table_column_is_not_null(conn, "main", "milestones", "media_uid")?
             && table_has_all_columns(conn, "main", "settings", SETTINGS_COLUMNS)?
             && table_has_all_columns(conn, "main", "profile_picture", PROFILE_PICTURE_COLUMNS)?,
@@ -468,7 +565,10 @@ fn validate_latest_schema(conn: &Connection) -> Result<()> {
     }
     validate_media_titles(conn)?;
     ensure_table_has_columns(conn, "main", "activity_logs", ACTIVITY_LOG_COLUMNS)?;
+    validate_record_uid_column(conn, "activity_logs", "Activity")?;
+    validate_activity_media_links(conn)?;
     ensure_table_has_columns(conn, "main", "milestones", MILESTONE_COLUMNS)?;
+    validate_record_uid_column(conn, "milestones", "Milestone")?;
     if !table_column_is_not_null(conn, "main", "milestones", "media_uid")? {
         return Err(migration_error(
             "main.milestones.media_uid must be required in the latest schema",
@@ -477,6 +577,38 @@ fn validate_latest_schema(conn: &Connection) -> Result<()> {
     validate_milestone_media_links(conn)?;
     ensure_table_has_columns(conn, "main", "settings", SETTINGS_COLUMNS)?;
     ensure_table_has_columns(conn, "main", "profile_picture", PROFILE_PICTURE_COLUMNS)?;
+    Ok(())
+}
+
+fn first_blank_record_uid(conn: &Connection, table_name: &str) -> Result<Option<i64>> {
+    conn.query_row(
+        &format!(
+            "SELECT id FROM main.{table_name}
+             WHERE COALESCE(TRIM(uid), '') = ''
+             ORDER BY id ASC
+             LIMIT 1"
+        ),
+        [],
+        |row| row.get(0),
+    )
+    .optional()
+}
+
+fn validate_record_uid_column(
+    conn: &Connection,
+    table_name: &str,
+    record_kind: &str,
+) -> Result<()> {
+    if !table_column_is_not_null(conn, "main", table_name, "uid")? {
+        return Err(migration_error(format!(
+            "main.{table_name}.uid must be required in the latest schema"
+        )));
+    }
+    if let Some(id) = first_blank_record_uid(conn, table_name)? {
+        return Err(migration_error(format!(
+            "{record_kind} {id} has a blank sync UID"
+        )));
+    }
     Ok(())
 }
 
@@ -796,8 +928,36 @@ fn validate_milestone_media_links(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn validate_activity_media_links(conn: &Connection) -> Result<()> {
+    if !table_exists(conn, "main", "activity_logs")?
+        || !table_has_column(conn, "main", "activity_logs", "media_id")?
+        || !table_exists(conn, "shared", "media")?
+    {
+        return Ok(());
+    }
+
+    let unresolved: Option<(i64, i64)> = conn
+        .query_row(
+            "SELECT activity.id, activity.media_id
+             FROM main.activity_logs activity
+             LEFT JOIN shared.media media ON media.id = activity.media_id
+             WHERE media.id IS NULL
+             ORDER BY activity.id ASC
+             LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    if let Some((activity_id, media_id)) = unresolved {
+        return Err(migration_error(format!(
+            "Activity {activity_id} is linked to missing media {media_id}"
+        )));
+    }
+    Ok(())
+}
+
 fn migrate_milestones_to_required_media_uid(conn: &Connection) -> Result<()> {
-    ensure_table_has_columns(conn, "main", "milestones", MILESTONE_COLUMNS)?;
+    ensure_table_has_columns(conn, "main", "milestones", MILESTONE_V6_COLUMNS)?;
     ensure_table_has_columns(conn, "shared", "media", SHARED_MEDIA_COLUMNS)?;
 
     // Versions before v6 accepted title-only milestone writes. Repair those links
@@ -850,6 +1010,138 @@ fn migrate_milestones_to_required_media_uid(conn: &Connection) -> Result<()> {
     conn.execute("DROP TABLE main.milestones", [])?;
     conn.execute(
         "ALTER TABLE main.milestones_v6_new RENAME TO milestones",
+        [],
+    )?;
+    Ok(())
+}
+
+fn migrate_v6_to_v7_add_sync_record_uids(conn: &Connection) -> Result<()> {
+    let _ = add_column_if_missing(
+        conn,
+        "main",
+        "activity_logs",
+        "uid",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
+    let _ = add_column_if_missing(
+        conn,
+        "main",
+        "milestones",
+        "uid",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
+
+    let activity_rows = {
+        let mut stmt = conn.prepare(
+            "SELECT a.id,
+                    COALESCE(m.uid, 'orphan-media-' || a.media_id),
+                    a.date,
+                    a.activity_type,
+                    a.duration_minutes,
+                    a.characters,
+                    a.notes
+             FROM main.activity_logs a
+             LEFT JOIN shared.media m ON m.id = a.media_id
+             WHERE TRIM(a.uid) = ''
+             ORDER BY COALESCE(m.uid, 'orphan-media-' || a.media_id),
+                      a.date, a.activity_type, a.duration_minutes, a.characters, a.notes, a.id",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, i64>(5)?,
+                row.get::<_, String>(6)?,
+            ))
+        })?;
+        rows.collect::<Result<Vec<_>>>()?
+    };
+    let mut activity_occurrences: HashMap<(String, String, String, i64, i64, String), usize> =
+        HashMap::new();
+    for (id, media_uid, date, activity_type, duration, characters, notes) in activity_rows {
+        let key = (
+            media_uid.clone(),
+            date.clone(),
+            activity_type.clone(),
+            duration,
+            characters,
+            notes.clone(),
+        );
+        let occurrence = activity_occurrences.entry(key).or_default();
+        let uid = legacy_activity_record_uid(
+            &media_uid,
+            &date,
+            &activity_type,
+            duration,
+            characters,
+            &notes,
+            *occurrence,
+        )
+        .map_err(migration_error)?;
+        *occurrence += 1;
+        conn.execute(
+            "UPDATE main.activity_logs SET uid = ?1 WHERE id = ?2",
+            params![uid, id],
+        )?;
+    }
+
+    let milestone_rows = {
+        let mut stmt = conn.prepare(
+            "SELECT id, media_uid, name, duration, characters, date
+             FROM main.milestones
+             WHERE TRIM(uid) = ''
+             ORDER BY media_uid, date, name, duration, characters, id",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, Option<String>>(5)?,
+            ))
+        })?;
+        rows.collect::<Result<Vec<_>>>()?
+    };
+    let mut milestone_occurrences: HashMap<(String, String, i64, i64, Option<String>), usize> =
+        HashMap::new();
+    for (id, media_uid, name, duration, characters, date) in milestone_rows {
+        let key = (
+            media_uid.clone(),
+            name.clone(),
+            duration,
+            characters,
+            date.clone(),
+        );
+        let occurrence = milestone_occurrences.entry(key).or_default();
+        let uid = legacy_milestone_record_uid(
+            &media_uid,
+            &name,
+            duration,
+            characters,
+            date.as_deref(),
+            *occurrence,
+        )
+        .map_err(migration_error)?;
+        *occurrence += 1;
+        conn.execute(
+            "UPDATE main.milestones SET uid = ?1 WHERE id = ?2",
+            params![uid, id],
+        )?;
+    }
+
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS main.idx_activity_logs_uid
+         ON activity_logs(uid)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS main.idx_milestones_uid
+         ON milestones(uid)",
         [],
     )?;
     Ok(())
@@ -1186,6 +1478,7 @@ fn create_activity_logs_table(conn: &Connection) -> Result<()> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS main.activity_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            uid TEXT NOT NULL DEFAULT '',
             media_id INTEGER NOT NULL,
             duration_minutes INTEGER NOT NULL,
             characters INTEGER NOT NULL DEFAULT 0,
@@ -1203,6 +1496,7 @@ fn create_milestones_table_named(conn: &Connection, table_name: &str) -> Result<
         &format!(
             "CREATE TABLE IF NOT EXISTS {} (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            uid TEXT NOT NULL DEFAULT '',
             media_uid TEXT NOT NULL,
             media_title TEXT NOT NULL,
             name TEXT NOT NULL,
@@ -1222,6 +1516,13 @@ fn create_milestones_table(conn: &Connection) -> Result<()> {
 }
 
 fn migrate_milestones(conn: &Connection) -> Result<()> {
+    let _ = add_column_if_missing(
+        conn,
+        "main",
+        "milestones",
+        "uid",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
     let _ = add_column_if_missing(conn, "main", "milestones", "media_uid", "TEXT")?;
     let _ = add_column_if_missing(
         conn,
@@ -1361,15 +1662,25 @@ fn apply_pragmas(conn: &Connection) -> Result<()> {
          PRAGMA busy_timeout = 5000;
          PRAGMA temp_store = MEMORY;
          PRAGMA cache_size = -20000;
-         PRAGMA main.journal_mode = WAL;
-         PRAGMA main.synchronous = NORMAL;
-         PRAGMA shared.journal_mode = WAL;
-         PRAGMA shared.synchronous = NORMAL;",
+         PRAGMA main.journal_mode = DELETE;
+         PRAGMA main.synchronous = FULL;
+         PRAGMA shared.journal_mode = DELETE;
+         PRAGMA shared.synchronous = FULL;",
     )?;
     Ok(())
 }
 
 fn create_indexes(conn: &Connection) -> Result<()> {
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS main.idx_activity_logs_uid
+         ON activity_logs(uid)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS main.idx_milestones_uid
+         ON milestones(uid)",
+        [],
+    )?;
     conn.execute(
         "CREATE INDEX IF NOT EXISTS main.idx_activity_logs_date_id
          ON activity_logs(date DESC, id DESC)",
@@ -1409,6 +1720,7 @@ pub fn create_tables(conn: &Connection) -> Result<()> {
 
 fn create_latest_schema(conn: &Connection) -> Result<()> {
     create_tables(conn)?;
+    migrate_v6_to_v7_add_sync_record_uids(conn)?;
     create_indexes(conn)?;
     Ok(())
 }
@@ -1425,6 +1737,8 @@ fn migrate_legacy_pre_release_to_current_schema(conn: &Connection) -> Result<()>
     migrate_v3_to_v4_add_media_variant(conn)?;
     migrate_v4_to_v5_rename_default_activity_type(conn)?;
     migrate_v5_to_v6_use_media_title_variant_identity(conn)?;
+    migrate_v6_to_v7_add_sync_record_uids(conn)?;
+    validate_activity_media_links(conn)?;
     create_indexes(conn)?;
     Ok(())
 }
@@ -1482,6 +1796,10 @@ fn migrate_schema(conn: &Connection) -> Result<()> {
                     version, CURRENT_SCHEMA_VERSION
                 )));
             }
+            // Reject cross-database orphans before the first versioned step
+            // commits. Otherwise a later validation error could leave an
+            // invalid bundle partially upgraded across several transactions.
+            validate_activity_media_links(conn)?;
             run_versioned_migrations(conn, version)?;
         }
         SchemaState::Mixed { main, shared } => {
@@ -1498,6 +1816,8 @@ fn migrate_schema(conn: &Connection) -> Result<()> {
                     set_bundle_schema_version(conn, CURRENT_SCHEMA_VERSION)
                 })?;
             } else if latest_schema_is_present(conn)? {
+                validate_activity_media_links(conn)?;
+                validate_milestone_media_links(conn)?;
                 with_migration_transaction(conn, |conn| {
                     set_bundle_schema_version(conn, CURRENT_SCHEMA_VERSION)
                 })?;
@@ -1515,8 +1835,59 @@ fn migrate_schema(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn migrate_legacy_user_database(fallback_path: &Path, user_db_path: &Path) -> Result<()> {
+    let parent = user_db_path
+        .parent()
+        .ok_or_else(|| migration_error("Canonical user database path has no parent directory"))?;
+    let staging_path = parent.join(format!(".kechimochi-user-migration-{}.db", Uuid::new_v4()));
+
+    let result = (|| {
+        let source = Connection::open_with_flags(fallback_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        let mut destination = Connection::open(&staging_path)?;
+        {
+            let backup = rusqlite::backup::Backup::new(&source, &mut destination)?;
+            backup.run_to_completion(128, Duration::from_millis(10), None)?;
+        }
+        destination.close().map_err(|(_, error)| error)?;
+        fs::rename(&staging_path, user_db_path).map_err(|error| {
+            migration_error(format!(
+                "Failed to install migrated legacy user database: {error}"
+            ))
+        })?;
+        if let Ok(directory) = fs::File::open(parent) {
+            let _ = directory.sync_all();
+        }
+        Ok(())
+    })();
+
+    if result.is_err() {
+        let _ = fs::remove_file(&staging_path);
+    }
+    result
+}
+
 pub fn init_db(app_dir: std::path::PathBuf, fallback_username: Option<&str>) -> Result<Connection> {
-    fs::create_dir_all(&app_dir).expect("Failed to create app data dir");
+    init_db_internal(app_dir, fallback_username, true)
+}
+
+pub(crate) fn init_db_without_backup_recovery(
+    app_dir: std::path::PathBuf,
+    fallback_username: Option<&str>,
+) -> Result<Connection> {
+    init_db_internal(app_dir, fallback_username, false)
+}
+
+fn init_db_internal(
+    app_dir: std::path::PathBuf,
+    fallback_username: Option<&str>,
+    recover_backup_install: bool,
+) -> Result<Connection> {
+    fs::create_dir_all(&app_dir).map_err(|error| {
+        migration_error(format!("Failed to create app data directory: {error}"))
+    })?;
+    if recover_backup_install {
+        crate::backup::recover_interrupted_backup_installs(&app_dir).map_err(migration_error)?;
+    }
 
     let shared_db_path = app_dir.join("kechimochi_shared_media.db");
     let user_db_path = app_dir.join("kechimochi_user.db");
@@ -1529,19 +1900,7 @@ pub fn init_db(app_dir: std::path::PathBuf, fallback_username: Option<&str>) -> 
             let fallback_path = app_dir.join(format!("kechimochi_{}.db", username));
             if fallback_path.exists() {
                 reject_unsupported_future_schema_file(&fallback_path, "Fallback main")?;
-                let _ = fs::copy(&fallback_path, &user_db_path);
-
-                let fallback_wal = app_dir.join(format!("kechimochi_{}.db-wal", username));
-                let user_wal = app_dir.join("kechimochi_user.db-wal");
-                if fallback_wal.exists() {
-                    let _ = fs::copy(&fallback_wal, &user_wal);
-                }
-
-                let fallback_shm = app_dir.join(format!("kechimochi_{}.db-shm", username));
-                let user_shm = app_dir.join("kechimochi_user.db-shm");
-                if fallback_shm.exists() {
-                    let _ = fs::copy(&fallback_shm, &user_shm);
-                }
+                migrate_legacy_user_database(&fallback_path, &user_db_path)?;
             }
         }
     }
@@ -1554,7 +1913,7 @@ pub fn init_db(app_dir: std::path::PathBuf, fallback_username: Option<&str>) -> 
         rusqlite::params![shared_db_path.to_string_lossy()],
     )?;
 
-    // WAL mode is persistent. Reject a future schema before applying any
+    // Journal mode is persistent. Reject a future schema before applying any
     // connection pragmas so an older app cannot alter newer database files.
     reject_unsupported_future_schema(&conn)?;
     apply_pragmas(&conn)?;
@@ -1565,25 +1924,84 @@ pub fn init_db(app_dir: std::path::PathBuf, fallback_username: Option<&str>) -> 
 }
 
 pub fn wipe_everything(app_dir: std::path::PathBuf) -> std::result::Result<(), String> {
-    // Delete covers dir
+    wipe_everything_with_additional_targets(app_dir, &[])
+}
+
+pub(crate) fn wipe_everything_with_additional_targets(
+    app_dir: std::path::PathBuf,
+    additional_targets: &[PathBuf],
+) -> std::result::Result<(), String> {
+    let mut targets = Vec::new();
     let covers_dir = app_dir.join("covers");
     if covers_dir.exists() {
-        let _ = std::fs::remove_dir_all(&covers_dir);
+        targets.push(covers_dir);
     }
-
-    // Delete all DBs
-    if let Ok(entries) = std::fs::read_dir(&app_dir) {
-        for entry in entries.filter_map(std::result::Result::ok) {
-            let path = entry.path();
-            if let Some(ext) = path.extension() {
-                if ext == "db" {
-                    let _ = std::fs::remove_file(path);
-                }
-            }
+    let entries = fs::read_dir(&app_dir)
+        .map_err(|error| format!("Failed to enumerate application data: {error}"))?;
+    for entry in entries {
+        let entry =
+            entry.map_err(|error| format!("Failed to inspect application data: {error}"))?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if name.ends_with(".db")
+            || name.ends_with(".db-wal")
+            || name.ends_with(".db-shm")
+            || name.ends_with(".db-journal")
+        {
+            targets.push(path);
+        }
+    }
+    for path in additional_targets {
+        if !path.starts_with(&app_dir) {
+            return Err(format!(
+                "Factory reset target '{}' is outside the application data directory",
+                path.display()
+            ));
+        }
+        if path.exists() && !targets.contains(path) {
+            targets.push(path.clone());
         }
     }
 
-    Ok(())
+    let staging_dir = app_dir.join(format!(".kechimochi-wipe-{}", Uuid::new_v4()));
+    fs::create_dir(&staging_dir)
+        .map_err(|error| format!("Failed to prepare factory reset: {error}"))?;
+
+    let mut moved = Vec::new();
+    for (index, source) in targets.into_iter().enumerate() {
+        let file_name = source
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("data");
+        let destination = staging_dir.join(format!("{index}-{file_name}"));
+        if let Err(error) = fs::rename(&source, &destination) {
+            let mut rollback_errors = Vec::new();
+            for (original, staged) in moved.into_iter().rev() {
+                if let Err(rollback_error) = fs::rename(&staged, &original) {
+                    rollback_errors.push(rollback_error.to_string());
+                }
+            }
+            let _ = fs::remove_dir(&staging_dir);
+            let rollback_suffix = if rollback_errors.is_empty() {
+                String::new()
+            } else {
+                format!("; rollback also failed: {}", rollback_errors.join("; "))
+            };
+            return Err(format!(
+                "Factory reset could not stage '{}': {error}{rollback_suffix}",
+                source.display()
+            ));
+        }
+        moved.push((source, destination));
+    }
+
+    fs::remove_dir_all(&staging_dir)
+        .map_err(|error| format!("Factory reset staged data but could not erase it: {error}"))
 }
 
 fn get_media_title_by_uid(conn: &Connection, uid: &str) -> Result<Option<String>> {
@@ -1687,6 +2105,7 @@ pub fn add_media_with_id(conn: &Connection, media: &Media) -> Result<i64> {
     if default_activity_type.is_empty() {
         return Err(migration_error("Default activity type cannot be blank"));
     }
+    validate_extra_data_object(&media.extra_data)?;
     let variant = media.variant.trim();
     ensure_media_identity_available(conn, &media.title, variant, None)?;
     conn.execute(
@@ -1720,6 +2139,7 @@ pub fn update_media(conn: &Connection, media: &Media) -> Result<()> {
     if default_activity_type.is_empty() {
         return Err(migration_error("Default activity type cannot be blank"));
     }
+    validate_extra_data_object(&media.extra_data)?;
     let variant = media.variant.trim();
     ensure_media_identity_available(conn, &media.title, variant, Some(media_id))?;
 
@@ -1756,42 +2176,60 @@ pub fn update_media(conn: &Connection, media: &Media) -> Result<()> {
 }
 
 pub fn delete_media(conn: &Connection, id: i64) -> Result<()> {
-    if let Some((cover_image, uid)) = conn
+    let (cover_image, uid) = conn
         .query_row(
             "SELECT cover_image, uid FROM shared.media WHERE id = ?1",
             params![id],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         )
         .optional()?
-    {
+        .ok_or_else(|| migration_error(format!("Media {id} not found")))?;
+
+    with_write_savepoint(conn, |conn| {
         conn.execute(
             "DELETE FROM main.milestones WHERE media_uid = ?1",
             params![uid],
         )?;
+        conn.execute(
+            "DELETE FROM main.activity_logs WHERE media_id = ?1",
+            params![id],
+        )?;
+        let changed = conn.execute("DELETE FROM shared.media WHERE id = ?1", params![id])?;
+        if changed == 0 {
+            return Err(migration_error(format!("Media {id} not found")));
+        }
+        Ok(())
+    })?;
 
-        remove_cover_file_if_unreferenced(conn, std::path::Path::new(&cover_image), Some(id))?;
-    }
-
-    // Also delete associated logs in the local main DB
-    conn.execute(
-        "DELETE FROM main.activity_logs WHERE media_id = ?1",
-        params![id],
-    )?;
-    conn.execute("DELETE FROM shared.media WHERE id = ?1", params![id])?;
+    // File cleanup is deliberately after the database commit. A failed unlink
+    // may leave an unused cache file, but it cannot leave a live database row
+    // pointing at a file that was already removed.
+    let _ = remove_cover_file_if_unreferenced(conn, Path::new(&cover_image), None, None);
     Ok(())
 }
 
 // Activity Log Operations
+fn validate_extra_data_object(extra_data: &str) -> Result<()> {
+    match serde_json::from_str::<serde_json::Value>(extra_data) {
+        Ok(serde_json::Value::Object(_)) => Ok(()),
+        Ok(_) => Err(migration_error("Media extra_data must be a JSON object")),
+        Err(error) => Err(migration_error(format!(
+            "Media extra_data is invalid JSON: {error}"
+        ))),
+    }
+}
+
+fn validate_iso_date(date: &str, label: &str) -> Result<()> {
+    NaiveDate::parse_from_str(date, "%Y-%m-%d")
+        .map(|_| ())
+        .map_err(|_| migration_error(format!("{label} date must use YYYY-MM-DD")))
+}
+
 fn resolve_activity_type_for_write(
     conn: &Connection,
     media_id: i64,
     activity_type: &str,
 ) -> Result<String> {
-    let activity_type = activity_type.trim();
-    if !activity_type.is_empty() {
-        return Ok(activity_type.to_string());
-    }
-
     let default_activity_type = conn
         .query_row(
             "SELECT default_activity_type FROM shared.media WHERE id = ?1",
@@ -1800,6 +2238,12 @@ fn resolve_activity_type_for_write(
         )
         .optional()?
         .ok_or_else(|| migration_error(format!("Media {media_id} not found")))?;
+
+    let activity_type = activity_type.trim();
+    if !activity_type.is_empty() {
+        return Ok(activity_type.to_string());
+    }
+
     let default_activity_type = default_activity_type.trim();
     if default_activity_type.is_empty() {
         return Err(migration_error(format!(
@@ -1828,6 +2272,16 @@ pub fn validate_activity_metrics(duration_minutes: i64, characters: i64) -> Resu
             "Activity character count cannot be negative",
         ));
     }
+    if duration_minutes > MAX_ACTIVITY_DURATION_MINUTES {
+        return Err(invalid_activity_input(
+            "Activity duration exceeds the supported maximum",
+        ));
+    }
+    if characters > MAX_ACTIVITY_CHARACTERS {
+        return Err(invalid_activity_input(
+            "Activity character count exceeds the supported maximum",
+        ));
+    }
     if duration_minutes == 0 && characters == 0 {
         return Err(invalid_activity_input(
             "Activity must have either duration or characters",
@@ -1836,29 +2290,78 @@ pub fn validate_activity_metrics(duration_minutes: i64, characters: i64) -> Resu
     Ok(())
 }
 
+fn validate_milestone_metrics(duration: i64, characters: i64) -> Result<()> {
+    if duration < 0 {
+        return Err(invalid_activity_input(
+            "Milestone duration cannot be negative",
+        ));
+    }
+    if characters < 0 {
+        return Err(invalid_activity_input(
+            "Milestone character count cannot be negative",
+        ));
+    }
+    if duration > MAX_ACTIVITY_DURATION_MINUTES {
+        return Err(invalid_activity_input(
+            "Milestone duration exceeds the supported maximum",
+        ));
+    }
+    if characters > MAX_ACTIVITY_CHARACTERS {
+        return Err(invalid_activity_input(
+            "Milestone character count exceeds the supported maximum",
+        ));
+    }
+    if duration == 0 && characters == 0 {
+        return Err(invalid_activity_input(
+            "Milestone must have either duration or characters",
+        ));
+    }
+    Ok(())
+}
+
 pub fn add_log(conn: &Connection, log: &ActivityLog) -> Result<i64> {
+    add_log_with_uid(conn, log, &Uuid::new_v4().to_string())
+}
+
+pub(crate) fn add_log_with_uid(conn: &Connection, log: &ActivityLog, uid: &str) -> Result<i64> {
     validate_activity_metrics(log.duration_minutes, log.characters)?;
+    validate_iso_date(&log.date, "Activity")?;
+    if uid.trim().is_empty() {
+        return Err(migration_error("Activity sync UID cannot be blank"));
+    }
     let activity_type = resolve_activity_type_for_write(conn, log.media_id, &log.activity_type)?;
     conn.execute(
-        "INSERT INTO main.activity_logs (media_id, duration_minutes, characters, date, activity_type, notes) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![log.media_id, log.duration_minutes, log.characters, log.date, activity_type, log.notes],
+        "INSERT INTO main.activity_logs (uid, media_id, duration_minutes, characters, date, activity_type, notes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![uid, log.media_id, log.duration_minutes, log.characters, log.date, activity_type, log.notes],
     )?;
     Ok(conn.last_insert_rowid())
 }
 
 pub fn delete_log(conn: &Connection, id: i64) -> Result<()> {
-    conn.execute("DELETE FROM main.activity_logs WHERE id = ?1", params![id])?;
-    Ok(())
+    let changed = conn.execute("DELETE FROM main.activity_logs WHERE id = ?1", params![id])?;
+    if changed == 0 {
+        Err(migration_error(format!("Activity {id} not found")))
+    } else {
+        Ok(())
+    }
 }
 
 pub fn update_log(conn: &Connection, log: &ActivityLog) -> Result<()> {
     validate_activity_metrics(log.duration_minutes, log.characters)?;
+    validate_iso_date(&log.date, "Activity")?;
+    let log_id = log
+        .id
+        .ok_or_else(|| migration_error("Activity update requires an id"))?;
     let activity_type = resolve_activity_type_for_write(conn, log.media_id, &log.activity_type)?;
-    conn.execute(
+    let changed = conn.execute(
         "UPDATE main.activity_logs SET media_id = ?1, duration_minutes = ?2, characters = ?3, date = ?4, activity_type = ?5, notes = ?6 WHERE id = ?7",
-        params![log.media_id, log.duration_minutes, log.characters, log.date, activity_type, log.notes, log.id.unwrap()],
+        params![log.media_id, log.duration_minutes, log.characters, log.date, activity_type, log.notes, log_id],
     )?;
-    Ok(())
+    if changed == 0 {
+        Err(migration_error(format!("Activity {log_id} not found")))
+    } else {
+        Ok(())
+    }
 }
 
 pub fn clear_activities(conn: &Connection) -> Result<()> {
@@ -1892,6 +2395,26 @@ pub fn get_logs(conn: &Connection) -> Result<Vec<ActivitySummary>> {
         log_list.push(log?);
     }
     Ok(log_list)
+}
+
+pub(crate) fn get_sync_activity_rows(conn: &Connection) -> Result<Vec<SyncActivityRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT uid, media_id, duration_minutes, characters, date, activity_type, notes
+         FROM main.activity_logs
+         ORDER BY media_id, date, activity_type, duration_minutes, characters, notes, uid",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(SyncActivityRow {
+            uid: row.get(0)?,
+            media_id: row.get(1)?,
+            duration_minutes: row.get(2)?,
+            characters: row.get(3)?,
+            date: row.get(4)?,
+            activity_type: row.get(5)?,
+            notes: row.get(6)?,
+        })
+    })?;
+    rows.collect()
 }
 
 pub fn get_logs_for_media(conn: &Connection, media_id: i64) -> Result<Vec<ActivitySummary>> {
@@ -2082,30 +2605,69 @@ pub fn get_all_milestones(conn: &Connection) -> Result<Vec<Milestone>> {
     Ok(milestone_list)
 }
 
+pub(crate) fn get_sync_milestone_rows(conn: &Connection) -> Result<Vec<SyncMilestoneRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT uid, media_uid, media_title, name, duration, characters, date
+         FROM main.milestones
+         ORDER BY media_uid, date, name, duration, characters, uid",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(SyncMilestoneRow {
+            uid: row.get(0)?,
+            media_uid: row.get(1)?,
+            media_title: row.get(2)?,
+            name: row.get(3)?,
+            duration: row.get(4)?,
+            characters: row.get(5)?,
+            date: row.get(6)?,
+        })
+    })?;
+    rows.collect()
+}
+
 pub fn get_timeline_events(conn: &Connection) -> Result<Vec<TimelineEvent>> {
     crate::timeline_data::get_all_timeline_events(conn)
 }
 
+fn validate_milestone(milestone: &Milestone) -> Result<()> {
+    if milestone.name.trim().is_empty() {
+        return Err(migration_error("Milestone name cannot be blank"));
+    }
+    validate_milestone_metrics(milestone.duration, milestone.characters)?;
+    if let Some(date) = milestone.date.as_deref() {
+        validate_iso_date(date, "Milestone")?;
+    }
+    Ok(())
+}
+
 pub fn add_milestone(conn: &Connection, milestone: &Milestone) -> Result<i64> {
-    if milestone.duration == 0 && milestone.characters == 0 {
-        return Err(rusqlite::Error::ToSqlConversionFailure(Box::new(
-            std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "Milestone must have either duration or characters",
-            ),
-        )));
+    add_milestone_with_uid(conn, milestone, &Uuid::new_v4().to_string())
+}
+
+pub(crate) fn add_milestone_with_uid(
+    conn: &Connection,
+    milestone: &Milestone,
+    uid: &str,
+) -> Result<i64> {
+    validate_milestone(milestone)?;
+    if uid.trim().is_empty() {
+        return Err(migration_error("Milestone sync UID cannot be blank"));
     }
     let (media_title, media_uid) = resolve_milestone_media_identity(conn, milestone)?;
     conn.execute(
-        "INSERT INTO main.milestones (media_uid, media_title, name, duration, characters, date) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![media_uid, media_title, milestone.name, milestone.duration, milestone.characters, milestone.date],
+        "INSERT INTO main.milestones (uid, media_uid, media_title, name, duration, characters, date) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![uid, media_uid, media_title, milestone.name, milestone.duration, milestone.characters, milestone.date],
     )?;
     Ok(conn.last_insert_rowid())
 }
 
 pub fn delete_milestone(conn: &Connection, id: i64) -> Result<()> {
-    conn.execute("DELETE FROM main.milestones WHERE id = ?1", params![id])?;
-    Ok(())
+    let changed = conn.execute("DELETE FROM main.milestones WHERE id = ?1", params![id])?;
+    if changed == 0 {
+        Err(migration_error(format!("Milestone {id} not found")))
+    } else {
+        Ok(())
+    }
 }
 
 pub fn delete_milestones_for_media_uid(conn: &Connection, media_uid: &str) -> Result<()> {
@@ -2120,13 +2682,9 @@ pub fn update_milestone(conn: &Connection, milestone: &Milestone) -> Result<()> 
     let milestone_id = milestone
         .id
         .ok_or_else(|| migration_error("Milestone update requires an id"))?;
-    if milestone.duration == 0 && milestone.characters == 0 {
-        return Err(migration_error(
-            "Milestone must have either duration or characters",
-        ));
-    }
+    validate_milestone(milestone)?;
     let (media_title, media_uid) = resolve_milestone_media_identity(conn, milestone)?;
-    conn.execute(
+    let changed = conn.execute(
         "UPDATE main.milestones
          SET media_uid = ?1, media_title = ?2, name = ?3, duration = ?4, characters = ?5, date = ?6
          WHERE id = ?7",
@@ -2140,7 +2698,13 @@ pub fn update_milestone(conn: &Connection, milestone: &Milestone) -> Result<()> 
             milestone_id
         ],
     )?;
-    Ok(())
+    if changed == 0 {
+        Err(migration_error(format!(
+            "Milestone {milestone_id} not found"
+        )))
+    } else {
+        Ok(())
+    }
 }
 
 pub fn save_cover_image(
@@ -2155,15 +2719,8 @@ pub fn save_cover_image(
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("png");
-    let dest_file = format!(
-        "{}_{}.{}",
-        media_id,
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis(),
-        ext
-    );
+    let ext = sanitize_cover_extension(ext);
+    let dest_file = format!("{}_{}.{}", media_id, Uuid::new_v4(), ext);
     let dest = covers_dir.join(&dest_file);
 
     let old_cover: String = conn
@@ -2172,20 +2729,32 @@ pub fn save_cover_image(
             rusqlite::params![media_id],
             |row| row.get(0),
         )
-        .unwrap_or_default();
+        .optional()
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Media {media_id} not found"))?;
 
     let dest_str = dest.to_string_lossy().to_string();
-    std::fs::copy(src_path, &dest).map_err(|e| e.to_string())?;
+    let mut source = fs::File::open(src_path).map_err(|e| e.to_string())?;
+    install_cover_file(&covers_dir, &dest, |staged| {
+        io::copy(&mut source, staged)?;
+        Ok(())
+    })?;
 
-    conn.execute(
+    if let Err(error) = conn.execute(
         "UPDATE shared.media SET cover_image = ?1 WHERE id = ?2",
         rusqlite::params![dest_str, media_id],
-    )
-    .map_err(|e| e.to_string())?;
+    ) {
+        let _ = fs::remove_file(&dest);
+        return Err(error.to_string());
+    }
 
     if old_cover != dest_str {
-        remove_cover_file_if_unreferenced(conn, std::path::Path::new(&old_cover), Some(media_id))
-            .map_err(|e| e.to_string())?;
+        let _ = remove_cover_file_if_unreferenced(
+            conn,
+            std::path::Path::new(&old_cover),
+            Some(media_id),
+            Some(&covers_dir),
+        );
     }
 
     Ok(dest_str)
@@ -2200,15 +2769,8 @@ pub fn save_cover_bytes(
 ) -> std::result::Result<String, String> {
     std::fs::create_dir_all(&covers_dir).map_err(|e| e.to_string())?;
 
-    let dest_file = format!(
-        "{}_{}.{}",
-        media_id,
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis(),
-        extension
-    );
+    let extension = sanitize_cover_extension(extension);
+    let dest_file = format!("{}_{}.{}", media_id, Uuid::new_v4(), extension);
     let dest = covers_dir.join(&dest_file);
 
     let old_cover: String = conn
@@ -2217,29 +2779,56 @@ pub fn save_cover_bytes(
             rusqlite::params![media_id],
             |row| row.get(0),
         )
-        .unwrap_or_default();
+        .optional()
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Media {media_id} not found"))?;
 
     let dest_str = dest.to_string_lossy().to_string();
-    std::fs::write(&dest, bytes).map_err(|e| e.to_string())?;
+    install_cover_file(&covers_dir, &dest, |staged| staged.write_all(&bytes))?;
 
-    conn.execute(
+    if let Err(error) = conn.execute(
         "UPDATE shared.media SET cover_image = ?1 WHERE id = ?2",
         rusqlite::params![dest_str, media_id],
-    )
-    .map_err(|e| e.to_string())?;
+    ) {
+        let _ = fs::remove_file(&dest);
+        return Err(error.to_string());
+    }
 
     if old_cover != dest_str {
-        remove_cover_file_if_unreferenced(conn, std::path::Path::new(&old_cover), Some(media_id))
-            .map_err(|e| e.to_string())?;
+        let _ = remove_cover_file_if_unreferenced(
+            conn,
+            std::path::Path::new(&old_cover),
+            Some(media_id),
+            Some(&covers_dir),
+        );
     }
 
     Ok(dest_str)
+}
+
+fn install_cover_file(
+    covers_dir: &Path,
+    destination: &Path,
+    write_contents: impl FnOnce(&mut fs::File) -> io::Result<()>,
+) -> std::result::Result<(), String> {
+    let mut staged = tempfile::NamedTempFile::new_in(covers_dir).map_err(|e| e.to_string())?;
+    write_contents(staged.as_file_mut()).map_err(|e| e.to_string())?;
+    staged.as_file_mut().sync_all().map_err(|e| e.to_string())?;
+    let installed = staged
+        .persist(destination)
+        .map_err(|error| error.error.to_string())?;
+    installed.sync_all().map_err(|e| e.to_string())?;
+    if let Ok(directory) = fs::File::open(covers_dir) {
+        let _ = directory.sync_all();
+    }
+    Ok(())
 }
 
 pub fn update_media_cover_image_by_uid(
     conn: &Connection,
     media_uid: &str,
     cover_image: &str,
+    covers_dir: &Path,
 ) -> std::result::Result<(), String> {
     let existing = conn
         .query_row(
@@ -2261,17 +2850,55 @@ pub fn update_media_cover_image_by_uid(
     .map_err(|e| e.to_string())?;
 
     if old_cover != cover_image {
-        remove_cover_file_if_unreferenced(conn, std::path::Path::new(&old_cover), Some(media_id))
-            .map_err(|e| e.to_string())?;
+        let _ = remove_cover_file_if_unreferenced(
+            conn,
+            std::path::Path::new(&old_cover),
+            Some(media_id),
+            Some(covers_dir),
+        );
     }
 
     Ok(())
 }
 
-fn remove_cover_file_if_unreferenced(
+fn sanitize_cover_extension(extension: &str) -> String {
+    let normalized = extension
+        .trim()
+        .trim_start_matches('.')
+        .to_ascii_lowercase();
+    if !normalized.is_empty()
+        && normalized.len() <= 10
+        && normalized
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric())
+    {
+        normalized
+    } else {
+        "bin".to_string()
+    }
+}
+
+fn managed_covers_dir(conn: &Connection) -> Result<Option<PathBuf>> {
+    let mut stmt = conn.prepare("PRAGMA database_list")?;
+    let rows = stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+    })?;
+    for row in rows {
+        let (name, file) = row?;
+        if name == "main" && !file.is_empty() {
+            return Ok(Path::new(&file)
+                .parent()
+                .map(|parent| parent.join("covers")));
+        }
+    }
+    Ok(None)
+}
+
+pub(crate) fn remove_cover_file_if_unreferenced(
     conn: &Connection,
     path: &std::path::Path,
     excluding_media_id: Option<i64>,
+    covers_dir: Option<&Path>,
 ) -> Result<()> {
     if path.as_os_str().is_empty() {
         return Ok(());
@@ -2293,7 +2920,28 @@ fn remove_cover_file_if_unreferenced(
     };
 
     if reference_count == 0 && path.exists() {
-        let _ = fs::remove_file(path);
+        let derived_covers_dir: Option<PathBuf>;
+        let covers_dir = if let Some(covers_dir) = covers_dir {
+            covers_dir
+        } else {
+            derived_covers_dir = managed_covers_dir(conn)?;
+            let Some(covers_dir) = derived_covers_dir.as_deref() else {
+                return Ok(());
+            };
+            covers_dir
+        };
+        let absolute_path = fs::canonicalize(path).map_err(|error| {
+            migration_error(format!("Failed to resolve cover image path: {error}"))
+        })?;
+        let absolute_covers_dir = match fs::canonicalize(covers_dir) {
+            Ok(path) => path,
+            Err(_) => return Ok(()),
+        };
+        if absolute_path.starts_with(&absolute_covers_dir) && absolute_path.is_file() {
+            fs::remove_file(absolute_path).map_err(|error| {
+                migration_error(format!("Failed to remove unused cover image: {error}"))
+            })?;
+        }
     }
 
     Ok(())
@@ -2869,7 +3517,7 @@ mod tests {
     }
 
     #[test]
-    fn test_delete_media_cascades_logs() {
+    fn test_delete_media_cascades_rows_without_deleting_an_unmanaged_cover() {
         let conn = setup_test_db();
 
         let dir = std::env::temp_dir();
@@ -2910,7 +3558,8 @@ mod tests {
 
         assert!(cover_path.exists());
 
-        // Delete media (should cascade logs and remove file)
+        // Delete media (should cascade related rows without trusting an
+        // arbitrary path stored in the database).
         delete_media(&conn, media_id).unwrap();
 
         let media_list = get_all_media(&conn).unwrap();
@@ -2920,8 +3569,31 @@ mod tests {
         assert_eq!(logs.len(), 0);
         assert_eq!(get_all_milestones(&conn).unwrap().len(), 0);
 
-        // Verify disk cleanup
+        assert!(cover_path.exists());
+        std::fs::remove_file(cover_path).ok();
+    }
+
+    #[test]
+    fn test_delete_media_removes_an_unreferenced_managed_cover() {
+        let temp_dir = unique_temp_dir("managed_cover_delete");
+        std::fs::create_dir_all(temp_dir.join("covers")).unwrap();
+        let conn = init_db(temp_dir.clone(), None).unwrap();
+        let cover_path = temp_dir.join("covers").join("managed.png");
+        std::fs::write(&cover_path, "managed cover").unwrap();
+        let media_id = add_media_with_id(
+            &conn,
+            &Media {
+                cover_image: cover_path.to_string_lossy().to_string(),
+                ..sample_media("Managed cover cleanup")
+            },
+        )
+        .unwrap();
+
+        delete_media(&conn, media_id).unwrap();
+
         assert!(!cover_path.exists());
+        drop(conn);
+        std::fs::remove_dir_all(temp_dir).ok();
     }
 
     #[test]
@@ -4528,8 +5200,8 @@ mod tests {
     }
 
     #[test]
-    fn test_fresh_db_has_latest_columns_and_is_at_schema_v6() {
-        let temp_dir = unique_temp_dir("fresh_v6");
+    fn test_fresh_db_has_latest_columns_and_is_at_schema_v7() {
+        let temp_dir = unique_temp_dir("fresh_v7");
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         let conn = init_db(temp_dir.clone(), None).unwrap();
@@ -4538,7 +5210,7 @@ mod tests {
             get_bundle_schema_version(&conn).unwrap(),
             CURRENT_SCHEMA_VERSION
         );
-        assert_eq!(CURRENT_SCHEMA_VERSION, 6);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 7);
         assert!(table_has_column(&conn, "main", "activity_logs", "notes").unwrap());
         assert!(table_has_column(&conn, "shared", "media", "variant").unwrap());
         assert!(table_has_column(&conn, "shared", "media", "default_activity_type").unwrap());
@@ -4549,6 +5221,193 @@ mod tests {
         validate_latest_schema(&conn).unwrap();
 
         std::fs::remove_dir_all(temp_dir).ok();
+    }
+
+    #[test]
+    fn test_v6_to_v7_migration_assigns_stable_uids_to_duplicate_records() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute("ATTACH DATABASE ':memory:' AS shared", [])
+            .unwrap();
+        create_shared_media_table(&conn).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE main.activity_logs (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 media_id INTEGER NOT NULL,
+                 duration_minutes INTEGER NOT NULL,
+                 characters INTEGER NOT NULL DEFAULT 0,
+                 date TEXT NOT NULL,
+                 activity_type TEXT NOT NULL DEFAULT '',
+                 notes TEXT NOT NULL DEFAULT ''
+             );
+             CREATE TABLE main.milestones (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 media_uid TEXT NOT NULL,
+                 media_title TEXT NOT NULL,
+                 name TEXT NOT NULL,
+                 duration INTEGER NOT NULL,
+                 characters INTEGER NOT NULL DEFAULT 0,
+                 date TEXT
+             );",
+        )
+        .unwrap();
+        create_settings_table(&conn).unwrap();
+        create_profile_picture_table(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO shared.media (
+                 id, uid, title, default_activity_type, status, language,
+                 description, cover_image, extra_data, content_type, tracking_status, variant
+             ) VALUES (
+                 7, 'stable-media-uid', 'Duplicate Records', 'Reading', 'Active', 'Japanese',
+                 '', '', '{}', 'Novel', 'Ongoing', ''
+             )",
+            [],
+        )
+        .unwrap();
+        conn.execute_batch(
+            "INSERT INTO main.activity_logs (
+                 id, media_id, duration_minutes, characters, date, activity_type, notes
+             ) VALUES
+                 (30, 7, 25, 1000, '2026-07-01', 'Reading', 'same'),
+                 (10, 7, 25, 1000, '2026-07-01', 'Reading', 'same');
+             INSERT INTO main.milestones (
+                 id, media_uid, media_title, name, duration, characters, date
+             ) VALUES
+                 (40, 'stable-media-uid', 'Duplicate Records', 'Checkpoint', 25, 1000, '2026-07-01'),
+                 (20, 'stable-media-uid', 'Duplicate Records', 'Checkpoint', 25, 1000, '2026-07-01');",
+        )
+        .unwrap();
+        set_bundle_schema_version(&conn, 6).unwrap();
+
+        migrate_schema(&conn).unwrap();
+
+        let activity_uids = conn
+            .prepare("SELECT uid FROM main.activity_logs ORDER BY uid")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>>>()
+            .unwrap();
+        let milestone_uids = conn
+            .prepare("SELECT uid FROM main.milestones ORDER BY uid")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>>>()
+            .unwrap();
+
+        let mut expected_activity_uids = vec![
+            legacy_activity_record_uid(
+                "stable-media-uid",
+                "2026-07-01",
+                "Reading",
+                25,
+                1000,
+                "same",
+                0,
+            )
+            .unwrap(),
+            legacy_activity_record_uid(
+                "stable-media-uid",
+                "2026-07-01",
+                "Reading",
+                25,
+                1000,
+                "same",
+                1,
+            )
+            .unwrap(),
+        ];
+        expected_activity_uids.sort();
+        let mut expected_milestone_uids = vec![
+            legacy_milestone_record_uid(
+                "stable-media-uid",
+                "Checkpoint",
+                25,
+                1000,
+                Some("2026-07-01"),
+                0,
+            )
+            .unwrap(),
+            legacy_milestone_record_uid(
+                "stable-media-uid",
+                "Checkpoint",
+                25,
+                1000,
+                Some("2026-07-01"),
+                1,
+            )
+            .unwrap(),
+        ];
+        expected_milestone_uids.sort();
+
+        assert_eq!(activity_uids, expected_activity_uids);
+        assert_eq!(milestone_uids, expected_milestone_uids);
+        assert_eq!(get_bundle_schema_version(&conn).unwrap(), 7);
+
+        migrate_schema(&conn).unwrap();
+        let activity_uids_after_reopen = conn
+            .prepare("SELECT uid FROM main.activity_logs ORDER BY uid")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(activity_uids_after_reopen, activity_uids);
+    }
+
+    #[test]
+    fn test_latest_schema_validation_rejects_orphaned_activities() {
+        let conn = setup_test_db();
+        conn.execute(
+            "INSERT INTO main.activity_logs (
+                 uid, media_id, duration_minutes, characters, date, activity_type, notes
+             ) VALUES (
+                 'orphan-activity', 999, 10, 0, '2026-07-01', 'Reading', ''
+             )",
+            [],
+        )
+        .unwrap();
+
+        let error = validate_latest_schema(&conn).unwrap_err().to_string();
+        assert!(error.contains("Activity 1 is linked to missing media 999"));
+    }
+
+    #[test]
+    fn test_versioned_migration_rejects_orphaned_activities_before_version_changes() {
+        let conn = setup_test_db();
+        conn.execute(
+            "INSERT INTO main.activity_logs (
+                 uid, media_id, duration_minutes, characters, date, activity_type, notes
+             ) VALUES (
+                 'orphan-before-migration', 999, 10, 0, '2026-07-01', 'Reading', ''
+             )",
+            [],
+        )
+        .unwrap();
+        set_bundle_schema_version(&conn, 6).unwrap();
+
+        let error = migrate_schema(&conn).unwrap_err().to_string();
+
+        assert!(error.contains("linked to missing media 999"));
+        assert_eq!(get_bundle_schema_version(&conn).unwrap(), 6);
+    }
+
+    #[test]
+    fn test_latest_schema_validation_rejects_blank_record_uids() {
+        let conn = setup_test_db();
+        let media_id = add_media_with_id(&conn, &sample_media("Blank record UID")).unwrap();
+        conn.execute(
+            "INSERT INTO main.activity_logs (
+                 uid, media_id, duration_minutes, characters, date, activity_type, notes
+             ) VALUES (
+                 '', ?1, 10, 0, '2026-07-01', 'Reading', ''
+             )",
+            [media_id],
+        )
+        .unwrap();
+
+        let error = validate_latest_schema(&conn).unwrap_err().to_string();
+        assert!(error.contains("Activity 1 has a blank sync UID"));
     }
 
     #[test]
@@ -4663,11 +5522,11 @@ mod tests {
     }
 
     #[test]
-    fn test_no_op_startup_on_v6_db_stays_at_v6() {
-        let temp_dir = unique_temp_dir("noop_v6");
+    fn test_no_op_startup_on_v7_db_stays_at_v7() {
+        let temp_dir = unique_temp_dir("noop_v7");
         std::fs::create_dir_all(&temp_dir).unwrap();
 
-        // First init creates the DB at v6.
+        // First init creates the DB at the latest schema.
         let conn1 = init_db(temp_dir.clone(), None).unwrap();
         let media_id = add_media_with_id(&conn1, &sample_media("No-op Media")).unwrap();
         add_log(
@@ -4687,7 +5546,10 @@ mod tests {
 
         // Second init should be a no-op
         let conn2 = init_db(temp_dir.clone(), None).unwrap();
-        assert_eq!(get_bundle_schema_version(&conn2).unwrap(), 6);
+        assert_eq!(
+            get_bundle_schema_version(&conn2).unwrap(),
+            CURRENT_SCHEMA_VERSION
+        );
 
         let logs = get_logs(&conn2).unwrap();
         assert_eq!(logs.len(), 1);
@@ -4798,7 +5660,10 @@ mod tests {
 
         migrate_schema(&conn).unwrap();
 
-        assert_eq!(get_bundle_schema_version(&conn).unwrap(), 6);
+        assert_eq!(
+            get_bundle_schema_version(&conn).unwrap(),
+            CURRENT_SCHEMA_VERSION
+        );
         assert!(latest_media_identity_constraints_are_present(&conn).unwrap());
         assert!(table_column_is_not_null(&conn, "main", "milestones", "media_uid").unwrap());
 
@@ -4864,7 +5729,6 @@ mod tests {
                  (1, 1, 30, 0, '2024-01-01', '', ''),
                  (2, 1, 30, 0, '2024-01-02', 'Watching', ''),
                  (3, 2, 30, 0, '2024-01-03', '  ', ''),
-                 (4, 999, 30, 0, '2024-01-04', '', 'orphan'),
                  (5, 1, 30, 0, '2024-01-05', ' Studying ', '');",
         )
         .unwrap();
@@ -4872,7 +5736,10 @@ mod tests {
 
         migrate_schema(&conn).unwrap();
 
-        assert_eq!(get_bundle_schema_version(&conn).unwrap(), 6);
+        assert_eq!(
+            get_bundle_schema_version(&conn).unwrap(),
+            CURRENT_SCHEMA_VERSION
+        );
         assert!(table_has_column(&conn, "shared", "media", "default_activity_type").unwrap());
         assert!(!table_has_column(&conn, "shared", "media", "media_type").unwrap());
 
@@ -4905,7 +5772,6 @@ mod tests {
                 (1, "Reading".to_string()),
                 (2, "Watching".to_string()),
                 (3, "None".to_string()),
-                (4, "None".to_string()),
                 (5, " Studying ".to_string()),
             ]
         );
@@ -4987,7 +5853,10 @@ mod tests {
 
         migrate_schema(&conn).unwrap();
 
-        assert_eq!(get_bundle_schema_version(&conn).unwrap(), 6);
+        assert_eq!(
+            get_bundle_schema_version(&conn).unwrap(),
+            CURRENT_SCHEMA_VERSION
+        );
         assert!(latest_media_identity_constraints_are_present(&conn).unwrap());
         let migrated = get_all_media(&conn).unwrap().remove(0);
         assert_eq!(migrated.id, Some(42));

@@ -12,6 +12,24 @@ The format is based on Keep a Changelog, with one section per released version.
  - Alternative variants of the same media now show in the detailed media view for those entries and can be easily accessed with one click
  - Activity and milestone duration fields now accept free-form time like `2h30m`, `90`, or `1d2h 30m4s` instead of raw minutes.
  - It is now possible to filter the media library with advanced filter rules and tags
+ - Media CSV exports now include an option Tracking Status column
+
+### Changed
+ - HTTP-based media CSV import now relies on a review_token for session consistency
+ - Local desktop API now require X-Kechimochi-API header (see API docs for more details)
+ - Media import now fails gracefully if the media contents change during a post-validation race condition
+ - Missing or unreadable cover uploads fail the media import instead of importing missing data
+ - Failed inline media edits now revert on screen and display a "Unable to Save Media" warning
+ - Concurrent edits via cloud sync now produce a conflict resolution event
+
+### Fixed
+ - Various HTTP API hardening requirements and data validation fixes
+ - Media Extra Data must now be a valid JSON object
+ - Activity and Milestone imports now perform proper data sanitation and validation
+ - Cover uploads must contain a recognized image format
+ - Backup imports now rejects unsafe or corrupted backup formats
+ - Interrupted backups automatically restore the original data
+ - Several stability and security vulnerability fixes
 
 ## [0.3.1] - 2026-07-24
 

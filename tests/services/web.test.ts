@@ -316,7 +316,7 @@ describe('WebServices', () => {
         mockFilePicker(file);
         const activityAnalysis = { rows: [], groups: [] };
         const activityRequest = { rows: [], analyzed_groups: [], resolutions: [] };
-        const records: MediaCsvRow[] = [{
+        const incoming: MediaCsvRow = {
             Title: 'Example',
             Variant: 'Manga',
             'Default Activity Type': 'Book',
@@ -326,17 +326,18 @@ describe('WebServices', () => {
             'Content Type': 'Reading',
             'Extra Data': '{}',
             'Cover Image (Base64)': '',
-        }];
+        };
+        const records = [{ incoming, review_token: 'review-1' }];
         fetchMock
             .mockResolvedValueOnce(okJson(activityAnalysis))
             .mockResolvedValueOnce(okJson({ imported_count: 3, skipped_count: 1 }))
-            .mockResolvedValueOnce({ ok: true, json: vi.fn().mockResolvedValue([{ incoming: records[0] }]), text: vi.fn() })
+            .mockResolvedValueOnce({ ok: true, json: vi.fn().mockResolvedValue([{ incoming, review_token: 'review-1' }]), text: vi.fn() })
             .mockResolvedValueOnce(okJson(2))
             .mockResolvedValueOnce({ ok: true, json: vi.fn().mockResolvedValue({ count: 4 }), text: vi.fn() });
 
         await expect(services.analyzeActivitiesCsvFromPick()).resolves.toEqual(activityAnalysis);
         await expect(services.applyActivityImport(activityRequest)).resolves.toEqual({ imported_count: 3, skipped_count: 1 });
-        await expect(services.analyzeMediaCsvFromPick()).resolves.toEqual([{ incoming: records[0] }]);
+        await expect(services.analyzeMediaCsvFromPick()).resolves.toEqual([{ incoming, review_token: 'review-1' }]);
         await expect(services.applyMediaImport(records)).resolves.toBe(2);
         await expect(services.importMilestonesCsv('ignored.csv')).resolves.toBe(4);
 

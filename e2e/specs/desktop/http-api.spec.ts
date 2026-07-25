@@ -5,6 +5,8 @@ import { confirmAction, dismissAlert, safeClick } from '../../helpers/common.js'
 import { setText } from '../../helpers/form-controls.js';
 import { clickMediaItem, isMediaNotVisible, isMediaVisible } from '../../helpers/library.js';
 
+const API_INTENT_HEADERS = { 'x-kechimochi-api': '1' };
+
 async function getFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const server = net.createServer();
@@ -180,7 +182,7 @@ describe('HTTP API CUJ', () => {
 
   it('creates and deletes user data through automation endpoints and reflects it in the app', async () => {
     const title = 'HTTP API Automation Journey';
-    const jsonHeaders = { 'content-type': 'application/json' };
+    const jsonHeaders = { ...API_INTENT_HEADERS, 'content-type': 'application/json' };
     const mediaPayload = {
       id: null,
       uid: null,
@@ -334,10 +336,22 @@ describe('HTTP API CUJ', () => {
     expect(await $('#milestone-list-container').getText()).toContain('API milestone');
     expect(await $('body').getAttribute('data-theme')).toBe('molokai');
 
-    expect((await fetchWithTimeout(`${baseUrl}/api/logs/${logId}`, { method: 'DELETE' })).status).toBe(200);
-    expect((await fetchWithTimeout(`${baseUrl}/api/milestones/${milestoneId}`, { method: 'DELETE' })).status).toBe(200);
-    expect((await fetchWithTimeout(`${baseUrl}/api/media/${mediaId}`, { method: 'DELETE' })).status).toBe(200);
-    expect((await fetchWithTimeout(`${baseUrl}/api/media/${secondMediaId}`, { method: 'DELETE' })).status).toBe(200);
+    expect((await fetchWithTimeout(`${baseUrl}/api/logs/${logId}`, {
+      method: 'DELETE',
+      headers: API_INTENT_HEADERS,
+    })).status).toBe(200);
+    expect((await fetchWithTimeout(`${baseUrl}/api/milestones/${milestoneId}`, {
+      method: 'DELETE',
+      headers: API_INTENT_HEADERS,
+    })).status).toBe(200);
+    expect((await fetchWithTimeout(`${baseUrl}/api/media/${mediaId}`, {
+      method: 'DELETE',
+      headers: API_INTENT_HEADERS,
+    })).status).toBe(200);
+    expect((await fetchWithTimeout(`${baseUrl}/api/media/${secondMediaId}`, {
+      method: 'DELETE',
+      headers: API_INTENT_HEADERS,
+    })).status).toBe(200);
 
     await browser.refresh();
     await waitForAppReady();
@@ -356,9 +370,11 @@ describe('HTTP API CUJ', () => {
     await waitForHttpApiUp(baseUrl);
 
     const fullScopeResponse = await fetchWithTimeout(`${baseUrl}/api/export/milestones`);
-    expect(fullScopeResponse.status).toBe(200);
-    expect(fullScopeResponse.headers.get('content-type') ?? '').toContain('text/csv');
     const milestoneCsv = await fullScopeResponse.text();
+    if (fullScopeResponse.status !== 200) {
+      throw new Error(`Milestone CSV export returned ${fullScopeResponse.status}: ${milestoneCsv}`);
+    }
+    expect(fullScopeResponse.headers.get('content-type') ?? '').toContain('text/csv');
     expect(milestoneCsv.trimEnd().split(/\r?\n/)[0]).toBe(
       'Media Title,Name,Duration,Characters,Date,Media Variant',
     );
@@ -374,6 +390,7 @@ describe('HTTP API CUJ', () => {
     ], { type: 'text/csv' }), 'activities.csv');
     const invalidImport = await fetchWithTimeout(`${baseUrl}/api/import/activities`, {
       method: 'POST',
+      headers: API_INTENT_HEADERS,
       body: form,
     }, 5_000);
     expect(invalidImport.status).toBe(400);
@@ -381,18 +398,21 @@ describe('HTTP API CUJ', () => {
 
     const invalidApply = await fetchWithTimeout(`${baseUrl}/api/import/media/apply`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { ...API_INTENT_HEADERS, 'content-type': 'application/json' },
       body: JSON.stringify([{
-        Title: forbiddenTitle,
-        'Default Activity Type': 'Reading',
-        Status: 'Active',
-        Language: 'Japanese',
-        Description: '',
-        'Content Type': 'Novel',
-        'Extra Data': '{}',
-        'Cover Image (Base64)': '',
-        Variant: '',
-        'Media UID': 'private-uid',
+        incoming: {
+          Title: forbiddenTitle,
+          'Default Activity Type': 'Reading',
+          Status: 'Active',
+          Language: 'Japanese',
+          Description: '',
+          'Content Type': 'Novel',
+          'Extra Data': '{}',
+          'Cover Image (Base64)': '',
+          Variant: '',
+          'Media UID': 'private-uid',
+        },
+        review_token: 'not-reached-for-forbidden-identifier',
       }]),
     }, 5_000);
     expect(invalidApply.status).toBe(400);

@@ -40,6 +40,11 @@ BASE=http://192.168.1.50:3031
 
 JSON requests use `Content-Type: application/json`. CLI clients such as `curl` do not need CORS configuration. Browser scripts must list their exact origin in **Allowed Browser Origins**.
 
+Non-JSON mutations—including multipart uploads, bodyless `POST` requests, and
+`DELETE` requests—must include `X-Kechimochi-API: 1`. This header records that
+the caller intentionally used the automation API and prevents ordinary HTML
+forms from issuing mutations. It is not a password or authentication mechanism.
+
 The HTTP API is an internal automation boundary, not a CSV boundary. Media
 objects therefore expose database IDs and sync UIDs where a stable,
 unambiguous reference is required. CSV imports and exports never expose or
@@ -60,19 +65,19 @@ These endpoints are available in both `automation` and `full` scope.
 | `GET /api/media` | List all media. | `curl -s "$BASE/api/media"` |
 | `POST /api/media` | Add media. Returns the new numeric ID. The title must not be blank; surrounding variant whitespace is removed; and the resulting exact `(title, variant)` pair must be unique. | `curl -s -X POST "$BASE/api/media" -H 'Content-Type: application/json' -d '{"id":null,"uid":null,"title":"Example Book","variant":"Light Novel","default_activity_type":"Reading","status":"Active","language":"Japanese","description":"","cover_image":"","extra_data":"{}","content_type":"Novel","tracking_status":"Ongoing"}'` |
 | `PUT /api/media/:id` | Replace media by numeric ID. The URL ID is authoritative. A blank title returns `400 Bad Request`; an exact normalized `(title, variant)` collision returns `409 Conflict`. | `curl -s -X PUT "$BASE/api/media/1" -H 'Content-Type: application/json' -d '{"id":1,"uid":null,"title":"Example Book","variant":"Light Novel","default_activity_type":"Reading","status":"Active","language":"Japanese","description":"Updated","cover_image":"","extra_data":"{}","content_type":"Novel","tracking_status":"Ongoing"}'` |
-| `DELETE /api/media/:id` | Delete media by ID. | `curl -s -X DELETE "$BASE/api/media/1"` |
+| `DELETE /api/media/:id` | Delete media by ID. | `curl -s -X DELETE "$BASE/api/media/1" -H 'X-Kechimochi-API: 1'` |
 | `GET /api/logs` | List activity logs. | `curl -s "$BASE/api/logs"` |
 | `POST /api/logs` | Add an activity log. Returns the new ID. | `curl -s -X POST "$BASE/api/logs" -H 'Content-Type: application/json' -d '{"id":null,"media_id":1,"duration_minutes":30,"characters":0,"date":"2026-05-07","activity_type":"Reading"}'` |
 | `PUT /api/logs/:id` | Replace an activity log by ID. The URL ID is authoritative. | `curl -s -X PUT "$BASE/api/logs/1" -H 'Content-Type: application/json' -d '{"id":1,"media_id":1,"duration_minutes":45,"characters":1000,"date":"2026-05-07","activity_type":"Reading"}'` |
-| `DELETE /api/logs/:id` | Delete an activity log by ID. | `curl -s -X DELETE "$BASE/api/logs/1"` |
+| `DELETE /api/logs/:id` | Delete an activity log by ID. | `curl -s -X DELETE "$BASE/api/logs/1" -H 'X-Kechimochi-API: 1'` |
 | `GET /api/logs/heatmap` | Return daily aggregate activity totals. | `curl -s "$BASE/api/logs/heatmap"` |
 | `GET /api/logs/media/:id` | List activity summaries for one media item. | `curl -s "$BASE/api/logs/media/1"` |
 | `GET /api/timeline` | Return timeline events. Each event includes `mediaId`, `mediaTitle`, and `mediaVariant`, so same-title variants remain distinguishable. | `curl -s "$BASE/api/timeline"` |
 | `POST /api/milestones` | Add a milestone. Returns the new ID. `media_uid` is required; the server derives `media_title`. | `curl -s -X POST "$BASE/api/milestones" -H 'Content-Type: application/json' -d '{"id":null,"media_uid":"media-uid-from-get-media","name":"Volume 1","duration":120,"characters":5000,"date":"2026-05-07"}'` |
 | `GET /api/media/:media_uid/milestones` | List milestones for one exact media entry. URL-encode the UID. | `curl -s "$BASE/api/media/media-uid-from-get-media/milestones"` |
-| `DELETE /api/media/:media_uid/milestones` | Delete all milestones for one exact media entry. | `curl -s -X DELETE "$BASE/api/media/media-uid-from-get-media/milestones"` |
+| `DELETE /api/media/:media_uid/milestones` | Delete all milestones for one exact media entry. | `curl -s -X DELETE "$BASE/api/media/media-uid-from-get-media/milestones" -H 'X-Kechimochi-API: 1'` |
 | `PUT /api/milestones/:id` | Replace a milestone by ID. The URL ID is authoritative and `media_uid` is required. | `curl -s -X PUT "$BASE/api/milestones/1" -H 'Content-Type: application/json' -d '{"id":1,"media_uid":"media-uid-from-get-media","name":"Volume 2","duration":240,"characters":10000,"date":"2026-05-08"}'` |
-| `DELETE /api/milestones/:id` | Delete one milestone. | `curl -s -X DELETE "$BASE/api/milestones/1"` |
+| `DELETE /api/milestones/:id` | Delete one milestone. | `curl -s -X DELETE "$BASE/api/milestones/1" -H 'X-Kechimochi-API: 1'` |
 
 ## Full Scope Endpoints
 
@@ -80,22 +85,22 @@ These endpoints are available only when API Scope is set to `full`.
 
 | Endpoint | Description | Example |
 | :--- | :--- | :--- |
-| `POST /api/activities/clear` | Delete all activity logs. | `curl -s -X POST "$BASE/api/activities/clear"` |
-| `POST /api/reset` | Wipe local application data and sync runtime files. | `curl -s -X POST "$BASE/api/reset"` |
-| `POST /api/profile-picture` | Upload a profile picture with multipart form data. | `curl -s -X POST "$BASE/api/profile-picture" -F "file=@avatar.png"` |
-| `DELETE /api/profile-picture` | Delete the stored profile picture. | `curl -s -X DELETE "$BASE/api/profile-picture"` |
-| `POST /api/import/activities` | Import activity logs from CSV. | `curl -s -X POST "$BASE/api/import/activities" -F "file=@activities.csv"` |
+| `POST /api/activities/clear` | Delete all activity logs. | `curl -s -X POST "$BASE/api/activities/clear" -H 'X-Kechimochi-API: 1'` |
+| `POST /api/reset` | Wipe local application data and sync runtime files. | `curl -s -X POST "$BASE/api/reset" -H 'X-Kechimochi-API: 1'` |
+| `POST /api/profile-picture` | Upload a profile picture with multipart form data. | `curl -s -X POST "$BASE/api/profile-picture" -H 'X-Kechimochi-API: 1' -F "file=@avatar.png"` |
+| `DELETE /api/profile-picture` | Delete the stored profile picture. | `curl -s -X DELETE "$BASE/api/profile-picture" -H 'X-Kechimochi-API: 1'` |
+| `POST /api/import/activities` | Import activity logs from CSV. | `curl -s -X POST "$BASE/api/import/activities" -H 'X-Kechimochi-API: 1' -F "file=@activities.csv"` |
 | `GET /api/export/activities` | Export activity logs as CSV. Optional `start` and `end` query parameters filter by date. | `curl -s "$BASE/api/export/activities?start=2026-01-01&end=2026-01-31" -o activities.csv` |
-| `POST /api/import/media/analyze` | Analyze a media-library CSV and return conflicts. | `curl -s -X POST "$BASE/api/import/media/analyze" -F "file=@media_library.csv"` |
-| `POST /api/import/media/apply` | Apply approved media CSV rows. | `curl -s -X POST "$BASE/api/import/media/apply" -H 'Content-Type: application/json' -d '[{"Title":"New Media","Default Activity Type":"Reading","Status":"Active","Language":"Japanese","Description":"","Content Type":"Novel","Extra Data":"{}","Cover Image (Base64)":"","Variant":"Light Novel"}]'` |
+| `POST /api/import/media/analyze` | Analyze a media-library CSV and return conflicts plus review tokens. | `curl -s -X POST "$BASE/api/import/media/analyze" -H 'X-Kechimochi-API: 1' -F "file=@media_library.csv"` |
+| `POST /api/import/media/apply` | Apply approved analyzed rows. Each selection must contain the unchanged `incoming` object and `review_token` returned by analysis. If the target media changed after analysis, apply is rejected and must be analyzed again. | `curl -s -X POST "$BASE/api/import/media/apply" -H 'Content-Type: application/json' -d '[{"incoming":{"Title":"New Media","Default Activity Type":"Reading","Status":"Active","Language":"Japanese","Description":"","Content Type":"Novel","Tracking Status":"Not Started","Extra Data":"{}","Cover Image (Base64)":"","Variant":"Light Novel"},"review_token":"token-returned-by-analyze"}]'` |
 | `GET /api/export/media` | Export the media library as CSV. | `curl -s "$BASE/api/export/media" -o media_library.csv` |
-| `POST /api/import/milestones` | Import milestones from CSV. | `curl -s -X POST "$BASE/api/import/milestones" -F "file=@milestones.csv"` |
+| `POST /api/import/milestones` | Import milestones from CSV. | `curl -s -X POST "$BASE/api/import/milestones" -H 'X-Kechimochi-API: 1' -F "file=@milestones.csv"` |
 | `GET /api/export/milestones` | Export milestones as CSV. | `curl -s "$BASE/api/export/milestones" -o milestones.csv` |
 | `POST /api/export/full-backup` | Export a ZIP backup. The request supplies local-storage JSON and the app version string. | `curl -s -X POST "$BASE/api/export/full-backup" -H 'Content-Type: application/json' -d '{"local_storage":"{}","version":"0.2.9"}' -o full_backup.zip` |
-| `POST /api/import/full-backup` | Import a ZIP backup. Returns JSON with `localStorage`. | `curl -s -X POST "$BASE/api/import/full-backup" -F "file=@full_backup.zip"` |
+| `POST /api/import/full-backup` | Import a ZIP backup. Returns JSON with `localStorage`. | `curl -s -X POST "$BASE/api/import/full-backup" -H 'X-Kechimochi-API: 1' -F "file=@full_backup.zip"` |
 | `POST /api/covers/download` | Download a remote cover image and attach it to media. | `curl -s -X POST "$BASE/api/covers/download" -H 'Content-Type: application/json' -d '{"media_id":1,"url":"https://example.com/cover.jpg"}'` |
 | `GET /api/covers/file/:filename` | Read a stored cover file by filename. | `curl -s "$BASE/api/covers/file/cover.jpg" -o cover.jpg` |
-| `POST /api/covers/:media_id` | Upload a cover image for one media item. | `curl -s -X POST "$BASE/api/covers/1" -F "file=@cover.jpg"` |
+| `POST /api/covers/:media_id` | Upload a cover image for one media item. | `curl -s -X POST "$BASE/api/covers/1" -H 'X-Kechimochi-API: 1' -F "file=@cover.jpg"` |
 | `POST /api/fetch/json` | Fetch external JSON/text through the desktop backend. | `curl -s -X POST "$BASE/api/fetch/json" -H 'Content-Type: application/json' -d '{"url":"https://example.com/data.json","method":"GET","body":null,"headers":null}'` |
 | `POST /api/fetch/bytes` | Fetch remote bytes through the desktop backend. The response is JSON with a `bytes` array. | `curl -s -X POST "$BASE/api/fetch/bytes" -H 'Content-Type: application/json' -d '{"url":"https://example.com/image.jpg"}'` |
 

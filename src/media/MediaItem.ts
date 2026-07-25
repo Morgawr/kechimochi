@@ -38,12 +38,6 @@ export class MediaItem extends ProgressiveCoverComponent<MediaItemState> {
     render() {
         const { media, imgSrc } = this.state;
         const contentType = media.content_type || 'Unknown';
-        const badgeHtml = (contentType !== 'Unknown' && contentType.trim() !== '')
-            ? `<div class="grid-item-type-badge">${contentType}</div>`
-            : '';
-        const ledHtml = media.tracking_status === 'Untracked'
-            ? ''
-            : `<div class="status-led ${this.getTrackingStatusClass(media.tracking_status)}" title="Status: ${media.tracking_status}"></div>`;
 
         this.clear();
 
@@ -73,8 +67,17 @@ export class MediaItem extends ProgressiveCoverComponent<MediaItemState> {
         cardBody.className = `media-grid-item-body${isArchived ? ' is-archived' : ''}`;
 
         cardBody.appendChild(content);
-        if (badgeHtml) cardBody.insertAdjacentHTML('beforeend', badgeHtml);
-        if (ledHtml) cardBody.insertAdjacentHTML('beforeend', ledHtml);
+        if (contentType !== 'Unknown' && contentType.trim() !== '') {
+            cardBody.appendChild(html`<div class="grid-item-type-badge">${contentType}</div>`);
+        }
+        if (media.tracking_status !== 'Untracked') {
+            const statusLed = document.createElement('div');
+            statusLed.classList.add('status-led');
+            const statusClass = this.getTrackingStatusClass(media.tracking_status);
+            if (statusClass) statusLed.classList.add(statusClass);
+            statusLed.title = `Status: ${media.tracking_status}`;
+            cardBody.appendChild(statusLed);
+        }
         this.container.appendChild(cardBody);
     }
 }

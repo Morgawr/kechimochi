@@ -27,6 +27,19 @@ const PENDING_CONFLICTS_FILE: &str = "pending_conflicts.json";
 const PENDING_MERGED_SNAPSHOT_FILE: &str = "pending_merged_snapshot.json.gz";
 const PENDING_SYNC_STATE_FILE: &str = "pending_sync_state.json.gz";
 const COMPLETED_RESOLUTION_FILE: &str = "completed_resolution.json";
+const MAX_SYNC_CONFIG_BYTES: usize = 1024 * 1024;
+const MAX_SYNC_DEVICE_ID_BYTES: usize = 1024;
+const MAX_SYNC_STATE_ARCHIVE_BYTES: usize = 512 * 1024 * 1024;
+const MAX_SYNC_STATE_JSON_BYTES: usize = 512 * 1024 * 1024;
+const MAX_COMPLETED_RESOLUTION_BYTES: usize = 16 * 1024 * 1024;
+pub(crate) const SYNC_RUNTIME_RELATIVE_PATHS: &[&str] = &[
+    "sync/sync_config.json",
+    "sync/base_snapshot.json.gz",
+    "sync/pending_conflicts.json",
+    "sync/pending_merged_snapshot.json.gz",
+    "sync/pending_sync_state.json.gz",
+    "sync/completed_resolution.json",
+];
 pub const PENDING_SYNC_STATE_VERSION: i64 = 1;
 const SYNC_LOCK_FILE: &str = "sync.lock";
 pub const SYNC_OPERATION_IN_PROGRESS_ERROR: &str = "Another sync operation is already in progress";
@@ -46,6 +59,10 @@ fn lock_sync_state_files() -> MutexGuard<'static, ()> {
         .get_or_init(|| Mutex::new(()))
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+pub(crate) fn lock_sync_state_files_for_data_replacement() -> MutexGuard<'static, ()> {
+    lock_sync_state_files()
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -219,7 +236,7 @@ pub fn get_or_create_device_id(app_dir: &Path) -> Result<String, String> {
     let _state_guard = lock_sync_state_files();
     let path = sync_device_id_path(app_dir);
     if path.exists() {
-        let existing = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        let existing = read_bounded_text(&path, MAX_SYNC_DEVICE_ID_BYTES, "sync device ID")?;
         let existing = existing.trim().to_string();
         if !existing.is_empty() {
             return Ok(existing);
@@ -250,7 +267,7 @@ fn load_sync_config_unlocked(app_dir: &Path) -> Result<Option<SyncConfig>, Strin
         return Ok(None);
     }
 
-    let raw = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let raw = read_bounded_text(&path, MAX_SYNC_CONFIG_BYTES, "sync configuration")?;
     serde_json::from_str(&raw)
         .map(Some)
         .map_err(|e| e.to_string())
@@ -264,6 +281,7 @@ pub fn save_sync_config(app_dir: &Path, config: &SyncConfig) -> Result<(), Strin
 fn save_sync_config_unlocked(app_dir: &Path, config: &SyncConfig) -> Result<(), String> {
     ensure_sync_dir(app_dir)?;
     let raw = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
+    ensure_size_within_limit(raw.len(), MAX_SYNC_CONFIG_BYTES, "sync configuration")?;
     atomic_write(&sync_config_path(app_dir), raw.as_bytes())
 }
 
@@ -309,13 +327,60 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+fn ensure_size_within_limit(length: usize, limit: usize, description: &str) -> Result<(), String> {
+    if length > limit {
+        Err(format!(
+            "{description} exceeds the supported {limit} byte limit"
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn read_bounded_file(path: &Path, limit: usize, description: &str) -> Result<Vec<u8>, String> {
+    let mut file = File::open(path).map_err(|e| e.to_string())?;
+    let length = file.metadata().map_err(|e| e.to_string())?.len();
+    if length > limit as u64 {
+        return Err(format!(
+            "{description} exceeds the supported {limit} byte limit"
+        ));
+    }
+
+    let mut bytes = Vec::new();
+    (&mut file)
+        .take(limit as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() > limit {
+        return Err(format!(
+            "{description} exceeds the supported {limit} byte limit"
+        ));
+    }
+    Ok(bytes)
+}
+
+fn read_bounded_text(path: &Path, limit: usize, description: &str) -> Result<String, String> {
+    String::from_utf8(read_bounded_file(path, limit, description)?)
+        .map_err(|e| format!("{description} is not valid UTF-8: {e}"))
+}
+
 fn save_compressed_json<T: Serialize>(path: PathBuf, value: &T) -> Result<(), String> {
     let canonical_json = serde_json::to_string(value).map_err(|e| e.to_string())?;
+    ensure_size_within_limit(
+        canonical_json.len(),
+        MAX_SYNC_STATE_JSON_BYTES,
+        "sync state",
+    )?;
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
     encoder
         .write_all(canonical_json.as_bytes())
         .map_err(|e| e.to_string())?;
     let gzipped_bytes = encoder.finish().map_err(|e| e.to_string())?;
+    ensure_size_within_limit(
+        gzipped_bytes.len(),
+        MAX_SYNC_STATE_ARCHIVE_BYTES,
+        "compressed sync state",
+    )?;
     atomic_write(&path, &gzipped_bytes)
 }
 
@@ -324,13 +389,18 @@ fn load_compressed_json<T: DeserializeOwned>(path: PathBuf) -> Result<Option<T>,
         return Ok(None);
     }
 
-    let bytes = fs::read(path).map_err(|e| e.to_string())?;
-    let mut decoder = GzDecoder::new(bytes.as_slice());
-    let mut json = String::new();
-    decoder
-        .read_to_string(&mut json)
-        .map_err(|e| e.to_string())?;
-    serde_json::from_str(&json)
+    let bytes = read_bounded_file(&path, MAX_SYNC_STATE_ARCHIVE_BYTES, "compressed sync state")?;
+    let decoder = GzDecoder::new(bytes.as_slice());
+    let mut limited = decoder.take(MAX_SYNC_STATE_JSON_BYTES as u64 + 1);
+    let mut json = Vec::new();
+    limited.read_to_end(&mut json).map_err(|e| e.to_string())?;
+    if json.len() > MAX_SYNC_STATE_JSON_BYTES {
+        return Err(format!(
+            "Decompressed sync state exceeds the supported {} byte limit",
+            MAX_SYNC_STATE_JSON_BYTES
+        ));
+    }
+    serde_json::from_slice(&json)
         .map(Some)
         .map_err(|e| e.to_string())
 }
@@ -399,6 +469,11 @@ fn save_pending_conflicts_unlocked(
 ) -> Result<(), String> {
     ensure_sync_dir(app_dir)?;
     let raw = serde_json::to_string_pretty(conflicts).map_err(|e| e.to_string())?;
+    ensure_size_within_limit(
+        raw.len(),
+        MAX_SYNC_STATE_JSON_BYTES,
+        "pending sync conflicts",
+    )?;
     atomic_write(&pending_conflicts_path(app_dir), raw.as_bytes())
 }
 
@@ -416,7 +491,7 @@ fn load_pending_conflicts_unlocked(app_dir: &Path) -> Result<Vec<SyncConflict>, 
         return Ok(Vec::new());
     }
 
-    let raw = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let raw = read_bounded_text(&path, MAX_SYNC_STATE_JSON_BYTES, "pending sync conflicts")?;
     serde_json::from_str(&raw).map_err(|e| e.to_string())
 }
 
@@ -479,6 +554,11 @@ fn save_completed_resolution_unlocked(
 ) -> Result<(), String> {
     ensure_sync_dir(app_dir)?;
     let raw = serde_json::to_vec(receipt).map_err(|e| e.to_string())?;
+    ensure_size_within_limit(
+        raw.len(),
+        MAX_COMPLETED_RESOLUTION_BYTES,
+        "completed sync resolution",
+    )?;
     atomic_write(&completed_resolution_path(app_dir), &raw)
 }
 
@@ -494,7 +574,11 @@ fn load_completed_resolution_unlocked(
     if !path.exists() {
         return Ok(None);
     }
-    let raw = fs::read(path).map_err(|e| e.to_string())?;
+    let raw = read_bounded_file(
+        &path,
+        MAX_COMPLETED_RESOLUTION_BYTES,
+        "completed sync resolution",
+    )?;
     serde_json::from_slice(&raw)
         .map(Some)
         .map_err(|e| e.to_string())
@@ -647,6 +731,15 @@ pub fn clear_sync_runtime_files(app_dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
+pub fn wipe_local_data(app_dir: &Path) -> Result<(), String> {
+    let _state_guard = lock_sync_state_files();
+    let runtime_paths = SYNC_RUNTIME_RELATIVE_PATHS
+        .iter()
+        .map(|relative| app_dir.join(relative))
+        .collect::<Vec<_>>();
+    crate::db::wipe_everything_with_additional_targets(app_dir.to_path_buf(), &runtime_paths)
+}
+
 pub fn get_sync_status(
     app_dir: &Path,
     google_authenticated: bool,
@@ -713,6 +806,7 @@ pub fn calculate_backup_size(app_dir: &Path) -> u64 {
 }
 
 pub fn clear_sync_backups(app_dir: &Path) -> Result<(), String> {
+    let _state_guard = lock_sync_state_files();
     let dir = sync_dir(app_dir);
     if !dir.exists() {
         return Ok(());
@@ -843,6 +937,30 @@ mod tests {
         assert!(!pending_merged_snapshot_path(temp_dir.path()).exists());
         assert!(!pending_sync_state_path(temp_dir.path()).exists());
         assert!(sync_device_id_path(temp_dir.path()).exists());
+    }
+
+    #[test]
+    fn wipe_local_data_removes_database_and_sync_runtime_in_one_staged_reset() {
+        let temp_dir = TempDir::new().unwrap();
+        ensure_sync_dir(temp_dir.path()).unwrap();
+        fs::write(temp_dir.path().join("kechimochi_user.db"), "user").unwrap();
+        fs::write(temp_dir.path().join("kechimochi_shared_media.db"), "shared").unwrap();
+        fs::create_dir_all(temp_dir.path().join("covers")).unwrap();
+        fs::write(temp_dir.path().join("covers/cover.png"), "cover").unwrap();
+        fs::write(sync_config_path(temp_dir.path()), "{}").unwrap();
+        fs::write(base_snapshot_path(temp_dir.path()), "snapshot").unwrap();
+        fs::write(sync_device_id_path(temp_dir.path()), "dev_keep\n").unwrap();
+        fs::write(temp_dir.path().join("unrelated.txt"), "keep").unwrap();
+
+        wipe_local_data(temp_dir.path()).unwrap();
+
+        assert!(!temp_dir.path().join("kechimochi_user.db").exists());
+        assert!(!temp_dir.path().join("kechimochi_shared_media.db").exists());
+        assert!(!temp_dir.path().join("covers").exists());
+        assert!(!sync_config_path(temp_dir.path()).exists());
+        assert!(!base_snapshot_path(temp_dir.path()).exists());
+        assert!(sync_device_id_path(temp_dir.path()).exists());
+        assert!(temp_dir.path().join("unrelated.txt").exists());
     }
 
     #[test]

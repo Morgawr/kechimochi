@@ -6,6 +6,7 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use tauri::async_runtime::spawn_blocking;
 use tauri::{AppHandle, State};
+use tempfile::NamedTempFile;
 use walkdir::WalkDir;
 use zip::write::SimpleFileOptions;
 use zip::{ZipArchive, ZipWriter};
@@ -17,6 +18,30 @@ use crate::sync_state;
 use crate::{DbState, StartupMode, StartupState};
 
 pub const BACKUP_FORMAT_VERSION: i64 = 1;
+const MAX_BACKUP_ARCHIVE_ENTRIES: usize = 100_000;
+const MAX_BACKUP_UNCOMPRESSED_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+const BACKUP_SWAP_PREFIX: &str = ".kechimochi-backup-swap-";
+const BACKUP_SWAP_PHASE_FILE: &str = "phase";
+const BACKUP_SWAP_ORIGINALS_DIR: &str = "originals";
+const BACKUP_SWAP_RECOVERY_DIR: &str = "recovery";
+const BACKUP_INSTALL_PATHS: &[&str] = &[
+    "kechimochi_user.db",
+    "kechimochi_user.db-wal",
+    "kechimochi_user.db-shm",
+    "kechimochi_user.db-journal",
+    "kechimochi_shared_media.db",
+    "kechimochi_shared_media.db-wal",
+    "kechimochi_shared_media.db-shm",
+    "kechimochi_shared_media.db-journal",
+    "covers",
+];
+
+fn backup_swap_paths() -> impl Iterator<Item = &'static str> {
+    BACKUP_INSTALL_PATHS
+        .iter()
+        .copied()
+        .chain(sync_state::SYNC_RUNTIME_RELATIVE_PATHS.iter().copied())
+}
 
 #[derive(Debug, Clone)]
 pub struct PreparedFullBackup {
@@ -149,10 +174,19 @@ pub fn export_full_backup_internal(
     version: &str,
 ) -> Result<(), String> {
     let dest_path = Path::new(file_path);
+    validate_local_storage_json(local_storage)?;
     let manifest = build_backup_manifest(conn_guard, version)?;
     let manifest_json = serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?;
 
-    let file = File::create(dest_path).map_err(|e| format!("Failed to create zip file: {}", e))?;
+    let destination_parent = dest_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let staging_file = NamedTempFile::new_in(destination_parent)
+        .map_err(|e| format!("Failed to create temporary backup file: {e}"))?;
+    let file = staging_file
+        .reopen()
+        .map_err(|e| format!("Failed to open temporary backup file: {e}"))?;
     let mut zip = ZipWriter::new(file);
     let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
@@ -183,23 +217,22 @@ pub fn export_full_backup_internal(
         "kechimochi_shared_media.db-shm",
     ];
 
-    let mut buffer = Vec::new();
     for file_name in files_to_backup {
         let path = app_dir.join(file_name);
         if path.exists() {
             zip.start_file(file_name, options)
                 .map_err(|e| e.to_string())?;
             let mut f = File::open(&path).map_err(|e| e.to_string())?;
-            buffer.clear();
-            f.read_to_end(&mut buffer).map_err(|e| e.to_string())?;
-            zip.write_all(&buffer).map_err(|e| e.to_string())?;
+            io::copy(&mut f, &mut zip).map_err(|e| e.to_string())?;
         }
     }
 
     // Add covers directory (using walkdir for simplicity)
     let covers_dir = app_dir.join("covers");
     if covers_dir.exists() && covers_dir.is_dir() {
-        for entry in WalkDir::new(&covers_dir).into_iter().filter_map(|e| e.ok()) {
+        for entry in WalkDir::new(&covers_dir) {
+            let entry = entry
+                .map_err(|error| format!("Failed to traverse cover images for backup: {error}"))?;
             let path = entry.path();
             if path.is_file() {
                 let relative_path = path.strip_prefix(app_dir).map_err(|e| e.to_string())?;
@@ -207,16 +240,28 @@ pub fn export_full_backup_internal(
                 zip.start_file(zip_path, options)
                     .map_err(|e| e.to_string())?;
                 let mut f = File::open(path).map_err(|e| e.to_string())?;
-                buffer.clear();
-                f.read_to_end(&mut buffer).map_err(|e| e.to_string())?;
-                zip.write_all(&buffer).map_err(|e| e.to_string())?;
+                io::copy(&mut f, &mut zip).map_err(|e| e.to_string())?;
             }
         }
     }
 
     let finished_file = zip.finish().map_err(|e| e.to_string())?;
     finished_file.sync_all().map_err(|e| e.to_string())?;
+    drop(finished_file);
+    let installed = staging_file
+        .persist(dest_path)
+        .map_err(|error| format!("Failed to install completed backup: {}", error.error))?;
+    installed.sync_all().map_err(|error| error.to_string())?;
+    sync_directory(destination_parent)?;
     Ok(())
+}
+
+fn validate_local_storage_json(local_storage: &str) -> Result<(), String> {
+    match serde_json::from_str::<serde_json::Value>(local_storage) {
+        Ok(serde_json::Value::Object(_)) => Ok(()),
+        Ok(_) => Err("Backup local storage must be a JSON object".to_string()),
+        Err(error) => Err(format!("Backup local storage is invalid JSON: {error}")),
+    }
 }
 
 #[tauri::command]
@@ -244,7 +289,6 @@ pub fn import_full_backup(
                 let mut conn_guard = state.conn.lock().map_err(|e| e.to_string())?;
                 install_prepared_full_backup(&app_dir, &mut conn_guard, &prepared)?
             };
-            sync_state::clear_sync_runtime_files(&app_dir)?;
             Ok(FullBackupImportResult::Imported { local_storage })
         }
         PreparedFullBackupOutcome::RecoveryRequired { prepared, plan } => {
@@ -300,22 +344,49 @@ pub fn prepare_full_backup_from_reader_internal<R: Read + io::Seek>(
     let mut archive =
         ZipArchive::new(zip_file).map_err(|e| format!("Failed to read zip archive: {}", e))?;
 
-    let extract_dir = app_dir.join("extracted_tmp");
-    let backup_dir = app_dir.join("backup_tmp");
-
-    // Clean up any lingering tmp dirs
-    let _ = fs::remove_dir_all(&extract_dir);
-    let _ = fs::remove_dir_all(&backup_dir);
-
-    fs::create_dir_all(&extract_dir).map_err(|e| e.to_string())?;
+    if archive.len() > MAX_BACKUP_ARCHIVE_ENTRIES {
+        return Err(format!(
+            "Backup contains too many entries ({}; maximum {})",
+            archive.len(),
+            MAX_BACKUP_ARCHIVE_ENTRIES
+        ));
+    }
+    let extraction = tempfile::Builder::new()
+        .prefix(".kechimochi-extracted-")
+        .tempdir_in(app_dir)
+        .map_err(|error| error.to_string())?;
+    let extract_dir = extraction.path().to_path_buf();
+    let mut extracted_paths = std::collections::HashSet::new();
+    let mut declared_uncompressed_bytes = 0_u64;
+    let mut extracted_uncompressed_bytes = 0_u64;
 
     // Extract all files
     for i in 0..archive.len() {
         let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
+        declared_uncompressed_bytes = declared_uncompressed_bytes
+            .checked_add(file.size())
+            .ok_or_else(|| "Backup uncompressed size overflowed".to_string())?;
+        if declared_uncompressed_bytes > MAX_BACKUP_UNCOMPRESSED_BYTES {
+            return Err(format!(
+                "Backup expands beyond the supported {} byte limit",
+                MAX_BACKUP_UNCOMPRESSED_BYTES
+            ));
+        }
         let outpath = match file.enclosed_name() {
             Some(path) => extract_dir.join(path),
-            None => continue,
+            None => return Err("Backup contains an unsafe path".to_string()),
         };
+        let relative_path = outpath
+            .strip_prefix(&extract_dir)
+            .map_err(|error| error.to_string())?
+            .to_path_buf();
+        let collision_key = relative_path
+            .to_string_lossy()
+            .replace('\\', "/")
+            .to_lowercase();
+        if !extracted_paths.insert(collision_key) {
+            return Err("Backup contains duplicate paths".to_string());
+        }
 
         // We only care about files, not directories, in the root
         if file.is_file() {
@@ -325,7 +396,16 @@ pub fn prepare_full_backup_from_reader_internal<R: Read + io::Seek>(
                 }
             }
             let mut outfile = File::create(&outpath).map_err(|e| e.to_string())?;
-            io::copy(&mut file, &mut outfile).map_err(|e| e.to_string())?;
+            let remaining = MAX_BACKUP_UNCOMPRESSED_BYTES - extracted_uncompressed_bytes;
+            let copied = io::copy(&mut (&mut file).take(remaining + 1), &mut outfile)
+                .map_err(|e| e.to_string())?;
+            if copied > remaining {
+                return Err(format!(
+                    "Backup expands beyond the supported {} byte limit",
+                    MAX_BACKUP_UNCOMPRESSED_BYTES
+                ));
+            }
+            extracted_uncompressed_bytes += copied;
         }
     }
 
@@ -335,41 +415,28 @@ pub fn prepare_full_backup_from_reader_internal<R: Read + io::Seek>(
     let local_storage_file = extract_dir.join("local_storage.json");
 
     if !user_db.exists() {
-        let _ = fs::remove_dir_all(&extract_dir);
         return Err("Missing kechimochi_user.db in archive".into());
     }
     if !shared_db.exists() {
-        let _ = fs::remove_dir_all(&extract_dir);
         return Err("Missing kechimochi_shared_media.db in archive".into());
     }
 
-    let manifest = match read_backup_manifest(&extract_dir) {
-        Ok(manifest) => manifest,
-        Err(err) => {
-            let _ = fs::remove_dir_all(&extract_dir);
-            return Err(err);
-        }
-    };
-    if let Err(err) = validate_extracted_backup(&user_db, &shared_db, manifest.as_ref()) {
-        let _ = fs::remove_dir_all(&extract_dir);
-        return Err(err);
-    }
+    let manifest = read_backup_manifest(&extract_dir)?;
+    validate_extracted_backup(&user_db, &shared_db, manifest.as_ref())?;
 
     let local_storage_json = if local_storage_file.exists() {
-        fs::read_to_string(&local_storage_file).unwrap_or_else(|_| "{}".to_string())
+        fs::read_to_string(&local_storage_file)
+            .map_err(|error| format!("Failed to read backup local storage: {error}"))?
     } else {
         "{}".to_string()
     };
+    validate_local_storage_json(&local_storage_json)?;
 
-    let database_outcome = match database_recovery::open_database(extract_dir.clone(), None) {
-        Ok(outcome) => outcome,
-        Err(error) => {
-            let _ = fs::remove_dir_all(&extract_dir);
-            return Err(format!("Failed to initialize restored database: {error}"));
-        }
-    };
+    let database_outcome = database_recovery::open_database(extract_dir.clone(), None)
+        .map_err(|error| format!("Failed to initialize restored database: {error}"))?;
+    let staging_dir = extraction.keep();
     let prepared = PreparedFullBackup {
-        staging_dir: extract_dir,
+        staging_dir,
         local_storage: local_storage_json,
     };
     match database_outcome {
@@ -388,102 +455,431 @@ pub fn install_prepared_full_backup(
     conn_guard: &mut rusqlite::Connection,
     prepared: &PreparedFullBackup,
 ) -> Result<String, String> {
+    let _sync_state_guard = sync_state::lock_sync_state_files_for_data_replacement();
     let extract_dir = &prepared.staging_dir;
-    let backup_dir = app_dir.join("backup_tmp");
-    let files_to_swap = vec![
-        "kechimochi_user.db",
-        "kechimochi_user.db-wal",
-        "kechimochi_user.db-shm",
-        "kechimochi_shared_media.db",
-        "kechimochi_shared_media.db-wal",
-        "kechimochi_shared_media.db-shm",
-        "covers",
-    ];
+    let backup_dir = app_dir.join(format!("{BACKUP_SWAP_PREFIX}{}", uuid::Uuid::new_v4()));
+    let originals_dir = backup_dir.join(BACKUP_SWAP_ORIGINALS_DIR);
 
     // Drop active connection by replacing with in-memory DB so windows allows moving files
-    *conn_guard = Connection::open_in_memory().unwrap();
+    *conn_guard = Connection::open_in_memory().map_err(|error| error.to_string())?;
 
-    fs::create_dir_all(&backup_dir).map_err(|e| e.to_string())?;
-
-    // Move current files to backup
-    for file_name in &files_to_swap {
-        let current_path = app_dir.join(file_name);
-        if current_path.exists() {
-            let backup_path = backup_dir.join(file_name);
-            if let Err(e) = fs::rename(&current_path, &backup_path) {
-                // If we fail here, try to rollback what we've moved so far
-                rollback_backup(app_dir, &backup_dir, &files_to_swap);
-                let _ = fs::remove_dir_all(extract_dir);
-                *conn_guard = db::init_db(app_dir.to_path_buf(), None)
-                    .unwrap_or_else(|_| Connection::open_in_memory().unwrap());
-                return Err(format!("Failed to move {} to backup: {}", file_name, e));
-            }
-        }
+    if let Err(error) = fs::create_dir_all(&originals_dir) {
+        return Err(abort_backup_install(
+            app_dir,
+            conn_guard,
+            extract_dir,
+            &backup_dir,
+            format!("Failed to prepare backup swap directory: {error}"),
+        ));
+    }
+    if let Err(error) = sync_directory(app_dir) {
+        return Err(abort_backup_install(
+            app_dir,
+            conn_guard,
+            extract_dir,
+            &backup_dir,
+            error,
+        ));
+    }
+    if let Err(error) = write_backup_swap_phase(&backup_dir, "moving_originals") {
+        return Err(abort_backup_install(
+            app_dir,
+            conn_guard,
+            extract_dir,
+            &backup_dir,
+            error,
+        ));
     }
 
-    // Move extracted files to active directory
-    for file_name in &files_to_swap {
-        let extracted_path = extract_dir.join(file_name);
-        if extracted_path.exists() {
-            let active_path = app_dir.join(file_name);
-            if let Err(e) = fs::rename(&extracted_path, &active_path) {
-                // Rollback if failure
-                rollback_backup(app_dir, &backup_dir, &files_to_swap);
-                let _ = fs::remove_dir_all(extract_dir);
-                *conn_guard = db::init_db(app_dir.to_path_buf(), None)
-                    .unwrap_or_else(|_| Connection::open_in_memory().unwrap());
-                return Err(format!(
-                    "Failed to move extracted {} to active path: {}",
-                    file_name, e
+    // Move current files to backup
+    for file_name in backup_swap_paths() {
+        let current_path = app_dir.join(file_name);
+        if current_path.exists() {
+            let backup_path = originals_dir.join(file_name);
+            if let Some(parent) = backup_path.parent() {
+                if let Err(error) = fs::create_dir_all(parent) {
+                    return Err(abort_backup_install(
+                        app_dir,
+                        conn_guard,
+                        extract_dir,
+                        &backup_dir,
+                        format!("Failed to prepare backup path for {file_name}: {error}"),
+                    ));
+                }
+            }
+            if let Err(e) = fs::rename(&current_path, &backup_path) {
+                return Err(abort_backup_install(
+                    app_dir,
+                    conn_guard,
+                    extract_dir,
+                    &backup_dir,
+                    format!("Failed to move {file_name} to backup: {e}"),
+                ));
+            }
+            if let Err(error) = sync_rename_parents(&current_path, &backup_path) {
+                return Err(abort_backup_install(
+                    app_dir,
+                    conn_guard,
+                    extract_dir,
+                    &backup_dir,
+                    error,
                 ));
             }
         }
     }
+    if let Err(error) = write_backup_swap_phase(&backup_dir, "installing") {
+        return Err(abort_backup_install(
+            app_dir,
+            conn_guard,
+            extract_dir,
+            &backup_dir,
+            error,
+        ));
+    }
+
+    // Move extracted files to active directory
+    for file_name in BACKUP_INSTALL_PATHS {
+        let extracted_path = extract_dir.join(file_name);
+        if extracted_path.exists() {
+            let active_path = app_dir.join(file_name);
+            if let Err(e) = fs::rename(&extracted_path, &active_path) {
+                return Err(abort_backup_install(
+                    app_dir,
+                    conn_guard,
+                    extract_dir,
+                    &backup_dir,
+                    format!("Failed to move extracted {file_name} to active path: {e}"),
+                ));
+            }
+            if let Err(error) = sync_rename_parents(&extracted_path, &active_path) {
+                return Err(abort_backup_install(
+                    app_dir,
+                    conn_guard,
+                    extract_dir,
+                    &backup_dir,
+                    error,
+                ));
+            }
+        }
+    }
+    if let Err(error) = write_backup_swap_phase(&backup_dir, "verifying") {
+        return Err(abort_backup_install(
+            app_dir,
+            conn_guard,
+            extract_dir,
+            &backup_dir,
+            error,
+        ));
+    }
 
     // Reinitialize DB
-    match db::init_db(app_dir.to_path_buf(), None) {
+    match db::init_db_without_backup_recovery(app_dir.to_path_buf(), None) {
         Ok(new_conn) => {
+            if let Err(error) = write_backup_swap_phase(&backup_dir, "committed") {
+                drop(new_conn);
+                return Err(abort_backup_install(
+                    app_dir,
+                    conn_guard,
+                    extract_dir,
+                    &backup_dir,
+                    format!(
+                        "Restored database was valid but the commit marker could not be written: {error}"
+                    ),
+                ));
+            }
             *conn_guard = new_conn;
-            // Success cleanup
             let _ = fs::remove_dir_all(extract_dir);
             let _ = fs::remove_dir_all(&backup_dir);
             Ok(prepared.local_storage.clone())
         }
-        Err(e) => {
-            // DB init failed, rollback
-            rollback_backup(app_dir, &backup_dir, &files_to_swap);
-            *conn_guard = db::init_db(app_dir.to_path_buf(), None)
-                .unwrap_or_else(|_| Connection::open_in_memory().unwrap());
-            let _ = fs::remove_dir_all(extract_dir);
-            Err(format!("Failed to initialize DB after restore: {}", e))
+        Err(e) => Err(abort_backup_install(
+            app_dir,
+            conn_guard,
+            extract_dir,
+            &backup_dir,
+            format!("Failed to initialize DB after restore: {e}"),
+        )),
+    }
+}
+
+fn write_backup_swap_phase(backup_dir: &Path, phase: &str) -> Result<(), String> {
+    let phase_path = backup_dir.join(BACKUP_SWAP_PHASE_FILE);
+    let mut staged_phase = NamedTempFile::new_in(backup_dir)
+        .map_err(|error| format!("Failed to stage backup swap phase: {error}"))?;
+    staged_phase
+        .write_all(phase.as_bytes())
+        .map_err(|error| format!("Failed to write backup swap phase: {error}"))?;
+    staged_phase
+        .as_file()
+        .sync_all()
+        .map_err(|error| format!("Failed to sync backup swap phase: {error}"))?;
+    staged_phase
+        .persist(&phase_path)
+        .map_err(|error| format!("Failed to install backup swap phase: {}", error.error))?;
+    sync_directory(backup_dir)?;
+    Ok(())
+}
+
+fn sync_directory(path: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        File::open(path)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|error| format!("Failed to sync directory '{}': {error}", path.display()))
+    }
+    #[cfg(not(unix))]
+    {
+        if let Ok(directory) = File::open(path) {
+            directory
+                .sync_all()
+                .map_err(|error| format!("Failed to sync directory '{}': {error}", path.display()))
+        } else {
+            Ok(())
         }
     }
 }
 
-fn rollback_backup(app_dir: &Path, backup_dir: &Path, files: &[&str]) {
-    for file_name in files {
-        let backup_path = backup_dir.join(file_name);
-        let active_path = app_dir.join(file_name);
-        if backup_path.exists() {
-            if active_path.exists() {
-                if active_path.is_dir() {
-                    let _ = fs::remove_dir_all(&active_path);
-                } else {
-                    let _ = fs::remove_file(&active_path);
-                }
-            }
-            let _ = fs::rename(&backup_path, &active_path);
-        } else {
-            // If the active file shouldn't be here (wasn't backed up) and an extracted file was placed, remove it.
-            if active_path.exists() {
-                if active_path.is_dir() {
-                    let _ = fs::remove_dir_all(&active_path);
-                } else {
-                    let _ = fs::remove_file(&active_path);
+fn sync_rename_parents(source: &Path, destination: &Path) -> Result<(), String> {
+    if let Some(parent) = source.parent() {
+        sync_directory(parent)?;
+    }
+    if destination.parent() != source.parent() {
+        if let Some(parent) = destination.parent() {
+            sync_directory(parent)?;
+        }
+    }
+    Ok(())
+}
+
+fn write_backup_recovery_marker(
+    backup_dir: &Path,
+    index: usize,
+    had_original: bool,
+) -> Result<(), String> {
+    let recovery_dir = backup_dir.join(BACKUP_SWAP_RECOVERY_DIR);
+    fs::create_dir_all(&recovery_dir)
+        .map_err(|error| format!("Failed to prepare backup recovery progress: {error}"))?;
+    sync_directory(backup_dir)?;
+    let marker_path = recovery_dir.join(index.to_string());
+    if marker_path.exists() {
+        return Ok(());
+    }
+    let mut staged = NamedTempFile::new_in(&recovery_dir)
+        .map_err(|error| format!("Failed to stage backup recovery progress: {error}"))?;
+    staged
+        .write_all(if had_original { b"original" } else { b"absent" })
+        .map_err(|error| format!("Failed to write backup recovery progress: {error}"))?;
+    staged
+        .as_file()
+        .sync_all()
+        .map_err(|error| format!("Failed to sync backup recovery progress: {error}"))?;
+    staged.persist(&marker_path).map_err(|error| {
+        format!(
+            "Failed to install backup recovery progress: {}",
+            error.error
+        )
+    })?;
+    sync_directory(&recovery_dir)
+}
+
+fn read_or_create_backup_recovery_marker(
+    backup_dir: &Path,
+    index: usize,
+    original_exists: bool,
+) -> Result<bool, String> {
+    let marker_path = backup_dir
+        .join(BACKUP_SWAP_RECOVERY_DIR)
+        .join(index.to_string());
+    if !marker_path.exists() {
+        write_backup_recovery_marker(backup_dir, index, original_exists)?;
+    }
+    match fs::read_to_string(&marker_path)
+        .map_err(|error| format!("Failed to read backup recovery progress: {error}"))?
+        .trim()
+    {
+        "original" => Ok(true),
+        "absent" => Ok(false),
+        value => Err(format!(
+            "Interrupted backup has invalid recovery progress '{value}'"
+        )),
+    }
+}
+
+fn abort_backup_install(
+    app_dir: &Path,
+    conn_guard: &mut Connection,
+    extract_dir: &Path,
+    backup_dir: &Path,
+    primary_error: String,
+) -> String {
+    let rollback_result = if backup_dir.join(BACKUP_SWAP_PHASE_FILE).exists() {
+        recover_backup_swap_directory(app_dir, backup_dir)
+    } else {
+        remove_path(backup_dir)
+    };
+
+    let reconnect_result = if rollback_result.is_ok() {
+        db::init_db_without_backup_recovery(app_dir.to_path_buf(), None)
+            .map(|connection| *conn_guard = connection)
+            .map_err(|error| error.to_string())
+    } else {
+        Err("database connection was left closed because rollback did not complete".to_string())
+    };
+    let cleanup_result = remove_path(extract_dir);
+
+    let mut message = primary_error;
+    if let Err(error) = rollback_result {
+        message.push_str(&format!("; rollback failed: {error}"));
+    }
+    if let Err(error) = reconnect_result {
+        message.push_str(&format!("; reconnect failed: {error}"));
+    }
+    if let Err(error) = cleanup_result {
+        message.push_str(&format!("; staging cleanup failed: {error}"));
+    }
+    message
+}
+
+fn remove_path(path: &Path) -> Result<(), String> {
+    if !path.exists() {
+        return Ok(());
+    }
+    if path.is_dir() {
+        fs::remove_dir_all(path).map_err(|error| error.to_string())
+    } else {
+        fs::remove_file(path).map_err(|error| error.to_string())
+    }
+}
+
+fn recover_backup_swap_directory(app_dir: &Path, backup_dir: &Path) -> Result<(), String> {
+    let phase_path = backup_dir.join(BACKUP_SWAP_PHASE_FILE);
+    if !phase_path.exists() {
+        let originals_dir = backup_dir.join(BACKUP_SWAP_ORIGINALS_DIR);
+        let originals_are_empty = !originals_dir.exists()
+            || fs::read_dir(&originals_dir)
+                .map_err(|error| {
+                    format!("Failed to inspect uncommitted backup originals: {error}")
+                })?
+                .next()
+                .is_none();
+        if originals_are_empty {
+            return fs::remove_dir_all(backup_dir).map_err(|error| {
+                format!("Failed to clean an uncommitted backup swap directory: {error}")
+            });
+        }
+        return Err(
+            "Interrupted backup has original data but no recovery phase; refusing to guess"
+                .to_string(),
+        );
+    }
+    let phase = fs::read_to_string(phase_path)
+        .map_err(|error| format!("Failed to read interrupted backup phase: {error}"))?;
+    let originals_dir = backup_dir.join(BACKUP_SWAP_ORIGINALS_DIR);
+
+    match phase.trim() {
+        "moving_originals" => {
+            for file_name in backup_swap_paths() {
+                let original = originals_dir.join(file_name);
+                if original.exists() {
+                    let active = app_dir.join(file_name);
+                    if active.exists() {
+                        return Err(format!(
+                            "Cannot restore '{}' because the active path unexpectedly exists",
+                            file_name
+                        ));
+                    }
+                    if let Some(parent) = active.parent() {
+                        fs::create_dir_all(parent).map_err(|error| {
+                            format!(
+                                "Failed to prepare the restore directory for '{file_name}': {error}"
+                            )
+                        })?;
+                    }
+                    fs::rename(&original, &active).map_err(|error| {
+                        format!("Failed to restore interrupted backup file '{file_name}': {error}")
+                    })?;
+                    sync_rename_parents(&original, &active)?;
                 }
             }
         }
+        "installing" | "verifying" => {
+            for (index, file_name) in backup_swap_paths().enumerate() {
+                let active = app_dir.join(file_name);
+                let original = originals_dir.join(file_name);
+                let had_original =
+                    read_or_create_backup_recovery_marker(backup_dir, index, original.exists())?;
+                if had_original {
+                    if !original.exists() {
+                        if !active.exists() {
+                            return Err(format!(
+                                "Original '{file_name}' was already moved out of backup recovery state, but its active path is missing"
+                            ));
+                        }
+                        continue;
+                    }
+                    remove_path(&active).map_err(|error| {
+                        format!("Failed to remove partially restored '{file_name}': {error}")
+                    })?;
+                    if let Some(parent) = active.parent().filter(|parent| parent.exists()) {
+                        sync_directory(parent)?;
+                    }
+                    if let Some(parent) = active.parent() {
+                        fs::create_dir_all(parent).map_err(|error| {
+                            format!(
+                                "Failed to prepare the restore directory for '{file_name}': {error}"
+                            )
+                        })?;
+                    }
+                    fs::rename(&original, &active).map_err(|error| {
+                        format!("Failed to restore original '{file_name}': {error}")
+                    })?;
+                    sync_rename_parents(&original, &active)?;
+                } else {
+                    remove_path(&active).map_err(|error| {
+                        format!("Failed to remove partially restored '{file_name}': {error}")
+                    })?;
+                    if let Some(parent) = active.parent().filter(|parent| parent.exists()) {
+                        sync_directory(parent)?;
+                    }
+                }
+            }
+        }
+        "committed" => {}
+        other => {
+            return Err(format!(
+                "Interrupted backup has unknown recovery phase '{other}'"
+            ))
+        }
     }
+    fs::remove_dir_all(backup_dir)
+        .map_err(|error| format!("Failed to clean interrupted backup state: {error}"))?;
+    sync_directory(app_dir)
+}
+
+pub(crate) fn recover_interrupted_backup_installs(app_dir: &Path) -> Result<(), String> {
+    if !app_dir.exists() {
+        return Ok(());
+    }
+    let entries = fs::read_dir(app_dir)
+        .map_err(|error| format!("Failed to inspect backup recovery state: {error}"))?;
+    let mut swap_directories = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let path = entry.path();
+        let is_swap = path.is_dir()
+            && path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(BACKUP_SWAP_PREFIX));
+        if is_swap {
+            swap_directories.push(path);
+        }
+    }
+    swap_directories.sort();
+    for backup_dir in swap_directories {
+        recover_backup_swap_directory(app_dir, &backup_dir)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -914,6 +1310,13 @@ mod tests {
         )
         .unwrap();
 
+        fs::create_dir_all(target_dir.join("sync")).unwrap();
+        fs::write(
+            sync_state::sync_config_path(&target_dir),
+            b"old sync association",
+        )
+        .unwrap();
+
         // Import the backup into a fresh connection
         let mut target_conn = Connection::open_in_memory().unwrap();
         import_full_backup_internal(&target_dir, &mut target_conn, zip_path.to_str().unwrap())
@@ -924,8 +1327,153 @@ mod tests {
         assert_eq!(logs[0].notes, "backup note content");
         assert_eq!(logs[0].title, "Backup Notes Media");
         assert_eq!(db::get_all_media(&target_conn).unwrap()[0].variant, "Novel");
+        assert!(!sync_state::sync_config_path(&target_dir).exists());
 
         fs::remove_dir_all(source_dir).ok();
         fs::remove_dir_all(target_dir).ok();
+    }
+
+    #[test]
+    fn test_interrupted_original_move_restores_only_files_that_were_moved() {
+        let app_dir = unique_temp_dir("backup_partial_original_move");
+        let backup_dir = app_dir.join(format!("{BACKUP_SWAP_PREFIX}test"));
+        let originals_dir = backup_dir.join(BACKUP_SWAP_ORIGINALS_DIR);
+        fs::create_dir_all(&originals_dir).unwrap();
+
+        fs::write(originals_dir.join("kechimochi_user.db"), b"original user").unwrap();
+        fs::write(
+            app_dir.join("kechimochi_shared_media.db"),
+            b"untouched shared",
+        )
+        .unwrap();
+        write_backup_swap_phase(&backup_dir, "moving_originals").unwrap();
+
+        recover_interrupted_backup_installs(&app_dir).unwrap();
+
+        assert_eq!(
+            fs::read(app_dir.join("kechimochi_user.db")).unwrap(),
+            b"original user"
+        );
+        assert_eq!(
+            fs::read(app_dir.join("kechimochi_shared_media.db")).unwrap(),
+            b"untouched shared"
+        );
+        assert!(!backup_dir.exists());
+
+        fs::remove_dir_all(app_dir).ok();
+    }
+
+    #[test]
+    fn test_unphased_empty_swap_directory_is_safe_to_clean_after_a_crash() {
+        let app_dir = unique_temp_dir("backup_unphased_swap");
+        let backup_dir = app_dir.join(format!("{BACKUP_SWAP_PREFIX}test"));
+        fs::create_dir_all(backup_dir.join(BACKUP_SWAP_ORIGINALS_DIR)).unwrap();
+        fs::write(app_dir.join("unrelated.txt"), b"preserve me").unwrap();
+
+        recover_interrupted_backup_installs(&app_dir).unwrap();
+
+        assert!(!backup_dir.exists());
+        assert_eq!(
+            fs::read(app_dir.join("unrelated.txt")).unwrap(),
+            b"preserve me"
+        );
+        fs::remove_dir_all(app_dir).ok();
+    }
+
+    #[test]
+    fn test_interrupted_install_removes_partial_replacement_and_restores_originals() {
+        let app_dir = unique_temp_dir("backup_partial_install");
+        let backup_dir = app_dir.join(format!("{BACKUP_SWAP_PREFIX}test"));
+        let originals_dir = backup_dir.join(BACKUP_SWAP_ORIGINALS_DIR);
+        fs::create_dir_all(&originals_dir).unwrap();
+
+        fs::write(originals_dir.join("kechimochi_user.db"), b"original user").unwrap();
+        fs::write(
+            originals_dir.join("kechimochi_shared_media.db"),
+            b"original shared",
+        )
+        .unwrap();
+        fs::create_dir_all(originals_dir.join("sync")).unwrap();
+        fs::write(
+            originals_dir.join("sync/sync_config.json"),
+            b"original sync",
+        )
+        .unwrap();
+        fs::write(app_dir.join("kechimochi_user.db"), b"partial replacement").unwrap();
+        fs::create_dir_all(app_dir.join("sync")).unwrap();
+        fs::write(
+            app_dir.join("sync/sync_config.json"),
+            b"partial sync replacement",
+        )
+        .unwrap();
+        fs::write(app_dir.join("unrelated.txt"), b"preserve me").unwrap();
+        write_backup_swap_phase(&backup_dir, "installing").unwrap();
+
+        recover_interrupted_backup_installs(&app_dir).unwrap();
+
+        assert_eq!(
+            fs::read(app_dir.join("kechimochi_user.db")).unwrap(),
+            b"original user"
+        );
+        assert_eq!(
+            fs::read(app_dir.join("kechimochi_shared_media.db")).unwrap(),
+            b"original shared"
+        );
+        assert_eq!(
+            fs::read(app_dir.join("sync/sync_config.json")).unwrap(),
+            b"original sync"
+        );
+        assert_eq!(
+            fs::read(app_dir.join("unrelated.txt")).unwrap(),
+            b"preserve me"
+        );
+        assert!(!backup_dir.exists());
+
+        fs::remove_dir_all(app_dir).ok();
+    }
+
+    #[test]
+    fn test_recovery_restart_does_not_delete_an_original_already_restored() {
+        let app_dir = unique_temp_dir("backup_recovery_restart");
+        let backup_dir = app_dir.join(format!("{BACKUP_SWAP_PREFIX}test"));
+        fs::create_dir_all(backup_dir.join(BACKUP_SWAP_ORIGINALS_DIR)).unwrap();
+        fs::write(
+            app_dir.join("kechimochi_user.db"),
+            b"already restored original",
+        )
+        .unwrap();
+        write_backup_swap_phase(&backup_dir, "installing").unwrap();
+        write_backup_recovery_marker(&backup_dir, 0, true).unwrap();
+
+        recover_interrupted_backup_installs(&app_dir).unwrap();
+
+        assert_eq!(
+            fs::read(app_dir.join("kechimochi_user.db")).unwrap(),
+            b"already restored original"
+        );
+        assert!(!backup_dir.exists());
+        fs::remove_dir_all(app_dir).ok();
+    }
+
+    #[test]
+    fn test_committed_install_keeps_replacement_and_discards_originals() {
+        let app_dir = unique_temp_dir("backup_committed_install");
+        let backup_dir = app_dir.join(format!("{BACKUP_SWAP_PREFIX}test"));
+        let originals_dir = backup_dir.join(BACKUP_SWAP_ORIGINALS_DIR);
+        fs::create_dir_all(&originals_dir).unwrap();
+
+        fs::write(originals_dir.join("kechimochi_user.db"), b"original user").unwrap();
+        fs::write(app_dir.join("kechimochi_user.db"), b"committed replacement").unwrap();
+        write_backup_swap_phase(&backup_dir, "committed").unwrap();
+
+        recover_interrupted_backup_installs(&app_dir).unwrap();
+
+        assert_eq!(
+            fs::read(app_dir.join("kechimochi_user.db")).unwrap(),
+            b"committed replacement"
+        );
+        assert!(!backup_dir.exists());
+
+        fs::remove_dir_all(app_dir).ok();
     }
 }

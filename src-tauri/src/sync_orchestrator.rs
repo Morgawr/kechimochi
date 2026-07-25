@@ -1,22 +1,23 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use chrono::Utc;
 use futures::stream::{self, StreamExt};
-use image::ImageFormat;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
+use tokio::io::AsyncReadExt;
 
 use crate::backup;
 use crate::db;
 use crate::sync_auth::{self, GoogleOAuthClientConfig, SecureTokenStore};
 use crate::sync_drive::{
     self, DriveTransport, GoogleDriveClient, RemoteManifestFile, RemoteSyncManifest,
+    MAX_SYNC_COVER_BLOB_BYTES,
 };
 use crate::sync_merge::{self, MergeSide, SyncConflict};
 use crate::sync_snapshot::{
@@ -1816,6 +1817,24 @@ fn media_field_value(
     aggregate: &SnapshotMediaAggregate,
     field_name: &str,
 ) -> Result<Option<String>, String> {
+    if let Some(record_uid) = field_name.strip_prefix("activity:") {
+        return aggregate
+            .activities
+            .iter()
+            .find(|record| record.uid == record_uid)
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|error| error.to_string());
+    }
+    if let Some(record_uid) = field_name.strip_prefix("milestone:") {
+        return aggregate
+            .milestones
+            .iter()
+            .find(|record| record.uid == record_uid)
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|error| error.to_string());
+    }
     let value = match field_name {
         "title" => Some(aggregate.title.clone()),
         "variant" => Some(aggregate.variant.clone()),
@@ -2387,11 +2406,13 @@ async fn recover_pending_snapshot_apply<T: DriveTransport>(
             synced_at,
         } => {
             let target = pending.merged_snapshot.clone();
+            let expected_committed_generation =
+                sync_drive::next_remote_generation(current_remote_generation)?;
             if let Some(remote) =
                 load_remote_manifest_optional(client, token_store, &pending.config.sync_profile_id)
                     .await?
             {
-                if remote.manifest.remote_generation == current_remote_generation + 1
+                if remote.manifest.remote_generation == expected_committed_generation
                     && remote.manifest.snapshot_id == target.snapshot_id
                 {
                     // The prior attempt committed the manifest but lost its
@@ -2695,7 +2716,7 @@ async fn publish_snapshot_with_client<T: DriveTransport>(
         &snapshot.profile.profile_name,
         &snapshot.snapshot_id,
         &uploaded_snapshot.snapshot_sha256,
-        current_remote_generation + 1,
+        sync_drive::next_remote_generation(current_remote_generation)?,
         synced_at,
         &device_id,
     );
@@ -2799,6 +2820,24 @@ async fn download_remote_snapshot<T: DriveTransport>(
         .await?;
     normalize_snapshot_media_variants(&mut remote_snapshot);
     sync_drive::validate_remote_snapshot_compatibility(&remote_snapshot)?;
+    if remote_snapshot.profile.profile_id != remote_manifest.manifest.profile_id {
+        return Err(format!(
+            "Remote snapshot profile '{}' does not match manifest profile '{}'",
+            remote_snapshot.profile.profile_id, remote_manifest.manifest.profile_id
+        ));
+    }
+    if remote_snapshot.snapshot_id != remote_manifest.manifest.snapshot_id {
+        return Err(format!(
+            "Remote snapshot id '{}' does not match manifest snapshot id '{}'",
+            remote_snapshot.snapshot_id, remote_manifest.manifest.snapshot_id
+        ));
+    }
+    if remote_snapshot.db_schema_version != remote_manifest.manifest.db_schema_version {
+        return Err(format!(
+            "Remote snapshot schema version {} does not match manifest schema version {}",
+            remote_snapshot.db_schema_version, remote_manifest.manifest.db_schema_version
+        ));
+    }
     Ok(remote_snapshot)
 }
 
@@ -3158,8 +3197,9 @@ fn create_local_safety_backup(
 ) -> Result<String, String> {
     sync_state::ensure_sync_dir(app_dir)?;
     let file_name = format!(
-        "pre_sync_backup_{}.zip",
-        Utc::now().format("%Y%m%dT%H%M%SZ")
+        "pre_sync_backup_{}_{}.zip",
+        Utc::now().format("%Y%m%dT%H%M%S%.3fZ"),
+        uuid::Uuid::new_v4()
     );
     let path = sync_state::sync_dir(app_dir).join(file_name);
     let conn_guard = conn.lock().map_err(|e| e.to_string())?;
@@ -3576,6 +3616,81 @@ fn apply_media_field_choice(
     field_name: &str,
     chosen: Option<String>,
 ) -> Result<(), String> {
+    if let Some(record_uid) = field_name.strip_prefix("activity:") {
+        match chosen {
+            Some(raw) => {
+                let record: crate::sync_snapshot::SnapshotActivity = serde_json::from_str(&raw)
+                    .map_err(|error| {
+                        format!("Chosen activity conflict value is invalid: {error}")
+                    })?;
+                if record.uid != record_uid {
+                    return Err(format!(
+                        "Chosen activity UID '{}' does not match conflict UID '{record_uid}'",
+                        record.uid
+                    ));
+                }
+                if let Some(existing) = aggregate
+                    .activities
+                    .iter_mut()
+                    .find(|existing| existing.uid == record_uid)
+                {
+                    *existing = record;
+                } else {
+                    aggregate.activities.push(record);
+                }
+            }
+            None => aggregate
+                .activities
+                .retain(|record| record.uid != record_uid),
+        }
+        aggregate.activities.sort_by(|left, right| {
+            left.date
+                .cmp(&right.date)
+                .then_with(|| left.activity_type.cmp(&right.activity_type))
+                .then_with(|| left.duration_minutes.cmp(&right.duration_minutes))
+                .then_with(|| left.characters.cmp(&right.characters))
+                .then_with(|| left.notes.cmp(&right.notes))
+                .then_with(|| left.uid.cmp(&right.uid))
+        });
+        return Ok(());
+    }
+    if let Some(record_uid) = field_name.strip_prefix("milestone:") {
+        match chosen {
+            Some(raw) => {
+                let record: crate::sync_snapshot::SnapshotMilestone = serde_json::from_str(&raw)
+                    .map_err(|error| {
+                        format!("Chosen milestone conflict value is invalid: {error}")
+                    })?;
+                if record.uid != record_uid {
+                    return Err(format!(
+                        "Chosen milestone UID '{}' does not match conflict UID '{record_uid}'",
+                        record.uid
+                    ));
+                }
+                if let Some(existing) = aggregate
+                    .milestones
+                    .iter_mut()
+                    .find(|existing| existing.uid == record_uid)
+                {
+                    *existing = record;
+                } else {
+                    aggregate.milestones.push(record);
+                }
+            }
+            None => aggregate
+                .milestones
+                .retain(|record| record.uid != record_uid),
+        }
+        aggregate.milestones.sort_by(|left, right| {
+            left.date
+                .cmp(&right.date)
+                .then_with(|| left.name.cmp(&right.name))
+                .then_with(|| left.duration.cmp(&right.duration))
+                .then_with(|| left.characters.cmp(&right.characters))
+                .then_with(|| left.uid.cmp(&right.uid))
+        });
+        return Ok(());
+    }
     match field_name {
         "title" => aggregate.title = required_choice(field_name, chosen)?,
         "variant" => aggregate.variant = required_choice(field_name, chosen)?,
@@ -3746,9 +3861,7 @@ async fn upload_cover_blob_with_retry<T: DriveTransport>(
     hash: String,
     path: String,
 ) -> Result<String, String> {
-    let bytes = tokio::fs::read(&path)
-        .await
-        .map_err(|e| format!("Failed to read local cover blob '{hash}' from '{path}': {e}"))?;
+    let bytes = read_local_cover_blob(&path, &hash).await?;
     // The cache was built before this async read. Revalidate the bytes after
     // the await so an in-place file replacement cannot be uploaded under the
     // stale content-addressed name, including the known-missing fast path.
@@ -3869,11 +3982,19 @@ async fn materialize_snapshot_cover_blobs_with_client<T: DriveTransport>(
             async move {
                 let remote_file_id = remote_file_id?;
                 let bytes = client
-                    .download_app_data_file_by_id(token_store, &remote_file_id)
+                    .download_app_data_file_by_id_with_limit(
+                        token_store,
+                        &remote_file_id,
+                        MAX_SYNC_COVER_BLOB_BYTES,
+                    )
                     .await
                     .map_err(|e| format!("Failed to download cover blob '{expected_hash}': {e}"))?;
                 validate_cover_blob_bytes(&expected_hash, &bytes)?;
-                let materialized = materialize_cover_blob(&covers_dir, &expected_hash, &bytes)?;
+                let materialized = crate::sync_cover_blobs::materialize_cover_blob(
+                    &covers_dir,
+                    &expected_hash,
+                    &bytes,
+                )?;
                 Ok::<_, String>((expected_hash, materialized.to_string_lossy().to_string()))
             }
         }))
@@ -3944,7 +4065,7 @@ async fn materialize_snapshot_cover_blobs_with_client<T: DriveTransport>(
                     "Local cover cache entry for blob '{expected_hash}' changed before it could be applied"
                 ));
             }
-            db::update_media_cover_image_by_uid(&conn_guard, uid, &target_path)?;
+            db::update_media_cover_image_by_uid(&conn_guard, uid, &target_path, covers_dir)?;
         }
     }
 
@@ -4007,6 +4128,12 @@ fn validate_cover_blob_bytes(expected_hash: &str, bytes: &[u8]) -> Result<(), St
             "Cover blob '{expected_hash}' is corrupted or empty"
         ));
     }
+    if bytes.len() > MAX_SYNC_COVER_BLOB_BYTES {
+        return Err(format!(
+            "Cover blob '{expected_hash}' exceeds the supported {} byte limit",
+            MAX_SYNC_COVER_BLOB_BYTES
+        ));
+    }
 
     let actual_hash = compute_sha256_hex(bytes);
     if actual_hash != expected_hash {
@@ -4018,30 +4145,24 @@ fn validate_cover_blob_bytes(expected_hash: &str, bytes: &[u8]) -> Result<(), St
     Ok(())
 }
 
-fn materialize_cover_blob(
-    covers_dir: &Path,
-    sha256: &str,
-    bytes: &[u8],
-) -> Result<PathBuf, String> {
-    fs::create_dir_all(covers_dir).map_err(|e| e.to_string())?;
-
-    let extension = match image::guess_format(bytes) {
-        Ok(ImageFormat::Png) => "png",
-        Ok(ImageFormat::Jpeg) => "jpg",
-        Ok(ImageFormat::WebP) => "webp",
-        _ => "img",
-    };
-    let path = covers_dir.join(format!("sync_blob_{sha256}.{extension}"));
-
-    if path.exists() {
-        let existing_hash = sync_snapshot::compute_cover_blob_sha256_from_path(&path)?;
-        if existing_hash.as_deref() == Some(sha256) {
-            return Ok(path);
-        }
+async fn read_local_cover_blob(path: &str, hash: &str) -> Result<Vec<u8>, String> {
+    let mut file = tokio::fs::File::open(path)
+        .await
+        .map_err(|e| format!("Failed to open local cover blob '{hash}' from '{path}': {e}"))?;
+    if file.metadata().await.map_err(|e| e.to_string())?.len() > MAX_SYNC_COVER_BLOB_BYTES as u64 {
+        return Err(format!(
+            "Cover blob '{hash}' exceeds the supported {} byte limit",
+            MAX_SYNC_COVER_BLOB_BYTES
+        ));
     }
-
-    fs::write(&path, bytes).map_err(|e| e.to_string())?;
-    Ok(path)
+    let mut bytes = Vec::new();
+    (&mut file)
+        .take(MAX_SYNC_COVER_BLOB_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .await
+        .map_err(|e| format!("Failed to read local cover blob '{hash}' from '{path}': {e}"))?;
+    validate_cover_blob_bytes(hash, &bytes)?;
+    Ok(bytes)
 }
 
 fn compute_sha256_hex(bytes: &[u8]) -> String {
@@ -4162,6 +4283,61 @@ mod tests {
             Box::pin(async move {
                 match transport.handle_request(method, &url, &access_token, content_type, body)? {
                     MemoryDriveResponse::Bytes(bytes) => Ok(bytes),
+                    MemoryDriveResponse::Json(_) => {
+                        Err("Expected byte response but transport returned JSON".to_string())
+                    }
+                }
+            })
+        }
+
+        fn request_json_with_headers<'a>(
+            &'a self,
+            method: Method,
+            url: &'a str,
+            access_token: &'a str,
+            content_type: Option<String>,
+            body: Option<Vec<u8>>,
+            headers: Vec<(String, String)>,
+        ) -> sync_drive::TransportFuture<'a, serde_json::Value> {
+            let transport = self.clone();
+            let url = url.to_string();
+            let access_token = access_token.to_string();
+            Box::pin(async move {
+                transport.check_if_match(&method, &url, &headers)?;
+                match transport.handle_request(method, &url, &access_token, content_type, body)? {
+                    MemoryDriveResponse::Json(value) => Ok(value),
+                    MemoryDriveResponse::Bytes(_) => {
+                        Err("Expected JSON response but transport returned bytes".to_string())
+                    }
+                }
+            })
+        }
+
+        fn request_bytes_with_etag<'a>(
+            &'a self,
+            method: Method,
+            url: &'a str,
+            access_token: &'a str,
+            content_type: Option<String>,
+            body: Option<Vec<u8>>,
+            max_response_bytes: usize,
+        ) -> sync_drive::TransportFuture<'a, (Vec<u8>, Option<String>)> {
+            let transport = self.clone();
+            let url = url.to_string();
+            let access_token = access_token.to_string();
+            Box::pin(async move {
+                let response =
+                    transport.handle_request(method, &url, &access_token, content_type, body)?;
+                match response {
+                    MemoryDriveResponse::Bytes(bytes) => {
+                        if bytes.len() > max_response_bytes {
+                            return Err(format!(
+                                "Test Drive response exceeded the {max_response_bytes} byte limit"
+                            ));
+                        }
+                        let etag = transport.etag_for_file_url(&url);
+                        Ok((bytes, etag))
+                    }
                     MemoryDriveResponse::Json(_) => {
                         Err("Expected byte response but transport returned JSON".to_string())
                     }
@@ -4315,6 +4491,38 @@ mod tests {
             }
 
             Err(format!("Unhandled transport request: {} {}", method, url))
+        }
+
+        fn etag_for_file_url(&self, url: &str) -> Option<String> {
+            let file_id = Url::parse(url).ok()?.path().rsplit('/').next()?.to_string();
+            self.state
+                .lock()
+                .ok()?
+                .files
+                .get(&file_id)
+                .map(|file| format!("\"{}\"", file.modified_time))
+        }
+
+        fn check_if_match(
+            &self,
+            method: &Method,
+            url: &str,
+            headers: &[(String, String)],
+        ) -> Result<(), String> {
+            if method != Method::PATCH {
+                return Ok(());
+            }
+            let Some((_, expected)) = headers
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case("if-match"))
+            else {
+                return Ok(());
+            };
+            if self.etag_for_file_url(url).as_deref() == Some(expected.as_str()) {
+                Ok(())
+            } else {
+                Err("Google Drive API request failed with status 412 Precondition Failed".into())
+            }
         }
 
         fn authorize_request(&self, access_token: &str) -> Result<(), String> {
@@ -4597,6 +4805,7 @@ mod tests {
         remote_media.uid = remote_uid.clone();
         remote_media.updated_by_device_id = "dev_remote".to_string();
         remote_media.activities = vec![crate::sync_snapshot::SnapshotActivity {
+            uid: "activity-remote-history".to_string(),
             date: "2026-07-21".to_string(),
             activity_type: "Playing".to_string(),
             duration_minutes: 45,
@@ -4604,6 +4813,7 @@ mod tests {
             notes: "remote history".to_string(),
         }];
         remote_media.milestones = vec![crate::sync_snapshot::SnapshotMilestone {
+            uid: "milestone-remote-history".to_string(),
             name: "Remote milestone".to_string(),
             duration: 45,
             characters: 0,
@@ -6246,6 +6456,7 @@ mod tests {
         remote_media
             .milestones
             .push(crate::sync_snapshot::SnapshotMilestone {
+                uid: "milestone-remote-checkpoint".to_string(),
                 name: "Remote checkpoint".to_string(),
                 duration: 60,
                 characters: 0,
@@ -6377,7 +6588,7 @@ mod tests {
             assert!(media
                 .iter()
                 .any(|entry| entry.uid.as_deref() == Some(added_while_waiting_uid.as_str())));
-            assert_eq!(db::get_logs(&conn_guard).unwrap().len(), 3);
+            assert_eq!(db::get_logs(&conn_guard).unwrap().len(), 2);
             let milestones = db::get_all_milestones(&conn_guard).unwrap();
             assert_eq!(milestones.len(), 2);
             assert!(milestones
@@ -6399,7 +6610,7 @@ mod tests {
             .await
             .unwrap();
         assert!(published.library.contains_key(&local_uid));
-        assert_eq!(published.library[&local_uid].activities.len(), 3);
+        assert_eq!(published.library[&local_uid].activities.len(), 2);
         assert_eq!(published.library[&local_uid].milestones.len(), 2);
         assert_eq!(
             published.library[&unrelated_uid].title,
@@ -7659,7 +7870,13 @@ mod tests {
             .unwrap();
             assert_eq!(queued_conflicts.len(), 1);
 
-            update_media_extra_data(&conn, &media_uid, live_raw);
+            conn.lock()
+                .unwrap()
+                .execute(
+                    "UPDATE shared.media SET extra_data = ?1 WHERE uid = ?2",
+                    rusqlite::params![live_raw, media_uid],
+                )
+                .unwrap();
             let live = build_local_snapshot(
                 temp_dir.path(),
                 &conn,

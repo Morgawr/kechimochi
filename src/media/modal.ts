@@ -1,7 +1,7 @@
-import { MediaConflict, MediaCsvRow, Media } from '../api';
+import { MediaConflict, MediaCsvImportSelection, Media } from '../api';
 import { searchJiten, getJitenCoverUrl, getJitenDeckUrl, getJitenDeckChildren, JitenResult, getJitenMediaLabel } from '../jiten_api';
 import { customAlert, createCancelableOverlay } from '../modal_base';
-import { escapeHTML } from '../html';
+import { escapeAttribute, escapeHTML } from '../html';
 import { ACTIVITY_TYPES } from '../constants';
 import { getExtraDataValue } from '../extra_data';
 import type { ScrapedFieldSource, ScrapedMetadata } from '../importers/types';
@@ -135,7 +135,7 @@ function buildExtraFieldsHtml(scraped: ScrapedMetadata, currentData: { extraData
 
         html += `
         <label style="display: flex; gap: 0.5rem; align-items: flex-start; cursor: pointer; padding: 0.5rem; background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: var(--radius-sm);">
-            <input type="checkbox" class="import-checkbox" data-field="extra-${escapeHTML(key)}" checked />
+            <input type="checkbox" class="import-checkbox" data-field="extra-${escapeAttribute(key)}" checked />
             <div style="flex: 1; display: flex; flex-direction: column;">
                 <span style="font-size: 0.85rem; font-weight: 500;">${escapeHTML(key)} ${sourceHint}${overwriteText}</span>
                 ${valHtml}
@@ -179,14 +179,14 @@ function buildCoverHtml(scraped: ScrapedMetadata, currentData: { coverImageUrl?:
         <div style="display: flex; gap: 1rem; margin-top: 0.5rem; align-items: center;">
             <div style="flex: 1; display: flex; flex-direction: column; align-items: center; opacity: 0.5; position: relative;">
                 <span style="font-size: 0.6rem; color: var(--bg-dark); background: var(--accent-red); padding: 0.1rem 0.3rem; border-radius: 4px; position: absolute; top: -5px; left: -5px;">OLD</span>
-                <img src="${currentData.coverImageUrl}" style="max-height: 150px; object-fit: contain; border-radius: var(--radius-sm);" />
+                <img src="${escapeAttribute(currentData.coverImageUrl || '')}" style="max-height: 150px; object-fit: contain; border-radius: var(--radius-sm);" />
             </div>
             <span style="color: var(--text-secondary);">→</span>
             <div style="flex: 1; display: flex; flex-direction: column; align-items: center; position: relative;">
                 <span style="font-size: 0.6rem; color: var(--bg-dark); background: var(--accent-green); padding: 0.1rem 0.3rem; border-radius: 4px; position: absolute; top: -5px; right: -5px;">NEW</span>
-                <img src="${scraped.coverImageUrl}" style="max-height: 150px; object-fit: contain; border-radius: var(--radius-sm);" />
+                <img src="${escapeAttribute(scraped.coverImageUrl || '')}" style="max-height: 150px; object-fit: contain; border-radius: var(--radius-sm);" />
             </div>
-        </div>` : `<img src="${scraped.coverImageUrl}" style="max-height: 150px; object-fit: contain; margin-top: 0.5rem; border-radius: var(--radius-sm);" />`;
+        </div>` : `<img src="${escapeAttribute(scraped.coverImageUrl || '')}" style="max-height: 150px; object-fit: contain; margin-top: 0.5rem; border-radius: var(--radius-sm);" />`;
     return {
         show: true,
         html: `
@@ -214,9 +214,14 @@ function processImportMerge(overlay: HTMLElement, scraped: ScrapedMetadata) {
     return result;
 }
 
-export async function showMediaCsvConflictModal(conflicts: MediaConflict[]): Promise<MediaCsvRow[] | null> {
+export async function showMediaCsvConflictModal(conflicts: MediaConflict[]): Promise<MediaCsvImportSelection[] | null> {
     const overlapping = conflicts.filter(c => c.existing);
-    if (overlapping.length === 0) return conflicts.map(c => c.incoming);
+    if (overlapping.length === 0) {
+        return conflicts.map(c => ({
+            incoming: c.incoming,
+            review_token: c.review_token,
+        }));
+    }
 
     return new Promise((resolve) => {
         const { overlay, cleanup, dismiss } = createCancelableOverlay(() => resolve(null));
@@ -255,10 +260,18 @@ export async function showMediaCsvConflictModal(conflicts: MediaConflict[]): Pro
         
         overlay.querySelector('#conflict-cancel')!.addEventListener('click', dismiss);
         overlay.querySelector('#conflict-confirm')!.addEventListener('click', () => {
-            const finalRecords: MediaCsvRow[] = [];
-            conflicts.filter(c => !c.existing).forEach(c => finalRecords.push(c.incoming));
+            const finalRecords: MediaCsvImportSelection[] = [];
+            conflicts.filter(c => !c.existing).forEach(c => finalRecords.push({
+                incoming: c.incoming,
+                review_token: c.review_token,
+            }));
             overlapping.forEach((conflict, idx) => {
-                if (overlay.querySelector<HTMLInputElement>(`input[name="conflict-${idx}"]:checked`)!.value === 'replace') finalRecords.push(conflict.incoming);
+                if (overlay.querySelector<HTMLInputElement>(`input[name="conflict-${idx}"]:checked`)!.value === 'replace') {
+                    finalRecords.push({
+                        incoming: conflict.incoming,
+                        review_token: conflict.review_token,
+                    });
+                }
             });
             cleanup();
             resolve(finalRecords);
@@ -276,7 +289,7 @@ export async function showJitenSearchModal(media: Media): Promise<string | null>
                     <div id="jiten-back-container"></div>
                 </div>
                 <div style="position: relative; margin-bottom: 1rem;">
-                    <input type="text" id="jiten-search-input" value="${media.title}" style="width: 100%; padding: 0.8rem 2.8rem 0.8rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-color); background: var(--bg-dark); color: var(--text-primary); font-size: 1rem; outline: none;" placeholder="Search for media..." />
+                    <input type="text" id="jiten-search-input" value="${escapeAttribute(media.title)}" style="width: 100%; padding: 0.8rem 2.8rem 0.8rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-color); background: var(--bg-dark); color: var(--text-primary); font-size: 1rem; outline: none;" placeholder="Search for media..." />
                     <div id="jiten-search-clear" style="position: absolute; right: 1rem; top: 50%; transform: translateY(-50%); cursor: pointer; color: var(--text-secondary); opacity: 0.6; font-size: 1.2rem;">&times;</div>
                 </div>
                 <div id="jiten-results-container" style="flex: 1; overflow-y: auto; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: rgba(0,0,0,0.3); min-height: 350px; padding: 1.2rem;">
@@ -348,15 +361,15 @@ export async function showJitenSearchModal(media: Media): Promise<string | null>
 
 function renderJitenResults(grid: HTMLElement, results: JitenResult[], onSelect: (res: JitenResult) => void) {
     grid.innerHTML = results.map(res => `
-        <div class="jiten-result-card" data-id="${res.deckId}" style="cursor: pointer; background: #1a151f; border: 1px solid var(--border-color); border-radius: var(--radius-md); overflow: hidden; display: flex; flex-direction: column; transition: transform 0.2s; position: relative;">
+        <div class="jiten-result-card" data-id="${escapeAttribute(String(res.deckId))}" style="cursor: pointer; background: #1a151f; border: 1px solid var(--border-color); border-radius: var(--radius-md); overflow: hidden; display: flex; flex-direction: column; transition: transform 0.2s; position: relative;">
             <div style="aspect-ratio: 2/3; position: relative; background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden;">
-                <img src="${getJitenCoverUrl(res.deckId, res.parentDeckId)}" style="max-width: 100%; max-height: 100%; object-fit: contain; min-height: 100%;" />
+                <img src="${escapeAttribute(getJitenCoverUrl(res.deckId, res.parentDeckId))}" style="max-width: 100%; max-height: 100%; object-fit: contain; min-height: 100%;" />
                 <div style="position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.73); color: white; padding: 0.2rem 0.4rem; font-size: 0.65rem; font-weight: 600; text-transform: uppercase;">
-                    ${getJitenMediaLabel(res.mediaType)}
+                    ${escapeHTML(getJitenMediaLabel(res.mediaType))}
                 </div>
             </div>
             <div style="padding: 0.6rem 0.4rem; flex: 1; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.02);">
-                <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-primary); text-align: center; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3;">${res.originalTitle}</div>
+                <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-primary); text-align: center; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3;">${escapeHTML(res.originalTitle)}</div>
             </div>
         </div>`).join('');
 
@@ -371,14 +384,14 @@ function renderJitenResults(grid: HTMLElement, results: JitenResult[], onSelect:
 
 function renderJitenVolumes(grid: HTMLElement, parent: JitenResult, children: JitenResult[], onSelect: (id: number) => void) {
     grid.innerHTML = [
-        `<div class="jiten-result-card jiten-volume-card" data-deck-id="${parent.deckId}" style="cursor: pointer; background: #1a151f; border: 2px solid var(--accent-blue); border-radius: var(--radius-md); overflow: hidden; display: flex; flex-direction: column; transition: transform 0.2s; position: relative;">
-            <div style="aspect-ratio: 2/3; position: relative; background: #000; display: flex; align-items: center; justify-content: center;"><img src="${getJitenCoverUrl(parent.deckId, parent.parentDeckId)}" style="max-width: 100%; max-height: 100%; object-fit: contain; min-height: 100%;" /></div>
+        `<div class="jiten-result-card jiten-volume-card" data-deck-id="${escapeAttribute(String(parent.deckId))}" style="cursor: pointer; background: #1a151f; border: 2px solid var(--accent-blue); border-radius: var(--radius-md); overflow: hidden; display: flex; flex-direction: column; transition: transform 0.2s; position: relative;">
+            <div style="aspect-ratio: 2/3; position: relative; background: #000; display: flex; align-items: center; justify-content: center;"><img src="${escapeAttribute(getJitenCoverUrl(parent.deckId, parent.parentDeckId))}" style="max-width: 100%; max-height: 100%; object-fit: contain; min-height: 100%;" /></div>
             <div style="padding: 0.6rem 0.4rem; flex: 1; display: flex; align-items: center; justify-content: center; background: #2a2135;"><div style="font-size: 0.8rem; font-weight: 800; color: #fff; text-align: center;">Entire Series</div></div>
         </div>`,
         ...children.map((res, i) => `
-        <div class="jiten-result-card jiten-volume-card" data-deck-id="${res.deckId}" style="cursor: pointer; background: #1a151f; border: 1px solid var(--border-color); border-radius: var(--radius-md); overflow: hidden; display: flex; flex-direction: column; transition: transform 0.2s; position: relative;">
-            <div style="aspect-ratio: 2/3; position: relative; background: #000; display: flex; align-items: center; justify-content: center;"><img src="${getJitenCoverUrl(res.deckId, res.parentDeckId || parent.deckId)}" style="max-width: 100%; max-height: 100%; object-fit: contain; opacity: 0.9; min-height: 100%;" /><div style="position: absolute; top: 0.3rem; left: 0.3rem; background: rgba(0,0,0,0.7); color: #fff; min-width: 1.3rem; height: 1.3rem; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 900; border: 1px solid rgba(255,255,255,0.2);">${i+1}</div></div>
-            <div style="padding: 0.6rem 0.4rem; flex: 1; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.02);"><div style="font-size: 0.75rem; font-weight: 600; color: var(--text-primary); text-align: center;">${res.originalTitle}</div></div>
+        <div class="jiten-result-card jiten-volume-card" data-deck-id="${escapeAttribute(String(res.deckId))}" style="cursor: pointer; background: #1a151f; border: 1px solid var(--border-color); border-radius: var(--radius-md); overflow: hidden; display: flex; flex-direction: column; transition: transform 0.2s; position: relative;">
+            <div style="aspect-ratio: 2/3; position: relative; background: #000; display: flex; align-items: center; justify-content: center;"><img src="${escapeAttribute(getJitenCoverUrl(res.deckId, res.parentDeckId || parent.deckId))}" style="max-width: 100%; max-height: 100%; object-fit: contain; opacity: 0.9; min-height: 100%;" /><div style="position: absolute; top: 0.3rem; left: 0.3rem; background: rgba(0,0,0,0.7); color: #fff; min-width: 1.3rem; height: 1.3rem; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 900; border: 1px solid rgba(255,255,255,0.2);">${i+1}</div></div>
+            <div style="padding: 0.6rem 0.4rem; flex: 1; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.02);"><div style="font-size: 0.75rem; font-weight: 600; color: var(--text-primary); text-align: center;">${escapeHTML(res.originalTitle)}</div></div>
         </div>`)
     ].join('');
     

@@ -25,7 +25,7 @@ import type {
     TimelineEvent,
     TimelinePage,
     TimelinePageRequest,
-    MediaCsvRow,
+    MediaCsvImportSelection,
     MediaConflict,
     ActivityCsvAnalysis,
     ActivityCsvImportRequest,
@@ -316,7 +316,7 @@ export class WebServices implements AppServices {
         return Number.parseInt(res.headers.get('X-Row-Count') ?? '0', 10);
     }
 
-    applyMediaImport(records: MediaCsvRow[]): Promise<number> {
+    applyMediaImport(records: MediaCsvImportSelection[]): Promise<number> {
         return post('/import/media/apply', records);
     }
 

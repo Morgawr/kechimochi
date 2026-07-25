@@ -15,7 +15,7 @@ describe('Startup Error Handling', () => {
     await alertBody.waitForDisplayed({ timeout: STARTUP_ERROR_TIMEOUT_MS });
 
     const alertText = await alertBody.getText();
-    expect(alertText).toContain('schema version 999 is newer than this app supports (6)');
+    expect(alertText).toContain('schema version 999 is newer than this app supports (7)');
 
     const bodyText = await $('body').getText();
     expect(bodyText).toContain('Unsupported database version');

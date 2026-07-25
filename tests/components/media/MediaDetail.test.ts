@@ -400,6 +400,26 @@ describe('MediaDetail', () => {
         expect(input.style.textTransform).toBe('none');
     });
 
+    it('renders untrusted extra metadata as text without creating injected elements', () => {
+        const maliciousKey = `Author"><img id="injected-key" src=x>`;
+        const maliciousValue = `https://example.com/" onmouseover="globalThis.__extraXss=true`;
+        const media = {
+            ...mockMedia,
+            extra_data: JSON.stringify({ [maliciousKey]: maliciousValue }),
+        } as unknown as Media;
+        const component = new MediaDetail(container, media, [], [media], 0, mockCallbacks);
+
+        component.render();
+
+        expect(container.querySelector('#injected-key')).toBeNull();
+        expect(container.querySelector('[onmouseover]')).toBeNull();
+        const key = container.querySelector<HTMLElement>('.editable-extra-key');
+        const value = container.querySelector<HTMLElement>('.editable-extra');
+        expect(key?.dataset.key).toBe(maliciousKey);
+        expect(key?.textContent).toBe(maliciousKey);
+        expect(value?.textContent).toBe(maliciousValue);
+    });
+
     it('should render empty extra fields as boolean tags and let them gain a value', async () => {
         vi.mocked(api.getMilestones).mockResolvedValue([]);
         vi.mocked(api.updateMedia).mockResolvedValue(undefined);
@@ -825,6 +845,28 @@ describe('MediaDetail', () => {
         statusSelect.dispatchEvent(new Event('change'));
 
         await vi.waitFor(() => expect(api.updateMedia).toHaveBeenCalledWith(expect.objectContaining({ tracking_status: 'Paused' })));
+    });
+
+    it('rolls back a tracking status change when persistence fails', async () => {
+        vi.mocked(api.updateMedia).mockRejectedValueOnce(new Error('database unavailable'));
+        vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
+        const media = { ...mockMedia } as unknown as Media;
+        const component = new MediaDetail(container, media, [], [media], 0, mockCallbacks);
+        component.render();
+
+        const statusSelect = container.querySelector('#media-tracking-status') as HTMLSelectElement;
+        statusSelect.value = 'Paused';
+        statusSelect.dispatchEvent(new Event('change'));
+
+        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith(
+            'Unable to Save Media',
+            expect.stringContaining('database unavailable'),
+        ));
+        // @ts-expect-error - accessing private state for regression coverage
+        expect(component.state.media.tracking_status).toBe('Ongoing');
+        expect(
+            (container.querySelector('#media-tracking-status') as HTMLSelectElement).value,
+        ).toBe('Ongoing');
     });
 
     it('should handle marking as complete', async () => {

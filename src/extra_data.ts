@@ -18,10 +18,27 @@ export function getExtraDataValue(extraData: Record<string, string>, key: string
     return existingKey ? normalizedExtraData[existingKey] : undefined;
 }
 
-export function normalizeExtraData(extraData: Record<string, string>): Record<string, string> {
-    const normalized: Record<string, string> = {};
+function stringifyExtraDataValue(value: unknown): string {
+    if (typeof value === 'string') return value;
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'object') {
+        try {
+            return JSON.stringify(value);
+        } catch {
+            return String(value);
+        }
+    }
+    return String(value);
+}
 
-    for (const [entryKey, entryValue] of Object.entries(extraData)) {
+export function normalizeExtraData(extraData: unknown): Record<string, string> {
+    const normalized = Object.create(null) as Record<string, string>;
+    if (typeof extraData !== 'object' || extraData === null || Array.isArray(extraData)) {
+        return normalized;
+    }
+
+    for (const [entryKey, rawValue] of Object.entries(extraData)) {
+        const entryValue = stringifyExtraDataValue(rawValue);
         const existingKey = findExtraDataKey(normalized, entryKey);
         if (existingKey) {
             normalized[existingKey] = entryValue;

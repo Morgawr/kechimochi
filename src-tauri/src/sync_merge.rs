@@ -71,27 +71,9 @@ pub fn merge_duplicate_media_identity(
     let mut canonical_remote = remote.clone();
     canonical_remote.uid = canonical_uid.to_string();
     let result = merge_media_created_on_both(canonical_uid, &canonical_local, &canonical_remote);
-    let mut merged = result.media.ok_or_else(|| {
+    let merged = result.media.ok_or_else(|| {
         "Duplicate media identity merge unexpectedly deleted the media".to_string()
     })?;
-    // These aggregates came from distinct internal identities. Even byte-for-byte
-    // identical activity or milestone rows are therefore distinct user records and
-    // must survive an explicit combine operation. The normal same-UID merge uses
-    // multiset maxima to avoid duplicating records replicated to both devices.
-    merged.activities = local
-        .activities
-        .iter()
-        .chain(remote.activities.iter())
-        .cloned()
-        .collect();
-    merged.activities.sort_by(activity_sort);
-    merged.milestones = local
-        .milestones
-        .iter()
-        .chain(remote.milestones.iter())
-        .cloned()
-        .collect();
-    merged.milestones.sort_by(milestone_sort);
     Ok((merged, result.conflicts))
 }
 
@@ -207,6 +189,18 @@ fn validate_merge_inputs(
                 snapshot.db_schema_version
             ));
         }
+        for (media_uid, media) in &snapshot.library {
+            validate_record_uids(
+                media_uid,
+                "activity",
+                media.activities.iter().map(|record| record.uid.as_str()),
+            )?;
+            validate_record_uids(
+                media_uid,
+                "milestone",
+                media.milestones.iter().map(|record| record.uid.as_str()),
+            )?;
+        }
     }
 
     let profile_id = &local.profile.profile_id;
@@ -225,6 +219,27 @@ fn validate_merge_inputs(
         }
     }
 
+    Ok(())
+}
+
+fn validate_record_uids<'a>(
+    media_uid: &str,
+    record_kind: &str,
+    record_uids: impl Iterator<Item = &'a str>,
+) -> Result<(), String> {
+    let mut seen = HashSet::new();
+    for record_uid in record_uids {
+        if record_uid.trim().is_empty() {
+            return Err(format!(
+                "Media '{media_uid}' contains a {record_kind} with a blank sync UID"
+            ));
+        }
+        if !seen.insert(record_uid) {
+            return Err(format!(
+                "Media '{media_uid}' contains duplicate {record_kind} sync UID '{record_uid}'"
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -469,17 +484,21 @@ fn merge_media_three_way(
         &mut conflicts,
     );
 
-    let activities = merge_multiset_collections(
-        &base.activities,
-        &local.activities,
-        &remote.activities,
+    let activities = merge_identified_collections(
+        uid,
+        "activity",
+        (&base.activities, &local.activities, &remote.activities),
+        |record| &record.uid,
         activity_sort,
+        &mut conflicts,
     );
-    let milestones = merge_multiset_collections(
-        &base.milestones,
-        &local.milestones,
-        &remote.milestones,
+    let milestones = merge_identified_collections(
+        uid,
+        "milestone",
+        (&base.milestones, &local.milestones, &remote.milestones),
+        |record| &record.uid,
         milestone_sort,
+        &mut conflicts,
     );
 
     let mut merged = SnapshotMediaAggregate {
@@ -597,10 +616,22 @@ fn merge_media_created_on_both(
         &mut conflicts,
     );
 
-    let activities =
-        merge_multiset_collections(&[], &local.activities, &remote.activities, activity_sort);
-    let milestones =
-        merge_multiset_collections(&[], &local.milestones, &remote.milestones, milestone_sort);
+    let activities = merge_identified_collections(
+        uid,
+        "activity",
+        (&[], &local.activities, &remote.activities),
+        |record| &record.uid,
+        activity_sort,
+        &mut conflicts,
+    );
+    let milestones = merge_identified_collections(
+        uid,
+        "milestone",
+        (&[], &local.milestones, &remote.milestones),
+        |record| &record.uid,
+        milestone_sort,
+        &mut conflicts,
+    );
 
     let mut merged = SnapshotMediaAggregate {
         uid: uid.to_string(),
@@ -926,53 +957,61 @@ fn choose_later_media_metadata(
     }
 }
 
-fn merge_multiset_collections<T, F>(base: &[T], local: &[T], remote: &[T], sort_fn: F) -> Vec<T>
+fn merge_identified_collections<T, I, F>(
+    media_uid: &str,
+    record_kind: &str,
+    records: (&[T], &[T], &[T]),
+    id_fn: I,
+    sort_fn: F,
+    conflicts: &mut Vec<SyncConflict>,
+) -> Vec<T>
 where
-    T: Clone + Eq + std::hash::Hash,
+    T: Clone + Eq + Serialize,
+    I: Fn(&T) -> &str,
     F: Fn(&T, &T) -> Ordering,
 {
-    let base_counts = count_values(base);
-    let local_counts = count_values(local);
-    let remote_counts = count_values(remote);
-
-    let mut all_values = HashSet::new();
-    all_values.extend(base_counts.keys().cloned());
-    all_values.extend(local_counts.keys().cloned());
-    all_values.extend(remote_counts.keys().cloned());
+    let (base, local, remote) = records;
+    let base_by_uid: HashMap<&str, &T> =
+        base.iter().map(|record| (id_fn(record), record)).collect();
+    let local_by_uid: HashMap<&str, &T> =
+        local.iter().map(|record| (id_fn(record), record)).collect();
+    let remote_by_uid: HashMap<&str, &T> = remote
+        .iter()
+        .map(|record| (id_fn(record), record))
+        .collect();
+    let mut record_uids = BTreeSet::new();
+    record_uids.extend(base_by_uid.keys().copied());
+    record_uids.extend(local_by_uid.keys().copied());
+    record_uids.extend(remote_by_uid.keys().copied());
 
     let mut merged = Vec::new();
-    for value in all_values {
-        let base_count = *base_counts.get(&value).unwrap_or(&0);
-        let local_count = *local_counts.get(&value).unwrap_or(&0);
-        let remote_count = *remote_counts.get(&value).unwrap_or(&0);
-
-        let local_added = local_count.saturating_sub(base_count);
-        let remote_added = remote_count.saturating_sub(base_count);
-        let local_removed = base_count.saturating_sub(local_count);
-        let remote_removed = base_count.saturating_sub(remote_count);
-
-        let merged_count = base_count
-            .saturating_add(local_added.max(remote_added))
-            .saturating_sub(local_removed.saturating_add(remote_removed));
-
-        for _ in 0..merged_count {
-            merged.push(value.clone());
+    for record_uid in record_uids {
+        let base_record = base_by_uid.get(record_uid).copied();
+        let local_record = local_by_uid.get(record_uid).copied();
+        let remote_record = remote_by_uid.get(record_uid).copied();
+        let selected = if local_record == remote_record {
+            local_record
+        } else if local_record == base_record {
+            remote_record
+        } else if remote_record == base_record {
+            local_record
+        } else {
+            conflicts.push(SyncConflict::MediaFieldConflict {
+                media_uid: media_uid.to_string(),
+                field_name: format!("{record_kind}:{record_uid}"),
+                base_value: base_record.and_then(|record| serde_json::to_string(record).ok()),
+                local_value: local_record.and_then(|record| serde_json::to_string(record).ok()),
+                remote_value: remote_record.and_then(|record| serde_json::to_string(record).ok()),
+            });
+            local_record.or(remote_record)
+        };
+        if let Some(record) = selected {
+            merged.push(record.clone());
         }
     }
 
     merged.sort_by(sort_fn);
     merged
-}
-
-fn count_values<T>(values: &[T]) -> HashMap<T, usize>
-where
-    T: Clone + Eq + std::hash::Hash,
-{
-    let mut counts = HashMap::new();
-    for value in values {
-        *counts.entry(value.clone()).or_insert(0) += 1;
-    }
-    counts
 }
 
 fn merge_settings(
@@ -1164,6 +1203,7 @@ fn activity_sort(left: &SnapshotActivity, right: &SnapshotActivity) -> Ordering 
         .then_with(|| left.duration_minutes.cmp(&right.duration_minutes))
         .then_with(|| left.characters.cmp(&right.characters))
         .then_with(|| left.notes.cmp(&right.notes))
+        .then_with(|| left.uid.cmp(&right.uid))
 }
 
 fn milestone_sort(left: &SnapshotMilestone, right: &SnapshotMilestone) -> Ordering {
@@ -1172,6 +1212,7 @@ fn milestone_sort(left: &SnapshotMilestone, right: &SnapshotMilestone) -> Orderi
         .then_with(|| left.name.cmp(&right.name))
         .then_with(|| left.duration.cmp(&right.duration))
         .then_with(|| left.characters.cmp(&right.characters))
+        .then_with(|| left.uid.cmp(&right.uid))
 }
 
 #[cfg(test)]
@@ -1223,6 +1264,7 @@ mod tests {
 
     fn activity(date: &str, kind: &str, minutes: i64, chars: i64) -> SnapshotActivity {
         SnapshotActivity {
+            uid: format!("activity:{date}:{kind}:{minutes}:{chars}"),
             date: date.to_string(),
             activity_type: kind.to_string(),
             duration_minutes: minutes,
@@ -1233,6 +1275,7 @@ mod tests {
 
     fn milestone(name: &str, duration: i64, chars: i64, date: Option<&str>) -> SnapshotMilestone {
         SnapshotMilestone {
+            uid: format!("milestone:{name}:{duration}:{chars}:{date:?}"),
             name: name.to_string(),
             duration,
             characters: chars,
@@ -1261,7 +1304,7 @@ mod tests {
     }
 
     #[test]
-    fn explicit_duplicate_identity_merge_preserves_identical_records_from_both_entries() {
+    fn explicit_duplicate_identity_merge_deduplicates_the_same_record_uid() {
         let mut local = media("uid-local");
         let mut remote = media("uid-remote");
         local.title = "Shared title".to_string();
@@ -1280,8 +1323,8 @@ mod tests {
 
         assert!(conflicts.is_empty());
         assert_eq!(merged.uid, "uid-local");
-        assert_eq!(merged.activities.len(), 2);
-        assert_eq!(merged.milestones.len(), 2);
+        assert_eq!(merged.activities.len(), 1);
+        assert_eq!(merged.milestones.len(), 1);
     }
 
     #[test]
@@ -1293,6 +1336,7 @@ mod tests {
         let mut later = activity("2026-04-02", "Listening", 30, 0);
         later.notes = "z note".to_string();
         let mut earlier = later.clone();
+        earlier.uid.push_str(":earlier");
         earlier.notes = "a note".to_string();
         local.activities.push(later);
         remote.activities.push(earlier);

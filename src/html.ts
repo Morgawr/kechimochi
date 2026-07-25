@@ -67,16 +67,16 @@ function stringifyAndEscape(val: unknown): string {
  * Escapes HTML special characters to prevent XSS.
  */
 export function escapeHTML(str: string): string {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
+    return str.replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
 }
 
 /**
- * Escapes a value for use inside a quoted HTML attribute. `escapeHTML` alone is not enough:
- * it serializes a text node, and the HTML serializer leaves quotes untouched because they are
- * only significant in attribute values.
+ * Escapes a value for use inside a quoted HTML attribute.
  */
 export function escapeAttribute(str: string): string {
-    return escapeHTML(str).replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+    return escapeHTML(str);
 }

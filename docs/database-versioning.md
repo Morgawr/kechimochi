@@ -22,7 +22,7 @@ An app release may keep the same database schema version, and a new backup forma
 
 ## Current Baseline
 
-- Current database schema version: `6`
+- Current database schema version: `7`
 - Current backup format version: `1`
 - First stable release schema: the current latest schema in `src-tauri`
 
@@ -57,6 +57,12 @@ match. It then rebuilds `main.milestones` with a required `media_uid` and derive
 the stored display title from that linked media. An orphan or otherwise
 unresolvable milestone aborts the migration atomically instead of being guessed,
 dropped, or attached to an arbitrary same-title variant.
+
+Schema version `7` gives every activity and milestone its own stable sync UID.
+The `v6` to `v7` migration deterministically assigns identities to legacy rows,
+including duplicate rows with identical visible values, and adds unique indexes
+for both record types. This lets three-way sync distinguish an edit or deletion
+of one record from a separate concurrent record with otherwise identical data.
 
 ## Storage Model
 
@@ -97,9 +103,9 @@ The app must behave as follows:
 - If the two DB files disagree on version, treat that as an inconsistent state and only auto-repair it when the actual schema structure is clearly recoverable.
 
 There is no special "two versions behind" shortcut. A current app opening a
-schema-`3` database applies `v3` to `v4`, `v4` to `v5`, and `v5` to `v6` in
-order, within the normal migration workflow. Database files are never
-downgraded implicitly.
+schema-`3` database applies `v3` to `v4`, `v4` to `v5`, `v5` to `v6`, and `v6`
+to `v7` in order, within the normal migration workflow. Database files are
+never downgraded implicitly.
 
 The startup guard in the current code also rejects a database newer than the
 running binary before applying persistent pragmas or creating a missing bundle
@@ -118,12 +124,17 @@ newer snapshot through an older app.
 The current newer-schema check first inspects every existing database file
 read-only, including a legacy fallback profile when one would be copied. It then
 checks the attached bundle again before persistent connection settings such as
-WAL journal mode are applied. This preserves the future database schema version,
+journal mode are applied. This preserves the future database schema version,
 tables, data, and journal mode when a guarded client refuses to open it, and it
 does not create or copy a missing `.db` companion. SQLite may still create a
 transient `-shm` sidecar while opening an existing WAL database read-only so it
 can inspect an uncheckpointed schema version; that is not a schema or data
 mutation.
+
+Current databases use the rollback journal with `synchronous = FULL` for both
+bundle files. Because one logical mutation can update the attached main and
+shared databases together, this mode preserves SQLite's atomic multi-database
+commit behavior across a crash.
 
 ## Migration Rules
 
@@ -203,8 +214,11 @@ During restore:
 1. Validate the backup manifest if present
 2. Reject backups using a newer unsupported backup format
 3. Reject backups whose DB schema version is newer than the running app supports
-4. Restore files to disk
-5. Re-run normal DB initialization so schema migration uses the same startup path as a normal app launch
+4. Extract and validate the complete backup in a unique staging directory
+5. Swap the staged bundle into place with a recorded recovery phase
+6. Re-run normal DB initialization so schema migration uses the same startup path as a normal app launch
+7. Commit the swap only after initialization succeeds; an error or interrupted
+   pre-commit swap restores the original files without deleting untouched data
 
 Older backups without a manifest remain supported through the legacy path.
 

@@ -299,6 +299,7 @@ describe('CUJ: Exact CSV Round Trips', () => {
       'Language',
       'Description',
       'Content Type',
+      'Tracking Status',
       'Extra Data',
       'Cover Image (Base64)',
       'Variant',
@@ -311,6 +312,7 @@ describe('CUJ: Exact CSV Round Trips', () => {
       Language: 'Japanese',
       Description: 'Portable description, with punctuation.',
       'Content Type': 'Visual Novel',
+      'Tracking Status': 'Untracked',
       'Extra Data': JSON.stringify({ Developer: 'Round Trip Studio' }),
     });
 

@@ -73,6 +73,19 @@ export class MediaDetail extends Component<MediaDetailState> {
         this.render();
     }
 
+    private async persistMediaMutation(previousMedia: Media): Promise<boolean> {
+        try {
+            await this.persistMediaChanges();
+            return true;
+        } catch (error) {
+            Object.assign(this.state.media, previousMedia);
+            this.render();
+            Logger.error('Failed to update media', error);
+            await customAlert('Unable to Save Media', `The media entry was not changed: ${error}`);
+            return false;
+        }
+    }
+
     constructor(
         container: HTMLElement,
         media: Media,
@@ -640,9 +653,9 @@ export class MediaDetail extends Component<MediaDetailState> {
         }
 
         return this.state.milestones.map(m => {
-            const dateHover = m.date ? `title="Achieved on ${m.date}"` : '';
+            const dateHover = m.date ? `title="Achieved on ${escapeAttribute(m.date)}"` : '';
             return `
-                <div class="milestone-item" data-milestone-name="${escapeHTML(m.name)}" ${dateHover} style="display: flex; align-items: center; justify-content: space-between; padding: 0.3rem 0.5rem; background: rgba(255,255,255,0.03); border-radius: 3px; border: 1px solid rgba(255,255,255,0.05); position: relative;">
+                <div class="milestone-item" data-milestone-name="${escapeAttribute(m.name)}" ${dateHover} style="display: flex; align-items: center; justify-content: space-between; padding: 0.3rem 0.5rem; background: rgba(255,255,255,0.03); border-radius: 3px; border: 1px solid rgba(255,255,255,0.05); position: relative;">
                     <div style="flex: 1; display: flex; flex-direction: column; gap: 0.05rem;">
                         <span style="font-weight: 600; font-size: 0.8rem; line-height: 1.1;">${escapeHTML(m.name)}</span>
                         <span style="font-size: 0.7rem; color: var(--text-secondary); opacity: 0.7;">
@@ -693,9 +706,9 @@ export class MediaDetail extends Component<MediaDetailState> {
         sortedEntries.forEach(([k, v]) => {
             if (v === '') {
                 booleanTags.push(`
-                    <div class="media-boolean-tag" data-ekey="${k}">
-                        <span class="editable-extra media-boolean-tag-label" data-key="${k}" data-extra-value="" title="Double click to add a value">${k}</span>
-                        <button type="button" class="delete-extra-btn media-boolean-tag-delete" data-key="${k}" title="Delete field" aria-label="Delete ${k}">&times;</button>
+                    <div class="media-boolean-tag" data-ekey="${escapeAttribute(k)}">
+                        <span class="editable-extra media-boolean-tag-label" data-key="${escapeAttribute(k)}" data-extra-value="" title="Double click to add a value">${escapeHTML(k)}</span>
+                        <button type="button" class="delete-extra-btn media-boolean-tag-delete" data-key="${escapeAttribute(k)}" title="Delete field" aria-label="Delete ${escapeAttribute(k)}">&times;</button>
                     </div>
                 `);
                 return;
@@ -704,16 +717,16 @@ export class MediaDetail extends Component<MediaDetailState> {
             const isSourceUrl = k.toLowerCase().includes('source') && typeof v === 'string' && v.startsWith('http') && isValidImporterUrl(v, media.content_type || "Unknown");
             let refreshBtn = '';
             if (isSourceUrl) {
-                refreshBtn = `<div class="refresh-extra-btn" data-url="${v}" data-key="${k}" title="Refresh Metadata" style="position: absolute; bottom: 0.5rem; right: 0.5rem; cursor: pointer; color: var(--accent-purple); display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: var(--bg-dark);">
+                refreshBtn = `<div class="refresh-extra-btn" data-url="${escapeAttribute(v)}" data-key="${escapeAttribute(k)}" title="Refresh Metadata" style="position: absolute; bottom: 0.5rem; right: 0.5rem; cursor: pointer; color: var(--accent-purple); display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: var(--bg-dark);">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21v-5h5"/></svg>
                 </div>`;
             }
 
             valuedFields.push(`
-                <div class="card" style="padding: 0.5rem 1rem; position: relative;" data-ekey="${k}">
-                    <div class="editable-extra-key" data-key="${k}" title="Double click to rename field" style="font-size: 0.7rem; color: var(--text-secondary); text-transform: uppercase; cursor: pointer;">${k}</div>
-                    <div class="editable-extra" data-key="${k}" title="Double click to edit" style="cursor: pointer; font-weight: 500;">${v}</div>
-                    <div class="delete-extra-btn" data-key="${k}" title="Delete field" style="position: absolute; top: 0.5rem; right: 0.5rem; cursor: pointer; color: var(--accent-red); font-size: 0.8rem; font-weight: bold; opacity: 0.6;">&times;</div>
+                <div class="card" style="padding: 0.5rem 1rem; position: relative;" data-ekey="${escapeAttribute(k)}">
+                    <div class="editable-extra-key" data-key="${escapeAttribute(k)}" title="Double click to rename field" style="font-size: 0.7rem; color: var(--text-secondary); text-transform: uppercase; cursor: pointer;">${escapeHTML(k)}</div>
+                    <div class="editable-extra" data-key="${escapeAttribute(k)}" title="Double click to edit" style="cursor: pointer; font-weight: 500;">${escapeHTML(v)}</div>
+                    <div class="delete-extra-btn" data-key="${escapeAttribute(k)}" title="Delete field" style="position: absolute; top: 0.5rem; right: 0.5rem; cursor: pointer; color: var(--accent-red); font-size: 0.8rem; font-weight: bold; opacity: 0.6;">&times;</div>
                     ${refreshBtn}
                 </div>
             `);
@@ -881,9 +894,10 @@ export class MediaDetail extends Component<MediaDetailState> {
                 this.render();
                 return;
             }
+            const previousMedia = { ...this.state.media };
             const extraData = normalizeExtraData(JSON.parse(this.state.media.extra_data || "{}"));
             this.state.media.extra_data = JSON.stringify(renameExtraDataKey(extraData, oldKey, newKey));
-            await this.persistMediaChanges();
+            await this.persistMediaMutation(previousMedia);
         };
 
         const setupEditable = (el: HTMLElement, field: string, options: { isExtra?: boolean, isTextArea?: boolean, isRenameKey?: boolean } = {}) => {
@@ -965,31 +979,36 @@ export class MediaDetail extends Component<MediaDetailState> {
         });
 
         root.querySelector('#media-tracking-status')?.addEventListener('change', async (e) => {
+            const previousMedia = { ...this.state.media };
             this.state.media.tracking_status = (e.target as HTMLSelectElement).value;
-            await this.persistMediaChanges();
+            await this.persistMediaMutation(previousMedia);
         });
 
         root.querySelector('#default-activity-type')?.addEventListener('change', async (e) => {
+            const previousMedia = { ...this.state.media };
             this.state.media.default_activity_type = (e.target as HTMLSelectElement).value;
-            await this.persistMediaChanges();
+            await this.persistMediaMutation(previousMedia);
         });
 
         root.querySelector('#media-content-type')?.addEventListener('change', async (e) => {
+            const previousMedia = { ...this.state.media };
             this.state.media.content_type = (e.target as HTMLSelectElement).value;
-            await this.persistMediaChanges();
+            await this.persistMediaMutation(previousMedia);
         });
 
         root.querySelector('#btn-toggle-archive')?.addEventListener('click', async () => {
+            const previousMedia = { ...this.state.media };
             this.state.media.status = this.isActive(this.state.media.status) ? MEDIA_STATUS.ARCHIVED : MEDIA_STATUS.ACTIVE;
-            await this.persistMediaChanges();
+            await this.persistMediaMutation(previousMedia);
         });
 
         root.querySelector('#btn-mark-complete')?.addEventListener('click', async () => {
             if (this.isCompleteTracking(this.state.media.tracking_status)) {
                 return;
             }
+            const previousMedia = { ...this.state.media };
             this.state.media.tracking_status = 'Complete';
-            await this.persistMediaChanges();
+            await this.persistMediaMutation(previousMedia);
         });
 
         root.querySelector('#btn-media-overflow')?.addEventListener('click', (e) => {
@@ -1012,18 +1031,20 @@ export class MediaDetail extends Component<MediaDetailState> {
             const key = await customPrompt("Enter field name (e.g. 'Author', 'Artist'):");
             if (!key) return;
             const val = await customPrompt(`Enter value for "${key}":`);
+            const previousMedia = { ...this.state.media };
             const extraData = normalizeExtraData(JSON.parse(this.state.media.extra_data || "{}"));
             this.state.media.extra_data = JSON.stringify(upsertExtraDataValue(extraData, key, val || ""));
-            await this.persistMediaChanges();
+            await this.persistMediaMutation(previousMedia);
         });
 
         root.querySelectorAll('.delete-extra-btn').forEach(btn => {
             btn.addEventListener('click', async (e) => {
                 const key = (e.currentTarget as HTMLElement).dataset.key;
                 if (!key) return;
+                const previousMedia = { ...this.state.media };
                 const extraData = normalizeExtraData(JSON.parse(this.state.media.extra_data || "{}"));
                 this.state.media.extra_data = JSON.stringify(removeExtraDataKey(extraData, key));
-                await this.persistMediaChanges();
+                await this.persistMediaMutation(previousMedia);
             });
         });
 
@@ -1034,8 +1055,9 @@ export class MediaDetail extends Component<MediaDetailState> {
 
         root.querySelector('#btn-clear-meta')?.addEventListener('click', async () => {
             if (await customConfirm("Clear Metadata", "This will delete all extra fields for this media. Continue?")) {
+                const previousMedia = { ...this.state.media };
                 this.state.media.extra_data = "{}";
-                await this.persistMediaChanges();
+                await this.persistMediaMutation(previousMedia);
             }
         });
 
@@ -1158,38 +1180,43 @@ export class MediaDetail extends Component<MediaDetailState> {
 
             if (!merged) return;
 
-            // Apply selected merges
-            if (merged.description !== undefined) this.state.media.description = merged.description;
+            const candidate = { ...this.state.media };
+            if (merged.description !== undefined) candidate.description = merged.description;
 
-            // Handle extra data merges
             const finalExtraData = mergeExtraData(currentExtraData, merged.extraData);
-            this.state.media.extra_data = JSON.stringify(finalExtraData);
+            candidate.extra_data = JSON.stringify(finalExtraData);
 
-            // Handle cover image merge
-            if (merged.coverImageUrl && this.state.media.id) {
+            // Title is still automatic if empty
+            if (meta.title && !candidate.title) candidate.title = meta.title;
+
+            // Automatically set content type if unknown
+            if (candidate.content_type === "Unknown" && meta.contentType && meta.contentType !== "Unknown") {
+                candidate.content_type = meta.contentType;
+                const activityType = CONTENT_TYPE_TO_ACTIVITY_TYPE[meta.contentType];
+                if (activityType) {
+                    candidate.default_activity_type = activityType;
+                }
+            }
+
+            // Persist the text fields before starting the separate cover
+            // download command. A rejected media update therefore cannot leave
+            // the shared detail/list object showing values SQLite did not save.
+            await updateMedia(candidate);
+            Object.assign(this.state.media, candidate);
+
+            if (merged.coverImageUrl && candidate.id) {
                 try {
-                    const newPath = await downloadAndSaveImage(this.state.media.id, merged.coverImageUrl);
+                    const newPath = await downloadAndSaveImage(candidate.id, merged.coverImageUrl);
                     this.state.media.cover_image = newPath;
                     MediaCoverLoader.clear();
-                    await this.loadImage(); // Reload blob URL for the new image
+                    await this.loadImage();
                 } catch (err) {
                     Logger.error("Failed to download new cover", err);
                 }
             }
 
-            // Title is still automatic if empty
-            if (meta.title && !this.state.media.title) this.state.media.title = meta.title;
-
-            // Automatically set content type if unknown
-            if (this.state.media.content_type === "Unknown" && meta.contentType && meta.contentType !== "Unknown") {
-                this.state.media.content_type = meta.contentType;
-                const activityType = CONTENT_TYPE_TO_ACTIVITY_TYPE[meta.contentType];
-                if (activityType) {
-                    this.state.media.default_activity_type = activityType;
-                }
-            }
-
-            await this.persistMediaChanges();
+            this.notifyLocalDataChanged(!!merged.coverImageUrl);
+            this.render();
         } catch (e) {
             await customAlert("Import Failed", "Metadata import failed: " + e);
         }

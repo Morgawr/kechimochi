@@ -32,6 +32,7 @@ export type {
   TimelinePage,
   TimelinePageRequest,
   MediaCsvRow,
+  MediaCsvImportSelection,
   MediaConflict,
   ActivityCsvRow,
   ActivityCsvContent,
@@ -77,7 +78,7 @@ import type {
   TimelineEvent,
   TimelinePage,
   TimelinePageRequest,
-  MediaCsvRow,
+  MediaCsvImportSelection,
   MediaConflict,
   ActivityCsvImportRequest,
   ActivityCsvImportResult,
@@ -198,7 +199,7 @@ export function saveLocalHttpApiConfig(config: LocalHttpApiConfig): Promise<Loca
   return getServices().saveLocalHttpApiConfig(config);
 }
 
-export function applyMediaImport(records: MediaCsvRow[]): Promise<number> { return getServices().applyMediaImport(records); }
+export function applyMediaImport(records: MediaCsvImportSelection[]): Promise<number> { return getServices().applyMediaImport(records); }
 export function applyActivityImport(request: ActivityCsvImportRequest): Promise<ActivityCsvImportResult> {
   return getServices().applyActivityImport(request);
 }

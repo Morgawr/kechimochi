@@ -73,12 +73,13 @@ Used for bulk importing media metadata or exporting your entire library.
 | :--- | :--- | :--- | :--- |
 | **Title** | The media title. It is unique only together with `Variant`. | Yes | FF7 Rebirth |
 | **Default Activity Type** | Default activity type for future logs. Standard values are `Reading`, `Watching`, `Playing`, `Listening`, and `None`. | Yes | Playing |
-| **Status** | The stored library-status value. Current UI-created entries use `Active` or `Archived`; import preserves other existing values for compatibility. Tracking Status is not a separate CSV field. | Yes | Active |
+| **Status** | The stored library-status value. Current UI-created entries use `Active` or `Archived`; import preserves other existing values for compatibility. | Yes | Active |
 | **Language** | Primary language. | Yes | Japanese |
 | **Description** | A brief summary or notes. | No | Remake part 2. |
 | **Content Type** | Specific format. Use one of the labels recognized by the current UI, such as `Anime`, `Movie`, `Novel`, `WebNovel`, `NonFiction`, `Videogame`, `Visual Novel`, `Manga`, `Audio`, `Drama`, `Livestream`, `Youtube Video`, or `Unknown`. Import preserves the supplied text. | Yes | Videogame |
+| **Tracking Status** | Progress state such as `Ongoing`, `Complete`, `Paused`, `Dropped`, `Not Started`, or `Untracked`. If the header or value is absent, an existing entry keeps its current tracking status and a new entry defaults to `Untracked`. | No | Ongoing |
 | **Extra Data** | A JSON string containing user-authored metadata. It is never used as media identity. | Yes | `{"Developer": "Square Enix"}` |
-| **Cover Image (Base64)** | The cover image encoded as a Base64 string. | Yes | (long base64 string) |
+| **Cover Image (Base64)** | The cover image encoded as a Base64 string. Kechimochi validates the decoded image signature and stores it with the matching file extension. | Yes | (long base64 string) |
 | **Variant** | The optional variant portion of the media identity. If this header exists, a blank cell explicitly targets the blank variant. | No | Manga |
 
 > [!NOTE]
@@ -93,9 +94,9 @@ before the apply step.
 
 ### Example
 ```csv
-Title,Default Activity Type,Status,Language,Description,Content Type,Extra Data,Cover Image (Base64),Variant
-Existing,Reading,Active,Japanese,,Novel,{},,Light Novel
-New Media,Watching,Active,English,,Anime,{},,Anime
+Title,Default Activity Type,Status,Language,Description,Content Type,Tracking Status,Extra Data,Cover Image (Base64),Variant
+Existing,Reading,Active,Japanese,,Novel,Ongoing,{},,Light Novel
+New Media,Watching,Active,English,,Anime,Not Started,{},,Anime
 ```
 
 ### Activity-type header compatibility

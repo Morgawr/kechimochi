@@ -3,12 +3,18 @@ use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::Path;
+use tempfile::NamedTempFile;
+use uuid::Uuid;
 
 use crate::db;
 use crate::models::{ActivityLog, Media, Milestone};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use sha2::{Digest, Sha256};
+
+const MAX_CSV_COVER_BYTES: usize = 32 * 1024 * 1024;
+const MAX_CSV_COVER_BASE64_BYTES: usize = MAX_CSV_COVER_BYTES.div_ceil(3) * 4;
 
 #[derive(Debug, Deserialize)]
 struct CsvRow {
@@ -188,6 +194,8 @@ pub struct MediaCsvRow {
     pub description: String,
     #[serde(rename = "Content Type")]
     pub content_type: String,
+    #[serde(rename = "Tracking Status", default)]
+    pub tracking_status: Option<String>,
     #[serde(rename = "Extra Data")]
     pub extra_data: String,
     #[serde(rename = "Cover Image (Base64)")]
@@ -210,6 +218,8 @@ struct MediaCsvExportRow {
     description: String,
     #[serde(rename = "Content Type")]
     content_type: String,
+    #[serde(rename = "Tracking Status")]
+    tracking_status: String,
     #[serde(rename = "Extra Data")]
     extra_data: String,
     #[serde(rename = "Cover Image (Base64)")]
@@ -219,13 +229,14 @@ struct MediaCsvExportRow {
 }
 
 impl MediaCsvExportRow {
-    const HEADERS: [&str; 9] = [
+    const HEADERS: [&str; 10] = [
         "Title",
         "Default Activity Type",
         "Status",
         "Language",
         "Description",
         "Content Type",
+        "Tracking Status",
         "Extra Data",
         "Cover Image (Base64)",
         "Variant",
@@ -233,7 +244,7 @@ impl MediaCsvExportRow {
 }
 
 impl MediaCsvRow {
-    const HEADERS: [&str; 10] = [
+    const HEADERS: [&str; 11] = [
         "Title",
         "Default Activity Type",
         "Media Type",
@@ -241,6 +252,7 @@ impl MediaCsvRow {
         "Language",
         "Description",
         "Content Type",
+        "Tracking Status",
         "Extra Data",
         "Cover Image (Base64)",
         "Variant",
@@ -341,6 +353,46 @@ fn display_variant(variant: &str) -> String {
     }
 }
 
+fn atomic_csv_writer(file_path: &str) -> Result<csv::Writer<NamedTempFile>, String> {
+    let destination = Path::new(file_path);
+    let parent = destination
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let temporary = NamedTempFile::new_in(parent).map_err(|error| {
+        format!(
+            "Failed to create temporary CSV beside '{}': {error}",
+            destination.display()
+        )
+    })?;
+    Ok(csv::Writer::from_writer(temporary))
+}
+
+fn persist_atomic_csv(
+    mut writer: csv::Writer<NamedTempFile>,
+    file_path: &str,
+) -> Result<(), String> {
+    writer.flush().map_err(|error| error.to_string())?;
+    let temporary = writer.into_inner().map_err(|error| error.to_string())?;
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(|error| error.to_string())?;
+    let installed = temporary
+        .persist(file_path)
+        .map_err(|error| error.error.to_string())?;
+    installed.sync_all().map_err(|error| error.to_string())?;
+    let destination = Path::new(file_path);
+    let parent = destination
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    if let Ok(directory) = File::open(parent) {
+        let _ = directory.sync_all();
+    }
+    Ok(())
+}
+
 /// Classifies errors returned by CSV import/analyze/apply operations at the HTTP
 /// boundary. Parsing, header, identity-resolution, and row-validation failures
 /// are caused by the submitted payload; filesystem and database failures remain
@@ -349,8 +401,12 @@ pub fn is_client_input_error_message(message: &str) -> bool {
     let lowercase = message.to_ascii_lowercase();
     message.contains("CSV")
         || lowercase.contains("media import request")
+        || message.contains("Media import data changed")
         || message.contains("Media title cannot be blank")
         || message.contains("Default activity type cannot be blank")
+        || message.contains("Invalid Extra Data")
+        || message.contains("Extra Data in media import")
+        || message.contains("Invalid cover image")
         || message.contains("Activity must have either duration or characters")
         || message.contains("Milestone must have either duration or characters")
 }
@@ -449,6 +505,14 @@ impl MediaCsvRow {
 pub struct MediaConflict {
     pub incoming: MediaCsvRow,
     pub existing: Option<ExistingMediaCsvMatch>,
+    pub review_token: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MediaCsvImportSelection {
+    pub incoming: MediaCsvRow,
+    pub review_token: String,
 }
 
 /// Human-readable context for the media-import confirmation UI. Keep this
@@ -468,6 +532,76 @@ impl From<&Media> for ExistingMediaCsvMatch {
             variant: media.variant.clone(),
             status: media.status.clone(),
         }
+    }
+}
+
+fn media_review_token(
+    media: Option<&Media>,
+    requested_title: &str,
+    requested_variant: &str,
+    incoming: &MediaCsvRow,
+) -> Result<String, String> {
+    let state = if let Some(media) = media {
+        let cover_sha256 = if media.cover_image.is_empty() {
+            None
+        } else {
+            let path = Path::new(&media.cover_image);
+            if !path.is_file() {
+                return Err(format!(
+                    "Cover image '{}' for media '{}' is missing or is not a file",
+                    media.cover_image, media.title
+                ));
+            }
+            Some(
+                crate::sync_snapshot::compute_cover_blob_sha256_from_path(path)?.ok_or_else(
+                    || {
+                        format!(
+                            "Failed to hash cover image '{}' while reviewing media '{}'",
+                            media.cover_image, media.title
+                        )
+                    },
+                )?,
+            )
+        };
+        serde_json::json!({
+            "exists": true,
+            "title": media.title,
+            "variant": media.variant,
+            "default_activity_type": media.default_activity_type,
+            "status": media.status,
+            "language": media.language,
+            "description": media.description,
+            "cover_sha256": cover_sha256,
+            "extra_data": media.extra_data,
+            "content_type": media.content_type,
+            "tracking_status": media.tracking_status,
+        })
+    } else {
+        serde_json::json!({
+            "exists": false,
+            "title": requested_title,
+            "variant": requested_variant,
+        })
+    };
+    let mut hasher = Sha256::new();
+    hasher.update(b"kechimochi-media-review-v2\0");
+    serde_json::to_writer(Sha256Writer(&mut hasher), &state).map_err(|error| error.to_string())?;
+    hasher.update([0]);
+    serde_json::to_writer(Sha256Writer(&mut hasher), incoming)
+        .map_err(|error| error.to_string())?;
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+struct Sha256Writer<'a>(&'a mut Sha256);
+
+impl Write for Sha256Writer<'_> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.update(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
     }
 }
 
@@ -938,20 +1072,57 @@ fn normalize_activity_date(value: &str, row_number: usize) -> Result<String, Str
 }
 
 pub fn export_media_csv(conn: &Connection, file_path: &str) -> Result<usize, String> {
-    let mut wtr = csv::Writer::from_path(file_path).map_err(|e| e.to_string())?;
+    let mut wtr = atomic_csv_writer(file_path)?;
     let media_list = db::get_all_media(conn).map_err(|e| e.to_string())?;
     let mut count = 0;
 
     for m in media_list {
-        let mut b64 = String::new();
-        if !m.cover_image.is_empty() {
+        let b64 = if m.cover_image.is_empty() {
+            String::new()
+        } else {
             let path = Path::new(&m.cover_image);
-            if path.exists() {
-                if let Ok(bytes) = std::fs::read(path) {
-                    b64 = BASE64.encode(&bytes);
-                }
+            let mut file = File::open(path).map_err(|error| {
+                format!(
+                    "Failed to inspect cover image '{}' while exporting media '{}': {error}",
+                    m.cover_image, m.title
+                )
+            })?;
+            let metadata = file.metadata().map_err(|error| {
+                format!(
+                    "Failed to inspect cover image '{}' while exporting media '{}': {error}",
+                    m.cover_image, m.title
+                )
+            })?;
+            if !metadata.is_file() {
+                return Err(format!(
+                    "Cover image '{}' for media '{}' is not a file",
+                    m.cover_image, m.title
+                ));
             }
-        }
+            if metadata.len() > MAX_CSV_COVER_BYTES as u64 {
+                return Err(format!(
+                    "Cover image '{}' for media '{}' exceeds the {} byte CSV export limit",
+                    m.cover_image, m.title, MAX_CSV_COVER_BYTES
+                ));
+            }
+            let mut bytes = Vec::new();
+            (&mut file)
+                .take(MAX_CSV_COVER_BYTES as u64 + 1)
+                .read_to_end(&mut bytes)
+                .map_err(|error| {
+                    format!(
+                        "Failed to read cover image '{}' while exporting media '{}': {error}",
+                        m.cover_image, m.title
+                    )
+                })?;
+            if bytes.len() > MAX_CSV_COVER_BYTES {
+                return Err(format!(
+                    "Cover image '{}' for media '{}' exceeds the {} byte CSV export limit",
+                    m.cover_image, m.title, MAX_CSV_COVER_BYTES
+                ));
+            }
+            BASE64.encode(bytes)
+        };
 
         let row = MediaCsvExportRow {
             title: m.title,
@@ -961,6 +1132,7 @@ pub fn export_media_csv(conn: &Connection, file_path: &str) -> Result<usize, Str
             language: m.language,
             description: m.description,
             content_type: m.content_type,
+            tracking_status: m.tracking_status,
             extra_data: m.extra_data,
             cover_image_b64: b64,
         };
@@ -974,7 +1146,7 @@ pub fn export_media_csv(conn: &Connection, file_path: &str) -> Result<usize, Str
             .map_err(|e| e.to_string())?;
     }
 
-    wtr.flush().map_err(|e| e.to_string())?;
+    persist_atomic_csv(wtr, file_path)?;
     Ok(count)
 }
 
@@ -985,7 +1157,7 @@ pub fn export_logs_csv(
     end_date: Option<String>,
 ) -> Result<usize, String> {
     let mut count = 0;
-    let mut wtr = csv::Writer::from_path(file_path).map_err(|e| e.to_string())?;
+    let mut wtr = atomic_csv_writer(file_path)?;
 
     let mut stmt = conn
         .prepare(
@@ -1059,7 +1231,7 @@ pub fn export_logs_csv(
             .map_err(|e| e.to_string())?;
     }
 
-    wtr.flush().map_err(|e| e.to_string())?;
+    persist_atomic_csv(wtr, file_path)?;
     Ok(count)
 }
 
@@ -1106,7 +1278,7 @@ pub fn export_milestones_csv(conn: &Connection, file_path: &str) -> Result<usize
         .map_err(|e| e.to_string())?;
 
     let mut count = 0;
-    let mut wtr = csv::Writer::from_path(file_path).map_err(|e| e.to_string())?;
+    let mut wtr = atomic_csv_writer(file_path)?;
 
     for milestone in milestone_iter {
         let m = milestone.map_err(|e| e.to_string())?;
@@ -1119,7 +1291,7 @@ pub fn export_milestones_csv(conn: &Connection, file_path: &str) -> Result<usize
             .map_err(|e| e.to_string())?;
     }
 
-    wtr.flush().map_err(|e| e.to_string())?;
+    persist_atomic_csv(wtr, file_path)?;
     Ok(count)
 }
 
@@ -1283,9 +1455,12 @@ pub fn analyze_media_csv_from_reader<R: Read>(
             ));
         }
 
+        let review_token =
+            media_review_token(existing.as_ref(), &key.title, &key.variant, &record)?;
         conflicts.push(MediaConflict {
             incoming: record,
             existing: existing.as_ref().map(ExistingMediaCsvMatch::from),
+            review_token,
         });
     }
 
@@ -1295,14 +1470,15 @@ pub fn analyze_media_csv_from_reader<R: Read>(
 pub fn apply_media_import(
     covers_dir: std::path::PathBuf,
     conn: &mut Connection,
-    records: Vec<MediaCsvRow>,
+    records: Vec<MediaCsvImportSelection>,
 ) -> Result<usize, String> {
     struct PreparedMediaImport {
         req: MediaCsvRow,
         key: CsvMediaKey,
         existing_id: Option<i64>,
+        existing_tracking_status: Option<String>,
         old_cover: String,
-        cover_bytes: Option<Vec<u8>>,
+        cover: Option<(Vec<u8>, String)>,
     }
 
     // The apply endpoint is intentionally exact-pair-only. Legacy title-only
@@ -1311,8 +1487,10 @@ pub fn apply_media_import(
     let catalog = MediaCatalog::load(conn)?;
     let mut prepared = Vec::with_capacity(records.len());
     let mut seen_identities: HashMap<CsvMediaKey, usize> = HashMap::new();
-    for (index, req) in records.into_iter().enumerate() {
+    for (index, selection) in records.into_iter().enumerate() {
         let request_row = index + 1;
+        let review_token = selection.review_token;
+        let req = selection.incoming;
         let mut req = req
             .normalize_default_activity_type(&format!("media import request row {request_row}"))?;
         req.variant = req.variant.trim().to_string();
@@ -1330,23 +1508,58 @@ pub fn apply_media_import(
             &format!("media import request row {request_row}"),
             "Variant",
         )?;
-        let cover_bytes = if req.cover_image_b64.is_empty() {
+        let current_review_token = media_review_token(existing, &key.title, &key.variant, &req)?;
+        if current_review_token != review_token {
+            return Err(format!(
+                "Media import data changed after conflict review for {}. Analyze the CSV again before importing.",
+                key.description()
+            ));
+        }
+        let parsed_extra_data = serde_json::from_str::<serde_json::Value>(&req.extra_data)
+            .map_err(|error| {
+                format!(
+                    "Invalid Extra Data JSON in media import request row {request_row}: {error}"
+                )
+            })?;
+        if !parsed_extra_data.is_object() {
+            return Err(format!(
+                "Extra Data in media import request row {request_row} must be a JSON object"
+            ));
+        }
+        let cover = if req.cover_image_b64.is_empty() {
             None
         } else {
-            Some(BASE64.decode(&req.cover_image_b64).map_err(|e| {
+            if req.cover_image_b64.len() > MAX_CSV_COVER_BASE64_BYTES {
+                return Err(format!(
+                    "Cover image in media import request row {request_row} exceeds the {} byte decoded limit",
+                    MAX_CSV_COVER_BYTES
+                ));
+            }
+            let bytes = BASE64.decode(&req.cover_image_b64).map_err(|e| {
                 format!(
                     "Invalid Cover Image (Base64) in media import request row {request_row}: {e}"
                 )
-            })?)
+            })?;
+            if bytes.len() > MAX_CSV_COVER_BYTES {
+                return Err(format!(
+                    "Cover image in media import request row {request_row} exceeds the {} byte decoded limit",
+                    MAX_CSV_COVER_BYTES
+                ));
+            }
+            let extension = detect_cover_extension(&bytes).map_err(|error| {
+                format!("Invalid cover image in media import request row {request_row}: {error}")
+            })?;
+            Some((bytes, extension))
         };
         prepared.push(PreparedMediaImport {
             req,
             key,
             existing_id: existing.and_then(|media| media.id),
+            existing_tracking_status: existing.map(|media| media.tracking_status.clone()),
             old_cover: existing
                 .map(|media| media.cover_image.clone())
                 .unwrap_or_default(),
-            cover_bytes,
+            cover,
         });
     }
 
@@ -1354,19 +1567,33 @@ pub fn apply_media_import(
     // completed before the first database or cover-file write.
     std::fs::create_dir_all(&covers_dir).map_err(|e| e.to_string())?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
-    let import_stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|e| e.to_string())?
-        .as_nanos();
     let mut created_cover_paths = Vec::new();
     let mut old_cover_paths = Vec::new();
 
     let apply_result = (|| -> Result<usize, String> {
-        for (index, prepared) in prepared.into_iter().enumerate() {
+        for prepared in prepared {
             let default_activity_type = prepared.req.resolved_default_activity_type()?.to_string();
-            let final_cover_path = if let Some(bytes) = prepared.cover_bytes {
-                let dest = covers_dir.join(format!("import_{import_stamp}_{index}.png"));
-                std::fs::write(&dest, bytes).map_err(|e| e.to_string())?;
+            let final_cover_path = if let Some((bytes, extension)) = prepared.cover {
+                let dest = covers_dir.join(format!("import_{}.{}", Uuid::new_v4(), extension));
+                let mut staged =
+                    NamedTempFile::new_in(&covers_dir).map_err(|error| error.to_string())?;
+                staged
+                    .write_all(&bytes)
+                    .map_err(|error| error.to_string())?;
+                staged
+                    .as_file_mut()
+                    .sync_all()
+                    .map_err(|error| error.to_string())?;
+                let installed = staged
+                    .persist(&dest)
+                    .map_err(|error| error.error.to_string())?;
+                if let Err(error) = installed.sync_all() {
+                    let _ = std::fs::remove_file(&dest);
+                    return Err(error.to_string());
+                }
+                if let Ok(directory) = File::open(&covers_dir) {
+                    let _ = directory.sync_all();
+                }
                 created_cover_paths.push(dest.clone());
                 dest.to_string_lossy().to_string()
             } else {
@@ -1385,7 +1612,15 @@ pub fn apply_media_import(
                 cover_image: final_cover_path,
                 extra_data: prepared.req.extra_data,
                 content_type: prepared.req.content_type,
-                tracking_status: "Untracked".to_string(),
+                tracking_status: prepared
+                    .req
+                    .tracking_status
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+                    .or(prepared.existing_tracking_status)
+                    .unwrap_or_else(|| "Untracked".to_string()),
             };
             if media.id.is_some() {
                 db::update_media(&tx, &media).map_err(|e| e.to_string())?;
@@ -1409,19 +1644,19 @@ pub fn apply_media_import(
     }
 
     for old_cover in old_cover_paths {
-        let still_referenced: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM shared.media WHERE cover_image = ?1",
-                [&old_cover],
-                |row| row.get(0),
-            )
-            .unwrap_or(1);
-        if still_referenced == 0 {
-            let _ = std::fs::remove_file(old_cover);
-        }
+        let _ = db::remove_cover_file_if_unreferenced(
+            conn,
+            Path::new(&old_cover),
+            None,
+            Some(&covers_dir),
+        );
     }
 
     apply_result
+}
+
+fn detect_cover_extension(bytes: &[u8]) -> Result<String, String> {
+    crate::remote_fetch::infer_image_extension(bytes)
 }
 
 #[cfg(test)]
@@ -1478,10 +1713,35 @@ mod tests {
             language: "Japanese".to_string(),
             description: String::new(),
             content_type: "Manga".to_string(),
+            tracking_status: None,
             extra_data: "{}".to_string(),
             cover_image_b64: String::new(),
             variant: variant.to_string(),
         }
+    }
+
+    fn reviewed_media_rows(
+        conn: &Connection,
+        rows: Vec<MediaCsvRow>,
+    ) -> Vec<MediaCsvImportSelection> {
+        let media = db::get_all_media(conn).unwrap();
+        rows.into_iter()
+            .map(|incoming| {
+                let existing = media.iter().find(|entry| {
+                    entry.title == incoming.title && entry.variant == incoming.variant.trim()
+                });
+                MediaCsvImportSelection {
+                    review_token: media_review_token(
+                        existing,
+                        &incoming.title,
+                        incoming.variant.trim(),
+                        &incoming,
+                    )
+                    .unwrap(),
+                    incoming,
+                }
+            })
+            .collect()
     }
 
     #[test]
@@ -1834,16 +2094,15 @@ mod tests {
             std::process::id(),
             COUNTER.fetch_add(1, Ordering::SeqCst)
         ));
-        apply_media_import(
-            covers_dir.clone(),
-            &mut conn,
+        let selections = reviewed_media_rows(
+            &conn,
             vec![
                 sample_media_csv_row("Horimiya", "Manga"),
                 sample_media_csv_row("Horimiya", ""),
                 sample_media_csv_row("New Title", "Light Novel"),
             ],
-        )
-        .unwrap();
+        );
+        apply_media_import(covers_dir.clone(), &mut conn, selections).unwrap();
 
         let media = db::get_all_media(&conn).unwrap();
         assert_eq!(media.len(), 3);
@@ -1880,15 +2139,159 @@ mod tests {
         let mut conflicting = sample_media_csv_row("Conflict", "Manga");
         conflicting.legacy_media_type = Some("Watching".to_string());
 
-        let error = apply_media_import(
-            covers_dir.clone(),
-            &mut conn,
+        let selections = reviewed_media_rows(
+            &conn,
             vec![sample_media_csv_row("Would Be New", "Anime"), conflicting],
-        )
-        .unwrap_err();
+        );
+        let error = apply_media_import(covers_dir.clone(), &mut conn, selections).unwrap_err();
         assert!(error.contains("Conflicting Default Activity Type"));
         assert!(db::get_all_media(&conn).unwrap().is_empty());
         assert!(!covers_dir.exists());
+    }
+
+    #[test]
+    fn test_media_import_rejects_stale_review_without_writes() {
+        let mut conn = setup_test_db();
+        let existing_id = db::add_media_with_id(&conn, &sample_media("Stale review")).unwrap();
+        let csv = "Title,Default Activity Type,Status,Language,Description,Content Type,Extra Data,Cover Image (Base64),Variant\n\
+                   Stale review,Reading,Archived,Japanese,incoming,Novel,{},,\n";
+        let conflict = analyze_media_csv_from_reader(&conn, csv.as_bytes())
+            .unwrap()
+            .remove(0);
+
+        let mut changed = db::get_all_media(&conn).unwrap().remove(0);
+        changed.description = "changed after review".to_string();
+        db::update_media(&conn, &changed).unwrap();
+        let covers_dir = std::env::temp_dir().join(format!(
+            "stale_media_import_{}_{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::SeqCst)
+        ));
+
+        let error = apply_media_import(
+            covers_dir.clone(),
+            &mut conn,
+            vec![MediaCsvImportSelection {
+                incoming: conflict.incoming,
+                review_token: conflict.review_token,
+            }],
+        )
+        .unwrap_err();
+
+        assert!(error.contains("changed after conflict review"));
+        let stored = db::get_all_media(&conn)
+            .unwrap()
+            .into_iter()
+            .find(|media| media.id == Some(existing_id))
+            .unwrap();
+        assert_eq!(stored.description, "changed after review");
+        assert_eq!(stored.status, "Active");
+        assert!(!covers_dir.exists());
+    }
+
+    #[test]
+    fn test_media_import_rejects_an_incoming_row_changed_after_review() {
+        let mut conn = setup_test_db();
+        let csv = "Title,Default Activity Type,Status,Language,Description,Content Type,Extra Data,Cover Image (Base64),Variant\n\
+                   Reviewed row,Reading,Active,Japanese,reviewed,Novel,{},,\n";
+        let conflict = analyze_media_csv_from_reader(&conn, csv.as_bytes())
+            .unwrap()
+            .remove(0);
+        let mut changed_incoming = conflict.incoming;
+        changed_incoming.description = "changed after review".to_string();
+        let covers_dir = std::env::temp_dir().join(format!(
+            "changed_media_import_{}_{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::SeqCst)
+        ));
+
+        let error = apply_media_import(
+            covers_dir.clone(),
+            &mut conn,
+            vec![MediaCsvImportSelection {
+                incoming: changed_incoming,
+                review_token: conflict.review_token,
+            }],
+        )
+        .unwrap_err();
+
+        assert!(error.contains("changed after conflict review"));
+        assert!(db::get_all_media(&conn).unwrap().is_empty());
+        assert!(!covers_dir.exists());
+    }
+
+    #[test]
+    fn test_media_import_preserves_tracking_status_when_the_column_is_absent() {
+        let mut conn = setup_test_db();
+        let mut existing = sample_media("Preserve tracking");
+        existing.tracking_status = "Complete".to_string();
+        db::add_media_with_id(&conn, &existing).unwrap();
+        let mut incoming = sample_media_csv_row("Preserve tracking", "");
+        incoming.status = "Archived".to_string();
+        incoming.tracking_status = None;
+        let selections = reviewed_media_rows(&conn, vec![incoming]);
+        let covers_dir = std::env::temp_dir().join(format!(
+            "tracking_media_import_{}_{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::SeqCst)
+        ));
+
+        apply_media_import(covers_dir.clone(), &mut conn, selections).unwrap();
+
+        let stored = db::get_all_media(&conn).unwrap().remove(0);
+        assert_eq!(stored.status, "Archived");
+        assert_eq!(stored.tracking_status, "Complete");
+        std::fs::remove_dir_all(covers_dir).ok();
+    }
+
+    #[test]
+    fn test_media_import_uses_the_detected_cover_extension() {
+        let mut conn = setup_test_db();
+        let jpeg_bytes = vec![255, 216, 255, 224, 0, 16, 74, 70, 73, 70];
+        let mut incoming = sample_media_csv_row("JPEG cover", "");
+        incoming.cover_image_b64 = BASE64.encode(jpeg_bytes);
+        let selections = reviewed_media_rows(&conn, vec![incoming]);
+        let covers_dir = std::env::temp_dir().join(format!(
+            "detected_cover_extension_{}_{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::SeqCst)
+        ));
+
+        apply_media_import(covers_dir.clone(), &mut conn, selections).unwrap();
+
+        let stored = db::get_all_media(&conn).unwrap().remove(0);
+        assert!(stored.cover_image.ends_with(".jpg"));
+        std::fs::remove_dir_all(covers_dir).ok();
+    }
+
+    #[test]
+    fn test_media_export_cover_read_error_preserves_existing_destination() {
+        let conn = setup_test_db();
+        let mut media = sample_media("Missing cover");
+        media.cover_image = std::env::temp_dir()
+            .join(format!(
+                "missing_export_cover_{}_{}",
+                std::process::id(),
+                COUNTER.fetch_add(1, Ordering::SeqCst)
+            ))
+            .to_string_lossy()
+            .to_string();
+        db::add_media_with_id(&conn, &media).unwrap();
+        let destination = std::env::temp_dir().join(format!(
+            "media_export_destination_{}_{}.csv",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::SeqCst)
+        ));
+        std::fs::write(&destination, "existing-good-export").unwrap();
+
+        let error = export_media_csv(&conn, destination.to_str().unwrap()).unwrap_err();
+
+        assert!(error.contains("Failed to inspect cover image"));
+        assert_eq!(
+            std::fs::read_to_string(&destination).unwrap(),
+            "existing-good-export"
+        );
+        std::fs::remove_file(destination).ok();
     }
 
     #[test]
@@ -2296,6 +2699,8 @@ mod tests {
         const ACTIVITY_ID: i64 = 7_654_321_098_765_402;
         const MILESTONE_ID: i64 = 7_654_321_098_765_403;
         const MEDIA_UID: &str = "11111111-2222-4333-8444-555555555555";
+        const ACTIVITY_UID: &str = "22222222-3333-4444-8555-666666666666";
+        const MILESTONE_UID: &str = "33333333-4444-4555-8666-777777777777";
 
         let conn = setup_test_db();
         conn.execute(
@@ -2321,10 +2726,11 @@ mod tests {
         .unwrap();
         conn.execute(
             "INSERT INTO main.activity_logs (
-                 id, media_id, duration_minutes, characters, date, activity_type, notes
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                 id, uid, media_id, duration_minutes, characters, date, activity_type, notes
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             rusqlite::params![
                 ACTIVITY_ID,
+                ACTIVITY_UID,
                 MEDIA_ID,
                 31_i64,
                 271_i64,
@@ -2336,10 +2742,11 @@ mod tests {
         .unwrap();
         conn.execute(
             "INSERT INTO main.milestones (
-                 id, media_uid, media_title, name, duration, characters, date
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                 id, uid, media_uid, media_title, name, duration, characters, date
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             rusqlite::params![
                 MILESTONE_ID,
+                MILESTONE_UID,
                 MEDIA_UID,
                 "Boundary Sentinel",
                 "Human-readable checkpoint",
@@ -2382,6 +2789,8 @@ mod tests {
             ACTIVITY_ID.to_string(),
             MILESTONE_ID.to_string(),
             MEDIA_UID.to_string(),
+            ACTIVITY_UID.to_string(),
+            MILESTONE_UID.to_string(),
         ];
         for (boundary, payload) in boundary_payloads {
             for identifier in &forbidden_identifiers {
@@ -2446,11 +2855,13 @@ mod tests {
             language: "English".to_string(),
             description: "".to_string(),
             content_type: "Anime".to_string(),
+            tracking_status: Some("Complete".to_string()),
             extra_data: "{}".to_string(),
             cover_image_b64: b64_img,
             variant: "Anime".to_string(),
         }];
 
+        let records = reviewed_media_rows(&conn, records);
         apply_media_import(covers_dir.clone(), &mut conn, records).unwrap();
 
         // 2. Export it back to CSV
@@ -2492,7 +2903,10 @@ mod tests {
             &mut destination,
             conflicts
                 .into_iter()
-                .map(|conflict| conflict.incoming)
+                .map(|conflict| MediaCsvImportSelection {
+                    incoming: conflict.incoming,
+                    review_token: conflict.review_token,
+                })
                 .collect(),
         )
         .unwrap();

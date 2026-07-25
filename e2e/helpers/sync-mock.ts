@@ -319,8 +319,30 @@ function sendJson(res: ServerResponse, statusCode: number, body: unknown): void 
     res.end(payload);
 }
 
-function sendBytes(res: ServerResponse, statusCode: number, contentType: string, body: Buffer): void {
+function fileEtag(file: StoredFile): string {
+    const digest = createHash('sha256')
+        .update(file.id)
+        .update('\0')
+        .update(file.name)
+        .update('\0')
+        .update(file.mimeType)
+        .update('\0')
+        .update(file.modifiedTime)
+        .update('\0')
+        .update(file.bytes)
+        .digest('hex');
+    return `"${digest}"`;
+}
+
+function sendBytes(
+    res: ServerResponse,
+    statusCode: number,
+    contentType: string,
+    body: Buffer,
+    headers: Record<string, string> = {},
+): void {
     res.writeHead(statusCode, {
+        ...headers,
         'content-type': contentType,
         'content-length': String(body.length),
     });
@@ -437,7 +459,7 @@ function handleDownloadFile(currentState: SyncMockState, res: ServerResponse, ur
     }
 
     if (url.searchParams.get('alt') === 'media') {
-        sendBytes(res, 200, file.mimeType, file.bytes);
+        sendBytes(res, 200, file.mimeType, file.bytes, { etag: fileEtag(file) });
         return;
     }
 
@@ -477,6 +499,12 @@ async function handleUpdateUpload(
     const existing = currentState.files.get(fileId);
     if (!existing) {
         sendJson(res, 404, { error: 'file_not_found' });
+        return;
+    }
+
+    const ifMatch = req.headers['if-match'];
+    if (Array.isArray(ifMatch) || (typeof ifMatch === 'string' && ifMatch !== fileEtag(existing))) {
+        sendJson(res, 412, { error: 'precondition_failed' });
         return;
     }
 

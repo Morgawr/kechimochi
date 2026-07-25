@@ -12,17 +12,24 @@ export interface MediaCsvRow {
     "Language": string;
     "Description": string;
     "Content Type": string;
+    "Tracking Status"?: string;
     "Extra Data": string;
     "Cover Image (Base64)": string;
 }
 
 export interface MediaConflict {
     incoming: MediaCsvRow;
+    review_token: string;
     existing?: {
         title: string;
         variant: string;
         status: string;
     };
+}
+
+export interface MediaCsvImportSelection {
+    incoming: MediaCsvRow;
+    review_token: string;
 }
 
 export interface ActivityCsvRow {
