@@ -230,9 +230,16 @@ export async function addExtraField(key: string, value: string): Promise<void> {
     // Second prompt for value
     await submitPrompt(value);
 
-    // Wait for the field to appear in the DOM
-    const el = $(`.editable-extra[data-key="${key}"]`);
-    await el.waitForExist({ timeout: 5000 });
+    // Upserts match keys case-insensitively while preserving an existing key's casing.
+    // Poll the current DOM after the detail re-render instead of holding a stale element.
+    await browser.waitUntil(async () => browser.execute((expectedKey) => (
+        Array.from(document.querySelectorAll<HTMLElement>('.editable-extra[data-key]'))
+            .some(element => element.dataset.key?.toLocaleLowerCase() === expectedKey.toLocaleLowerCase())
+    ), key), {
+        timeout: 5000,
+        interval: 100,
+        timeoutMsg: `Extra field "${key}" did not appear after saving`,
+    });
 }
 
 /**
