@@ -1215,7 +1215,9 @@ export class MediaDetail extends Component<MediaDetailState> {
                 }
             }
 
-            this.notifyLocalDataChanged(!!merged.coverImageUrl);
+            // The cache was invalidated before loading the replacement.
+            // Do not clear again after the new object URL is committed.
+            this.notifyLocalDataChanged();
             this.render();
         } catch (e) {
             await customAlert("Import Failed", "Metadata import failed: " + e);
