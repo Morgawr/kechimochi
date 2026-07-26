@@ -63,19 +63,40 @@ describe('Dashboard CUJ', () => {
       const cards = Array.from(document.querySelectorAll<HTMLElement>('.dashboard-totals-card'));
       const card = cards.find(candidate => candidate.querySelector('.dashboard-totals-title')?.textContent?.includes('Monthly Stats'));
       const rows = Array.from(card?.querySelectorAll<HTMLElement>('[data-dashboard-total-index]') ?? []);
+      const headerCells = Array.from(card?.querySelectorAll<HTMLElement>('.dashboard-stats-row-header > span') ?? []);
+      const rowCellLefts = rows.slice(0, 5).map(row =>
+        Array.from(row.children).map(cell => Math.round(cell.getBoundingClientRect().left)));
+      const columnsAligned = rowCellLefts.length > 0
+        && rowCellLefts[0].every((left, column) =>
+          rowCellLefts.every(row => Math.abs((row[column] ?? Number.NaN) - left) <= 1));
+      const firstWeekDivider = rows.find(row => row.classList.contains('is-week-start'));
+      const firstWeekDividerStyle = firstWeekDivider ? getComputedStyle(firstWeekDivider) : null;
 
       return {
         rowCount: rows.length,
-        firstRow: rows[0]?.textContent ?? '',
-        lastRow: rows.at(-1)?.textContent ?? '',
+        headerCells: headerCells.map(cell => cell.textContent ?? ''),
+        firstRowCells: Array.from(rows[0]?.children ?? []).map(cell => cell.textContent ?? ''),
+        lastRowCells: Array.from(rows.at(-1)?.children ?? []).map(cell => cell.textContent ?? ''),
+        columnsAligned,
+        weekDividerDays: rows
+          .filter(row => row.classList.contains('is-week-start'))
+          .map(row => row.querySelector('.dashboard-stats-row-day')?.textContent ?? ''),
+        hasVisibleWeekDivider: firstWeekDividerStyle !== null
+          && Number.parseFloat(firstWeekDividerStyle.marginTop) > 0
+          && Number.parseFloat(firstWeekDividerStyle.paddingTop) > 0
+          && Number.parseFloat(firstWeekDividerStyle.borderTopWidth) > 0,
         containsWeekBucket: rows.some(row => row.textContent?.includes('Week ')),
         selectorLabels: Array.from(document.querySelectorAll<HTMLOptionElement>('#select-time-range option')).map(option => option.textContent ?? ''),
       };
     });
 
     expect(monthlyStats.rowCount).toBe(31);
-    expect(monthlyStats.firstRow).toContain('01/03');
-    expect(monthlyStats.lastRow).toContain('31/03');
+    expect(monthlyStats.headerCells).toEqual(['Day', 'Weekday', 'Hours']);
+    expect(monthlyStats.firstRowCells.slice(0, 2)).toEqual(['01', 'FRI']);
+    expect(monthlyStats.lastRowCells.slice(0, 2)).toEqual(['31', 'SUN']);
+    expect(monthlyStats.columnsAligned).toBe(true);
+    expect(monthlyStats.weekDividerDays).toEqual(['04', '11', '18', '25']);
+    expect(monthlyStats.hasVisibleWeekDivider).toBe(true);
     expect(monthlyStats.containsWeekBucket).toBe(false);
     expect(monthlyStats.selectorLabels).toEqual(['Week', 'Month', 'Year', 'All Time']);
 

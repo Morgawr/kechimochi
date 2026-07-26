@@ -177,6 +177,14 @@ describe('ActivityTotals', () => {
         expect(text).toContain('Novel');
         expect(text).toContain('Most Time Spent');
         expect(text).toContain('Novel A');
+
+        const statsTable = container.querySelector('.dashboard-stats-table-days');
+        const headerCells = Array.from(statsTable?.querySelectorAll('.dashboard-stats-row-header > span') ?? [])
+            .map(cell => cell.textContent);
+        const wednesdayCells = Array.from(statsTable?.querySelectorAll('[data-dashboard-total-index="2"] > span') ?? [])
+            .map(cell => cell.textContent);
+        expect(headerCells).toEqual(['Day', 'Weekday', 'Chars', 'Hours']);
+        expect(wednesdayCells).toEqual(['10', 'WED', '2,500', '1h 30m']);
     });
 
     it('renders a six-month weekday radar in configured week order with accessible statistics', () => {
@@ -270,7 +278,9 @@ describe('ActivityTotals', () => {
         const text = textContent(container);
         expect(text).toContain('Weekly Stats');
         expect(text).toContain('06-08 to 06-14');
-        expect(text).toContain('Wednesday 10/06');
+        const wednesdayCells = Array.from(container.querySelectorAll('[data-dashboard-total-index="2"] > span'))
+            .map(cell => cell.textContent);
+        expect(wednesdayCells.slice(0, 2)).toEqual(['10', 'WED']);
         expect(text).toContain('Data for today');
         expect(text).toContain('2h');
         expect(text).toContain('1h 30m more than yesterday');
@@ -325,16 +335,29 @@ describe('ActivityTotals', () => {
         component.render();
         container.querySelector<HTMLButtonElement>('[data-dashboard-total-index="0"]')?.click();
         expect(textContent(container)).toContain('Data for Monday 08/06/2026');
+        expect(container.querySelectorAll('.dashboard-stats-row.is-week-start')).toHaveLength(0);
 
         component.setState({ timeRangeDays: 30 });
         const monthlyText = textContent(container);
         expect(monthlyText).toContain('Monthly Stats');
         expect(monthlyText).toContain('2026-06');
-        expect(monthlyText).toContain('Monday 01/06');
-        expect(monthlyText).toContain('Tuesday 30/06');
         expect(monthlyText).toContain('Data for today');
         expect(monthlyText).not.toContain('Week 1');
         expect(container.querySelectorAll('[data-dashboard-total-index]')).toHaveLength(30);
+        const firstDayCells = Array.from(container.querySelectorAll('[data-dashboard-total-index="0"] > span'))
+            .map(cell => cell.textContent);
+        const lastDayCells = Array.from(container.querySelectorAll('[data-dashboard-total-index="29"] > span'))
+            .map(cell => cell.textContent);
+        expect(firstDayCells.slice(0, 2)).toEqual(['01', 'MON']);
+        expect(lastDayCells.slice(0, 2)).toEqual(['30', 'TUE']);
+        const mondayWeekStarts = Array.from(container.querySelectorAll<HTMLElement>('.dashboard-stats-row.is-week-start'))
+            .map(row => row.querySelector('.dashboard-stats-row-day')?.textContent);
+        expect(mondayWeekStarts).toEqual(['08', '15', '22', '29']);
+
+        component.setState({ weekStartDay: 0 });
+        const sundayWeekStarts = Array.from(container.querySelectorAll<HTMLElement>('.dashboard-stats-row.is-week-start'))
+            .map(row => row.querySelector('.dashboard-stats-row-day')?.textContent);
+        expect(sundayWeekStarts).toEqual(['07', '14', '21', '28']);
 
         component.setState({ selectedBucketIndex: 29 });
         const selectedText = textContent(container);
@@ -366,6 +389,8 @@ describe('ActivityTotals', () => {
         expect(yearlyText).toContain('June');
         expect(yearlyText).toContain('Data for this month');
         expect(yearlyText).toContain('1h 30m more than last month');
+        expect(container.querySelector('.dashboard-stats-table-days')).toBeNull();
+        expect(container.querySelector('.dashboard-stats-row-header')?.firstElementChild?.textContent).toBe('Month');
 
         component.setState({ timeRangeDays: 0 });
         const allTimeText = textContent(container);
@@ -375,6 +400,8 @@ describe('ActivityTotals', () => {
         expect(allTimeText).toContain('2026');
         expect(allTimeText).toContain('Data for this year');
         expect(allTimeText).toContain('2h more than last year');
+        expect(container.querySelector('.dashboard-stats-table-days')).toBeNull();
+        expect(container.querySelector('.dashboard-stats-row-header')?.firstElementChild?.textContent).toBe('Year');
 
         component.setState({
             logs: [makeLog({ id: 4, media_id: 1, title: 'Novel A', date: '2024-01-01', duration_minutes: 15, characters: 0 })],

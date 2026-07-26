@@ -61,7 +61,7 @@ function getWeeklyRange(timeRangeOffset: number, weekStartDay: number): Activity
     return { labels, getBucketIndex: (dateStr: string) => labels.indexOf(dateStr), validStart, validEnd, unit: 'day', period: 'week' };
 }
 
-function normalizeWeekStartDay(value: number): number {
+export function normalizeWeekStartDay(value: number): number {
     if (!Number.isInteger(value) || value < 0 || value > 6) return 1;
     return value;
 }

@@ -2,7 +2,7 @@ import { Component } from '../component';
 import { ActivitySummary, DashboardMedia, DashboardRangeResponse, DashboardWeekdayDistribution, DashboardWeekdayStats, Media } from '../api';
 import { escapeHTML, html, rawHtml } from '../html';
 import { formatStatsDuration } from '../time';
-import { getActivityRange, getLocalISODate, type ActivityPeriod, type ActivityRange } from './activity_ranges';
+import { getActivityRange, getLocalISODate, normalizeWeekStartDay, type ActivityPeriod, type ActivityRange } from './activity_ranges';
 import { MediaCoverLoader } from '../media/cover_loader';
 import { Logger } from '../logger';
 
@@ -27,6 +27,9 @@ interface BucketRow {
     key: string;
     label: string;
     subject: string;
+    dayOfMonth?: string;
+    weekday?: string;
+    startsWeek?: boolean;
     totals: Totals;
     isCurrent: boolean;
     isSelected: boolean;
@@ -116,12 +119,18 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
         const currentIndex = this.getCurrentBucketIndex(range.getBucketIndex, bucketTotals.length);
         const selectedIndex = this.state.selectedBucketIndex ?? currentIndex;
         const categoryTotals = this.getCategoryTotals(range.validStart, range.validEnd);
+        const weekStartDay = normalizeWeekStartDay(this.state.weekStartDay);
         const bucketRows = bucketTotals.map((totals, index) => {
             const meta = this.getBucketMeta(range.labels[index], index, range.unit, range.validStart);
             return {
                 key: String(index),
                 label: meta.label,
                 subject: meta.subject,
+                dayOfMonth: meta.dayOfMonth,
+                weekday: meta.weekday,
+                startsWeek: range.period === 'month'
+                    && index > 0
+                    && new Date(range.labels[index] + 'T00:00:00').getDay() === weekStartDay,
                 totals,
                 isCurrent: index === currentIndex,
                 isSelected: index === selectedIndex,
@@ -202,7 +211,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
                     <h3 class="dashboard-module-title dashboard-totals-title">${this.getTitle(range.period)} Stats</h3>
                     <span class="dashboard-stats-range-label">${this.getRangeLabel(range.validStart, range.validEnd, range.period)}</span>
                 </div>
-                ${this.renderTotalsTable(this.getUnitHeader(range.unit), bucketRows, true, columns)}
+                ${this.renderTotalsTable(this.getUnitHeader(range.unit), bucketRows, true, columns, range.unit === 'day')}
                 ${this.renderSelectedSummary(
             bucketTotals,
             selectedIndex,
@@ -670,39 +679,61 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
         return `<div class="dashboard-selected-diff dashboard-selected-diff-${tone}">${escapeHTML(value)} ${direction} than ${escapeHTML(comparisonLabel)}</div>`;
     }
 
-    private renderTotalsTable(headerLabel: string, rows: BucketRow[], selectable: boolean, columns: TotalsColumns): string {
+    private renderTotalsTable(
+        headerLabel: string,
+        rows: BucketRow[],
+        selectable: boolean,
+        columns: TotalsColumns,
+        splitDayLabel = false,
+    ): string {
         if (rows.length === 0 || !this.hasVisibleTotals(columns)) return '';
 
-        const gridTemplateColumns = this.getTotalsGridTemplate(columns);
+        const gridTemplateColumns = this.getTotalsGridTemplate(columns, splitDayLabel);
+        const tableClasses = [
+            'dashboard-stats-table',
+            splitDayLabel ? 'dashboard-stats-table-days' : '',
+        ].filter(Boolean).join(' ');
 
         return `
-            <div class="dashboard-stats-table">
+            <div class="${tableClasses}">
                 <div class="dashboard-stats-row dashboard-stats-row-header" style="grid-template-columns: ${gridTemplateColumns};">
-                    <span>${escapeHTML(headerLabel)}</span>
-                    ${columns.showCharacters ? '<span>Chars</span>' : ''}
-                    ${columns.showHours ? '<span>Hours</span>' : ''}
+                    ${splitDayLabel
+                ? '<span>Day</span><span>Weekday</span>'
+                : `<span>${escapeHTML(headerLabel)}</span>`}
+                    ${columns.showCharacters ? '<span class="dashboard-stats-row-value">Chars</span>' : ''}
+                    ${columns.showHours ? '<span class="dashboard-stats-row-value">Hours</span>' : ''}
                 </div>
-                ${rows.map((row, index) => this.renderTotalsRow(row, selectable ? index : null, columns, gridTemplateColumns)).join('')}
+                ${rows.map((row, index) => this.renderTotalsRow(row, selectable ? index : null, columns, gridTemplateColumns, splitDayLabel)).join('')}
                 <div class="dashboard-stats-row dashboard-stats-row-total" style="grid-template-columns: ${gridTemplateColumns};">
-                    <span>Total</span>
-                    ${columns.showCharacters ? `<span>${escapeHTML(this.getRowsTotal(rows, 'characters'))}</span>` : ''}
-                    ${columns.showHours ? `<span>${escapeHTML(this.getRowsTotal(rows, 'hours'))}</span>` : ''}
+                    <span class="${splitDayLabel ? 'dashboard-stats-row-total-label' : ''}">Total</span>
+                    ${columns.showCharacters ? `<span class="dashboard-stats-row-value">${escapeHTML(this.getRowsTotal(rows, 'characters'))}</span>` : ''}
+                    ${columns.showHours ? `<span class="dashboard-stats-row-value">${escapeHTML(this.getRowsTotal(rows, 'hours'))}</span>` : ''}
                 </div>
             </div>
         `;
     }
 
-    private renderTotalsRow(row: BucketRow, index: number | null, columns: TotalsColumns, gridTemplateColumns: string): string {
+    private renderTotalsRow(
+        row: BucketRow,
+        index: number | null,
+        columns: TotalsColumns,
+        gridTemplateColumns: string,
+        splitDayLabel: boolean,
+    ): string {
         const classes = [
             'dashboard-stats-row',
             row.isCurrent ? 'is-current' : '',
             row.isSelected ? 'is-selected' : '',
             index === null ? '' : 'is-selectable',
+            row.startsWeek ? 'is-week-start' : '',
         ].filter(Boolean).join(' ');
         const rowContent = `
-            <span class="dashboard-stats-row-label">${escapeHTML(row.label)}</span>
-            ${columns.showCharacters ? `<span>${escapeHTML(row.totals.characters.toLocaleString())}</span>` : ''}
-            ${columns.showHours ? `<span>${escapeHTML(this.formatHours(row.totals.minutes))}</span>` : ''}
+            ${splitDayLabel
+                ? `<span class="dashboard-stats-row-label dashboard-stats-row-day">${escapeHTML(row.dayOfMonth ?? '')}</span>
+                   <span class="dashboard-stats-row-label dashboard-stats-row-weekday">${escapeHTML(row.weekday ?? '')}</span>`
+                : `<span class="dashboard-stats-row-label">${escapeHTML(row.label)}</span>`}
+            ${columns.showCharacters ? `<span class="dashboard-stats-row-value">${escapeHTML(row.totals.characters.toLocaleString())}</span>` : ''}
+            ${columns.showHours ? `<span class="dashboard-stats-row-value">${escapeHTML(this.formatHours(row.totals.minutes))}</span>` : ''}
         `;
 
         if (index === null) {
@@ -712,13 +743,18 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
         return `<button type="button" class="${classes}" style="grid-template-columns: ${gridTemplateColumns};" data-dashboard-total-index="${index}">${rowContent}</button>`;
     }
 
-    private getTotalsGridTemplate(columns: TotalsColumns): string {
+    private getTotalsGridTemplate(columns: TotalsColumns, splitDayLabel: boolean): string {
+        const characterColumn = splitDayLabel ? 'minmax(3.75rem, max-content)' : 'minmax(5rem, max-content)';
+        const hourColumn = splitDayLabel ? 'minmax(3.75rem, max-content)' : 'minmax(4.25rem, max-content)';
         const metricColumns = [
-            columns.showCharacters ? 'minmax(5rem, max-content)' : '',
-            columns.showHours ? 'minmax(4.25rem, max-content)' : '',
+            columns.showCharacters ? characterColumn : '',
+            columns.showHours ? hourColumn : '',
         ].filter(Boolean);
+        const labelColumns = splitDayLabel
+            ? ['1.75rem', 'minmax(0, 1fr)']
+            : ['minmax(0, 1fr)'];
 
-        return ['minmax(0, 1fr)', ...metricColumns].join(' ');
+        return [...labelColumns, ...metricColumns].join(' ');
     }
 
     private getRowsTotal(rows: Array<{ totals: Totals }>, metric: 'characters' | 'hours'): string {
@@ -767,12 +803,20 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
         }
     }
 
-    private getBucketMeta(label: string, index: number, unit: string, validStart: string): { label: string; subject: string } {
+    private getBucketMeta(
+        label: string,
+        index: number,
+        unit: string,
+        validStart: string,
+    ): { label: string; subject: string; dayOfMonth?: string; weekday?: string } {
         if (unit === 'day') {
             const date = new Date(label + 'T00:00:00');
+            const weekday = date.toLocaleDateString("en-US", { weekday: 'short' }).toUpperCase();
             return {
                 label: this.formatWeekdayDate(date, false),
                 subject: this.formatWeekdayDate(date, true),
+                dayOfMonth: date.getDate().toString().padStart(2, '0'),
+                weekday,
             };
         }
 

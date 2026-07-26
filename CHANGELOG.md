@@ -22,6 +22,7 @@ The format is based on Keep a Changelog, with one section per released version.
  - Missing or unreadable cover uploads fail the media import instead of importing missing data
  - Failed inline media edits now revert on screen and display a "Unable to Save Media" warning
  - Concurrent edits via cloud sync now produce a conflict resolution event
+ - Monthly stats calendar view shows week separation and better day-of-week text
 
 ### Fixed
  - Various HTTP API hardening requirements and data validation fixes

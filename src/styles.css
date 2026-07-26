@@ -3549,6 +3549,16 @@ input:focus, select:focus {
     text-align: left;
 }
 
+.dashboard-stats-table-days .dashboard-stats-row {
+    gap: 0.25rem;
+}
+
+.dashboard-stats-table-days .dashboard-stats-row.is-week-start {
+    margin-top: 0.25rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid color-mix(in srgb, var(--text-secondary) 35%, transparent);
+}
+
 .dashboard-stats-row.is-selectable {
     cursor: pointer;
 }
@@ -3585,10 +3595,13 @@ input:focus, select:focus {
     font-weight: 700;
 }
 
-.dashboard-stats-row span:nth-child(2),
-.dashboard-stats-row span:nth-child(3) {
+.dashboard-stats-row-value {
     text-align: right;
     white-space: nowrap;
+}
+
+.dashboard-stats-row-total-label {
+    grid-column: span 2;
 }
 
 .dashboard-totals-empty {
