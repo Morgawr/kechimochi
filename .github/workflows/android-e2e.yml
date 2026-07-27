@@ -12,6 +12,10 @@ on:
         description: "Android API level (default: 34)"
         required: false
         default: "34"
+      spec:
+        description: "Optional spec path, e.g. e2e/specs/shared/information-enrichment.spec.ts"
+        required: false
+        default: ""
   schedule:
     - cron: '0 6 * * 1'  # Monday 06:00 UTC
 
@@ -31,6 +35,7 @@ jobs:
       AVD_NAME: ${{ github.event.inputs.avd_name || 'Pixel_6_API_34' }}
       EMULATOR_OPTIONS: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
       EMULATOR_PORT: '5554'
+      ANDROID_E2E_SPEC: ${{ github.event.inputs.spec || '' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -113,6 +118,7 @@ jobs:
           AVD_NAME: ${{ env.AVD_NAME }}
           EMULATOR_OPTIONS: ${{ env.EMULATOR_OPTIONS }}
           EMULATOR_PORT: ${{ env.EMULATOR_PORT }}
+          ANDROID_E2E_SPEC: ${{ env.ANDROID_E2E_SPEC }}
         with:
           api-level: ${{ github.event.inputs.api_level || '34' }}
           avd-name: ${{ env.AVD_NAME }}
@@ -128,8 +134,30 @@ jobs:
             appium --port 4723 --allow-insecure=uiautomator2:chromedriver_autodownload --log-level error:debug --log /tmp/appium.log > /tmp/appium.stdout.log 2>&1 &
             APPIUM_PID=$!
             sleep 5
-            npm run e2e:test:android
+            if [ -n "$ANDROID_E2E_SPEC" ]; then
+              case "$ANDROID_E2E_SPEC" in
+                e2e/specs/shared/*.spec.ts|e2e/specs/android/*.spec.ts) ;;
+                *)
+                  echo "::error::Invalid Android E2E spec path: $ANDROID_E2E_SPEC"
+                  kill "$APPIUM_PID" 2>/dev/null || true
+                  exit 2
+                  ;;
+              esac
+              if [ ! -f "$ANDROID_E2E_SPEC" ]; then
+                echo "::error::Android E2E spec does not exist: $ANDROID_E2E_SPEC"
+                kill "$APPIUM_PID" 2>/dev/null || true
+                exit 2
+              fi
+              npm run e2e:test:android -- --spec "$ANDROID_E2E_SPEC"
+            else
+              npm run e2e:test:android
+            fi
             STATUS=$?
+            if [ "$STATUS" -ne 0 ]; then
+              adb devices -l > /tmp/android-devices.txt 2>&1 || true
+              adb -s "emulator-$EMULATOR_PORT" shell dumpsys webviewupdate > /tmp/android-webview.txt 2>&1 || true
+              adb -s "emulator-$EMULATOR_PORT" logcat -d > /tmp/android-logcat.txt 2>&1 || true
+            fi
             kill "$APPIUM_PID" 2>/dev/null || true
             exit $STATUS
 
@@ -141,4 +169,8 @@ jobs:
           path: |
             e2e/logs/
             /tmp/appium.log
+            /tmp/appium.stdout.log
+            /tmp/android-devices.txt
+            /tmp/android-webview.txt
+            /tmp/android-logcat.txt
           if-no-files-found: ignore

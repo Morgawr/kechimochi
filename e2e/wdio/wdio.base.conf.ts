@@ -50,6 +50,35 @@ export function makeConfig(
   const resolvedSpecGlobs = specGlobs.map(glob =>
     path.join(__dirname, '..', 'specs', glob, '*.spec.ts'),
   );
+  const services: NonNullable<WebdriverIO.Config['services']> = [
+    ['visual', {
+      baselineFolder: path.join(__dirname, '..', 'screenshots', 'baseline'),
+      formatImageName: '{tag}',
+      savePerInstance: false,
+      autoSaveBaseline: false,
+      blockOutStatusBar: true,
+      blockOutToolBar: true,
+      clearRuntimeFolder: false,
+      misMatchTolerance: 5,
+      compareOptions: {
+        threshold: 0.5,
+        includeAA: true,
+      },
+      companyName: '',
+      projectName: '',
+      browserName: '',
+      browserVersion: '',
+    }],
+  ];
+
+  // The suite does not use OCR on Android. Avoid starting a missing tesseract
+  // binary in every worker on the long-running emulator job.
+  if (process.env.E2E_PLATFORM !== 'android') {
+    services.push(['ocr', {
+      contrast: 0.25,
+      imagesFolder: path.join(os.tmpdir(), 'kechimochi-ocr-junk'),
+    }]);
+  }
 
   return {
     // ── Runner ─────────────────────────────────────────────────────────
@@ -90,30 +119,7 @@ export function makeConfig(
     },
 
     // ── Services ───────────────────────────────────────────────────────
-    services: [
-      ['visual', {
-        baselineFolder: path.join(__dirname, '..', 'screenshots', 'baseline'),
-        formatImageName: '{tag}',
-        savePerInstance: false,
-        autoSaveBaseline: false,
-        blockOutStatusBar: true,
-        blockOutToolBar: true,
-        clearRuntimeFolder: false,
-        misMatchTolerance: 5,
-        compareOptions: {
-          threshold: 0.5,
-          includeAA: true,
-        },
-        companyName: '',
-        projectName: '',
-        browserName: '',
-        browserVersion: '',
-      }],
-      ['ocr', {
-        contrast: 0.25,
-        imagesFolder: path.join(os.tmpdir(), 'kechimochi-ocr-junk'),
-      }],
-    ],
+    services,
 
     // ── Hooks ──────────────────────────────────────────────────────────
 
@@ -276,7 +282,14 @@ export function makeConfig(
           const failureDirectory = path.join(stageDirectory, 'failures');
           const { mkdirSync } = await import('node:fs');
           mkdirSync(failureDirectory, { recursive: true });
-          await browser.saveScreenshot(path.join(failureDirectory, `${sanitizedTitle}.png`));
+          try {
+            await browser.saveScreenshot(path.join(failureDirectory, `${sanitizedTitle}.png`));
+          } catch (error) {
+            Logger.warn(
+              `[e2e] Could not capture failure screenshot for "${test.title || 'unknown'}": ` +
+              `${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
         }
       }
     },

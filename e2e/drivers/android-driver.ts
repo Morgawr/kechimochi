@@ -25,12 +25,15 @@ export const APPIUM_LOCAL_PORT = 4723;
 const EMULATOR_RECOVERY_TIMEOUT_MS = 60000;
 const EMULATOR_BOOT_TIMEOUT_MS = 300000;
 const EMULATOR_POLL_INTERVAL_MS = 2000;
+const EMULATOR_POST_RECOVERY_SETTLE_MS = 10000;
 const ANDROID_DEBUG_BRIDGE_TIMEOUT_MS = 30000;
 const MAX_EMULATOR_RESTARTS = 2;
 const DEFAULT_EMULATOR_PORT = '5554';
 
 /** Tauri app identifier (src-tauri/tauri.conf.json); run-as / pushFile target. */
 export const ANDROID_PACKAGE_ID = 'com.morg.kechimochi';
+/** Absolute path to the app-private data directory inside the Android device. */
+export const ANDROID_APP_DATA_DIR = `/data/data/${ANDROID_PACKAGE_ID}`;
 
 interface MobileBrowser {
   pushFile: (remotePath: string, base64Data: string) => Promise<void>;
@@ -175,16 +178,27 @@ async function runAndroidDebugBridgeCommand(args: string[]): Promise<string> {
   return stdout.trim();
 }
 
+function getEmulatorSerial(): string {
+  return `emulator-${process.env.EMULATOR_PORT || DEFAULT_EMULATOR_PORT}`;
+}
+
 async function isEmulatorReady(): Promise<boolean> {
   try {
+    const emulatorSerial = getEmulatorSerial();
     const devices = await runAndroidDebugBridgeCommand(['devices']);
     const hasReadyDevice = devices
       .split('\n')
       .slice(1)
-      .some(line => /\tdevice$/.test(line.trim()));
+      .some(line => line.trim() === `${emulatorSerial}\tdevice`);
     if (!hasReadyDevice) return false;
 
-    const bootCompleted = await runAndroidDebugBridgeCommand(['shell', 'getprop', 'sys.boot_completed']);
+    const bootCompleted = await runAndroidDebugBridgeCommand([
+      '-s',
+      emulatorSerial,
+      'shell',
+      'getprop',
+      'sys.boot_completed',
+    ]);
     return bootCompleted === '1';
   } catch {
     return false;
@@ -194,14 +208,54 @@ async function isEmulatorReady(): Promise<boolean> {
 /** Serial listed at all (even if offline) — false once the process is gone. */
 async function isEmulatorSerialPresent(): Promise<boolean> {
   try {
+    const emulatorSerial = getEmulatorSerial();
     const devices = await runAndroidDebugBridgeCommand(['devices']);
     return devices
       .split('\n')
       .slice(1)
-      .some(line => line.trim().startsWith('emulator-'));
+      .some(line => line.trim().startsWith(`${emulatorSerial}\t`));
   } catch {
     return false;
   }
+}
+
+async function isWebViewRuntimeReady(): Promise<boolean> {
+  if (!await isEmulatorReady()) return false;
+
+  try {
+    const webViewState = await runAndroidDebugBridgeCommand([
+      '-s',
+      getEmulatorSerial(),
+      'shell',
+      'dumpsys',
+      'webviewupdate',
+    ]);
+    return /Current WebView package[^\n]*:\s*\([a-zA-Z0-9._]+,/.test(webViewState);
+  } catch {
+    return false;
+  }
+}
+
+async function waitForWebViewRuntime(specName: string, recoveryAction: string): Promise<boolean> {
+  const deadline = Date.now() + EMULATOR_RECOVERY_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (await isWebViewRuntimeReady()) {
+      await new Promise(resolve => setTimeout(resolve, EMULATOR_POST_RECOVERY_SETTLE_MS));
+      Logger.info(
+        `[e2e] [${specName}] Emulator ${recoveryAction}; Android WebView runtime is ready ` +
+        `after a ${EMULATOR_POST_RECOVERY_SETTLE_MS} ms settle period.`,
+      );
+      return true;
+    }
+    await new Promise(resolve => setTimeout(resolve, EMULATOR_POLL_INTERVAL_MS));
+  }
+
+  Logger.error(
+    `[e2e] [${specName}] Emulator ${recoveryAction}, but Android WebView did not become ready ` +
+    `within ${EMULATOR_RECOVERY_TIMEOUT_MS} ms; letting session creation fail so ` +
+    'specFileRetries can requeue.',
+  );
+  return false;
 }
 
 async function resolveEmulatorBinaryPath(): Promise<string> {
@@ -220,13 +274,13 @@ let emulatorRestartCount = 0;
 let emulatorDead = false;
 
 async function reconnectEmulator(specName: string): Promise<void> {
-  await runAndroidDebugBridgeCommand(['reconnect', 'offline']).catch(() => {});
+  await runAndroidDebugBridgeCommand(['-s', getEmulatorSerial(), 'reconnect']).catch(() => {});
   await runAndroidDebugBridgeCommand(['start-server']).catch(() => {});
 
   const deadline = Date.now() + EMULATOR_RECOVERY_TIMEOUT_MS;
   while (Date.now() < deadline) {
     if (await isEmulatorReady()) {
-      Logger.info(`[e2e] [${specName}] Emulator reconnected — proceeding with session.`);
+      await waitForWebViewRuntime(specName, 'reconnected');
       return;
     }
     await new Promise(resolve => setTimeout(resolve, EMULATOR_POLL_INTERVAL_MS));
@@ -262,9 +316,10 @@ async function restartEmulator(specName: string): Promise<void> {
   );
 
   const emulatorPort = process.env.EMULATOR_PORT || DEFAULT_EMULATOR_PORT;
+  const emulatorSerial = getEmulatorSerial();
   const emulatorOptions = (process.env.EMULATOR_OPTIONS || '').split(' ').filter(Boolean);
 
-  await runAndroidDebugBridgeCommand(['-s', `emulator-${emulatorPort}`, 'emu', 'kill']).catch(() => {});
+  await runAndroidDebugBridgeCommand(['-s', emulatorSerial, 'emu', 'kill']).catch(() => {});
   await execFileAsync('pkill', ['-9', '-f', 'qemu-system']).catch(() => {});
 
   const emulatorBinary = await resolveEmulatorBinaryPath();
@@ -275,12 +330,12 @@ async function restartEmulator(specName: string): Promise<void> {
   );
   relaunchedEmulator.unref();
 
-  await runAndroidDebugBridgeCommand(['wait-for-device']).catch(() => {});
+  await runAndroidDebugBridgeCommand(['-s', emulatorSerial, 'wait-for-device']).catch(() => {});
 
   const deadline = Date.now() + EMULATOR_BOOT_TIMEOUT_MS;
   while (Date.now() < deadline) {
     if (await isEmulatorReady()) {
-      Logger.info(`[e2e] [${specName}] Emulator relaunched and booted — proceeding with session.`);
+      await waitForWebViewRuntime(specName, 'relaunched and booted');
       return;
     }
     await new Promise(resolve => setTimeout(resolve, EMULATOR_POLL_INTERVAL_MS));
@@ -308,7 +363,14 @@ export async function ensureEmulatorHealthy(specName: string): Promise<void> {
     return;
   }
 
-  if (await isEmulatorReady()) return;
+  if (await isEmulatorReady()) {
+    if (await isWebViewRuntimeReady()) return;
+    Logger.warn(
+      `[e2e] [${specName}] Emulator boot completed, but its WebView runtime is not ready — waiting.`,
+    );
+    await waitForWebViewRuntime(specName, 'remained booted');
+    return;
+  }
 
   Logger.warn(`[e2e] [${specName}] Emulator not ready before session — attempting recovery.`);
 

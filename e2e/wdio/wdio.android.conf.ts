@@ -8,10 +8,16 @@
 
 import path from 'node:path';
 import { makeConfig } from './wdio.base.conf.js';
-import { androidDriver, resolveAppiumConnection, ensureEmulatorHealthy } from '../drivers/android-driver.js';
+import {
+  ANDROID_APP_DATA_DIR,
+  androidDriver,
+  resolveAppiumConnection,
+  ensureEmulatorHealthy,
+} from '../drivers/android-driver.js';
 import { ensureAndroidWebContext } from '../helpers/common.js';
 
 process.env.E2E_PLATFORM = 'android';
+process.env.KECHIMOCHI_ANDROID_APP_DATA_DIR = ANDROID_APP_DATA_DIR;
 
 const baseConfig = makeConfig(androidDriver, ['shared/**', 'android/**']);
 

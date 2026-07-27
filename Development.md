@@ -194,11 +194,18 @@ Run the Android suite (shared + Android-only specs):
 npm run e2e:android
 ```
 
+Run one Android spec:
+```bash
+npm run e2e:android -- --spec e2e/specs/shared/information-enrichment.spec.ts
+```
+
 > **Running the emulator inside a VM/CI** needs nested virtualization (KVM); without it the emulator
 > falls back to software rendering and is too slow to be usable. On GitHub's Ubuntu runners KVM is
 > available but `/dev/kvm` must be opened up — `android-e2e.yml` does this in its "enable KVM" step.
 > Developing in a VM with no nested virtualization (no `/dev/kvm`) means you can't run it locally at
 > all — trigger the `Android E2E` workflow manually (`workflow_dispatch`) to run it in CI instead.
+> Set its optional `spec` input to a path under `e2e/specs/shared/` or `e2e/specs/android/` for a
+> targeted run; leave it blank for the full suite.
 
 Target a remote Appium grid (BrowserStack, Sauce Labs, LambdaTest, AWS Device Farm):
 ```bash

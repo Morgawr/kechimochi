@@ -6,7 +6,7 @@ import {
   editMostRecentLogFromDetail,
   logActivityFromDetail,
 } from '../../helpers/media-detail.js';
-import { setSelect } from '../../helpers/form-controls.js';
+import { getSelectValue, setSelect } from '../../helpers/form-controls.js';
 import { waitForCurrentPieChartData } from '../../helpers/dashboard.js';
 
 describe('CUJ: Activity Record Integrity', () => {
@@ -47,7 +47,7 @@ describe('CUJ: Activity Record Integrity', () => {
     await navigateTo('media');
     await clickMediaItem(title);
     await setSelect('#default-activity-type', { text: 'Watching' });
-    expect(await $('#default-activity-type').getValue()).toBe('Watching');
+    expect(await getSelectValue('#default-activity-type')).toBe('Watching');
 
     await navigateTo('dashboard');
     expect(await $(`.dashboard-activity-item[data-activity-title="${title}"]`).getText()).toContain('of Reading');

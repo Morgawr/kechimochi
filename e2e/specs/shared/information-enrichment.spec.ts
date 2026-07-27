@@ -11,11 +11,17 @@ import {
 import { addExtraField, getDescription, getExtraField } from '../../helpers/media-detail.js';
 
 describe('CUJ: Information Enrichment (Mocked Metadata Fetching)', () => {
-    const coverFixture = path.join(
-        process.env.KECHIMOCHI_DATA_DIR || path.resolve(process.cwd(), 'e2e', 'fixtures'),
-        'covers',
-        'placeholder.png',
-    );
+    const getCoverFixture = (): string => {
+        const androidAppDataDirectory = process.env.KECHIMOCHI_ANDROID_APP_DATA_DIR;
+        if (androidAppDataDirectory) {
+            return path.posix.join(androidAppDataDirectory, 'covers', 'placeholder.png');
+        }
+        return path.join(
+            process.env.KECHIMOCHI_DATA_DIR || path.resolve(process.cwd(), 'e2e', 'fixtures'),
+            'covers',
+            'placeholder.png',
+        );
+    };
 
     before(async () => {
         await waitForAppReady();
@@ -42,7 +48,7 @@ describe('CUJ: Information Enrichment (Mocked Metadata Fetching)', () => {
         await browser.execute((data, downloadedImagePath) => {
             (globalThis as unknown as { mockMetadata: unknown, mockDownloadedImagePath: string }).mockMetadata = data;
             (globalThis as unknown as { mockMetadata: unknown, mockDownloadedImagePath: string }).mockDownloadedImagePath = downloadedImagePath;
-        }, mockData, coverFixture);
+        }, mockData, getCoverFixture());
 
         await addExtraField('Conflicts', 'Old value');
         await addExtraField('Stay', 'Original');

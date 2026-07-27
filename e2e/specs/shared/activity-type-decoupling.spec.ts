@@ -3,6 +3,7 @@ import { navigateTo, verifyActiveView } from '../../helpers/navigation.js';
 import { clickMediaItem } from '../../helpers/library.js';
 import { addExtraField, logActivityFromDetail, backToGrid } from '../../helpers/media-detail.js';
 import { closeModal, getTopmostVisibleOverlay } from '../../helpers/common.js';
+import { getSelectValue } from '../../helpers/form-controls.js';
 
 describe('CUJ: Activity Type Decoupling', () => {
     before(async () => {
@@ -25,8 +26,8 @@ describe('CUJ: Activity Type Decoupling', () => {
         expect(logsText).toContain('30');
 
         await $('.media-detail-log-item .edit-log-btn').click();
-        const editOverlay = await getTopmostVisibleOverlay('#add-activity-form');
-        expect(await editOverlay.$('#activity-type').getValue()).toBe('Watching');
+        await getTopmostVisibleOverlay('#add-activity-form');
+        expect(await getSelectValue('#activity-type')).toBe('Watching');
         await closeModal('#activity-cancel');
     });
 
