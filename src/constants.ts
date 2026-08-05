@@ -70,6 +70,7 @@ export const THEME_MODES: Record<string, 'light' | 'dark'> = {
     'fire-red': 'dark',
     'yellow-lime': 'dark',
     'noctua-brown': 'dark',
+    'eink': 'light',
 };
 
 export const TRACKING_STATUSES = [

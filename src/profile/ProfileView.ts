@@ -97,6 +97,7 @@ const THEME_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
     { value: 'fire-red', label: 'Fire Red' },
     { value: 'yellow-lime', label: 'Yellow Lime' },
     { value: 'noctua-brown', label: 'Noctua Brown' },
+    { value: 'eink', label: 'E-Ink' },
 ];
 
 const WEEK_START_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
