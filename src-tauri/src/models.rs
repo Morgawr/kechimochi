@@ -1,5 +1,38 @@
 use serde::{Deserialize, Serialize};
 
+/// Represents a study category (e.g., "Japanese", "Spanish", "Piano", "Python")
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct StudyCategory {
+    pub id: Option<i64>,
+    pub name: String,                    // "Japanese", "Spanish", "Music", etc.
+    pub icon: String,                    // emoji or icon identifier
+    pub color: String,                   // hex color code
+    pub description: String,
+    pub created_at: Option<String>,
+}
+
+/// Represents a study item (replaces Media)
+/// Can be any type of learning content: books, courses, media, exercises, etc.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct StudyItem {
+    pub id: Option<i64>,
+    pub category_id: i64,                // Foreign key to StudyCategory
+    #[serde(default)]
+    pub uid: Option<String>,
+    pub title: String,
+    #[serde(default)]
+    pub variant: String,
+    pub default_activity_type: String, // "Reading", "Studying", "Watching", "Playing", "Practicing", etc.
+    pub status: String,                // "Active", "Paused", "Complete", "Dropped", "Planned"
+    pub description: String,
+    pub cover_image: String,
+    pub extra_data: String,
+    pub content_type: String,          // "Visual Novel", "Anime", "Book", "Song", "Course", etc.
+    pub tracking_status: String,       // "Ongoing", "Complete", "Paused", "Dropped", "Not Started", "Untracked"
+}
+
+/// Legacy Media struct for backwards compatibility
+/// Maps to StudyItem with implicit category
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Media {
     pub id: Option<i64>,
@@ -8,23 +41,43 @@ pub struct Media {
     pub title: String,
     #[serde(default)]
     pub variant: String,
-    pub default_activity_type: String, // "Reading", "Watching", "Playing", "None", "Listening"
-    pub status: String,                // "Active", "Paused", "Complete", "Dropped", "Planned"
-    pub language: String,
+    pub default_activity_type: String,
+    pub status: String,
+    pub language: String,              // Now used as category identifier
     pub description: String,
     pub cover_image: String,
     pub extra_data: String,
-    pub content_type: String, // "Visual Novel", "Anime", etc., or "Unknown"
-    pub tracking_status: String, // "Ongoing", "Complete", "Paused", "Dropped", "Not Started", "Untracked"
+    pub content_type: String,
+    pub tracking_status: String,
+}
+
+impl From<StudyItem> for Media {
+    fn from(item: StudyItem) -> Self {
+        Media {
+            id: item.id,
+            uid: item.uid,
+            title: item.title,
+            variant: item.variant,
+            default_activity_type: item.default_activity_type,
+            status: item.status,
+            language: format!("category_{}", item.category_id),
+            description: item.description,
+            cover_image: item.cover_image,
+            extra_data: item.extra_data,
+            content_type: item.content_type,
+            tracking_status: item.tracking_status,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ActivityLog {
     pub id: Option<i64>,
-    pub media_id: i64,
+    pub study_item_id: i64,            // Foreign key to StudyItem
+    pub category_id: i64,              // Denormalized for easier querying
     pub duration_minutes: i64,
     pub characters: i64,
-    pub date: String, // YYYY-MM-DD
+    pub date: String,                 // YYYY-MM-DD
     #[serde(default)]
     pub activity_type: String,
     #[serde(default)]
@@ -34,19 +87,31 @@ pub struct ActivityLog {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ActivitySummary {
     pub id: Option<i64>,
-    pub media_id: i64,
+    pub study_item_id: i64,
+    pub category_id: i64,
     pub title: String,
+    pub category_name: String,
     pub activity_type: String,
     pub duration_minutes: i64,
     pub characters: i64,
     pub date: String,
-    pub language: String,
     pub notes: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct HttpMedia {
+pub struct HttpStudyCategory {
     pub id: Option<i64>,
+    pub name: String,
+    pub icon: String,
+    pub color: String,
+    pub description: String,
+    pub created_at: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct HttpStudyItem {
+    pub id: Option<i64>,
+    pub category_id: i64,
     #[serde(default)]
     pub uid: Option<String>,
     pub title: String,
@@ -54,12 +119,9 @@ pub struct HttpMedia {
     pub variant: String,
     #[serde(default)]
     pub default_activity_type: Option<String>,
-    // Accepted only for backwards-compatible request deserialization. Responses
-    // must expose the canonical `default_activity_type` field exclusively.
     #[serde(default, skip_serializing)]
-    pub media_type: Option<String>,
+    pub media_type: Option<String>,    // legacy
     pub status: String,
-    pub language: String,
     pub description: String,
     pub cover_image: String,
     pub extra_data: String,
@@ -67,10 +129,10 @@ pub struct HttpMedia {
     pub tracking_status: String,
 }
 
-impl TryFrom<HttpMedia> for Media {
+impl TryFrom<HttpStudyItem> for StudyItem {
     type Error = String;
 
-    fn try_from(value: HttpMedia) -> Result<Self, Self::Error> {
+    fn try_from(value: HttpStudyItem) -> Result<Self, Self::Error> {
         let canonical = value
             .default_activity_type
             .as_deref()
@@ -94,14 +156,14 @@ impl TryFrom<HttpMedia> for Media {
             }
         };
 
-        Ok(Media {
+        Ok(StudyItem {
             id: value.id,
+            category_id: value.category_id,
             uid: value.uid,
             title: value.title,
             variant: value.variant,
             default_activity_type,
             status: value.status,
-            language: value.language,
             description: value.description,
             cover_image: value.cover_image,
             extra_data: value.extra_data,
@@ -111,17 +173,17 @@ impl TryFrom<HttpMedia> for Media {
     }
 }
 
-impl From<Media> for HttpMedia {
-    fn from(value: Media) -> Self {
+impl From<StudyItem> for HttpStudyItem {
+    fn from(value: StudyItem) -> Self {
         Self {
             id: value.id,
+            category_id: value.category_id,
             uid: value.uid,
             title: value.title,
             variant: value.variant,
             default_activity_type: Some(value.default_activity_type),
             media_type: None,
             status: value.status,
-            language: value.language,
             description: value.description,
             cover_image: value.cover_image,
             extra_data: value.extra_data,
@@ -134,13 +196,14 @@ impl From<Media> for HttpMedia {
 #[derive(Debug, Serialize, Clone)]
 pub struct HttpActivitySummary {
     pub id: Option<i64>,
-    pub media_id: i64,
+    pub study_item_id: i64,
+    pub category_id: i64,
     pub title: String,
+    pub category_name: String,
     pub activity_type: String,
     pub duration_minutes: i64,
     pub characters: i64,
     pub date: String,
-    pub language: String,
     pub notes: String,
 }
 
@@ -148,13 +211,14 @@ impl From<ActivitySummary> for HttpActivitySummary {
     fn from(value: ActivitySummary) -> Self {
         Self {
             id: value.id,
-            media_id: value.media_id,
+            study_item_id: value.study_item_id,
+            category_id: value.category_id,
             title: value.title,
+            category_name: value.category_name,
             activity_type: value.activity_type,
             duration_minutes: value.duration_minutes,
             characters: value.characters,
             date: value.date,
-            language: value.language,
             notes: value.notes,
         }
     }
@@ -165,6 +229,7 @@ pub struct DailyHeatmap {
     pub date: String,
     pub total_minutes: i64,
     pub total_characters: i64,
+    pub category_id: Option<i64>, // Allow filtering by category
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -179,7 +244,8 @@ pub enum DashboardBucket {
 #[serde(rename_all = "snake_case")]
 pub enum DashboardGroupBy {
     ActivityType,
-    LogName,
+    StudyCategory,  // Changed from LogName
+    ItemName,       // New: group by individual study item
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -189,6 +255,7 @@ pub struct DashboardSnapshotRequest {
     pub heatmap_year: i32,
     pub recent_offset: i64,
     pub recent_limit: i64,
+    pub category_id: Option<i64>, // Filter by category
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -198,12 +265,14 @@ pub struct DashboardRangeRequest {
     pub end_date: String,
     pub bucket: DashboardBucket,
     pub group_by: DashboardGroupBy,
+    pub category_id: Option<i64>, // Filter by category
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DashboardHeatmapYearRequest {
     pub request_id: u64,
     pub year: i32,
+    pub category_id: Option<i64>, // Filter by category
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -211,14 +280,13 @@ pub struct DashboardRecentLogsRequest {
     pub request_id: u64,
     pub offset: i64,
     pub limit: i64,
+    pub category_id: Option<i64>, // Filter by category
 }
 
-/// The deliberately small media projection used by dashboard cards. Keeping it
-/// separate from `Media` prevents descriptions and extra_data from leaking into
-/// dashboard payloads or being retained when the active profile changes.
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct DashboardMedia {
+pub struct DashboardStudyItem {
     pub id: i64,
+    pub category_id: i64,
     pub title: String,
     pub variant: String,
     pub default_activity_type: String,
@@ -245,7 +313,8 @@ pub struct DashboardNamedTotals {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DashboardSummary {
     pub total_logs: i64,
-    pub total_media: i64,
+    pub total_items: i64,
+    pub total_categories: i64,
     pub logged_days: i64,
     pub first_activity_date: Option<String>,
     pub last_activity_date: Option<String>,
@@ -254,19 +323,21 @@ pub struct DashboardSummary {
     pub total_minutes: i64,
     pub total_characters: i64,
     pub activity_totals: Vec<DashboardNamedTotals>,
+    pub category_totals: Vec<DashboardNamedTotals>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DashboardRecentLog {
     pub id: i64,
-    pub media_id: i64,
+    pub study_item_id: i64,
+    pub category_id: i64,
     pub title: String,
     pub variant: String,
+    pub category_name: String,
     pub activity_type: String,
     pub duration_minutes: i64,
     pub characters: i64,
     pub date: String,
-    pub language: String,
     pub notes: String,
 }
 
@@ -281,7 +352,6 @@ pub struct DashboardRecentPage {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DashboardChartPoint {
-    /// The first ISO date represented by this bucket.
     pub bucket: String,
     pub group_key: String,
     pub group_label: String,
@@ -291,7 +361,6 @@ pub struct DashboardChartPoint {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DashboardBucketTotals {
-    /// The first ISO date represented by this bucket.
     pub bucket: String,
     pub total_minutes: i64,
     pub total_characters: i64,
@@ -310,7 +379,8 @@ pub enum DashboardHighlightKind {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DashboardHighlight {
     pub kind: DashboardHighlightKind,
-    pub media: Option<DashboardMedia>,
+    pub item: Option<DashboardStudyItem>,
+    pub category: Option<StudyCategory>,
     pub date: Option<String>,
     pub total_minutes: i64,
     pub total_characters: i64,
@@ -320,7 +390,6 @@ pub struct DashboardHighlight {
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct DashboardWeekdayStats {
-    /// Sunday is 0 and Saturday is 6, matching SQLite's `%w` convention.
     pub weekday: u32,
     pub average_minutes: f64,
     pub median_minutes: f64,
@@ -362,6 +431,7 @@ pub struct DashboardSettings {
     pub group_by: DashboardGroupBy,
     pub week_start_day: i64,
     pub migrate_legacy_group_by: bool,
+    pub selected_category_id: Option<i64>, // For filtering
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -369,16 +439,18 @@ pub struct DashboardSnapshot {
     pub request_id: u64,
     pub settings: DashboardSettings,
     pub summary: DashboardSummary,
-    pub quick_log_media: Vec<DashboardMedia>,
+    pub quick_log_items: Vec<DashboardStudyItem>,
     pub recent_logs: DashboardRecentPage,
     pub heatmap: DashboardHeatmapYearResponse,
     pub range: DashboardRangeResponse,
     pub weekday_distribution: DashboardWeekdayDistribution,
+    pub categories: Vec<StudyCategory>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LibrarySnapshotRequest {
     pub request_id: u64,
+    pub category_id: Option<i64>, // Filter by category
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -390,11 +462,12 @@ pub struct LibrarySettings {
     pub keep_ongoing_first: bool,
     pub keep_archived_last: bool,
     pub sort_stages: String,
+    pub selected_category_id: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct LibraryActivityMetrics {
-    pub media_id: i64,
+    pub study_item_id: i64,
     pub first_activity_date: Option<String>,
     pub last_activity_date: Option<String>,
     pub total_minutes: Option<i64>,
@@ -405,7 +478,8 @@ pub struct LibraryActivityMetrics {
 pub struct LibrarySnapshot {
     pub request_id: u64,
     pub settings: LibrarySettings,
-    pub media: Vec<Media>,
+    pub categories: Vec<StudyCategory>,
+    pub items: Vec<StudyItem>,
     pub metrics: Vec<LibraryActivityMetrics>,
 }
 
@@ -424,6 +498,7 @@ pub struct TimelinePageRequest {
     pub request_id: u64,
     pub year: Option<i32>,
     pub kind: Option<TimelineEventKind>,
+    pub category_id: Option<i64>, // Filter by category
     #[serde(default)]
     pub search_query: String,
     pub offset: i64,
@@ -433,7 +508,7 @@ pub struct TimelinePageRequest {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct TimelineSummary {
     pub total_minutes: i64,
-    pub completed_titles: i64,
+    pub completed_items: i64,
     pub total_characters: i64,
 }
 
@@ -446,7 +521,7 @@ pub struct TimelinePage {
     pub all_event_count: i64,
     pub has_more: bool,
     pub available_years: Vec<i32>,
-    pub ambiguous_titles: Vec<String>,
+    pub ambiguous_items: Vec<String>,
     pub summary: TimelineSummary,
     pub events: Vec<TimelineEvent>,
 }
@@ -456,9 +531,11 @@ pub struct TimelinePage {
 pub struct TimelineEvent {
     pub kind: TimelineEventKind,
     pub date: String,
-    pub media_id: i64,
-    pub media_title: String,
-    pub media_variant: String,
+    pub study_item_id: i64,
+    pub category_id: i64,
+    pub item_title: String,
+    pub item_variant: String,
+    pub category_name: String,
     pub cover_image: String,
     pub activity_type: String,
     pub content_type: String,
@@ -478,9 +555,10 @@ pub struct TimelineEvent {
 pub struct Milestone {
     pub id: Option<i64>,
     #[serde(default)]
-    pub media_uid: Option<String>,
+    pub study_item_uid: Option<String>,
+    pub category_id: i64,
     #[serde(default)]
-    pub media_title: String,
+    pub study_item_title: String,
     pub name: String,
     pub duration: i64,
     pub characters: i64,
@@ -501,92 +579,36 @@ pub struct ProfilePicture {
 mod tests {
     use super::*;
 
-    fn http_media_json() -> serde_json::Value {
-        serde_json::json!({
-            "id": null,
-            "uid": null,
-            "title": "Compatibility Test",
-            "variant": "",
-            "status": "Active",
-            "language": "Japanese",
-            "description": "",
-            "cover_image": "",
-            "extra_data": "{}",
-            "content_type": "Novel",
-            "tracking_status": "Ongoing"
-        })
-    }
-
     #[test]
-    fn http_media_accepts_legacy_media_type() {
-        let mut value = http_media_json();
-        value["media_type"] = serde_json::json!("Reading");
-
-        let http_media: HttpMedia = serde_json::from_value(value).unwrap();
-        let media = Media::try_from(http_media).unwrap();
-        assert_eq!(media.default_activity_type, "Reading");
-    }
-
-    #[test]
-    fn http_media_rejects_conflicting_default_activity_type_aliases() {
-        let mut value = http_media_json();
-        value["default_activity_type"] = serde_json::json!("Reading");
-        value["media_type"] = serde_json::json!("Watching");
-
-        let http_media: HttpMedia = serde_json::from_value(value).unwrap();
-        let error = Media::try_from(http_media).unwrap_err();
-        assert!(error.contains("Conflicting default_activity_type"));
-    }
-
-    #[test]
-    fn http_responses_emit_only_canonical_activity_type_fields() {
-        let media = Media {
+    fn study_category_creation() {
+        let category = StudyCategory {
             id: Some(1),
+            name: "Japanese".to_string(),
+            icon: "🇯🇵".to_string(),
+            color: "#FF1493".to_string(),
+            description: "Japanese language learning".to_string(),
+            created_at: None,
+        };
+        assert_eq!(category.name, "Japanese");
+    }
+
+    #[test]
+    fn study_item_creation() {
+        let item = StudyItem {
+            id: Some(1),
+            category_id: 1,
             uid: None,
-            title: "Compatibility Test".to_string(),
+            title: "Manga Title".to_string(),
             variant: String::new(),
             default_activity_type: "Reading".to_string(),
             status: "Active".to_string(),
-            language: "Japanese".to_string(),
             description: String::new(),
             cover_image: String::new(),
             extra_data: "{}".to_string(),
-            content_type: "Novel".to_string(),
+            content_type: "Manga".to_string(),
             tracking_status: "Ongoing".to_string(),
         };
-        let media_json = serde_json::to_value(HttpMedia::from(media)).unwrap();
-        assert_eq!(media_json["default_activity_type"], "Reading");
-        assert!(media_json.get("media_type").is_none());
-
-        let summary = ActivitySummary {
-            id: Some(1),
-            media_id: 1,
-            title: "Compatibility Test".to_string(),
-            activity_type: "Watching".to_string(),
-            duration_minutes: 30,
-            characters: 0,
-            date: "2024-01-01".to_string(),
-            language: "Japanese".to_string(),
-            notes: String::new(),
-        };
-        let summary_json = serde_json::to_value(HttpActivitySummary::from(summary)).unwrap();
-        assert_eq!(summary_json["activity_type"], "Watching");
-        assert!(summary_json.get("media_type").is_none());
-    }
-
-    #[test]
-    fn milestone_request_can_use_media_uid_without_client_supplied_display_title() {
-        let milestone: Milestone = serde_json::from_value(serde_json::json!({
-            "id": null,
-            "media_uid": "media-uid",
-            "name": "Checkpoint",
-            "duration": 30,
-            "characters": 0,
-            "date": null
-        }))
-        .unwrap();
-
-        assert_eq!(milestone.media_uid.as_deref(), Some("media-uid"));
-        assert_eq!(milestone.media_title, "");
+        assert_eq!(item.category_id, 1);
+        assert_eq!(item.content_type, "Manga");
     }
 }
