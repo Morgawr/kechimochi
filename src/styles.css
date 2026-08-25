@@ -515,6 +515,8 @@ body[data-theme='eink'] {
   --status-paused-led: #ffffff;       --status-paused-fill: #ffffff;       --status-paused-text: #000000;
   --status-dropped-led: #000000;      --status-dropped-fill: #ffffff;      --status-dropped-text: #000000;
   --status-not-started-led: #ffffff;  --status-not-started-fill: #ffffff;  --status-not-started-text: #000000;
+
+  font-weight: 500;
 }
 
 * {
@@ -5019,10 +5021,6 @@ body[data-theme='eink'] .modal-content,
 body[data-theme='eink'] input,
 body[data-theme='eink'] select {
   border: 2px solid var(--border-color) !important;
-}
-
-body[data-theme='eink'] {
-  font-weight: 500;
 }
 
 body[data-theme='eink'] .activity-btn-icon {
