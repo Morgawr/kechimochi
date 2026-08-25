@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-08-25
+
 ### Added
  - Business cards now show time *and* characters. Added toggle for choice of which metric to calculate percentages by.
  - Added app startup workflow to recover a database with corrupted milestones
