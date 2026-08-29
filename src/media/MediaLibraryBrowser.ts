@@ -694,7 +694,6 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
             <div class="media-grid-toolbar-shell">
                 <div class="media-grid-toolbar">
                     <div class="media-grid-toolbar-primary">
-                        <h2 style="margin: 0.5rem auto 0.5em 0; color: var(--text-primary); white-space: nowrap;">Library</h2>
                         <button class="btn btn-ghost" id="btn-add-media-grid" style="font-size: 0.9rem; padding: 0.4rem 0.6rem;">+ New Media</button>
                         <button class="btn btn-ghost" id="btn-refresh-grid" title="Refresh Library" style="padding: 0.4rem; display: flex; align-items: center; justify-content: center;">
                             <svg id="refresh-icon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
