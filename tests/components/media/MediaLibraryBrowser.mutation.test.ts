@@ -71,10 +71,7 @@ describe('MediaLibraryBrowser context menu resolution and in-place mutation', ()
             createState(mediaList),
             vi.fn(),
             vi.fn(),
-            undefined,
-            undefined,
-            undefined,
-            onActionCommitted,
+            { onActionCommitted },
         );
         component.render();
         return component;
@@ -157,7 +154,7 @@ describe('MediaLibraryBrowser context menu resolution and in-place mutation', ()
             { ...createState(mediaList), typeFilters: ['Anime', 'Manga'] },
             vi.fn(),
             vi.fn(),
-            onFilterChange,
+            { onFilterChange },
         );
         component.render();
 

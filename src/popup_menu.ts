@@ -108,7 +108,8 @@ export function openPopupMenu(options: PopupMenuOptions): PopupMenuHandle {
             return;
         }
 
-        const currentIndex = buttons.findIndex(button => button === document.activeElement);
+        const activeElement = document.activeElement;
+        const currentIndex = activeElement instanceof HTMLButtonElement ? buttons.indexOf(activeElement) : -1;
         const noItemFocused = currentIndex === -1;
         if (event.key === 'ArrowDown') {
             event.preventDefault();

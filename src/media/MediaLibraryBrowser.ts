@@ -188,6 +188,13 @@ export interface LibraryMediaSelection {
     navigationIds: readonly number[];
 }
 
+export interface MediaLibraryBrowserCallbacks {
+    onFilterChange?: (filters: MediaLibraryFilters) => void;
+    onLayoutChange?: (layout: LibraryLayoutMode) => void;
+    onGridZoomChange?: (gridZoom: number) => void;
+    onActionCommitted?: () => Promise<void>;
+}
+
 export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
     private readonly onMediaClick: (selection: LibraryMediaSelection) => void;
     private readonly onDataChange: (jumpToId?: number) => Promise<void>;
@@ -214,10 +221,12 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         initialState: MediaLibraryBrowserInitialState,
         onMediaClick: (selection: LibraryMediaSelection) => void,
         onDataChange: (jumpToId?: number) => Promise<void>,
-        onFilterChange?: (filters: MediaLibraryFilters) => void,
-        onLayoutChange?: (layout: LibraryLayoutMode) => void,
-        onGridZoomChange?: (gridZoom: number) => void,
-        onActionCommitted?: () => Promise<void>,
+        {
+            onFilterChange,
+            onLayoutChange,
+            onGridZoomChange,
+            onActionCommitted,
+        }: MediaLibraryBrowserCallbacks = {},
     ) {
         const initialExtraDataIndex = buildExtraDataIndex(initialState.mediaList);
         const revalidatedFilterRules = revalidateLibraryFilterRules(
@@ -987,10 +996,15 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
             if (!referenceElement) return false;
         }
 
+        if (referenceElement) {
+            referenceElement.before(mutatedElement);
+            return true;
+        }
+
         const scrollContainer = layout.getScrollContainer();
         if (!scrollContainer) return false;
 
-        scrollContainer.insertBefore(mutatedElement, referenceElement);
+        scrollContainer.append(mutatedElement);
         return true;
     }
 

@@ -20,9 +20,9 @@ export class MediaGrid extends Component<MediaGridState> {
     private currentRenderId = 0;
     private childItems: MediaItem[] = [];
     private visibilityController: CoverVisibilityController | null = null;
-    private itemsByMediaId = new Map<number, MediaItem>();
-    private elementsByMediaId = new Map<number, HTMLElement>();
-    private headerElementsByContentType = new Map<string, HTMLElement>();
+    private readonly itemsByMediaId = new Map<number, MediaItem>();
+    private readonly elementsByMediaId = new Map<number, HTMLElement>();
+    private readonly headerElementsByContentType = new Map<string, HTMLElement>();
     private isRenderComplete = false;
 
     constructor(container: HTMLElement, initialState: MediaGridState, onMediaClick: (mediaId: number) => void) {

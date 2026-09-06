@@ -288,7 +288,7 @@ describe('MediaView', () => {
         await renderAndWaitForBrowser(component);
 
         const onFilterChange = requireDefined(
-            vi.mocked(MediaLibraryBrowser).mock.calls[0][4],
+            vi.mocked(MediaLibraryBrowser).mock.calls[0][4]?.onFilterChange,
             'MediaLibraryBrowser onFilterChange callback',
         );
         onFilterChange({
@@ -721,7 +721,7 @@ describe('MediaView', () => {
         await renderAndWaitForBrowser(component);
 
         const onFilterChange = requireDefined(
-            vi.mocked(MediaLibraryBrowser).mock.calls[0][4],
+            vi.mocked(MediaLibraryBrowser).mock.calls[0][4]?.onFilterChange,
             'MediaLibraryBrowser onFilterChange callback',
         );
         onFilterChange({
@@ -750,7 +750,7 @@ describe('MediaView', () => {
         await renderAndWaitForBrowser(component);
 
         const onFilterChange = requireDefined(
-            vi.mocked(MediaLibraryBrowser).mock.calls[0][4],
+            vi.mocked(MediaLibraryBrowser).mock.calls[0][4]?.onFilterChange,
             'MediaLibraryBrowser onFilterChange callback',
         );
         onFilterChange({ groupByType: true });
@@ -766,7 +766,7 @@ describe('MediaView', () => {
         await renderAndWaitForBrowser(component);
 
         const onLayoutChange = requireDefined(
-            vi.mocked(MediaLibraryBrowser).mock.calls[0][5],
+            vi.mocked(MediaLibraryBrowser).mock.calls[0][4]?.onLayoutChange,
             'MediaLibraryBrowser onLayoutChange callback',
         );
         onLayoutChange('list');
@@ -813,7 +813,7 @@ describe('MediaView', () => {
         await renderAndWaitForBrowser(component);
 
         const onGridZoomChange = requireDefined(
-            vi.mocked(MediaLibraryBrowser).mock.calls[0][6],
+            vi.mocked(MediaLibraryBrowser).mock.calls[0][4]?.onGridZoomChange,
             'MediaLibraryBrowser onGridZoomChange callback',
         );
         onGridZoomChange(70);
@@ -998,7 +998,7 @@ describe('MediaView', () => {
 
         function getOnActionCommitted(): () => Promise<void> {
             return requireDefined(
-                vi.mocked(MediaLibraryBrowser).mock.calls.at(-1)?.[7],
+                vi.mocked(MediaLibraryBrowser).mock.calls.at(-1)?.[4]?.onActionCommitted,
                 'MediaLibraryBrowser onActionCommitted callback',
             );
         }
@@ -1078,7 +1078,7 @@ describe('MediaView', () => {
 
             expect(api.getAllMedia).toHaveBeenCalledOnce();
             expect(browserInstance().applyLibraryMutation).not.toHaveBeenCalled();
-            expect(vi.mocked(MediaLibraryBrowser).mock.calls.length).toBe(callsBefore);
+            expect(vi.mocked(MediaLibraryBrowser).mock.calls).toHaveLength(callsBefore);
         });
 
         it('applies nothing when the mutation refetch resolves after a newer load has already committed', async () => {

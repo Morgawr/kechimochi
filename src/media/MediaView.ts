@@ -828,35 +828,37 @@ private async handleBack() {
             async (jumpToId) => {
                 await this.loadData(jumpToId).catch((err) => Logger.error('Failed to jump to media', err));
             },
-            (filters) => {
-                const oldFilters = this.state.libraryFilters;
-                this.state.libraryFilters = { ...oldFilters, ...filters };
-                this.captureRenderedLibraryPresentation();
+            {
+                onFilterChange: (filters) => {
+                    const oldFilters = this.state.libraryFilters;
+                    this.state.libraryFilters = { ...oldFilters, ...filters };
+                    this.captureRenderedLibraryPresentation();
 
-                for (const write of libraryPreferenceWrites(oldFilters, filters)) {
+                    for (const write of libraryPreferenceWrites(oldFilters, filters)) {
+                        this.runAsync(
+                            setSetting(write.key, write.value),
+                            `Failed to persist ${write.errorLabel} preference`,
+                        );
+                    }
+                },
+                onLayoutChange: (layout) => {
+                    this.state.preferredLayout = layout;
+                    this.captureRenderedLibraryPresentation();
                     this.runAsync(
-                        setSetting(write.key, write.value),
-                        `Failed to persist ${write.errorLabel} preference`,
+                        setSetting(SETTING_KEYS.LIBRARY_LAYOUT_MODE, layout),
+                        'Failed to persist library layout preference',
                     );
-                }
+                },
+                onGridZoomChange: (gridZoom) => {
+                    this.state.gridZoom = gridZoom;
+                    this.captureRenderedLibraryPresentation();
+                    this.runAsync(
+                        setSetting(SETTING_KEYS.LIBRARY_GRID_ZOOM, gridZoom.toString()),
+                        'Failed to persist library grid zoom',
+                    );
+                },
+                onActionCommitted: this.handleActionCommitted,
             },
-            (layout) => {
-                this.state.preferredLayout = layout;
-                this.captureRenderedLibraryPresentation();
-                this.runAsync(
-                    setSetting(SETTING_KEYS.LIBRARY_LAYOUT_MODE, layout),
-                    'Failed to persist library layout preference',
-                );
-            },
-            (gridZoom) => {
-                this.state.gridZoom = gridZoom;
-                this.captureRenderedLibraryPresentation();
-                this.runAsync(
-                    setSetting(SETTING_KEYS.LIBRARY_GRID_ZOOM, gridZoom.toString()),
-                    'Failed to persist library grid zoom',
-                );
-            },
-            this.handleActionCommitted,
         );
         this.activeSubComponent.render();
         this.captureRenderedLibraryPresentation();

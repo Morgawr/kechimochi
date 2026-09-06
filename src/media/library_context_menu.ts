@@ -31,45 +31,32 @@ async function addMilestoneFromLibrary(media: Media): Promise<MediaActionOutcome
 }
 
 function buildActionConfigs(media: Media): LibraryContextMenuActionConfig[] {
-    const configs: LibraryContextMenuActionConfig[] = [
+    const addMilestone: LibraryContextMenuActionConfig[] = canAddMilestone(media)
+        ? [{ id: 'addMilestone', label: 'Add milestone', iconMarkup: FLAG, run: addMilestoneFromLibrary }]
+        : [];
+    const markComplete: LibraryContextMenuActionConfig[] = canMarkComplete(media)
+        ? [{ id: 'markComplete', label: 'Mark complete', iconMarkup: CHECKMARK, run: markMediaComplete }]
+        : [];
+
+    return [
         { id: 'addLog', label: 'Add log', iconMarkup: PLUS, run: addLogForMedia },
+        ...addMilestone,
+        ...markComplete,
+        {
+            id: 'toggleArchive',
+            label: media.status === MEDIA_STATUS.ARCHIVED ? 'Unarchive' : 'Archive',
+            iconMarkup: BOX,
+            run: toggleMediaArchived,
+        },
+        {
+            id: 'delete',
+            label: 'Delete',
+            iconMarkup: TRASH_CAN,
+            isDanger: true,
+            separatorBefore: true,
+            run: deleteMediaWithConfirmation,
+        },
     ];
-
-    if (canAddMilestone(media)) {
-        configs.push({
-            id: 'addMilestone',
-            label: 'Add milestone',
-            iconMarkup: FLAG,
-            run: addMilestoneFromLibrary,
-        });
-    }
-
-    if (canMarkComplete(media)) {
-        configs.push({
-            id: 'markComplete',
-            label: 'Mark complete',
-            iconMarkup: CHECKMARK,
-            run: markMediaComplete,
-        });
-    }
-
-    configs.push({
-        id: 'toggleArchive',
-        label: media.status === MEDIA_STATUS.ARCHIVED ? 'Unarchive' : 'Archive',
-        iconMarkup: BOX,
-        run: toggleMediaArchived,
-    });
-
-    configs.push({
-        id: 'delete',
-        label: 'Delete',
-        iconMarkup: TRASH_CAN,
-        isDanger: true,
-        separatorBefore: true,
-        run: deleteMediaWithConfirmation,
-    });
-
-    return configs;
 }
 
 interface LibraryContextMenuOptions {
