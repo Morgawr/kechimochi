@@ -12,6 +12,38 @@ function sanitizeButtonClass(input: string): string {
     return 'btn-danger';
 }
 
+let openOverlayCount = 0;
+let stopBlockingBackgroundScroll: (() => void) | null = null;
+
+function blockScrollOutsideOverlays(event: Event): void {
+    const target = event.target;
+    if (target instanceof Element && target.closest('.modal-overlay')) return;
+    event.preventDefault();
+}
+
+function suppressBackgroundScroll(): () => void {
+    openOverlayCount += 1;
+    if (openOverlayCount === 1) {
+        document.addEventListener('wheel', blockScrollOutsideOverlays, { capture: true, passive: false });
+        document.addEventListener('touchmove', blockScrollOutsideOverlays, { capture: true, passive: false });
+        stopBlockingBackgroundScroll = () => {
+            document.removeEventListener('wheel', blockScrollOutsideOverlays, true);
+            document.removeEventListener('touchmove', blockScrollOutsideOverlays, true);
+        };
+    }
+
+    let released = false;
+    return () => {
+        if (released) return;
+        released = true;
+        openOverlayCount -= 1;
+        if (openOverlayCount === 0) {
+            stopBlockingBackgroundScroll?.();
+            stopBlockingBackgroundScroll = null;
+        }
+    };
+}
+
 export function createOverlay(): { overlay: HTMLDivElement, cleanup: () => void } {
     const g = globalThis as unknown as Record<string, number>;
     g.__modalCounter = (g.__modalCounter || 0) + 1;
@@ -24,8 +56,10 @@ export function createOverlay(): { overlay: HTMLDivElement, cleanup: () => void 
     overlay.offsetWidth; // Force reflow
     overlay.classList.add('active');
     const cleanupViewportPlacement = bindOverlayToVisualViewport(overlay);
+    const restoreBackgroundScroll = suppressBackgroundScroll();
 
     const cleanup = () => {
+        restoreBackgroundScroll();
         cleanupViewportPlacement();
         overlay.classList.remove('active');
         delete overlay.dataset.modalId;

@@ -11,6 +11,7 @@ vi.mock('../../../src/media/MediaListItem', () => ({
         render: vi.fn(),
         destroy: vi.fn(),
         reconcileCoverUrl: vi.fn().mockResolvedValue(undefined),
+        setState: vi.fn(),
     })),
 }));
 
@@ -161,6 +162,79 @@ describe('MediaList', () => {
         expect(MediaListItem).toHaveBeenCalledTimes(18 + 3);
         const listContainer = env.container.querySelector('#media-list-container');
         expect(listContainer?.children).toHaveLength(3);
+    });
+
+    it('updates only the target card in place via setState, passing refreshed metrics', async () => {
+        const mediaList = createCollectionMediaList(2);
+        const metrics = { 1: { firstActivityDate: '2026-01-01', lastActivityDate: '2026-01-02', totalMinutes: 30, totalCharacters: 500 } };
+        const component = new MediaList(
+            env.container,
+            { rows: toLibraryItemRows(mediaList), metricsByMediaId: metrics, isMetricsLoading: false },
+            vi.fn(),
+        );
+        component.render();
+        vi.runAllTimers();
+        const itemInstances = vi.mocked(MediaListItem).mock.results.map(result => result.value as { setState: ReturnType<typeof vi.fn> });
+
+        const updatedMedia = { ...mediaList[0], title: 'Renamed' };
+        await component.updateMediaItem(updatedMedia, metrics[1]);
+
+        expect(itemInstances[0].setState).toHaveBeenCalledWith({ media: updatedMedia, metrics: metrics[1] });
+        expect(itemInstances[1].setState).not.toHaveBeenCalled();
+    });
+
+    it('refreshes the target card cover before re-rendering it', async () => {
+        const mediaList = createCollectionMediaList(1);
+        const component = new MediaList(
+            env.container,
+            { rows: toLibraryItemRows(mediaList), metricsByMediaId: {}, isMetricsLoading: false },
+            vi.fn(),
+        );
+        component.render();
+        vi.runAllTimers();
+        const item = vi.mocked(MediaListItem).mock.results[0].value as {
+            setState: ReturnType<typeof vi.fn>,
+            reconcileCoverUrl: ReturnType<typeof vi.fn>,
+        };
+
+        await component.updateMediaItem({ ...mediaList[0], title: 'Renamed' }, null);
+
+        expect(item.reconcileCoverUrl).toHaveBeenCalledOnce();
+        expect(item.reconcileCoverUrl.mock.invocationCallOrder[0])
+            .toBeLessThan(item.setState.mock.invocationCallOrder[0]);
+    });
+
+    it('removes a card from the DOM and destroys its component', () => {
+        const mediaList = createCollectionMediaList(2);
+        const component = new MediaList(
+            env.container,
+            { rows: toLibraryItemRows(mediaList), metricsByMediaId: {}, isMetricsLoading: false },
+            vi.fn(),
+        );
+        component.render();
+        vi.runAllTimers();
+        const itemInstances = vi.mocked(MediaListItem).mock.results.map(result => result.value as { destroy: ReturnType<typeof vi.fn> });
+        expect(component.getMediaElement(1)).not.toBeNull();
+
+        component.removeMediaItem(1);
+
+        expect(itemInstances[0].destroy).toHaveBeenCalledOnce();
+        expect(component.getMediaElement(1)).toBeNull();
+    });
+
+    it('reports rendering complete only after the incremental batches finish', () => {
+        const mediaList = createCollectionMediaList(25);
+        const component = new MediaList(
+            env.container,
+            { rows: toLibraryItemRows(mediaList), metricsByMediaId: {}, isMetricsLoading: false },
+            vi.fn(),
+        );
+
+        component.render();
+        expect(component.isRenderingComplete()).toBe(false);
+
+        vi.runAllTimers();
+        expect(component.isRenderingComplete()).toBe(true);
     });
 
     it('renders a full-width header row without instantiating a list item', () => {

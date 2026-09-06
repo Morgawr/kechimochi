@@ -5,13 +5,18 @@ import { showAddMediaModal } from './modal';
 import { CONTENT_TYPES, EVENTS, FILTERS, TRACKING_STATUSES, MEDIA_STATUS } from '../constants';
 import { MediaGrid } from './MediaGrid';
 import { MediaList } from './MediaList';
+import { openLibraryBackgroundMenu, openLibraryContextMenu } from './library_context_menu';
+import type { PopupMenuHandle } from '../popup_menu';
+import { LibraryPlacementBeforeRow, resolveLibraryItemPlacement } from './library_item_placement';
 import {
     LIBRARY_GRID_ZOOM,
     normalizeLibraryGridZoom,
     type LibraryActivityMetrics,
     type LibraryLayoutMode,
+    type LibraryMutation,
 } from './library_types';
 import { measureSynchronous } from '../performance';
+import { Logger } from '../logger';
 import { resolveDisplayContentType } from './content_type';
 import {
     filterMediaByExtraData,
@@ -189,7 +194,11 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
     private readonly onFilterChange?: (filters: MediaLibraryFilters) => void;
     private readonly onLayoutChange?: (layout: LibraryLayoutMode) => void;
     private readonly onGridZoomChange?: (gridZoom: number) => void;
+    private readonly onActionCommitted?: () => Promise<void>;
     private activeLayoutComponent: MediaGrid | MediaList | null = null;
+    private activeLayoutKind: LibraryLayoutMode | null = null;
+    private renderedRows: LibraryRow[] | null = null;
+    private contextMenuHandle: PopupMenuHandle | null = null;
     private shellRendered = false;
     private memoizedExtraDataMediaList: Media[] | null = null;
     private memoizedExtraDataIndex: Map<number, Record<string, string>> = new Map();
@@ -208,6 +217,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         onFilterChange?: (filters: MediaLibraryFilters) => void,
         onLayoutChange?: (layout: LibraryLayoutMode) => void,
         onGridZoomChange?: (gridZoom: number) => void,
+        onActionCommitted?: () => Promise<void>,
     ) {
         const initialExtraDataIndex = buildExtraDataIndex(initialState.mediaList);
         const revalidatedFilterRules = revalidateLibraryFilterRules(
@@ -234,6 +244,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         this.onFilterChange = onFilterChange;
         this.onLayoutChange = onLayoutChange;
         this.onGridZoomChange = onGridZoomChange;
+        this.onActionCommitted = onActionCommitted;
     }
 
     public override destroy() {
@@ -241,6 +252,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
             globalThis.clearTimeout(this.searchRenderTimer);
             this.searchRenderTimer = null;
         }
+        this.closeContextMenu();
         this.activeLayoutComponent?.destroy?.();
         super.destroy();
     }
@@ -771,6 +783,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
     }
 
     private renderContent(container: HTMLElement) {
+        this.closeContextMenu();
         this.activeLayoutComponent?.destroy?.();
         container.innerHTML = '';
 
@@ -780,6 +793,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         // horizontal overflow (then clipped by the app shell). Allow the library layouts
         // to shrink properly at narrow window widths.
         layoutRoot.style.cssText = 'display: flex; flex: 1; min-height: 0; min-width: 0;';
+        layoutRoot.addEventListener('contextmenu', (event) => this.handleContextMenu(event));
         container.appendChild(layoutRoot);
 
         const rows: LibraryRow[] = measureSynchronous(
@@ -795,14 +809,12 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         // Navigation order is taken from the rendered rows rather than the sorted list, so the
         // detail view's prev/next follows what is actually on screen once type grouping reorders
         // items into sections.
-        const navigationIds = rows.flatMap((row) => (
-            row.kind === 'item' && typeof row.media.id === 'number' ? [row.media.id] : []
-        ));
         const onVisibleMediaClick = (mediaId: number) => {
-            this.onMediaClick({ mediaId, navigationIds: [...navigationIds] });
+            this.onMediaClick({ mediaId, navigationIds: this.getRenderedNavigationIds() });
         };
 
-        if (this.getActiveLayout() === 'grid') {
+        this.activeLayoutKind = this.getActiveLayout();
+        if (this.activeLayoutKind === 'grid') {
             this.activeLayoutComponent = new MediaGrid(
                 layoutRoot,
                 { rows, gridZoom: this.state.gridZoom },
@@ -821,27 +833,189 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         }
 
         this.activeLayoutComponent.render();
+        this.renderedRows = rows;
+    }
+
+    private closeContextMenu(): void {
+        this.contextMenuHandle?.close();
+        this.contextMenuHandle = null;
+    }
+
+    private async createMediaFromModal(): Promise<void> {
+        const result = await showAddMediaModal();
+        if (!result) return;
+
+        const newId = await addMedia({
+            title: result.title,
+            variant: result.variant,
+            default_activity_type: result.type,
+            status: MEDIA_STATUS.ACTIVE,
+            language: 'Japanese',
+            description: '',
+            cover_image: '',
+            extra_data: '{}',
+            content_type: result.contentType,
+            tracking_status: 'Untracked',
+        });
+        await this.onDataChange(newId);
+        globalThis.dispatchEvent(new CustomEvent(EVENTS.LOCAL_DATA_CHANGED));
+    }
+
+    private handleContextMenu(event: MouseEvent): void {
+        if (typeof globalThis.matchMedia !== 'function' || !globalThis.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+            return;
+        }
+
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        const card = target.closest<HTMLElement>('[data-media-id]');
+        const media = card
+            ? this.state.mediaList.find((candidate) => candidate.id === Number(card.dataset.mediaId))
+            : undefined;
+
+        event.preventDefault();
+        this.closeContextMenu();
+        this.contextMenuHandle = media
+            ? openLibraryContextMenu({
+                media,
+                clientX: event.clientX,
+                clientY: event.clientY,
+                onActionCommitted: () => {
+                    this.contextMenuHandle = null;
+                    this.runActionCommitted();
+                },
+            })
+            : openLibraryBackgroundMenu({
+                clientX: event.clientX,
+                clientY: event.clientY,
+                onCreateMedia: () => {
+                    this.contextMenuHandle = null;
+                    this.createMediaFromModal()
+                        .catch((error) => Logger.error('Failed to create media from the library menu', error));
+                },
+            });
+    }
+
+    private runActionCommitted(): void {
+        this.onActionCommitted?.().catch((error) => Logger.error('Failed to apply a library action', error));
+    }
+
+    public async applyLibraryMutation(
+        mutation: LibraryMutation,
+        freshMediaList: Media[],
+        freshMetrics: Record<number, LibraryActivityMetrics>,
+    ): Promise<void> {
+        this.state.mediaList = freshMediaList;
+        this.state.listMetricsByMediaId = freshMetrics;
+        this.pruneTypeFiltersToAvailableTypes();
+        this.refreshHeader();
+
+        const layout = this.activeLayoutComponent;
+        const previousRows = this.renderedRows;
+        if (!layout || !previousRows || !layout.isRenderingComplete()) {
+            this.fullyRerenderContent();
+            return;
+        }
+
+        const nextRows = measureSynchronous(
+            'aggregation',
+            'library_filter',
+            () => buildLibraryRows(
+                this.getVisibleMediaList(),
+                this.state.groupByType ? this.state.contentTypeOrder : null,
+            ),
+            { media_count: this.state.mediaList.length },
+        );
+
+        if (nextRows.length === 0) {
+            this.fullyRerenderContent();
+            return;
+        }
+
+        const { decision, removedContentTypes } = resolveLibraryItemPlacement(previousRows, nextRows, mutation.mediaId);
+        if (decision.kind === 'fullRender') {
+            this.fullyRerenderContent();
+            return;
+        }
+
+        const mutatedElement = layout.getMediaElement(mutation.mediaId);
+        if (!mutatedElement) {
+            this.fullyRerenderContent();
+            return;
+        }
+
+        if (decision.kind === 'remove') {
+            layout.removeMediaItem(mutation.mediaId);
+        } else if (!await this.moveMutatedElement(layout, mutation, decision.before, mutatedElement, freshMetrics)) {
+            this.fullyRerenderContent();
+            return;
+        }
+
+        for (const contentType of removedContentTypes) {
+            layout.removeHeaderElement(contentType);
+        }
+
+        this.renderedRows = nextRows;
+    }
+
+    private getRenderedNavigationIds(): number[] {
+        return (this.renderedRows ?? []).flatMap((row) => (
+            row.kind === 'item' && typeof row.media.id === 'number' ? [row.media.id] : []
+        ));
+    }
+
+    private async moveMutatedElement(
+        layout: MediaGrid | MediaList,
+        mutation: LibraryMutation,
+        before: LibraryPlacementBeforeRow,
+        mutatedElement: HTMLElement,
+        freshMetrics: Record<number, LibraryActivityMetrics>,
+    ): Promise<boolean> {
+        if (mutation.kind === 'updated' && mutation.media) {
+            if (this.activeLayoutKind === 'grid') {
+                await (layout as MediaGrid).updateMediaItem(mutation.media);
+            } else {
+                await (layout as MediaList).updateMediaItem(mutation.media, freshMetrics[mutation.mediaId] ?? null);
+            }
+        }
+
+        let referenceElement: HTMLElement | null = null;
+        if (before) {
+            referenceElement = before.kind === 'item'
+                ? layout.getMediaElement(before.mediaId)
+                : layout.getHeaderElement(before.contentType);
+            if (!referenceElement) return false;
+        }
+
+        const scrollContainer = layout.getScrollContainer();
+        if (!scrollContainer) return false;
+
+        scrollContainer.insertBefore(mutatedElement, referenceElement);
+        return true;
+    }
+
+    private fullyRerenderContent(): void {
+        const content = this.container.querySelector<HTMLElement>('#media-library-content');
+        if (content) this.renderContent(content);
+    }
+
+    private refreshHeader(): void {
+        const header = this.container.querySelector<HTMLElement>('#media-library-header');
+        if (header) this.renderHeader(header);
+    }
+
+    private pruneTypeFiltersToAvailableTypes(): void {
+        const availableTypes = new Set(this.state.mediaList.map((media) => resolveDisplayContentType(media)));
+        const remainingTypeFilters = this.state.typeFilters.filter((type) => availableTypes.has(type));
+        if (remainingTypeFilters.length === this.state.typeFilters.length) return;
+
+        this.state.typeFilters = remainingTypeFilters;
+        this.notifyFilterChange();
     }
 
     private setupListeners(header: HTMLElement) {
         header.querySelector('#btn-add-media-grid')?.addEventListener('click', async () => {
-            const result = await showAddMediaModal();
-            if (!result) return;
-
-            const newId = await addMedia({
-                title: result.title,
-                variant: result.variant,
-                default_activity_type: result.type,
-                status: MEDIA_STATUS.ACTIVE,
-                language: 'Japanese',
-                description: '',
-                cover_image: '',
-                extra_data: '{}',
-                content_type: result.contentType,
-                tracking_status: 'Untracked',
-            });
-            await this.onDataChange(newId);
-            globalThis.dispatchEvent(new CustomEvent(EVENTS.LOCAL_DATA_CHANGED));
+            await this.createMediaFromModal();
         });
 
         header.querySelector('#btn-refresh-grid')?.addEventListener('click', async (e) => {

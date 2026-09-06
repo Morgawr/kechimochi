@@ -275,14 +275,24 @@ export async function waitForOverlayToDisappear(overlay: ChainablePromiseElement
     });
 }
 
-export async function safeClick(target: ElementTarget, timeout = 5000): Promise<void> {
+interface SafeClickOptions {
+    skipScrollIntoView?: boolean;
+}
+
+export async function safeClick(
+    target: ElementTarget,
+    timeout = 5000,
+    { skipScrollIntoView = false }: SafeClickOptions = {},
+): Promise<void> {
     let lastError: unknown;
 
     for (let attempt = 0; attempt < 3; attempt++) {
         try {
             const element = resolveElement(target);
             await element.waitForExist({ timeout });
-            await element.scrollIntoView().catch(() => { });
+            if (!skipScrollIntoView) {
+                await element.scrollIntoView().catch(() => { });
+            }
             await element.waitForDisplayed({ timeout });
 
             try {
@@ -316,6 +326,17 @@ export async function safeClick(target: ElementTarget, timeout = 5000): Promise<
     }
 
     throw lastError instanceof Error ? lastError : new Error('Failed to click element');
+}
+
+/**
+ * Clicks an item inside an open popup menu.
+ *
+ * Popup menus are position:fixed and already placed inside the viewport, so
+ * scrolling to reach an item is never needed — and the scroll event it emits
+ * dismisses the menu before the click lands.
+ */
+export async function clickMenuItem(target: ElementTarget, timeout = 5000): Promise<void> {
+    await safeClick(target, timeout, { skipScrollIntoView: true });
 }
 
 /**

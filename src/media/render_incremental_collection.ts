@@ -14,6 +14,7 @@ interface IncrementalMediaCollectionOptions<T> {
     shouldContinue: () => boolean;
     createItemWrapper: (item: T, index: number) => HTMLElement;
     performanceOperation: string;
+    onRenderComplete?: () => void;
 }
 
 export function createCollectionItemWrapper(
@@ -56,6 +57,7 @@ export function renderIncrementalMediaCollection<T>({
     shouldContinue,
     createItemWrapper,
     performanceOperation,
+    onRenderComplete,
 }: IncrementalMediaCollectionOptions<T>) {
     const container = document.createElement('div');
     container.id = containerId;
@@ -65,6 +67,7 @@ export function renderIncrementalMediaCollection<T>({
 
     if (items.length === 0) {
         container.innerHTML = emptyStateMarkup;
+        if (shouldContinue()) onRenderComplete?.();
         return;
     }
 
@@ -85,7 +88,12 @@ export function renderIncrementalMediaCollection<T>({
         }, { batch_size: end - currentIndex, rendered_count: end, total_count: items.length });
         currentIndex = end;
 
-        if (currentIndex >= items.length || !shouldContinue()) {
+        if (!shouldContinue()) {
+            return;
+        }
+
+        if (currentIndex >= items.length) {
+            onRenderComplete?.();
             return;
         }
 

@@ -1,4 +1,5 @@
 import { Component } from '../component';
+import { Media } from '../api';
 import { MediaItem } from './MediaItem';
 import type { LibraryRow } from './sorting';
 import { normalizeLibraryGridZoom } from './library_types';
@@ -19,6 +20,10 @@ export class MediaGrid extends Component<MediaGridState> {
     private currentRenderId = 0;
     private childItems: MediaItem[] = [];
     private visibilityController: CoverVisibilityController | null = null;
+    private itemsByMediaId = new Map<number, MediaItem>();
+    private elementsByMediaId = new Map<number, HTMLElement>();
+    private headerElementsByContentType = new Map<string, HTMLElement>();
+    private isRenderComplete = false;
 
     constructor(container: HTMLElement, initialState: MediaGridState, onMediaClick: (mediaId: number) => void) {
         super(container, initialState);
@@ -34,6 +39,49 @@ export class MediaGrid extends Component<MediaGridState> {
         await Promise.all(this.childItems.map(item => item.reconcileCoverUrl()));
     }
 
+    public isRenderingComplete(): boolean {
+        return this.isRenderComplete;
+    }
+
+    public getScrollContainer(): HTMLElement | null {
+        return this.container.querySelector<HTMLElement>('#media-grid-container');
+    }
+
+    public getMediaElement(mediaId: number): HTMLElement | null {
+        return this.elementsByMediaId.get(mediaId) ?? null;
+    }
+
+    public getHeaderElement(contentType: string): HTMLElement | null {
+        return this.headerElementsByContentType.get(contentType) ?? null;
+    }
+
+    public removeHeaderElement(contentType: string): void {
+        this.headerElementsByContentType.get(contentType)?.remove();
+        this.headerElementsByContentType.delete(contentType);
+    }
+
+    public async updateMediaItem(media: Media): Promise<void> {
+        if (media.id == null) return;
+        const item = this.itemsByMediaId.get(media.id);
+        if (!item) return;
+
+        // Re-rendering rebuilds the <img>, so a cover URL the shared cache has
+        // since revoked must be refreshed before the card is redrawn.
+        await item.reconcileCoverUrl();
+        item.setState({ media });
+    }
+
+    public removeMediaItem(mediaId: number): void {
+        const item = this.itemsByMediaId.get(mediaId);
+        if (!item) return;
+
+        item.destroy();
+        this.itemsByMediaId.delete(mediaId);
+        this.childItems = this.childItems.filter(candidate => candidate !== item);
+        this.elementsByMediaId.get(mediaId)?.remove();
+        this.elementsByMediaId.delete(mediaId);
+    }
+
     render() {
         this.currentRenderId += 1;
         const renderId = this.currentRenderId;
@@ -42,6 +90,7 @@ export class MediaGrid extends Component<MediaGridState> {
         const cardHeight = DEFAULT_CARD_HEIGHT * gridZoom / 100;
 
         this.destroyRenderedItems();
+        this.isRenderComplete = false;
         this.visibilityController = new CoverVisibilityController('320px 0px');
         this.clear();
 
@@ -58,9 +107,14 @@ export class MediaGrid extends Component<MediaGridState> {
             subsequentBatchDelayMs: 20,
             shouldContinue: () => !this.isDestroyed && renderId === this.currentRenderId,
             performanceOperation: 'library_grid_batch',
+            onRenderComplete: () => {
+                this.isRenderComplete = true;
+            },
             createItemWrapper: (row, index) => {
                 if (row.kind === 'header') {
-                    return createLibrarySectionHeaderWrapper(row.contentType, true);
+                    const headerWrapper = createLibrarySectionHeaderWrapper(row.contentType, true);
+                    this.headerElementsByContentType.set(row.contentType, headerWrapper);
+                    return headerWrapper;
                 }
 
                 const itemWrapper = createCollectionItemWrapper(
@@ -76,6 +130,10 @@ export class MediaGrid extends Component<MediaGridState> {
                     this.onMediaClick(mediaId);
                 }, this.visibilityController ?? undefined, index < 6);
                 this.childItems.push(item);
+                if (mediaId != null) {
+                    this.itemsByMediaId.set(mediaId, item);
+                    this.elementsByMediaId.set(mediaId, itemWrapper);
+                }
                 item.render();
                 return itemWrapper;
             },
@@ -87,5 +145,8 @@ export class MediaGrid extends Component<MediaGridState> {
         this.visibilityController = null;
         this.childItems.forEach(item => item.destroy());
         this.childItems = [];
+        this.itemsByMediaId.clear();
+        this.elementsByMediaId.clear();
+        this.headerElementsByContentType.clear();
     }
 }

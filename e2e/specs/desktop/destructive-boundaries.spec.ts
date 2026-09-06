@@ -2,7 +2,7 @@ import { waitForAppReady } from '../../helpers/setup.js';
 import { navigateTo } from '../../helpers/navigation.js';
 import { addMedia, clickMediaItem, isMediaNotVisible, isMediaVisible } from '../../helpers/library.js';
 import { addMilestone, logActivityFromDetail } from '../../helpers/media-detail.js';
-import { confirmAction, dismissAlert, safeClick } from '../../helpers/common.js';
+import { clickMenuItem, confirmAction, dismissAlert, safeClick } from '../../helpers/common.js';
 
 async function getBackendCounts(title: string): Promise<{ logs: number; milestones: number }> {
   return browser.execute(async (mediaTitle) => {
@@ -36,12 +36,12 @@ describe('Desktop CUJ: Destructive Data Boundaries', () => {
     expect(await getBackendCounts(title)).toEqual({ logs: 1, milestones: 1 });
 
     await safeClick('#btn-media-overflow');
-    await safeClick('#btn-delete-media-detail');
+    await clickMenuItem('#btn-delete-media-detail');
     await confirmAction(false);
     expect(await $('#media-title').getText()).toBe(title);
 
     await safeClick('#btn-media-overflow');
-    await safeClick('#btn-delete-media-detail');
+    await clickMenuItem('#btn-delete-media-detail');
     await confirmAction(true);
     await navigateTo('media');
     expect(await isMediaNotVisible(title)).toBe(true);

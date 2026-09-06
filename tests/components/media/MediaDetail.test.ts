@@ -489,7 +489,8 @@ describe('MediaDetail', () => {
         component.triggerMount();
         component.render();
 
-        const deleteBtn = container.querySelector('#btn-delete-media-detail') as HTMLElement;
+        (container.querySelector('#btn-media-overflow') as HTMLElement).click();
+        const deleteBtn = document.querySelector('#btn-delete-media-detail') as HTMLElement;
         deleteBtn.click();
 
         await vi.waitFor(() => {

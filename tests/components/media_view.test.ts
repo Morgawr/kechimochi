@@ -20,6 +20,7 @@ vi.mock('../../src/media/MediaLibraryBrowser', () => ({
         render: vi.fn(),
         destroy: vi.fn(),
         reconcileCoverUrls: vi.fn().mockResolvedValue(undefined),
+        applyLibraryMutation: vi.fn(),
     })),
 }));
 
@@ -986,6 +987,131 @@ describe('MediaView', () => {
 
         expect(component.state.isLoading).toBe(false);
         errorSpy.mockRestore();
+    });
+
+    describe('library action refetch and diff', () => {
+        function browserInstance() {
+            return vi.mocked(MediaLibraryBrowser).mock.results.at(-1)?.value as {
+                applyLibraryMutation: ReturnType<typeof vi.fn>;
+            };
+        }
+
+        function getOnActionCommitted(): () => Promise<void> {
+            return requireDefined(
+                vi.mocked(MediaLibraryBrowser).mock.calls.at(-1)?.[7],
+                'MediaLibraryBrowser onActionCommitted callback',
+            );
+        }
+
+        it('drives the update from the snapshot diff, not from the media that was right-clicked', async () => {
+            const mediaA = { id: 1, title: 'Right-clicked', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' };
+            const mediaB = { id: 2, title: 'Actually changed', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' };
+            vi.mocked(api.getAllMedia).mockResolvedValue([mediaA, mediaB] as unknown as Media[]);
+
+            const component = new MediaView(container);
+            await renderAndWaitForBrowser(component);
+            const onActionCommitted = getOnActionCommitted();
+
+            vi.mocked(api.getAllMedia).mockResolvedValue([
+                mediaA,
+                { ...mediaB, tracking_status: 'Complete' },
+            ] as unknown as Media[]);
+            await onActionCommitted();
+
+            expect(browserInstance().applyLibraryMutation).toHaveBeenCalledWith(
+                { kind: 'updated', mediaId: 2, media: expect.objectContaining({ tracking_status: 'Complete' }) },
+                expect.anything(),
+                expect.anything(),
+            );
+        });
+
+        it('reports the reactivation of an archived media that a submitted log silently reactivated', async () => {
+            const archived = { id: 1, title: 'Archived Media', status: 'Archived', content_type: 'Anime', tracking_status: 'Paused' };
+            vi.mocked(api.getAllMedia).mockResolvedValue([archived] as unknown as Media[]);
+
+            const component = new MediaView(container);
+            await renderAndWaitForBrowser(component);
+            const onActionCommitted = getOnActionCommitted();
+
+            vi.mocked(api.getAllMedia).mockResolvedValue([
+                { ...archived, status: 'Active' },
+            ] as unknown as Media[]);
+            await onActionCommitted();
+
+            expect(browserInstance().applyLibraryMutation).toHaveBeenCalledWith(
+                { kind: 'updated', mediaId: 1, media: expect.objectContaining({ status: 'Active' }) },
+                expect.anything(),
+                expect.anything(),
+            );
+        });
+
+        it('falls back to a full library rebuild when more than one media changed', async () => {
+            const mediaA = { id: 1, title: 'A', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' };
+            const mediaB = { id: 2, title: 'B', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' };
+            vi.mocked(api.getAllMedia).mockResolvedValue([mediaA, mediaB] as unknown as Media[]);
+
+            const component = new MediaView(container);
+            await renderAndWaitForBrowser(component);
+            const onActionCommitted = getOnActionCommitted();
+            const callsBefore = vi.mocked(MediaLibraryBrowser).mock.calls.length;
+
+            vi.mocked(api.getAllMedia).mockResolvedValue([
+                { ...mediaA, tracking_status: 'Complete' },
+                { ...mediaB, tracking_status: 'Complete' },
+            ] as unknown as Media[]);
+            await onActionCommitted();
+
+            expect(vi.mocked(MediaLibraryBrowser).mock.calls.length).toBeGreaterThan(callsBefore);
+        });
+
+        it('adopts the fresh state without touching the browser when nothing actually changed (e.g. Add milestone)', async () => {
+            const media = { id: 1, title: 'Unchanged', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' };
+            vi.mocked(api.getAllMedia).mockResolvedValue([media] as unknown as Media[]);
+
+            const component = new MediaView(container);
+            await renderAndWaitForBrowser(component);
+            const onActionCommitted = getOnActionCommitted();
+            const callsBefore = vi.mocked(MediaLibraryBrowser).mock.calls.length;
+            vi.mocked(api.getAllMedia).mockClear();
+
+            await onActionCommitted();
+
+            expect(api.getAllMedia).toHaveBeenCalledOnce();
+            expect(browserInstance().applyLibraryMutation).not.toHaveBeenCalled();
+            expect(vi.mocked(MediaLibraryBrowser).mock.calls.length).toBe(callsBefore);
+        });
+
+        it('applies nothing when the mutation refetch resolves after a newer load has already committed', async () => {
+            const media = { id: 1, title: 'Stale target', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' };
+            vi.mocked(api.getAllMedia).mockResolvedValue([media] as unknown as Media[]);
+
+            const component = new MediaViewTestHarness(container);
+            await renderAndWaitForBrowser(component);
+            const onActionCommitted = getOnActionCommitted();
+
+            let resolveMutationSnapshot!: (value: Awaited<ReturnType<typeof api.getLibrarySnapshot>>) => void;
+            vi.mocked(api.getLibrarySnapshot).mockImplementationOnce((request) => new Promise((resolve) => {
+                resolveMutationSnapshot = (value) => resolve({ ...value, request_id: request.request_id });
+            }));
+            const mutationPromise = onActionCommitted();
+            await vi.waitFor(() => expect(api.getLibrarySnapshot).toHaveBeenCalledTimes(2));
+            const staleRequest = vi.mocked(api.getLibrarySnapshot).mock.calls[1][0];
+
+            vi.mocked(api.getAllMedia).mockResolvedValue([
+                { ...media, title: 'Refreshed by a newer load' },
+            ] as unknown as Media[]);
+            await component.loadData();
+
+            resolveMutationSnapshot({
+                request_id: staleRequest.request_id,
+                media: [{ ...media, title: 'Should never apply' }] as unknown as Media[],
+                metrics: [],
+                settings: librarySettings(),
+            });
+            await mutationPromise;
+
+            expect(component.state.libraryMediaList.map((m: Media) => m.title)).toEqual(['Refreshed by a newer load']);
+        });
     });
 
     it('falls back to browser view if detail rendering has no media', () => {

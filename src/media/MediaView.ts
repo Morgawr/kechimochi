@@ -11,6 +11,7 @@ import {
     normalizeLibraryGridZoom,
     type LibraryActivityMetrics,
     type LibraryLayoutMode,
+    type LibraryMutation,
 } from './library_types';
 import { measureSynchronous } from '../performance';
 import { resolveDisplayContentType } from './content_type';
@@ -600,23 +601,35 @@ private async handleBack() {
         });
     }
 
+    private areMediaEqual(left: Media, right: Media): boolean {
+        return left.id === right.id
+            && left.uid === right.uid
+            && left.title === right.title
+            && left.variant === right.variant
+            && left.default_activity_type === right.default_activity_type
+            && left.status === right.status
+            && left.language === right.language
+            && left.description === right.description
+            && left.cover_image === right.cover_image
+            && left.extra_data === right.extra_data
+            && left.content_type === right.content_type
+            && left.tracking_status === right.tracking_status;
+    }
+
     private areMediaListsEqual(left: Media[], right: Media[]): boolean {
         if (left.length !== right.length) return false;
-        return left.every((media, index) => {
-            const other = right[index];
-            return media.id === other.id
-                && media.uid === other.uid
-                && media.title === other.title
-                && media.variant === other.variant
-                && media.default_activity_type === other.default_activity_type
-                && media.status === other.status
-                && media.language === other.language
-                && media.description === other.description
-                && media.cover_image === other.cover_image
-                && media.extra_data === other.extra_data
-                && media.content_type === other.content_type
-                && media.tracking_status === other.tracking_status;
-        });
+        return left.every((media, index) => this.areMediaEqual(media, right[index]));
+    }
+
+    private areMetricsEqual(
+        left: LibraryActivityMetrics | undefined,
+        right: LibraryActivityMetrics | undefined,
+    ): boolean {
+        if (!left || !right) return left === right;
+        return left.firstActivityDate === right.firstActivityDate
+            && left.lastActivityDate === right.lastActivityDate
+            && left.totalMinutes === right.totalMinutes
+            && left.totalCharacters === right.totalCharacters;
     }
 
     private areMetricMapsEqual(
@@ -626,14 +639,33 @@ private async handleBack() {
         const leftIds = Object.keys(left);
         const rightIds = Object.keys(right);
         if (leftIds.length !== rightIds.length) return false;
-        return leftIds.every((id) => {
-            const leftMetric = left[Number(id)];
-            const rightMetric = right[Number(id)];
-            return leftMetric.firstActivityDate === rightMetric?.firstActivityDate
-                && leftMetric.lastActivityDate === rightMetric?.lastActivityDate
-                && leftMetric.totalMinutes === rightMetric?.totalMinutes
-                && leftMetric.totalCharacters === rightMetric?.totalCharacters;
-        });
+        return leftIds.every((id) => this.areMetricsEqual(left[Number(id)], right[Number(id)]));
+    }
+
+    private diffLibrarySnapshotMediaIds(
+        previousMediaList: Media[],
+        previousMetrics: Record<number, LibraryActivityMetrics>,
+        nextMediaList: Media[],
+        nextMetrics: Record<number, LibraryActivityMetrics>,
+    ): number[] {
+        const previousById = new Map(previousMediaList.flatMap((media) => (
+            typeof media.id === 'number' ? [[media.id, media] as const] : []
+        )));
+        const nextById = new Map(nextMediaList.flatMap((media) => (
+            typeof media.id === 'number' ? [[media.id, media] as const] : []
+        )));
+        const allIds = new Set([...previousById.keys(), ...nextById.keys()]);
+        const changedIds: number[] = [];
+
+        for (const id of allIds) {
+            const previousMedia = previousById.get(id);
+            const nextMedia = nextById.get(id);
+            const mediaChanged = !previousMedia || !nextMedia || !this.areMediaEqual(previousMedia, nextMedia);
+            const metricsChanged = !this.areMetricsEqual(previousMetrics[id], nextMetrics[id]);
+            if (mediaChanged || metricsChanged) changedIds.push(id);
+        }
+
+        return changedIds;
     }
 
     private captureRenderedLibraryPresentation(): void {
@@ -663,6 +695,54 @@ private async handleBack() {
         }) | null;
         await libraryBrowser?.reconcileCoverUrls?.();
     }
+
+    private readonly handleActionCommitted = async (): Promise<void> => {
+        const requestId = ++this.loadRequestId;
+        try {
+            const snapshot = await getLibrarySnapshot({ request_id: requestId });
+            if (this.isStaleLoad(requestId) || snapshot.request_id !== requestId) return;
+
+            const previousMediaList = this.state.libraryMediaList;
+            const previousMetrics = this.state.listMetricsByMediaId;
+            const nextMetrics = this.projectSnapshotMetrics(snapshot);
+            const changedMediaIds = this.diffLibrarySnapshotMediaIds(
+                previousMediaList,
+                previousMetrics,
+                snapshot.media,
+                nextMetrics,
+            );
+
+            if (changedMediaIds.length > 1) {
+                const nextState = await this.buildSnapshotState(snapshot, requestId, false);
+                if (!nextState) return;
+                this.setState(nextState);
+                this.markLibraryRequest(requestId);
+                this.captureRenderedLibraryPresentation();
+                return;
+            }
+
+            this.state.isLoading = false;
+            this.state.libraryMediaList = snapshot.media;
+            this.state.listMetricsByMediaId = nextMetrics;
+
+            if (changedMediaIds.length === 1 && this.state.viewMode === 'grid') {
+                const mediaId = changedMediaIds[0];
+                const media = snapshot.media.find((candidate) => candidate.id === mediaId);
+                const mutation: LibraryMutation = media
+                    ? { kind: 'updated', mediaId, media }
+                    : { kind: 'deleted', mediaId };
+                await (this.activeSubComponent as MediaLibraryBrowser | null)?.applyLibraryMutation(
+                    mutation, snapshot.media, nextMetrics,
+                );
+                if (this.isStaleLoad(requestId)) return;
+            }
+
+            this.markLibraryRequest(requestId);
+            this.captureRenderedLibraryPresentation();
+        } catch (error) {
+            this.handleLoadError(error, requestId, false);
+        }
+    };
 
     async loadData(jumpToId?: number) {
         if (this.state.isLoading && jumpToId === undefined) return;
@@ -776,6 +856,7 @@ private async handleBack() {
                     'Failed to persist library grid zoom',
                 );
             },
+            this.handleActionCommitted,
         );
         this.activeSubComponent.render();
         this.captureRenderedLibraryPresentation();

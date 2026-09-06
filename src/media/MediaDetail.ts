@@ -3,9 +3,7 @@ import {Component} from '../component';
 import {escapeAttribute, escapeHTML, html, rawHtml} from '../html';
 import {
     ActivitySummary,
-    addMilestone,
     clearMilestones,
-    deleteMedia,
     deleteMilestone,
     downloadAndSaveImage,
     getLogsForMedia,
@@ -17,13 +15,25 @@ import {
     updateMilestone
 } from '../api';
 import {customAlert, customConfirm, customPrompt} from '../modal_base';
-import {showLogActivityModal} from '../activity_modal';
 import {showAddMilestoneModal} from '../milestone_modal';
 import {showImportMergeModal, showJitenSearchModal} from './modal';
 import {fetchMetadataForUrl, isValidImporterUrl} from '../importers';
 import {getServices} from '../services';
 import {MediaCoverLoader} from './cover_loader';
 import {pushBackHandler} from '../back_stack';
+import {openPopupMenu, type PopupMenuHandle} from '../popup_menu';
+import {TRASH_CAN} from '../icons';
+import {
+    addLogForMedia,
+    addMilestoneForMedia,
+    canAddMilestone,
+    canMarkComplete,
+    deleteMediaWithConfirmation,
+    markMediaComplete,
+    notifyLocalDataChanged,
+    toggleMediaArchived,
+    type MediaActionOutcome
+} from './media_actions';
 import {MediaLog} from './MediaLog';
 import {setupCopyButton} from '../clipboard';
 import {
@@ -38,7 +48,6 @@ import {formatHhMm} from '../time';
 import {
     ACTIVITY_TYPES,
     CONTENT_TYPE_TO_ACTIVITY_TYPE,
-    EVENTS,
     MEDIA_STATUS,
     SETTING_KEYS,
     TRACKING_STATUSES
@@ -70,19 +79,10 @@ export class MediaDetail extends Component<MediaDetailState> {
     private readonly libraryMediaList: Media[];
     private readonly currentIndex: number;
     private readonly onViewportResize: () => void;
-    private readonly onGlobalPointerDown: (event: PointerEvent) => void;
-    private readonly onGlobalKeyDown: (event: KeyboardEvent) => void;
     private isDestroyed = false;
-    private overflowMenuRoot: HTMLElement | null = null;
-    private overflowMenu: HTMLElement | null = null;
     private overflowMenuButton: HTMLButtonElement | null = null;
+    private overflowMenuHandle: PopupMenuHandle | null = null;
     private readonly cleanupBackHandler: () => void;
-
-    private notifyLocalDataChanged(coversChanged = false) {
-        globalThis.dispatchEvent(new CustomEvent(EVENTS.LOCAL_DATA_CHANGED, {
-            detail: { coversChanged },
-        }));
-    }
 
     private requireMediaUid(): string {
         const mediaUid = this.state.media.uid?.trim();
@@ -101,7 +101,7 @@ export class MediaDetail extends Component<MediaDetailState> {
 
     private async persistMediaChanges() {
         await updateMedia(this.state.media);
-        this.notifyLocalDataChanged();
+        notifyLocalDataChanged();
         this.render();
     }
 
@@ -158,15 +158,11 @@ export class MediaDetail extends Component<MediaDetailState> {
         this.onDelete = callbacks.onDelete;
         this.libraryMediaList = libraryMediaList;
         this.onViewportResize = () => this.syncViewportLayout();
-        this.onGlobalPointerDown = (event: PointerEvent) => this.handleGlobalPointerDown(event);
-        this.onGlobalKeyDown = (event: KeyboardEvent) => this.handleGlobalKeyDown(event);
         this.cleanupBackHandler = pushBackHandler(() => {
             this.onBack();
             return true;
         });
         globalThis.addEventListener('resize', this.onViewportResize);
-        globalThis.addEventListener('pointerdown', this.onGlobalPointerDown, true);
-        globalThis.addEventListener('keydown', this.onGlobalKeyDown);
     }
 
     protected override onMount() {
@@ -186,9 +182,8 @@ export class MediaDetail extends Component<MediaDetailState> {
 
     public override destroy() {
         this.isDestroyed = true;
+        this.closeOverflowMenu();
         globalThis.removeEventListener('resize', this.onViewportResize);
-        globalThis.removeEventListener('pointerdown', this.onGlobalPointerDown, true);
-        globalThis.removeEventListener('keydown', this.onGlobalKeyDown);
         this.cleanupBackHandler();
         super.destroy();
     }
@@ -327,13 +322,9 @@ export class MediaDetail extends Component<MediaDetailState> {
         }
     }
 
-    private isCompleteTracking(status: string): boolean {
-        return status === 'Complete';
-    }
-
     private renderHeaderActions(media: Media): string {
         const isArchived = !this.isActive(media.status);
-        const isComplete = this.isCompleteTracking(media.tracking_status);
+        const isComplete = !canMarkComplete(media);
 
         return `
             <div class="media-detail-action-row">
@@ -524,15 +515,6 @@ export class MediaDetail extends Component<MediaDetailState> {
                                         <circle cx="13" cy="8" r="1.5"/>
                                     </svg>
                                 </button>
-                                <div id="media-overflow-menu" hidden style="position: absolute; top: calc(100% + 0.5rem); right: 0; min-width: 12rem; padding: 0.35rem; border: 1px solid var(--border-color); border-radius: 12px; background: color-mix(in srgb, var(--bg-card) 94%, black 6%); box-shadow: 0 18px 50px color-mix(in srgb, var(--tint-dark) 35%, transparent); z-index: 20;">
-                                    <button
-                                        type="button"
-                                        id="btn-delete-media-detail"
-                                        style="width: 100%; display: flex; align-items: center; gap: 0.5rem; padding: 0.55rem 0.7rem; border: none; border-radius: 9px; background: transparent; color: var(--danger-muted); font: inherit; font-size: 0.9rem; text-align: left; cursor: pointer;">
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg>
-                                        Delete media
-                                    </button>
-                                </div>
                             </div>
                         </div>
                         <button class="btn btn-ghost single-char-btn" id="media-next" style="font-size: 1.2rem; padding: 0.2rem 1rem;">
@@ -626,7 +608,7 @@ export class MediaDetail extends Component<MediaDetailState> {
             if (this.state.media.id) {
                 const updatedLogs = await getLogsForMedia(this.state.media.id);
                 this.setState({ logs: updatedLogs });
-                this.notifyLocalDataChanged();
+                notifyLocalDataChanged();
             }
         });
     }
@@ -652,34 +634,46 @@ export class MediaDetail extends Component<MediaDetailState> {
     }
 
     private syncOverflowMenuRefs() {
-        this.overflowMenuRoot = this.container.querySelector<HTMLElement>('#media-overflow-root');
-        this.overflowMenu = this.container.querySelector<HTMLElement>('#media-overflow-menu');
+        this.closeOverflowMenu();
         this.overflowMenuButton = this.container.querySelector<HTMLButtonElement>('#btn-media-overflow');
     }
 
     private closeOverflowMenu() {
-        if (this.overflowMenu) this.overflowMenu.hidden = true;
-        if (this.overflowMenuButton) this.overflowMenuButton.setAttribute('aria-expanded', 'false');
+        this.overflowMenuHandle?.close();
+        this.overflowMenuHandle = null;
     }
 
     private toggleOverflowMenu() {
-        if (!this.overflowMenu || !this.overflowMenuButton) return;
-        const nextOpen = this.overflowMenu.hidden;
-        this.overflowMenu.hidden = !nextOpen;
-        this.overflowMenuButton.setAttribute('aria-expanded', nextOpen ? 'true' : 'false');
-    }
-
-    private handleGlobalPointerDown(event: PointerEvent) {
-        if (!this.overflowMenu || !this.overflowMenuButton || this.overflowMenu.hidden) return;
-        const target = event.target as Node | null;
-        if (!target || !this.overflowMenuRoot?.contains(target)) {
+        if (this.overflowMenuHandle) {
             this.closeOverflowMenu();
+            return;
         }
+        if (!this.overflowMenuButton) return;
+
+        this.overflowMenuHandle = openPopupMenu({
+            label: `Actions for ${this.state.media.title}`,
+            anchor: { kind: 'element', element: this.overflowMenuButton, align: 'end' },
+            onClose: () => { this.overflowMenuHandle = null; },
+            items: [{
+                actionId: 'delete',
+                elementId: 'btn-delete-media-detail',
+                label: 'Delete media',
+                iconMarkup: TRASH_CAN,
+                isDanger: true,
+                onSelect: () => { this.deleteMediaFromDetail().catch(e => Logger.error('Failed to delete media', e)); },
+            }],
+        });
     }
 
-    private handleGlobalKeyDown(event: KeyboardEvent) {
-        if (event.key !== 'Escape') return;
-        this.closeOverflowMenu();
+    private async deleteMediaFromDetail() {
+        const outcome = await deleteMediaWithConfirmation(this.state.media);
+        if (outcome.committed) this.onDelete();
+    }
+
+    private applyMediaActionOutcome(outcome: MediaActionOutcome) {
+        if (!outcome.updatedMedia) return;
+        Object.assign(this.state.media, outcome.updatedMedia);
+        this.render();
     }
 
     private syncViewportLayout() {
@@ -1055,34 +1049,17 @@ export class MediaDetail extends Component<MediaDetailState> {
         });
 
         root.querySelector('#btn-toggle-archive')?.addEventListener('click', async () => {
-            const previousMedia = { ...this.state.media };
-            this.state.media.status = this.isActive(this.state.media.status) ? MEDIA_STATUS.ARCHIVED : MEDIA_STATUS.ACTIVE;
-            await this.persistMediaMutation(previousMedia);
+            this.applyMediaActionOutcome(await toggleMediaArchived(this.state.media));
         });
 
         root.querySelector('#btn-mark-complete')?.addEventListener('click', async () => {
-            if (this.isCompleteTracking(this.state.media.tracking_status)) {
-                return;
-            }
-            const previousMedia = { ...this.state.media };
-            this.state.media.tracking_status = 'Complete';
-            await this.persistMediaMutation(previousMedia);
+            this.applyMediaActionOutcome(await markMediaComplete(this.state.media));
         });
 
         root.querySelector('#btn-media-overflow')?.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
             this.toggleOverflowMenu();
-        });
-
-        root.querySelector('#btn-delete-media-detail')?.addEventListener('click', async () => {
-            this.closeOverflowMenu();
-            const ok = await customConfirm("Delete Media", `Are you sure you want to permanently delete "${this.state.media.title}" and all its logs?`, "btn-danger", "Delete");
-            if (ok) {
-                await deleteMedia(this.state.media.id!);
-                this.notifyLocalDataChanged(true);
-                this.onDelete();
-            }
         });
 
         root.querySelector('#btn-add-extra')?.addEventListener('click', async () => {
@@ -1128,20 +1105,14 @@ export class MediaDetail extends Component<MediaDetailState> {
         });
 
         root.querySelector('#btn-add-milestone')?.addEventListener('click', async () => {
-            const currentDuration = this.state.logs.reduce((acc, log) => acc + log.duration_minutes, 0);
-            const currentCharacters = this.state.logs.reduce((acc, log) => acc + log.characters, 0);
-            try {
-                const milestone = await showAddMilestoneModal(this.state.media.title, this.requireMediaUid(), {
-                    duration: currentDuration,
-                    characters: currentCharacters
-                });
-                if (milestone) {
-                    await addMilestone(milestone);
-                    await this.loadMilestones();
-                    this.render();
-                }
-            } catch (e) {
-                await customAlert("Error", "Failed to add milestone: " + e);
+            if (!canAddMilestone(this.state.media)) {
+                await customAlert("Error", "Media UID is unavailable. Reload the media library and try again.");
+                return;
+            }
+            const outcome = await addMilestoneForMedia(this.state.media, this.state.logs);
+            if (outcome.committed) {
+                await this.loadMilestones();
+                this.render();
             }
         });
 
@@ -1193,11 +1164,10 @@ export class MediaDetail extends Component<MediaDetailState> {
         });
 
         root.querySelector('#btn-new-media-entry')?.addEventListener('click', async () => {
-            const success = await showLogActivityModal(this.state.media.id);
-            if (success) {
+            const outcome = await addLogForMedia(this.state.media);
+            if (outcome.committed) {
                 const logs = await getLogsForMedia(this.state.media.id!);
                 this.setState({ logs });
-                this.notifyLocalDataChanged();
             }
         });
     }
@@ -1212,7 +1182,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                     await this.loadImage();
                     // The cache was invalidated before loading the replacement.
                     // Do not clear again after the new object URL is committed.
-                    this.notifyLocalDataChanged();
+                    notifyLocalDataChanged();
                 }
             } catch (e) {
                 await customAlert("Error", "Failed to upload image: " + e);
@@ -1274,7 +1244,7 @@ export class MediaDetail extends Component<MediaDetailState> {
 
             // The cache was invalidated before loading the replacement.
             // Do not clear again after the new object URL is committed.
-            this.notifyLocalDataChanged();
+            notifyLocalDataChanged();
             this.render();
         } catch (e) {
             await customAlert("Import Failed", "Metadata import failed: " + e);

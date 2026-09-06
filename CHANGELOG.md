@@ -6,6 +6,11 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+### Added
+ - Hovering a library grid card now shows its title over the cover, with a border tinted to its tracking status
+ - Right-clicking a library item opens a menu for Add log, Add milestone, Mark complete, Archive/Unarchive, and Delete without opening the detail view
+ - Right-clicking empty space in the library opens a menu for New media
+
 ### Fixed
  - The startup error and database recovery screens now show their intended background gradient
  - The Jiten.moe search dialog title was invisible on the light themes

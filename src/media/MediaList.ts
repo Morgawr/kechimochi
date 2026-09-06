@@ -1,4 +1,5 @@
 import { Component } from '../component';
+import { Media } from '../api';
 import { MediaListItem } from './MediaListItem';
 import type { LibraryActivityMetrics } from './library_types';
 import type { LibraryRow } from './sorting';
@@ -17,6 +18,10 @@ export class MediaList extends Component<MediaListState> {
     private currentRenderId = 0;
     private childItems: MediaListItem[] = [];
     private visibilityController: CoverVisibilityController | null = null;
+    private itemsByMediaId = new Map<number, MediaListItem>();
+    private elementsByMediaId = new Map<number, HTMLElement>();
+    private headerElementsByContentType = new Map<string, HTMLElement>();
+    private isRenderComplete = false;
 
     constructor(container: HTMLElement, initialState: MediaListState, onMediaClick: (mediaId: number) => void) {
         super(container, initialState);
@@ -32,11 +37,55 @@ export class MediaList extends Component<MediaListState> {
         await Promise.all(this.childItems.map(item => item.reconcileCoverUrl()));
     }
 
+    public isRenderingComplete(): boolean {
+        return this.isRenderComplete;
+    }
+
+    public getScrollContainer(): HTMLElement | null {
+        return this.container.querySelector<HTMLElement>('#media-list-container');
+    }
+
+    public getMediaElement(mediaId: number): HTMLElement | null {
+        return this.elementsByMediaId.get(mediaId) ?? null;
+    }
+
+    public getHeaderElement(contentType: string): HTMLElement | null {
+        return this.headerElementsByContentType.get(contentType) ?? null;
+    }
+
+    public removeHeaderElement(contentType: string): void {
+        this.headerElementsByContentType.get(contentType)?.remove();
+        this.headerElementsByContentType.delete(contentType);
+    }
+
+    public async updateMediaItem(media: Media, metrics: LibraryActivityMetrics | null): Promise<void> {
+        if (media.id == null) return;
+        const item = this.itemsByMediaId.get(media.id);
+        if (!item) return;
+
+        // Re-rendering rebuilds the <img>, so a cover URL the shared cache has
+        // since revoked must be refreshed before the card is redrawn.
+        await item.reconcileCoverUrl();
+        item.setState({ media, metrics });
+    }
+
+    public removeMediaItem(mediaId: number): void {
+        const item = this.itemsByMediaId.get(mediaId);
+        if (!item) return;
+
+        item.destroy();
+        this.itemsByMediaId.delete(mediaId);
+        this.childItems = this.childItems.filter(candidate => candidate !== item);
+        this.elementsByMediaId.get(mediaId)?.remove();
+        this.elementsByMediaId.delete(mediaId);
+    }
+
     render() {
         this.currentRenderId += 1;
         const renderId = this.currentRenderId;
 
         this.destroyRenderedItems();
+        this.isRenderComplete = false;
         this.visibilityController = new CoverVisibilityController('360px 0px');
         this.clear();
 
@@ -54,9 +103,14 @@ export class MediaList extends Component<MediaListState> {
             subsequentBatchDelayMs: 20,
             shouldContinue: () => !this.isDestroyed && renderId === this.currentRenderId,
             performanceOperation: 'library_list_batch',
+            onRenderComplete: () => {
+                this.isRenderComplete = true;
+            },
             createItemWrapper: (row, index) => {
                 if (row.kind === 'header') {
-                    return createLibrarySectionHeaderWrapper(row.contentType, false);
+                    const headerWrapper = createLibrarySectionHeaderWrapper(row.contentType, false);
+                    this.headerElementsByContentType.set(row.contentType, headerWrapper);
+                    return headerWrapper;
                 }
 
                 const media = row.media;
@@ -83,6 +137,10 @@ export class MediaList extends Component<MediaListState> {
                     index < 8,
                 );
                 this.childItems.push(item);
+                if (media.id != null) {
+                    this.itemsByMediaId.set(media.id, item);
+                    this.elementsByMediaId.set(media.id, itemWrapper);
+                }
                 item.render();
                 return itemWrapper;
             },
@@ -94,5 +152,8 @@ export class MediaList extends Component<MediaListState> {
         this.visibilityController = null;
         this.childItems.forEach(item => item.destroy());
         this.childItems = [];
+        this.itemsByMediaId.clear();
+        this.elementsByMediaId.clear();
+        this.headerElementsByContentType.clear();
     }
 }

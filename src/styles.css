@@ -6,6 +6,8 @@
   --sidebar-width: 240px;
   /* Default library grid card height; MediaGrid overrides this inline per zoom level. */
   --library-card-height: 320px;
+  --library-overlay-top-reserve: 1.6rem;
+  --library-overlay-bottom-reserve: 2.5rem;
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 12px;
@@ -58,6 +60,7 @@
   --danger: #ff4757;          /* ProfileView danger zone, calendar Sunday shares the value but NOT the meaning */
   --danger-strong: #c0392b;   /* .alert-danger, status-dropped fill */
   --danger-muted: #ff7582;    /* MediaDetail delete icon */
+  --danger-text: #ff7582;
   --warning: #f59e0b;         /* app-loader */
 
   --accent-text-dark: #0f1b15;   /* dark-on-light-accent foreground */
@@ -173,6 +176,7 @@ body[data-theme='pastel-pink'] {
 
 /* Light Theme */
 body[data-theme='light'] {
+  --danger-text: #c0392b;
   --bg-dark: #f8f9fa;
   --bg-card: #ffffff;
   --bg-card-hover: #f1f3f5;
@@ -227,6 +231,7 @@ body[data-theme='dark'] {
 
 /* Light Greyscale */
 body[data-theme='light-greyscale'] {
+  --danger-text: #c0392b;
   --bg-dark: #ffffff;
   --bg-card: #f5f5f5;
   --bg-card-hover: #e0e0e0;
@@ -2152,9 +2157,12 @@ input:focus, select:focus {
 }
 
 .grid-item-variant {
-  margin-top: 0.35rem;
+  max-width: 100%;
   font-size: 0.78rem;
   color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .image-placeholder {
@@ -2164,7 +2172,7 @@ input:focus, select:focus {
   padding: 1.2rem 1rem;
   color: var(--text-secondary);
   text-align: center;
-  justify-content: space-between;
+  justify-content: flex-end;
 }
 
 .grid-item-title {
@@ -2646,11 +2654,12 @@ input:focus, select:focus {
 }
 
 .media-grid-item {
+  --card-border-width: 1px;
   cursor: pointer;
   border-radius: var(--radius-md);
   overflow: hidden;
   background: var(--bg-dark);
-  border: 1px solid var(--border-color);
+  border: var(--card-border-width) solid var(--border-color);
   display: flex;
   flex-direction: column;
   position: relative;
@@ -2665,6 +2674,115 @@ input:focus, select:focus {
 
 .media-grid-item-body.is-archived {
   opacity: 0.6;
+}
+
+.media-grid-cover-image {
+  border-radius: calc(var(--radius-md) - var(--card-border-width));
+  transform: none;
+  transition: opacity 160ms ease-out;
+}
+
+.grid-item-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: var(--library-overlay-top-reserve) 1rem var(--library-overlay-bottom-reserve);
+  border: 3px solid transparent;
+  border-radius: calc(var(--radius-md) - var(--card-border-width));
+  text-align: center;
+  pointer-events: none;
+}
+
+#media-root .grid-item-overlay,
+#media-root .grid-item-overlay .grid-item-title,
+#media-root .grid-item-overlay .grid-item-variant {
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast) !important;
+}
+
+.media-grid-cover-image ~ .grid-item-overlay,
+.media-grid-cover-image ~ .grid-item-overlay .grid-item-title,
+.media-grid-cover-image ~ .grid-item-overlay .grid-item-variant {
+  background-color: transparent;
+  color: transparent;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .media-grid-item:hover .grid-item-overlay {
+    border-color: var(--library-hover-border-color, var(--border-color));
+  }
+
+  .media-grid-item:hover .media-grid-cover-image ~ .grid-item-overlay {
+    background-color: color-mix(in srgb, var(--tint-dark) 65%, transparent);
+  }
+
+  .media-grid-item:hover .media-grid-cover-image ~ .grid-item-overlay .grid-item-title {
+    color: var(--text-on-fill);
+  }
+
+  .media-grid-item:hover .media-grid-cover-image ~ .grid-item-overlay .grid-item-variant {
+    color: color-mix(in srgb, var(--text-on-fill) 75%, transparent);
+  }
+}
+
+.media-grid-item[data-tracking-status='Ongoing'] { --library-hover-border-color: var(--status-ongoing-led); }
+.media-grid-item[data-tracking-status='Complete'] { --library-hover-border-color: var(--status-complete-led); }
+.media-grid-item[data-tracking-status='Paused'] { --library-hover-border-color: var(--status-paused-led); }
+.media-grid-item[data-tracking-status='Dropped'] { --library-hover-border-color: var(--status-dropped-led); }
+.media-grid-item[data-tracking-status='Not Started'] { --library-hover-border-color: var(--status-not-started-led); }
+
+.popup-menu {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  min-width: 12rem;
+  padding: 0.35rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-md);
+  z-index: 900;
+}
+
+.popup-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.popup-menu-item:hover,
+.popup-menu-item:focus-visible {
+  background: var(--bg-card-hover);
+  outline: none;
+}
+
+.popup-menu-item-danger {
+  color: var(--danger-text);
+}
+
+.popup-menu-item-danger:hover,
+.popup-menu-item-danger:focus-visible {
+  background: color-mix(in srgb, var(--danger-text) 16%, transparent);
+}
+
+.popup-menu-separator {
+  height: 1px;
+  margin: 0.3rem 0.2rem;
+  background: var(--border-color);
 }
 
 .media-library-section-header {
@@ -3700,10 +3818,6 @@ input:checked + .slider:before {
   transform: translateY(-1px);
 }
 
-#media-overflow-menu button:hover,
-#media-overflow-menu button:focus-visible {
-  background: color-mix(in srgb, var(--accent-red) 10%, transparent);
-}
 #media-first-last-stats {
   grid-column: span 3;
   display: flex;

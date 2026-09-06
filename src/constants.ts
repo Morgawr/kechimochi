@@ -22,6 +22,7 @@ export const STORAGE_KEYS = {
     THEME_OVERRIDE_ENABLED: 'kechimochi_theme_override_enabled',
     THEME_OVERRIDE: 'kechimochi_theme_override',
     MOCK_DATE: 'kechimochi_mock_date',
+    KEEP_POPUP_MENUS_ON_BLUR: 'kechimochi_keep_popup_menus_on_blur',
 } as const;
 
 export const SETTING_KEYS = {

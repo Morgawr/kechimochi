@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { waitForAppReady } from '../../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../../helpers/navigation.js';
-import { safeClick, dismissAlert, confirmAction, setDialogMockPath, waitForNoActiveOverlays } from '../../helpers/common.js';
+import { safeClick, clickMenuItem, dismissAlert, confirmAction, setDialogMockPath, waitForNoActiveOverlays } from '../../helpers/common.js';
 import { addMedia, clickMediaItem, isMediaVisible } from '../../helpers/library.js';
 import {
   addExtraField,
@@ -293,7 +293,7 @@ describe('CUJ: Cloud Sync', () => {
 
     await openMediaDetail(DELETION_TITLE);
     await safeClick('#btn-media-overflow');
-    await safeClick('#btn-delete-media-detail');
+    await clickMenuItem('#btn-delete-media-detail');
     await confirmAction(true);
     await navigateTo('profile');
     await runSyncNow('Cloud Sync completed successfully');
