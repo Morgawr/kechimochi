@@ -94,7 +94,7 @@ function chunkIntoRows(cells: (CalendarGridCell | null)[], columns: number): Cal
     for (let index = 0; index < cells.length; index += columns) {
         rows.push(cells.slice(index, index + columns));
     }
-    const lastRow = rows[rows.length - 1];
+    const lastRow = rows.at(-1);
     while (lastRow && lastRow.length < columns) lastRow.push(null);
     return rows;
 }

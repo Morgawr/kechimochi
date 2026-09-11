@@ -919,13 +919,13 @@ export class MediaDetail extends Component<MediaDetailState> {
     /** Last read is the log with the latest effective end, coarser winning a tie. */
     private getMostRecentLog(logs: ActivitySummary[]): ActivitySummary {
         return logs.reduce((mostRecent, log) =>
-            compareLogRecency(log, mostRecent) > 0 ? log : mostRecent);
+            compareLogRecency(log, mostRecent) > 0 ? log : mostRecent, logs[0]);
     }
 
     /** First read is the log with the earliest anchor, coarser winning a tie. */
     private getEarliestLog(logs: ActivitySummary[]): ActivitySummary {
         return logs.reduce((earliest, log) =>
-            compareLogAnchorOrder(log, earliest) < 0 ? log : earliest);
+            compareLogAnchorOrder(log, earliest) < 0 ? log : earliest, logs[0]);
     }
 
     private renderStats(root: HTMLElement) {

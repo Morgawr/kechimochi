@@ -9,10 +9,10 @@ interface ScopedLogDate {
     date_precision: DateScope;
 }
 
-const DATE_SCOPES: readonly DateScope[] = ['day', 'month', 'year'];
+const DATE_SCOPES: ReadonlySet<DateScope> = new Set(['day', 'month', 'year']);
 
 export function isDateScope(value: string | undefined): value is DateScope {
-    return typeof value === 'string' && DATE_SCOPES.includes(value as DateScope);
+    return typeof value === 'string' && DATE_SCOPES.has(value as DateScope);
 }
 
 const PRECISION_KEY_LENGTHS: Record<DateScope, number> = { day: 10, month: 7, year: 4 };
@@ -67,7 +67,7 @@ export function localTodayAnchor(): DateAnchor {
 
 function lastDayBeforeUtc(year: number, month0Indexed: number): string {
     const periodStart = utcDateFromParts(year, month0Indexed, 1);
-    const lastDay = new Date(periodStart.getTime());
+    const lastDay = new Date(periodStart);
     lastDay.setUTCDate(lastDay.getUTCDate() - 1);
     return formatUtcIsoDate(lastDay.getUTCFullYear(), lastDay.getUTCMonth() + 1, lastDay.getUTCDate());
 }
