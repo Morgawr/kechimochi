@@ -5,6 +5,7 @@ import { Logger } from '../logger';
 import { showLogActivityModal } from '../activity_modal';
 import { EVENTS } from '../constants';
 import { MediaCoverLoader } from '../media/cover_loader';
+import { compareLogRecency } from '../time';
 
 interface QuickLogState {
     logs?: ActivitySummary[];
@@ -90,15 +91,15 @@ export class QuickLog extends Component<QuickLogState> {
     }
 
     private getSortedMedia(): Array<Media | DashboardMedia> {
-        const latestLogByMedia = new Map<number, { date: string; id: number }>();
+        const latestLogByMedia = new Map<number, ActivitySummary>();
         if (this.state.preSorted) {
             return this.state.mediaList.slice(0, MAX_QUICK_LOG_ITEMS);
         }
 
         for (const log of this.state.logs ?? []) {
             const previous = latestLogByMedia.get(log.media_id);
-            if (!previous || this.compareLogRecency(log, previous) > 0) {
-                latestLogByMedia.set(log.media_id, { date: log.date, id: log.id });
+            if (!previous || compareLogRecency(log, previous) > 0) {
+                latestLogByMedia.set(log.media_id, log);
             }
         }
 
@@ -113,38 +114,16 @@ export class QuickLog extends Component<QuickLogState> {
 
                 const leftLatestLog = latestLogByMedia.get(left.id!);
                 const rightLatestLog = latestLogByMedia.get(right.id!);
-                const leftLatestDate = leftLatestLog?.date || '';
-                const rightLatestDate = rightLatestLog?.date || '';
-                if (leftLatestDate !== rightLatestDate) {
-                    return this.compareDateRecency(rightLatestDate, leftLatestDate);
-                }
-
-                const leftLatestLogId = leftLatestLog?.id || 0;
-                const rightLatestLogId = rightLatestLog?.id || 0;
-                if (leftLatestLogId !== rightLatestLogId) {
-                    return rightLatestLogId - leftLatestLogId;
+                if (leftLatestLog && rightLatestLog) {
+                    const recencyComparison = compareLogRecency(rightLatestLog, leftLatestLog);
+                    if (recencyComparison !== 0) return recencyComparison;
+                } else if (leftLatestLog !== rightLatestLog) {
+                    return leftLatestLog ? -1 : 1;
                 }
 
                 return left.title.localeCompare(right.title);
             })
             .slice(0, MAX_QUICK_LOG_ITEMS);
-    }
-
-    private compareLogRecency(left: { date: string; id: number }, right: { date: string; id: number }): number {
-        const dateComparison = this.compareDateRecency(left.date, right.date);
-        if (dateComparison !== 0) {
-            return dateComparison;
-        }
-        return left.id - right.id;
-    }
-
-    private compareDateRecency(left: string, right: string): number {
-        const leftTime = Date.parse(left);
-        const rightTime = Date.parse(right);
-        if (!Number.isNaN(leftTime) && !Number.isNaN(rightTime) && leftTime !== rightTime) {
-            return leftTime - rightTime;
-        }
-        return left.localeCompare(right);
     }
 
     private renderItem(media: Media | DashboardMedia): string {

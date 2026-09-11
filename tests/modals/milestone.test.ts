@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { showAddMilestoneModal } from '../../src/milestone_modal';
 import { buildCalendar } from '../../src/calendar';
 
-vi.mock('../../src/calendar', () => ({
+vi.mock('../../src/calendar', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../../src/calendar')>()),
     buildCalendar: vi.fn(),
 }));
 
@@ -67,7 +68,7 @@ describe('modals/milestone.ts', () => {
     });
 
     it('should prefill duration and characters from defaults', async () => {
-        showAddMilestoneModal('Test Media', 'uid-test-media', { duration: 125, characters: 3210 });
+        void showAddMilestoneModal('Test Media', 'uid-test-media', { duration: 125, characters: 3210 });
         await vi.waitFor(() => document.querySelector('#milestone-duration'));
 
         const durationInput = document.querySelector('#milestone-duration') as HTMLInputElement;
@@ -78,7 +79,7 @@ describe('modals/milestone.ts', () => {
     });
 
     it('should disable the confirm button for unparseable duration input', async () => {
-        showAddMilestoneModal('Test Media', 'uid-test-media');
+        void showAddMilestoneModal('Test Media', 'uid-test-media');
         await vi.waitFor(() => document.querySelector('#milestone-duration'));
 
         const durationInput = document.querySelector('#milestone-duration') as HTMLInputElement;
@@ -124,7 +125,7 @@ describe('modals/milestone.ts', () => {
         expect((document.querySelector('#milestone-duration') as HTMLInputElement).value).toBe('125');
         expect((document.querySelector('#milestone-characters') as HTMLInputElement).value).toBe('900');
         expect((document.querySelector('#milestone-record-date') as HTMLInputElement).checked).toBe(true);
-        expect(buildCalendar).toHaveBeenCalledWith(document.querySelector('#milestone-calendar'), '2025-05-14', expect.any(Function));
+        expect(buildCalendar).toHaveBeenCalledWith(document.querySelector('#milestone-calendar'), '2025-05-14', expect.any(Function), { weekStartDay: 1 });
 
         (document.querySelector('#milestone-name') as HTMLInputElement).value = 'Updated milestone';
         (document.querySelector('#milestone-confirm') as HTMLElement).click();

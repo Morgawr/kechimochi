@@ -685,7 +685,8 @@ fn parse_activity_csv_rows<R: Read>(
             record.legacy_media_type.as_deref(),
             &format!("activity CSV row {row_number}"),
         )?;
-        let formatted_date = normalize_activity_date(&record.date, row_number)?;
+        let (anchor, precision) = normalize_activity_date_and_precision(&record.date, row_number)?;
+        let formatted_date = reduced_activity_date(&anchor, precision);
         let characters = record.characters.unwrap_or(0);
         db::validate_activity_metrics(record.duration, characters)
             .map_err(|error| format!("Invalid activity CSV row {row_number}: {error}"))?;
@@ -746,6 +747,8 @@ fn parse_activity_csv_rows<R: Read>(
 #[derive(Debug)]
 struct PreparedActivityCsvRow {
     row: ActivityCsvRow,
+    anchor: String,
+    date_precision: db::DatePrecision,
     media_key: CsvMediaKey,
     existing_media_id: Option<i64>,
     content: ActivityCsvContent,
@@ -767,7 +770,8 @@ fn prepare_activity_rows(
             None,
             &format!("activity CSV row {row_number}"),
         )?;
-        let date = normalize_activity_date(&row.date, row_number)?;
+        let (anchor, date_precision) = normalize_activity_date_and_precision(&row.date, row_number)?;
+        let date = reduced_activity_date(&anchor, date_precision);
         db::validate_activity_metrics(row.duration, row.characters)
             .map_err(|error| format!("Invalid activity CSV row {row_number}: {error}"))?;
         let existing = catalog.resolve(
@@ -846,6 +850,8 @@ fn prepare_activity_rows(
         };
         prepared.push(PreparedActivityCsvRow {
             row: normalized_row,
+            anchor,
+            date_precision,
             media_key,
             existing_media_id: existing.and_then(|media| media.id),
             content,
@@ -858,14 +864,12 @@ fn prepare_activity_rows(
 fn existing_activity_counts(
     conn: &Connection,
 ) -> Result<HashMap<ActivityCsvContent, usize>, String> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT m.title, m.variant, a.date, a.duration_minutes, a.characters,
-                    a.activity_type, a.notes
-             FROM main.activity_logs a
-             JOIN shared.media m ON m.id = a.media_id",
-        )
-        .map_err(|error| error.to_string())?;
+    let query =
+        "SELECT m.title, m.variant, substr(a.date, 1, a.precision_key_length) AS date,
+                a.duration_minutes, a.characters, a.activity_type, a.notes
+         FROM main.activity_logs a
+         JOIN shared.media m ON m.id = a.media_id";
+    let mut stmt = conn.prepare(query).map_err(|error| error.to_string())?;
     let rows = stmt
         .query_map([], |row| {
             Ok(ActivityCsvContent {
@@ -1027,7 +1031,8 @@ pub fn apply_activity_import(
             media_id,
             duration_minutes: prepared_row.row.duration,
             characters: prepared_row.row.characters,
-            date: prepared_row.row.date,
+            date: prepared_row.anchor,
+            date_precision: prepared_row.date_precision,
             activity_type: prepared_row.row.activity_type,
             notes: prepared_row.row.notes,
         };
@@ -1043,32 +1048,60 @@ pub fn apply_activity_import(
     })
 }
 
-fn normalize_activity_date(value: &str, row_number: usize) -> Result<String, String> {
-    let is_slash_format =
-        value.len() == 10 && value.chars().nth(4) == Some('/') && value.chars().nth(7) == Some('/');
-    let is_dash_format =
-        value.len() == 10 && value.chars().nth(4) == Some('-') && value.chars().nth(7) == Some('-');
-
-    if !(is_slash_format || is_dash_format) {
-        return Err(format!(
-            "Invalid date format on CSV row {}: '{}'. Expected YYYY/MM/DD or YYYY-MM-DD.",
-            row_number, value
-        ));
-    }
-
-    let parse_format = if is_slash_format {
-        "%Y/%m/%d"
-    } else {
-        "%Y-%m-%d"
-    };
-    let parsed_date = NaiveDate::parse_from_str(value, parse_format).map_err(|_| {
+/// Returns the log's canonical anchor (always a full `YYYY-MM-DD`) and precision.
+/// Precision is inferred from the Date column's length: `YYYY` is a year, `YYYY-MM`
+/// a month, and a ten-character `YYYY/MM/DD` or `YYYY-MM-DD` a day.
+fn normalize_activity_date_and_precision(
+    value: &str,
+    row_number: usize,
+) -> Result<(String, db::DatePrecision), String> {
+    let invalid = || {
         format!(
-            "Invalid date value on CSV row {}: '{}'. Expected YYYY/MM/DD or YYYY-MM-DD.",
-            row_number, value
+            "Invalid date value on CSV row {row_number}: '{value}'. Expected YYYY, YYYY-MM, YYYY/MM/DD or YYYY-MM-DD."
         )
-    })?;
+    };
 
-    Ok(parsed_date.format("%Y-%m-%d").to_string())
+    match value.len() {
+        4 => {
+            NaiveDate::parse_from_str(&format!("{value}-01-01"), "%Y-%m-%d")
+                .map_err(|_| invalid())?;
+            Ok((format!("{value}-01-01"), db::DatePrecision::Year))
+        }
+        7 => {
+            NaiveDate::parse_from_str(&format!("{value}-01"), "%Y-%m-%d").map_err(|_| invalid())?;
+            Ok((format!("{value}-01"), db::DatePrecision::Month))
+        }
+        10 => {
+            let is_slash_format =
+                value.chars().nth(4) == Some('/') && value.chars().nth(7) == Some('/');
+            let is_dash_format =
+                value.chars().nth(4) == Some('-') && value.chars().nth(7) == Some('-');
+            if !(is_slash_format || is_dash_format) {
+                return Err(invalid());
+            }
+            let parse_format = if is_slash_format {
+                "%Y/%m/%d"
+            } else {
+                "%Y-%m-%d"
+            };
+            let parsed_date =
+                NaiveDate::parse_from_str(value, parse_format).map_err(|_| invalid())?;
+            Ok((
+                parsed_date.format("%Y-%m-%d").to_string(),
+                db::DatePrecision::Day,
+            ))
+        }
+        _ => Err(invalid()),
+    }
+}
+
+fn reduced_activity_date(anchor: &str, precision: db::DatePrecision) -> String {
+    let length = match precision {
+        db::DatePrecision::Day => 10,
+        db::DatePrecision::Month => 7,
+        db::DatePrecision::Year => 4,
+    };
+    anchor[0..length].to_string()
 }
 
 pub fn export_media_csv(conn: &Connection, file_path: &str) -> Result<usize, String> {
@@ -1159,35 +1192,38 @@ pub fn export_logs_csv(
     let mut count = 0;
     let mut wtr = atomic_csv_writer(file_path)?;
 
-    let mut stmt = conn
-        .prepare(
-            "SELECT a.id, a.date, m.title, m.default_activity_type, a.duration_minutes, m.language,
-                    a.characters, a.activity_type,
-                    a.notes, m.variant
-             FROM main.activity_logs a
-             JOIN shared.media m ON a.media_id = m.id
-             ORDER BY a.date DESC, a.id DESC",
-        )
-        .map_err(|e| e.to_string())?;
+    let query =
+        "SELECT a.date, substr(a.date, 1, a.precision_key_length) AS reduced_date, a.effective_end,
+                m.title, m.default_activity_type, a.duration_minutes, m.language,
+                a.characters, a.activity_type,
+                a.notes, m.variant
+         FROM main.activity_logs a
+         JOIN shared.media m ON a.media_id = m.id
+         ORDER BY a.effective_end DESC, a.precision_key_length ASC, a.id DESC";
+    let mut stmt = conn.prepare(query).map_err(|e| e.to_string())?;
     let logs = stmt
         .query_map([], |row| {
             Ok((
+                row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
-                row.get::<_, i64>(4)?,
-                row.get::<_, String>(5)?,
-                row.get::<_, i64>(6)?,
-                row.get::<_, String>(7)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, i64>(5)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, i64>(7)?,
                 row.get::<_, String>(8)?,
                 row.get::<_, String>(9)?,
+                row.get::<_, String>(10)?,
             ))
         })
         .map_err(|e| e.to_string())?;
 
     for log in logs {
         let (
-            date,
+            anchor,
+            reduced_date,
+            effective_end,
             title,
             default_activity_type,
             duration,
@@ -1198,18 +1234,18 @@ pub fn export_logs_csv(
             variant,
         ) = log.map_err(|e| e.to_string())?;
         if let Some(start) = &start_date {
-            if &date < start {
+            if &anchor < start {
                 continue;
             }
         }
         if let Some(end) = &end_date {
-            if &date > end {
+            if &effective_end > end {
                 continue;
             }
         }
 
         wtr.serialize(ActivityCsvRow {
-            date,
+            date: reduced_date,
             log_name: title,
             default_activity_type,
             duration,
@@ -2505,6 +2541,7 @@ mod tests {
                 duration_minutes: 30,
                 characters: 100,
                 date: "2024-01-01".to_string(),
+                date_precision: db::DatePrecision::Day,
                 activity_type: "Reading".to_string(),
                 notes: String::new(),
             },
@@ -2518,6 +2555,7 @@ mod tests {
                 duration_minutes: 45,
                 characters: 200,
                 date: "2024-02-01".to_string(),
+                date_precision: db::DatePrecision::Day,
                 activity_type: "Watching".to_string(),
                 notes: String::new(),
             },
@@ -2531,6 +2569,7 @@ mod tests {
                 duration_minutes: 60,
                 characters: 300,
                 date: "2024-03-01".to_string(),
+                date_precision: db::DatePrecision::Day,
                 activity_type: "Reading".to_string(),
                 notes: String::new(),
             },
@@ -2600,6 +2639,7 @@ mod tests {
                     duration_minutes: 25,
                     characters: 0,
                     date: "2024-01-01".to_string(),
+                    date_precision: db::DatePrecision::Day,
                     activity_type: activity_type.to_string(),
                     notes: variant.to_string(),
                 },
@@ -3184,6 +3224,7 @@ mod tests {
                 duration_minutes: 30,
                 characters: 100,
                 date: "2026-07-20".to_string(),
+                date_precision: db::DatePrecision::Day,
                 activity_type: "Reading".to_string(),
                 notes: "same note".to_string(),
             },
@@ -3230,6 +3271,7 @@ mod tests {
                 duration_minutes: 30,
                 characters: 100,
                 date: "2026-07-20".to_string(),
+                date_precision: db::DatePrecision::Day,
                 activity_type: "Reading".to_string(),
                 notes: "same note".to_string(),
             },
@@ -3277,6 +3319,7 @@ mod tests {
                 duration_minutes: 30,
                 characters: 100,
                 date: "2026-07-20".to_string(),
+                date_precision: db::DatePrecision::Day,
                 activity_type: "Reading".to_string(),
                 notes: "same note".to_string(),
             },
@@ -3308,6 +3351,7 @@ mod tests {
                 duration_minutes: 30,
                 characters: 0,
                 date: "2026-07-20".to_string(),
+                date_precision: db::DatePrecision::Day,
                 activity_type: "Reading".to_string(),
                 notes: String::new(),
             },
@@ -3346,6 +3390,7 @@ mod tests {
                 duration_minutes: 30,
                 characters: 0,
                 date: "2026-07-20".to_string(),
+                date_precision: db::DatePrecision::Day,
                 activity_type: "Reading".to_string(),
                 notes: String::new(),
             },
@@ -3403,8 +3448,8 @@ mod tests {
         assert!(result.is_err());
 
         let error = result.err().unwrap();
-        assert!(error.contains("Invalid date format on CSV row 3"));
-        assert!(error.contains("Expected YYYY/MM/DD or YYYY-MM-DD"));
+        assert!(error.contains("Invalid date value on CSV row 3"));
+        assert!(error.contains("Expected YYYY, YYYY-MM, YYYY/MM/DD or YYYY-MM-DD"));
 
         let logs = db::get_logs(&conn).unwrap();
         assert_eq!(logs.len(), 0);
@@ -3425,6 +3470,7 @@ mod tests {
                 duration_minutes: 30,
                 characters: 0,
                 date: "2024-07-01".to_string(),
+                date_precision: db::DatePrecision::Day,
                 activity_type: "Reading".to_string(),
                 notes: "exported note text".to_string(),
             },

@@ -2,6 +2,7 @@
  * Shared data-model interfaces — used by both the frontend and the service adapters.
  * Import types from here instead of from api.ts to avoid circular dependencies.
  */
+import type { DateScope } from './time';
 
 export interface MediaCsvRow {
     "Title": string;
@@ -105,6 +106,7 @@ export interface ActivityLog {
     duration_minutes: number;
     characters: number;
     date: string;
+    date_precision: DateScope;
     activity_type?: string;
     notes?: string;
 }
@@ -117,6 +119,7 @@ export interface ActivitySummary {
     duration_minutes: number;
     characters: number;
     date: string;
+    date_precision: DateScope;
     language: string;
     notes: string;
 }
@@ -175,6 +178,11 @@ export interface DashboardNamedTotals {
     total_characters: number;
 }
 
+export interface DashboardActivityTotals extends DashboardNamedTotals {
+    day_scoped_total_minutes: number;
+    day_scoped_total_characters: number;
+}
+
 export interface DashboardSummary {
     total_logs: number;
     total_media: number;
@@ -185,7 +193,9 @@ export interface DashboardSummary {
     current_streak: number;
     total_minutes: number;
     total_characters: number;
-    activity_totals: DashboardNamedTotals[];
+    day_scoped_total_minutes: number;
+    day_scoped_total_characters: number;
+    activity_totals: DashboardActivityTotals[];
 }
 
 export interface DashboardRecentLog {
@@ -197,6 +207,7 @@ export interface DashboardRecentLog {
     duration_minutes: number;
     characters: number;
     date: string;
+    date_precision: DateScope;
     language: string;
     notes: string;
 }
@@ -210,7 +221,7 @@ export interface DashboardRecentPage {
 }
 
 export interface DashboardChartPoint {
-    bucket: string;
+    bucket: string | null;
     group_key: string;
     group_label: string;
     total_minutes: number;
@@ -218,7 +229,7 @@ export interface DashboardChartPoint {
 }
 
 export interface DashboardBucketTotals {
-    bucket: string;
+    bucket: string | null;
     total_minutes: number;
     total_characters: number;
 }
@@ -311,6 +322,8 @@ export interface LibraryActivityMetricsDto {
     media_id: number;
     first_activity_date: string | null;
     last_activity_date: string | null;
+    first_activity_sort_key: string | null;
+    last_activity_sort_key: string | null;
     total_minutes: number | null;
     total_characters: number | null;
 }

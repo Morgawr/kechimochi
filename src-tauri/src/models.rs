@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::db::DatePrecision;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Media {
     pub id: Option<i64>,
@@ -26,6 +28,8 @@ pub struct ActivityLog {
     pub characters: i64,
     pub date: String, // YYYY-MM-DD
     #[serde(default)]
+    pub date_precision: DatePrecision,
+    #[serde(default)]
     pub activity_type: String,
     #[serde(default)]
     pub notes: String,
@@ -40,6 +44,7 @@ pub struct ActivitySummary {
     pub duration_minutes: i64,
     pub characters: i64,
     pub date: String,
+    pub date_precision: DatePrecision,
     pub language: String,
     pub notes: String,
 }
@@ -140,6 +145,7 @@ pub struct HttpActivitySummary {
     pub duration_minutes: i64,
     pub characters: i64,
     pub date: String,
+    pub date_precision: DatePrecision,
     pub language: String,
     pub notes: String,
 }
@@ -154,6 +160,7 @@ impl From<ActivitySummary> for HttpActivitySummary {
             duration_minutes: value.duration_minutes,
             characters: value.characters,
             date: value.date,
+            date_precision: value.date_precision,
             language: value.language,
             notes: value.notes,
         }
@@ -243,6 +250,14 @@ pub struct DashboardNamedTotals {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DashboardActivityTotals {
+    #[serde(flatten)]
+    pub totals: DashboardNamedTotals,
+    pub day_scoped_total_minutes: i64,
+    pub day_scoped_total_characters: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DashboardSummary {
     pub total_logs: i64,
     pub total_media: i64,
@@ -253,7 +268,9 @@ pub struct DashboardSummary {
     pub current_streak: i64,
     pub total_minutes: i64,
     pub total_characters: i64,
-    pub activity_totals: Vec<DashboardNamedTotals>,
+    pub day_scoped_total_minutes: i64,
+    pub day_scoped_total_characters: i64,
+    pub activity_totals: Vec<DashboardActivityTotals>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -266,6 +283,7 @@ pub struct DashboardRecentLog {
     pub duration_minutes: i64,
     pub characters: i64,
     pub date: String,
+    pub date_precision: DatePrecision,
     pub language: String,
     pub notes: String,
 }
@@ -281,8 +299,9 @@ pub struct DashboardRecentPage {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DashboardChartPoint {
-    /// The first ISO date represented by this bucket.
-    pub bucket: String,
+    /// The first ISO date represented by this bucket, or `None` when the row's own
+    /// precision is coarser than the bucket (e.g. a year-scoped log at a month bucket).
+    pub bucket: Option<String>,
     pub group_key: String,
     pub group_label: String,
     pub total_minutes: i64,
@@ -291,8 +310,9 @@ pub struct DashboardChartPoint {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DashboardBucketTotals {
-    /// The first ISO date represented by this bucket.
-    pub bucket: String,
+    /// The first ISO date represented by this bucket, or `None` when the row's own
+    /// precision is coarser than the bucket.
+    pub bucket: Option<String>,
     pub total_minutes: i64,
     pub total_characters: i64,
 }
@@ -396,8 +416,13 @@ pub struct LibrarySettings {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct LibraryActivityMetrics {
     pub media_id: i64,
+    /// Reduced form for display (`2019`, `2019-08`, `2019-08-03`).
     pub first_activity_date: Option<String>,
     pub last_activity_date: Option<String>,
+    /// Raw anchor / effective end for sorting; a reduced date orders lexically
+    /// wrong across mixed precisions (`2026` vs `2026-11`).
+    pub first_activity_sort_key: Option<String>,
+    pub last_activity_sort_key: Option<String>,
     pub total_minutes: Option<i64>,
     pub total_characters: Option<i64>,
 }
@@ -623,6 +648,7 @@ mod tests {
             duration_minutes: 30,
             characters: 0,
             date: "2024-01-01".to_string(),
+            date_precision: DatePrecision::Day,
             language: "Japanese".to_string(),
             notes: String::new(),
         };

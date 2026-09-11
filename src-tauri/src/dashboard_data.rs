@@ -9,15 +9,24 @@ use chrono::{Datelike, Days, NaiveDate};
 use rusqlite::{params, Connection, Result};
 use std::collections::{HashMap, HashSet};
 
+use crate::db::DatePrecision;
 use crate::models::{
-    DailyHeatmap, DashboardBucket, DashboardBucketTotals, DashboardChartPoint, DashboardGroupBy,
-    DashboardHeatmapYearRequest, DashboardHeatmapYearResponse, DashboardHighlight,
-    DashboardHighlightKind, DashboardMedia, DashboardNamedTotals, DashboardRangeRequest,
-    DashboardRangeResponse, DashboardRecentLog, DashboardRecentLogsRequest, DashboardRecentPage,
-    DashboardSettings, DashboardSnapshot, DashboardSnapshotRequest, DashboardSummary,
-    DashboardWeekdayDistribution, DashboardWeekdayStats,
+    DailyHeatmap, DashboardActivityTotals, DashboardBucket, DashboardBucketTotals,
+    DashboardChartPoint, DashboardGroupBy, DashboardHeatmapYearRequest,
+    DashboardHeatmapYearResponse, DashboardHighlight, DashboardHighlightKind, DashboardMedia,
+    DashboardNamedTotals, DashboardRangeRequest, DashboardRangeResponse, DashboardRecentLog,
+    DashboardRecentLogsRequest, DashboardRecentPage, DashboardSettings, DashboardSnapshot,
+    DashboardSnapshotRequest, DashboardSummary, DashboardWeekdayDistribution,
+    DashboardWeekdayStats,
 };
 use crate::read_performance::{Measured, Timings};
+
+fn reduced_activity_date(anchor: &str, precision_key_length: i64) -> String {
+    let length = usize::try_from(precision_key_length)
+        .unwrap_or(0)
+        .min(anchor.len());
+    anchor[0..length].to_string()
+}
 
 pub const MAX_RECENT_LOG_PAGE_SIZE: i64 = 50;
 const QUICK_LOG_LIMIT: i64 = 6;
@@ -152,6 +161,7 @@ fn query_weekday_distribution(
                     COALESCE(SUM(a.characters), 0)
              FROM main.activity_logs a
              WHERE a.date >= ?1 AND a.date <= ?2 AND date(a.date) IS NOT NULL
+               AND a.date_precision = 'day'
              GROUP BY a.date",
         )?;
         let rows = statement.query_map(params![start_date, end_date], |row| {
@@ -311,6 +321,24 @@ fn query_dashboard_settings(conn: &Connection, timings: &mut Timings) -> Result<
     }))
 }
 
+struct DashboardDateExtreme {
+    sort_key: String,
+    precision_key_length: i64,
+    anchor: String,
+}
+
+impl DashboardDateExtreme {
+    fn is_outranked_as_earliest_by(&self, sort_key: &str, precision_key_length: i64) -> bool {
+        sort_key < self.sort_key.as_str()
+            || (sort_key == self.sort_key && precision_key_length < self.precision_key_length)
+    }
+
+    fn is_outranked_as_latest_by(&self, sort_key: &str, precision_key_length: i64) -> bool {
+        sort_key > self.sort_key.as_str()
+            || (sort_key == self.sort_key && precision_key_length < self.precision_key_length)
+    }
+}
+
 fn query_summary(
     conn: &Connection,
     today: &str,
@@ -321,24 +349,26 @@ fn query_summary(
     // One grouped pass supplies counts, totals, activity breakdowns, and streak
     // dates. This replaces three independent lifetime scans from the old
     // dashboard startup path.
+    let query =
+        "SELECT date, effective_end, precision_key_length,
+                activity_type,
+                COUNT(*),
+                COALESCE(SUM(duration_minutes), 0),
+                COALESCE(SUM(characters), 0)
+         FROM main.activity_logs
+         GROUP BY date, effective_end, precision_key_length, activity_type
+         ORDER BY date ASC";
     let grouped_rows = timings.query(|| {
-        let mut statement = conn.prepare(
-            "SELECT date,
-                    activity_type,
-                    COUNT(*),
-                    COALESCE(SUM(duration_minutes), 0),
-                    COALESCE(SUM(characters), 0)
-             FROM main.activity_logs
-             GROUP BY date, activity_type
-             ORDER BY date ASC",
-        )?;
+        let mut statement = conn.prepare(query)?;
         let rows = statement.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, i64>(2)?,
-                row.get::<_, i64>(3)?,
+                row.get::<_, String>(3)?,
                 row.get::<_, i64>(4)?,
+                row.get::<_, i64>(5)?,
+                row.get::<_, i64>(6)?,
             ))
         })?;
         rows.collect::<Result<Vec<_>>>()
@@ -347,37 +377,77 @@ fn query_summary(
     Ok(timings.aggregate(|| {
         let today = NaiveDate::parse_from_str(today, "%Y-%m-%d").expect("validated today");
         let mut dates = HashSet::new();
-        let mut activity_totals = HashMap::<String, (i64, i64)>::new();
+        let mut activity_totals = HashMap::<String, (i64, i64, i64, i64)>::new();
         let mut total_logs = 0_i64;
         let mut total_minutes = 0_i64;
         let mut total_characters = 0_i64;
-        for (date, activity_type, sessions, minutes, characters) in grouped_rows {
+        let mut day_scoped_total_minutes = 0_i64;
+        let mut day_scoped_total_characters = 0_i64;
+        let mut first_extreme: Option<DashboardDateExtreme> = None;
+        let mut last_extreme: Option<DashboardDateExtreme> = None;
+
+        for (anchor, effective_end, precision_key_length, activity_type, sessions, minutes, characters) in
+            grouped_rows
+        {
             total_logs += sessions;
             total_minutes += minutes;
             total_characters += characters;
-            if let Ok(date) = NaiveDate::parse_from_str(&date, "%Y-%m-%d") {
-                dates.insert(date);
+            let is_day = precision_key_length == 10;
+            if is_day {
+                if let Ok(date) = NaiveDate::parse_from_str(&anchor, "%Y-%m-%d") {
+                    dates.insert(date);
+                }
+                day_scoped_total_minutes += minutes;
+                day_scoped_total_characters += characters;
             }
+
+            if first_extreme.as_ref().is_none_or(|current| {
+                current.is_outranked_as_earliest_by(&anchor, precision_key_length)
+            }) {
+                first_extreme = Some(DashboardDateExtreme {
+                    sort_key: anchor.clone(),
+                    precision_key_length,
+                    anchor: anchor.clone(),
+                });
+            }
+            if last_extreme.as_ref().is_none_or(|current| {
+                current.is_outranked_as_latest_by(&effective_end, precision_key_length)
+            }) {
+                last_extreme = Some(DashboardDateExtreme {
+                    sort_key: effective_end,
+                    precision_key_length,
+                    anchor: anchor.clone(),
+                });
+            }
+
             let label = normalized_label(activity_type, "Unknown");
             let total = activity_totals.entry(label).or_default();
             total.0 += minutes;
             total.1 += characters;
+            if is_day {
+                total.2 += minutes;
+                total.3 += characters;
+            }
         }
         let mut dates = dates.into_iter().collect::<Vec<_>>();
         dates.sort_unstable();
         let (max_streak, current_streak) = calculate_streaks(&dates, today);
-        let first_activity_date = dates
-            .first()
-            .map(|date| date.format("%Y-%m-%d").to_string());
-        let last_activity_date = dates.last().map(|date| date.format("%Y-%m-%d").to_string());
         let logged_days = dates.len() as i64;
+        let first_activity_date = first_extreme
+            .map(|extreme| reduced_activity_date(&extreme.anchor, extreme.precision_key_length));
+        let last_activity_date = last_extreme
+            .map(|extreme| reduced_activity_date(&extreme.anchor, extreme.precision_key_length));
         let raw_activity_totals = activity_totals
             .into_iter()
-            .map(|(label, total)| DashboardNamedTotals {
-                key: format!("activity:{label}"),
-                label,
-                total_minutes: total.0,
-                total_characters: total.1,
+            .map(|(label, total)| DashboardActivityTotals {
+                totals: DashboardNamedTotals {
+                    key: format!("activity:{label}"),
+                    label,
+                    total_minutes: total.0,
+                    total_characters: total.1,
+                },
+                day_scoped_total_minutes: total.2,
+                day_scoped_total_characters: total.3,
             })
             .collect();
 
@@ -391,7 +461,9 @@ fn query_summary(
             current_streak,
             total_minutes,
             total_characters,
-            activity_totals: fold_named_totals(
+            day_scoped_total_minutes,
+            day_scoped_total_characters,
+            activity_totals: fold_activity_totals(
                 raw_activity_totals,
                 TOP_GROUPS_PER_METRIC,
                 "Other activity types",
@@ -435,22 +507,42 @@ fn calculate_streaks(dates: &[NaiveDate], today: NaiveDate) -> (i64, i64) {
 }
 
 fn query_quick_log_media(conn: &Connection, timings: &mut Timings) -> Result<Vec<DashboardMedia>> {
+    let query =
+        "SELECT m.id, m.title, m.variant, m.default_activity_type, m.status,
+                m.cover_image, m.content_type, m.tracking_status,
+                (
+                    SELECT recent.effective_end
+                    FROM main.activity_logs recent
+                    WHERE recent.media_id = m.id
+                    ORDER BY recent.effective_end DESC, recent.precision_key_length ASC, recent.id DESC
+                    LIMIT 1
+                ) AS latest_effective_end,
+                (
+                    SELECT recent.precision_key_length
+                    FROM main.activity_logs recent
+                    WHERE recent.media_id = m.id
+                    ORDER BY recent.effective_end DESC, recent.precision_key_length ASC, recent.id DESC
+                    LIMIT 1
+                ) AS latest_precision_key_length,
+                (
+                    SELECT recent.id
+                    FROM main.activity_logs recent
+                    WHERE recent.media_id = m.id
+                    ORDER BY recent.effective_end DESC, recent.precision_key_length ASC, recent.id DESC
+                    LIMIT 1
+                ) AS latest_id
+         FROM shared.media m
+         WHERE m.status != 'Archived'
+         ORDER BY
+            CASE WHEN m.tracking_status = 'Complete' THEN 1 ELSE 0 END ASC,
+            latest_effective_end DESC,
+            latest_precision_key_length ASC,
+            latest_id DESC,
+            m.title ASC,
+            m.id ASC
+         LIMIT ?1";
     timings.query(|| {
-        let mut statement = conn.prepare(
-            "SELECT m.id, m.title, m.variant, m.default_activity_type, m.status,
-                    m.cover_image, m.content_type, m.tracking_status
-             FROM shared.media m
-             WHERE m.status != 'Archived'
-             ORDER BY
-                CASE WHEN m.tracking_status = 'Complete' THEN 1 ELSE 0 END ASC,
-                (SELECT a.date FROM main.activity_logs a
-                 WHERE a.media_id = m.id ORDER BY a.date DESC, a.id DESC LIMIT 1) DESC,
-                (SELECT a.id FROM main.activity_logs a
-                 WHERE a.media_id = m.id ORDER BY a.date DESC, a.id DESC LIMIT 1) DESC,
-                m.title ASC,
-                m.id ASC
-             LIMIT ?1",
-        )?;
+        let mut statement = conn.prepare(query)?;
         let rows = statement.query_map(params![QUICK_LOG_LIMIT], map_dashboard_media)?;
         rows.collect::<Result<Vec<_>>>()
     })
@@ -485,15 +577,15 @@ fn query_recent_logs(
             row.get(0)
         })
     })?;
+    let query =
+        "SELECT a.id, a.media_id, m.title, m.variant, a.activity_type,
+                a.duration_minutes, a.characters, a.date, a.date_precision, m.language, a.notes
+         FROM main.activity_logs a
+         JOIN shared.media m ON m.id = a.media_id
+         ORDER BY a.effective_end DESC, a.precision_key_length ASC, a.id DESC
+         LIMIT ?1 OFFSET ?2";
     let items = timings.query(|| {
-        let mut statement = conn.prepare(
-            "SELECT a.id, a.media_id, m.title, m.variant, a.activity_type,
-                    a.duration_minutes, a.characters, a.date, m.language, a.notes
-             FROM main.activity_logs a
-             JOIN shared.media m ON m.id = a.media_id
-             ORDER BY a.date DESC, a.id DESC
-             LIMIT ?1 OFFSET ?2",
-        )?;
+        let mut statement = conn.prepare(query)?;
         let rows = statement.query_map(params![limit, offset], |row| {
             Ok(DashboardRecentLog {
                 id: row.get(0)?,
@@ -504,8 +596,9 @@ fn query_recent_logs(
                 duration_minutes: row.get(5)?,
                 characters: row.get(6)?,
                 date: row.get(7)?,
-                language: row.get(8)?,
-                notes: row.get(9)?,
+                date_precision: row.get(8)?,
+                language: row.get(9)?,
+                notes: row.get(10)?,
             })
         })?;
         rows.collect::<Result<Vec<_>>>()
@@ -539,6 +632,7 @@ fn query_heatmap_year(
                     COALESCE(SUM(characters), 0)
              FROM main.activity_logs
              WHERE date >= ?1 AND date < ?2 AND date(date) IS NOT NULL
+               AND date_precision = 'day'
              GROUP BY date
              ORDER BY date ASC",
         )?;
@@ -561,7 +655,7 @@ fn query_heatmap_year(
 
 #[derive(Debug)]
 struct RawChartPoint {
-    bucket: String,
+    bucket: Option<String>,
     group_key: String,
     title: String,
     variant: String,
@@ -574,11 +668,16 @@ fn query_range(
     request: &DashboardRangeRequest,
     timings: &mut Timings,
 ) -> Result<DashboardRangeResponse> {
-    let bucket_expression = match request.bucket {
-        DashboardBucket::Day => "a.date",
-        DashboardBucket::Month => "substr(a.date, 1, 7) || '-01'",
-        DashboardBucket::Year => "substr(a.date, 1, 4) || '-01-01'",
+    let (bucket_length, bucket_suffix) = match request.bucket {
+        DashboardBucket::Day => (10, ""),
+        DashboardBucket::Month => (7, "-01"),
+        DashboardBucket::Year => (4, "-01-01"),
     };
+    let bucket_expression = format!(
+        "CASE WHEN a.precision_key_length >= {bucket_length}
+              THEN substr(a.date, 1, {bucket_length}) || '{bucket_suffix}'
+              ELSE NULL END"
+    );
     let (group_key_expression, group_by_expression) = match request.group_by {
         DashboardGroupBy::ActivityType => ("'activity:' || a.activity_type", "a.activity_type, ''"),
         DashboardGroupBy::LogName => ("'media:' || CAST(a.media_id AS TEXT)", "m.title, m.variant"),
@@ -590,6 +689,7 @@ fn query_range(
          FROM main.activity_logs a
          JOIN shared.media m ON m.id = a.media_id
          WHERE a.date >= ?1 AND a.date <= ?2 AND date(a.date) IS NOT NULL
+           AND a.effective_end <= ?2
          GROUP BY {bucket_expression}, {group_key_expression}, {group_by_expression}
          ORDER BY {bucket_expression} ASC, {group_key_expression} ASC"
     );
@@ -621,6 +721,7 @@ fn query_range(
              FROM main.activity_logs a
              JOIN shared.media m ON m.id = a.media_id
              WHERE a.date >= ?1 AND a.date <= ?2 AND date(a.date) IS NOT NULL
+               AND a.effective_end <= ?2
              GROUP BY category",
         )?;
         let rows = statement.query_map(params![request.start_date, request.end_date], |row| {
@@ -663,7 +764,7 @@ fn aggregate_chart_series(
     group_by: DashboardGroupBy,
 ) -> (Vec<DashboardChartPoint>, Vec<DashboardBucketTotals>) {
     let mut group_totals = HashMap::<String, (i64, i64)>::new();
-    let mut bucket_totals = HashMap::<String, (i64, i64)>::new();
+    let mut bucket_totals = HashMap::<Option<String>, (i64, i64)>::new();
     let mut title_keys = HashMap::<String, HashSet<String>>::new();
 
     for point in &raw_series {
@@ -683,7 +784,7 @@ fn aggregate_chart_series(
 
     let selected_keys = select_top_keys(&group_totals, TOP_GROUPS_PER_METRIC);
     let mut output = Vec::new();
-    let mut other_by_bucket = HashMap::<String, (i64, i64)>::new();
+    let mut other_by_bucket = HashMap::<Option<String>, (i64, i64)>::new();
     for point in raw_series {
         if selected_keys.contains(&point.group_key) {
             let group_label = if group_by == DashboardGroupBy::LogName
@@ -810,10 +911,66 @@ fn fold_named_totals(
     output
 }
 
+fn fold_activity_totals(
+    rows: Vec<DashboardActivityTotals>,
+    limit_per_metric: usize,
+    other_label: &str,
+) -> Vec<DashboardActivityTotals> {
+    let totals = rows
+        .iter()
+        .map(|row| {
+            (
+                row.totals.key.clone(),
+                (row.totals.total_minutes, row.totals.total_characters),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    let selected = select_top_keys(&totals, limit_per_metric);
+    let mut output = Vec::new();
+    let mut other = (0_i64, 0_i64, 0_i64, 0_i64);
+    for row in rows {
+        if selected.contains(&row.totals.key) {
+            output.push(row);
+        } else {
+            other.0 += row.totals.total_minutes;
+            other.1 += row.totals.total_characters;
+            other.2 += row.day_scoped_total_minutes;
+            other.3 += row.day_scoped_total_characters;
+        }
+    }
+    if other.0 != 0 || other.1 != 0 || other.2 != 0 || other.3 != 0 {
+        output.push(DashboardActivityTotals {
+            totals: DashboardNamedTotals {
+                key: "dashboard:other".to_string(),
+                label: other_label.to_string(),
+                total_minutes: other.0,
+                total_characters: other.1,
+            },
+            day_scoped_total_minutes: other.2,
+            day_scoped_total_characters: other.3,
+        });
+    }
+    output.sort_by(|left, right| {
+        right
+            .totals
+            .total_minutes
+            .cmp(&left.totals.total_minutes)
+            .then_with(|| {
+                right
+                    .totals
+                    .total_characters
+                    .cmp(&left.totals.total_characters)
+            })
+            .then_with(|| left.totals.key.cmp(&right.totals.key))
+    });
+    output
+}
+
 #[derive(Debug)]
 struct HighlightDayRow {
     media: DashboardMedia,
     date: String,
+    date_precision: DatePrecision,
     total_minutes: i64,
     total_characters: i64,
     sessions: i64,
@@ -825,27 +982,29 @@ fn query_highlight_rows(
     end_date: &str,
     timings: &mut Timings,
 ) -> Result<Vec<HighlightDayRow>> {
+    let query =
+        "SELECT m.id, m.title, m.variant, m.default_activity_type, m.status,
+                m.cover_image, m.content_type, m.tracking_status,
+                a.date, a.date_precision,
+                COALESCE(SUM(a.duration_minutes), 0),
+                COALESCE(SUM(a.characters), 0),
+                COUNT(*)
+         FROM main.activity_logs a
+         JOIN shared.media m ON m.id = a.media_id
+         WHERE a.date >= ?1 AND a.date <= ?2 AND date(a.date) IS NOT NULL
+           AND a.effective_end <= ?2
+         GROUP BY m.id, a.date, a.date_precision
+         ORDER BY m.id ASC, a.date ASC";
     timings.query(|| {
-        let mut statement = conn.prepare(
-            "SELECT m.id, m.title, m.variant, m.default_activity_type, m.status,
-                    m.cover_image, m.content_type, m.tracking_status,
-                    a.date,
-                    COALESCE(SUM(a.duration_minutes), 0),
-                    COALESCE(SUM(a.characters), 0),
-                    COUNT(*)
-             FROM main.activity_logs a
-             JOIN shared.media m ON m.id = a.media_id
-             WHERE a.date >= ?1 AND a.date <= ?2 AND date(a.date) IS NOT NULL
-             GROUP BY m.id, a.date
-             ORDER BY m.id ASC, a.date ASC",
-        )?;
+        let mut statement = conn.prepare(query)?;
         let rows = statement.query_map(params![start_date, end_date], |row| {
             Ok(HighlightDayRow {
                 media: map_dashboard_media(row)?,
                 date: row.get(8)?,
-                total_minutes: row.get(9)?,
-                total_characters: row.get(10)?,
-                sessions: row.get(11)?,
+                date_precision: row.get(9)?,
+                total_minutes: row.get(10)?,
+                total_characters: row.get(11)?,
+                sessions: row.get(12)?,
             })
         })?;
         rows.collect::<Result<Vec<_>>>()
@@ -877,12 +1036,14 @@ fn build_highlights(rows: Vec<HighlightDayRow>) -> Vec<DashboardHighlight> {
         media.total_minutes += row.total_minutes;
         media.total_characters += row.total_characters;
         media.sessions += row.sessions;
-        if let Ok(date) = NaiveDate::parse_from_str(&row.date, "%Y-%m-%d") {
-            media.dates.push(date);
+        if row.date_precision == DatePrecision::Day {
+            if let Ok(date) = NaiveDate::parse_from_str(&row.date, "%Y-%m-%d") {
+                media.dates.push(date);
+            }
+            let day = day_totals.entry(row.date).or_default();
+            day.0 += row.total_minutes;
+            day.1 += row.total_characters;
         }
-        let day = day_totals.entry(row.date).or_default();
-        day.0 += row.total_minutes;
-        day.1 += row.total_characters;
     }
 
     let mut media = media_totals.into_values().collect::<Vec<_>>();
@@ -1074,6 +1235,7 @@ mod tests {
                     duration_minutes: day,
                     characters: day * 100,
                     date: format!("2026-06-{:02}", ((day - 1) % 30) + 1),
+                    date_precision: DatePrecision::Day,
                     activity_type: "Reading".to_string(),
                     notes: String::new(),
                 },
@@ -1117,6 +1279,7 @@ mod tests {
                     duration_minutes,
                     characters,
                     date: date.to_string(),
+                    date_precision: DatePrecision::Day,
                     activity_type: "Reading".to_string(),
                     notes: String::new(),
                 },
@@ -1175,6 +1338,7 @@ mod tests {
                     duration_minutes: day,
                     characters: 0,
                     date: format!("2026-06-{day:02}"),
+                    date_precision: DatePrecision::Day,
                     activity_type: "Reading".to_string(),
                     notes: String::new(),
                 },
@@ -1211,6 +1375,7 @@ mod tests {
                 duration_minutes: 30,
                 characters: 100,
                 date: "2026-06-10".to_string(),
+                date_precision: DatePrecision::Day,
                 activity_type: "Watching".to_string(),
                 notes: String::new(),
             },

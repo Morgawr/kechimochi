@@ -37,6 +37,8 @@ describe('MediaListItem', () => {
             {
                 firstActivityDate: '2026-03-01',
                 lastActivityDate: '2026-03-20',
+                firstActivitySortKey: '2026-03-01',
+                lastActivitySortKey: '2026-03-20',
                 totalMinutes: 125,
                 totalCharacters: 5000,
             },
@@ -49,8 +51,8 @@ describe('MediaListItem', () => {
         expect(container.textContent).toContain('Library Item');
         expect(container.textContent).toContain('Manga');
         expect(container.textContent).toContain('A short blurb about this item.');
-        expect(container.textContent).toContain('2026-03-01');
-        expect(container.textContent).toContain('2026-03-20');
+        expect(container.textContent).toContain('March 1, 2026');
+        expect(container.textContent).toContain('March 20, 2026');
         expect(container.textContent).toContain('2h5min');
         expect(container.querySelector('.badge-status')?.classList.contains('badge')).toBe(true);
     });

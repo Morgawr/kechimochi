@@ -1374,6 +1374,7 @@ mod tests {
                 duration_minutes: -1,
                 characters: 100,
                 date: "2026-07-22".to_string(),
+                date_precision: db::DatePrecision::Day,
                 activity_type: "Reading".to_string(),
                 notes: String::new(),
             }),

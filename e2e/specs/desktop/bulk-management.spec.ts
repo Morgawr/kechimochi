@@ -136,7 +136,7 @@ describe('CUJ: Bulk Management (Data Import)', () => {
         await importActivitiesBtn.waitForClickable({ timeout: 5000 });
         await importActivitiesBtn.click();
 
-        await dismissAlert("Import failed: Invalid date format on CSV row 3: '03/28/2024'. Expected YYYY/MM/DD or YYYY-MM-DD.");
+        await dismissAlert("Import failed: Invalid date value on CSV row 3: '03/28/2024'. Expected YYYY, YYYY-MM, YYYY/MM/DD or YYYY-MM-DD.");
 
         await navigateTo('dashboard');
         expect(await verifyActiveView('dashboard')).toBe(true);

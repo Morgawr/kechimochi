@@ -1,5 +1,6 @@
 @import './fonts.css';
 @import './dashboard/dashboard.css';
+@import './calendar/calendar.css';
 
 :root {
   /* Layout & Utilities (Common across themes) */
@@ -4741,6 +4742,26 @@ input:checked + .slider:before {
     font-size: 0.58rem;
     padding-left: 0.38rem;
   }
+}
+
+.activity-date-picker-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.activity-date-row-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+}
+
+#activity-date-selection {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-style: italic;
+  white-space: nowrap;
 }
 
 @media (max-width: 750px) {

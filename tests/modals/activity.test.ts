@@ -1,20 +1,24 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { showActivityCsvConflictModal, showLogActivityModal, showExportCsvModal } from '../../src/activity_modal';
 import * as api from '../../src/api';
-import { Media } from '../../src/api';
+import { ActivitySummary, Media } from '../../src/api';
 import { buildCalendar } from '../../src/calendar';
+import type { DateAnchor } from '../../src/time';
 import { Logger } from '../../src/logger';
 
 vi.mock('../../src/api', () => ({
     getAllMedia: vi.fn(),
+    getSetting: vi.fn().mockResolvedValue(null),
     addLog: vi.fn(),
     updateLog: vi.fn(),
     addMedia: vi.fn(),
     updateMedia: vi.fn(),
 }));
 
-vi.mock('../../src/calendar', () => ({
+vi.mock('../../src/calendar', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../../src/calendar')>()),
     buildCalendar: vi.fn(),
+    supportsNativeMonthInput: vi.fn(() => false),
 }));
 
 vi.mock('../../src/modal_base', () => ({
@@ -54,17 +58,28 @@ vi.mock('../../src/modal_base', () => ({
     })
 }));
 
+function queryOrThrow(selector: string): Element {
+    const element = document.querySelector(selector);
+    if (!element) throw new Error(`Not rendered yet: ${selector}`);
+    return element;
+}
+
 describe('modals/activity.ts', () => {
     beforeEach(() => {
         document.body.innerHTML = '';
         vi.clearAllMocks();
-        vi.useFakeTimers();
+        vi.useFakeTimers({ shouldAdvanceTime: true });
         HTMLInputElement.prototype.setCustomValidity = vi.fn();
         vi.stubGlobal('setCustomValidity', vi.fn());
         vi.mocked(buildCalendar).mockImplementation((container: HTMLElement, initialDate: string, onSelect: (d: string) => void) => {
-            if (!container) return;
             container.innerHTML = `<button type="button" class="mock-calendar-day" data-date="${initialDate}">${initialDate}</button>`;
             container.querySelector<HTMLButtonElement>('.mock-calendar-day')?.addEventListener('click', () => onSelect(initialDate));
+            return {
+                setValue: vi.fn(),
+                getViewAnchor: () => initialDate as DateAnchor,
+                focus: vi.fn(),
+                destroy: vi.fn(),
+            };
         });
     });
 
@@ -81,9 +96,9 @@ describe('modals/activity.ts', () => {
             vi.mocked(api.getAllMedia).mockResolvedValue(mockMedia as unknown as Media[]);
             
             const promise = showLogActivityModal(10);
-            
+
             // Wait for DOM
-            await vi.waitFor(() => document.querySelector('.modal-overlay'));
+            await vi.waitFor(() => queryOrThrow('.modal-overlay'));
             
             const form = document.querySelector('#add-activity-form') as HTMLFormElement;
             const titleInput = document.querySelector('#activity-media') as HTMLInputElement;
@@ -101,6 +116,7 @@ describe('modals/activity.ts', () => {
                 duration_minutes: 45,
                 characters: 0,
                 date: expect.any(String),
+                date_precision: 'day',
                 activity_type: 'Reading',
                 notes: ''
             });
@@ -124,7 +140,7 @@ describe('modals/activity.ts', () => {
             vi.mocked(api.getAllMedia).mockResolvedValue(mockMedia);
 
             const promise = showLogActivityModal(10);
-            await vi.waitFor(() => document.querySelector('#add-activity-form'));
+            await vi.waitFor(() => queryOrThrow('#add-activity-form'));
 
             const titleInput = document.querySelector('#activity-media') as HTMLInputElement;
             const typeSelect = document.querySelector('#activity-type') as HTMLSelectElement;
@@ -166,7 +182,7 @@ describe('modals/activity.ts', () => {
             ] as Media[]);
 
             const promise = showLogActivityModal();
-            await vi.waitFor(() => document.querySelector('#activity-media'));
+            await vi.waitFor(() => queryOrThrow('#activity-media'));
 
             const titleInput = document.querySelector<HTMLInputElement>('#activity-media')!;
             titleInput.value = 'Horimiya';
@@ -203,7 +219,7 @@ describe('modals/activity.ts', () => {
             const { customAlert } = await import('../../src/modal_base');
 
             const promise = showLogActivityModal();
-            await vi.waitFor(() => document.querySelector('#activity-media'));
+            await vi.waitFor(() => queryOrThrow('#activity-media'));
             const titleInput = document.querySelector<HTMLInputElement>('#activity-media')!;
             titleInput.value = 'Horimiya';
             titleInput.dispatchEvent(new Event('input'));
@@ -237,7 +253,7 @@ describe('modals/activity.ts', () => {
             }]);
 
             const promise = showLogActivityModal(10);
-            await vi.waitFor(() => document.querySelector('#activity-media-variant'));
+            await vi.waitFor(() => queryOrThrow('#activity-media-variant'));
 
             const variant = document.querySelector('#activity-media-variant') as HTMLElement;
             expect(variant.textContent).toBe('Anime');
@@ -254,7 +270,7 @@ describe('modals/activity.ts', () => {
             vi.mocked(api.addMedia).mockResolvedValue(99);
 
             const promise = showLogActivityModal();
-            await vi.waitFor(() => document.querySelector('#add-activity-form'));
+            await vi.waitFor(() => queryOrThrow('#add-activity-form'));
             
             const titleInput = document.querySelector('#activity-media') as HTMLInputElement;
             const durationInput = document.querySelector('#activity-duration') as HTMLInputElement;
@@ -280,7 +296,7 @@ describe('modals/activity.ts', () => {
             vi.mocked(customPrompt).mockResolvedValue('');
 
             const promise = showLogActivityModal();
-            await vi.waitFor(() => document.querySelector('#add-activity-form'));
+            await vi.waitFor(() => queryOrThrow('#add-activity-form'));
 
             (document.querySelector('#activity-media') as HTMLInputElement).value = 'Cancelled Series';
             (document.querySelector('#activity-duration') as HTMLInputElement).value = '20';
@@ -299,7 +315,7 @@ describe('modals/activity.ts', () => {
         it('should resolve false on cancel', async () => {
             vi.mocked(api.getAllMedia).mockResolvedValue([]);
             const promise = showLogActivityModal();
-            await vi.waitFor(() => document.querySelector('#activity-cancel'));
+            await vi.waitFor(() => queryOrThrow('#activity-cancel'));
             
             (document.querySelector('#activity-cancel') as HTMLElement).click();
             
@@ -315,8 +331,8 @@ describe('modals/activity.ts', () => {
                 status: 'Active',
                 tracking_status: 'Ongoing',
             }] as Media[]);
-            showLogActivityModal(12);
-            await vi.waitFor(() => document.querySelector('#activity-duration'));
+            void showLogActivityModal(12);
+            await vi.waitFor(() => queryOrThrow('#activity-duration'));
             
             expect((document.querySelector('#activity-media') as HTMLInputElement).value).toBe('Prefilled');
             expect(document.activeElement?.id).toBe('activity-duration');
@@ -327,7 +343,7 @@ describe('modals/activity.ts', () => {
             vi.mocked(api.getAllMedia).mockResolvedValue(mockMedia as unknown as Media[]);
             
             const promise = showLogActivityModal(10);
-            await vi.waitFor(() => document.querySelector('#add-activity-form'));
+            await vi.waitFor(() => queryOrThrow('#add-activity-form'));
             
             (document.querySelector('#activity-duration') as HTMLInputElement).value = '10';
             document.querySelector('#add-activity-form')!.dispatchEvent(new Event('submit'));
@@ -339,7 +355,7 @@ describe('modals/activity.ts', () => {
         it('should close on Escape key', async () => {
              vi.mocked(api.getAllMedia).mockResolvedValue([]);
              const promise = showLogActivityModal();
-             await vi.waitFor(() => document.querySelector('.modal-overlay'));
+             await vi.waitFor(() => queryOrThrow('.modal-overlay'));
              
              globalThis.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
              
@@ -351,8 +367,8 @@ describe('modals/activity.ts', () => {
             vi.mocked(api.getAllMedia).mockResolvedValue([{ id: 1, title: 'Item 1', status: 'Active', tracking_status: 'Ongoing' }] as unknown as Media[]);
             const { customAlert } = await import('../../src/modal_base');
             
-            showLogActivityModal(1);
-            await vi.waitFor(() => document.querySelector('#add-activity-form'));
+            void showLogActivityModal(1);
+            await vi.waitFor(() => queryOrThrow('#add-activity-form'));
             
             // Duration and characters are 0 by default
             
@@ -367,8 +383,8 @@ describe('modals/activity.ts', () => {
             vi.mocked(api.getAllMedia).mockResolvedValue([{ id: 10, title: 'Validation', status: 'Active', tracking_status: 'Ongoing' }] as unknown as Media[]);
             const { customAlert } = await import('../../src/modal_base');
 
-            showLogActivityModal(10);
-            await vi.waitFor(() => document.querySelector('#add-activity-form'));
+            void showLogActivityModal(10);
+            await vi.waitFor(() => queryOrThrow('#add-activity-form'));
             (document.querySelector('#activity-duration') as HTMLInputElement).value = '10';
             (document.querySelector('#activity-characters') as HTMLInputElement).value = '-1';
             document.querySelector('#add-activity-form')!.dispatchEvent(new Event('submit'));
@@ -382,8 +398,8 @@ describe('modals/activity.ts', () => {
         it('should leave the submit button disabled and not submit for an unparseable duration', async () => {
             vi.mocked(api.getAllMedia).mockResolvedValue([{ id: 10, title: 'Validation', status: 'Active', tracking_status: 'Ongoing' }] as unknown as Media[]);
 
-            showLogActivityModal(10);
-            await vi.waitFor(() => document.querySelector('#add-activity-form'));
+            void showLogActivityModal(10);
+            await vi.waitFor(() => queryOrThrow('#add-activity-form'));
 
             const durationInput = document.querySelector('#activity-duration') as HTMLInputElement;
             durationInput.value = '-1';
@@ -400,8 +416,8 @@ describe('modals/activity.ts', () => {
             vi.mocked(api.getAllMedia).mockResolvedValue([]);
             const { customAlert } = await import('../../src/modal_base');
 
-            showLogActivityModal();
-            await vi.waitFor(() => document.querySelector('#add-activity-form'));
+            void showLogActivityModal();
+            await vi.waitFor(() => queryOrThrow('#add-activity-form'));
 
             (document.querySelector('#activity-duration') as HTMLInputElement).value = '15';
             document.querySelector('#add-activity-form')!.dispatchEvent(new Event('submit'));
@@ -414,15 +430,15 @@ describe('modals/activity.ts', () => {
 
         it('should have custom validation message for media title', async () => {
              vi.mocked(api.getAllMedia).mockResolvedValue([]);
-             showLogActivityModal();
-             await vi.waitFor(() => document.querySelector('#activity-media'));
+             void showLogActivityModal();
+             await vi.waitFor(() => queryOrThrow('#activity-media'));
              
              const titleInput = document.querySelector('#activity-media') as HTMLInputElement;
              expect(titleInput.getAttribute('oninvalid')).toContain('Media Title is required');
         });
 
         it('should handle edit mode correctly', async () => {
-            const editLog = {
+            const editLog: ActivitySummary = {
                 id: 123,
                 media_id: 456,
                 title: 'Test Media',
@@ -430,11 +446,12 @@ describe('modals/activity.ts', () => {
                 duration_minutes: 30,
                 characters: 100,
                 date: '2024-03-01',
+                date_precision: 'day',
                 language: 'Japanese',
                 notes: ''
             };
-            
-            vi.mocked(api.getAllMedia).mockResolvedValue([{ 
+
+            vi.mocked(api.getAllMedia).mockResolvedValue([{
                 id: 456, 
                 title: 'Test Media',
                 default_activity_type: 'Reading',
@@ -448,7 +465,7 @@ describe('modals/activity.ts', () => {
             }]);
             
             const promise = showLogActivityModal(undefined, editLog);
-            await vi.waitFor(() => document.querySelector('#activity-media'));
+            await vi.waitFor(() => queryOrThrow('#activity-media'));
             
             const titleInput = document.querySelector('#activity-media') as HTMLInputElement;
             expect(titleInput.value).toBe('Test Media');
@@ -470,7 +487,7 @@ describe('modals/activity.ts', () => {
         });
 
         it('should use the edit log title fallback and selected activity type when the disabled title input is empty', async () => {
-            const editLog = {
+            const editLog: ActivitySummary = {
                 id: 123,
                 media_id: 456,
                 title: 'Edit Fallback',
@@ -478,13 +495,14 @@ describe('modals/activity.ts', () => {
                 duration_minutes: 0,
                 characters: 100,
                 date: '2024-03-01',
+                date_precision: 'day',
                 language: 'Japanese',
                 notes: ''
             };
             vi.mocked(api.getAllMedia).mockResolvedValue([]);
 
             const promise = showLogActivityModal(undefined, editLog);
-            await vi.waitFor(() => document.querySelector('#add-activity-form'));
+            await vi.waitFor(() => queryOrThrow('#add-activity-form'));
 
             (document.querySelector('#activity-media') as HTMLInputElement).value = '';
             (document.querySelector('#activity-characters') as HTMLInputElement).value = '250';
@@ -498,20 +516,22 @@ describe('modals/activity.ts', () => {
                 duration_minutes: 0,
                 characters: 250,
                 date: '2024-03-01',
+                date_precision: 'day',
                 activity_type: 'Listening',
                 notes: ''
             });
         });
 
-        it('should use the mobile date input when the mobile date field is visible', async () => {
+        it('should save the date chosen in the native date input', async () => {
             vi.mocked(api.getAllMedia).mockResolvedValue([{ id: 10, title: 'Mobile Item', status: 'Active', tracking_status: 'Ongoing' }] as unknown as Media[]);
 
             const promise = showLogActivityModal(10);
-            await vi.waitFor(() => document.querySelector('#add-activity-form'));
+            await vi.waitFor(() => queryOrThrow('#add-activity-form'));
 
             (document.querySelector('#activity-duration') as HTMLInputElement).value = '30';
-            (document.querySelector('#mobile-date-field') as HTMLElement).style.display = 'flex';
-            (document.querySelector('#mobile-date-input') as HTMLInputElement).value = '2026-06-10';
+            const mobileDateInput = document.querySelector('#mobile-date-input') as HTMLInputElement;
+            mobileDateInput.value = '2026-06-10';
+            mobileDateInput.dispatchEvent(new Event('change'));
             document.querySelector('#add-activity-form')!.dispatchEvent(new Event('submit'));
 
             await expect(promise).resolves.toBe(true);
@@ -542,7 +562,7 @@ describe('modals/activity.ts', () => {
             ] as unknown as Media[]);
 
             const promise = showLogActivityModal();
-            await vi.waitFor(() => document.querySelector('#activity-media-suggestions'));
+            await vi.waitFor(() => queryOrThrow('#activity-media-suggestions'));
 
             const titleInput = document.querySelector('#activity-media') as HTMLInputElement;
             const typeSelect = document.querySelector('#activity-type') as HTMLSelectElement;
@@ -615,7 +635,7 @@ describe('modals/activity.ts', () => {
             const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
 
             const promise = showLogActivityModal();
-            await vi.waitFor(() => document.querySelector('#add-activity-form'));
+            await vi.waitFor(() => queryOrThrow('#add-activity-form'));
 
             const titleInput = document.querySelector('#activity-media') as HTMLInputElement;
             titleInput.setCustomValidity = vi.fn();
@@ -645,7 +665,7 @@ describe('modals/activity.ts', () => {
             const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
 
             const promise = showLogActivityModal();
-            await vi.waitFor(() => document.querySelector('#add-activity-form'));
+            await vi.waitFor(() => queryOrThrow('#add-activity-form'));
 
             const titleInput = document.querySelector('#activity-media') as HTMLInputElement;
             titleInput.focus();
@@ -665,8 +685,8 @@ describe('modals/activity.ts', () => {
             const { customAlert } = await import('../../src/modal_base');
             const errorSpy = vi.spyOn(Logger, 'error').mockImplementation(() => {});
 
-            showLogActivityModal(10);
-            await vi.waitFor(() => document.querySelector('#add-activity-form'));
+            void showLogActivityModal(10);
+            await vi.waitFor(() => queryOrThrow('#add-activity-form'));
 
             (document.querySelector('#activity-duration') as HTMLInputElement).value = '20';
             document.querySelector('#add-activity-form')!.dispatchEvent(new Event('submit'));
@@ -682,7 +702,7 @@ describe('modals/activity.ts', () => {
     describe('showExportCsvModal', () => {
         it('should resolve with "all" mode by default', async () => {
             const promise = showExportCsvModal();
-            await vi.waitFor(() => document.querySelector('#export-confirm'));
+            await vi.waitFor(() => queryOrThrow('#export-confirm'));
             
             (document.querySelector('#export-confirm') as HTMLElement).click();
             
@@ -692,7 +712,7 @@ describe('modals/activity.ts', () => {
 
         it('should resolve with custom range if selected', async () => {
             const promise = showExportCsvModal();
-            await vi.waitFor(() => document.querySelector('input[value="range"]'));
+            await vi.waitFor(() => queryOrThrow('input[value="range"]'));
             
             const rangeRadio = document.querySelector('input[value="range"]') as HTMLInputElement;
             rangeRadio.checked = true;
@@ -728,7 +748,7 @@ describe('modals/activity.ts', () => {
         it('requires an explicit choice, escapes content, and returns skip resolutions', async () => {
             const { customAlert } = await import('../../src/modal_base');
             const promise = showActivityCsvConflictModal(analysis);
-            await vi.waitFor(() => document.querySelector('#activity-conflict-confirm'));
+            await vi.waitFor(() => queryOrThrow('#activity-conflict-confirm'));
 
             expect(document.querySelector('.activity-csv-conflict')?.textContent).toContain('<img src=x onerror=alert(1)>');
             expect(document.querySelector('.activity-csv-conflict img')).toBeNull();
@@ -749,7 +769,7 @@ describe('modals/activity.ts', () => {
 
         it('can import all rows separately or cancel without a resolution', async () => {
             const importPromise = showActivityCsvConflictModal(analysis);
-            await vi.waitFor(() => document.querySelector('#activity-conflict-import-all'));
+            await vi.waitFor(() => queryOrThrow('#activity-conflict-import-all'));
             (document.querySelector('#activity-conflict-import-all') as HTMLButtonElement).click();
             (document.querySelector('#activity-conflict-confirm') as HTMLButtonElement).click();
             await expect(importPromise).resolves.toEqual([{
@@ -758,7 +778,7 @@ describe('modals/activity.ts', () => {
             }]);
 
             const cancelPromise = showActivityCsvConflictModal(analysis);
-            await vi.waitFor(() => document.querySelector('#activity-conflict-cancel'));
+            await vi.waitFor(() => queryOrThrow('#activity-conflict-cancel'));
             (document.querySelector('#activity-conflict-cancel') as HTMLButtonElement).click();
             await expect(cancelPromise).resolves.toBeNull();
         });

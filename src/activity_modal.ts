@@ -1,5 +1,6 @@
 import {
     getAllMedia,
+    getSetting,
     addLog,
     updateLog,
     addMedia,
@@ -9,27 +10,43 @@ import {
     ActivityCsvAnalysis,
     ActivityCsvConflictResolution,
 } from './api';
-import { ACTIVITY_TYPES } from './constants';
-import { buildCalendar } from './calendar';
+import { ACTIVITY_TYPES, SETTING_KEYS } from './constants';
+import { buildCalendar, normalizeWeekStartDay, supportsNativeMonthInput, YEAR_BLOCK_SIZE, type BuildCalendarOptions, type DatePicker } from './calendar';
 import { customPrompt, customAlert, createCancelableOverlay } from './modal_base';
 import { Logger } from './logger';
 import { escapeHTML, escapeAttribute } from './html';
-import { DURATION_INPUT_PLACEHOLDER, DURATION_INPUT_TOOLTIP, wireDurationInput } from './time';
+import {
+    DURATION_INPUT_PLACEHOLDER,
+    DURATION_INPUT_TOOLTIP,
+    wireDurationInput,
+    canonicalAnchor,
+    formatLogDate,
+    formatReducedDate,
+    isContainedInBucket,
+    isDateScope,
+    logDateKey,
+    precisionKeyLength,
+    type DateAnchor,
+    type DateKey,
+    type DateScope,
+} from './time';
 
 type ActivityType = typeof ACTIVITY_TYPES[number];
 
 const pad = (n: number) => n.toString().padStart(2, '0');
-const getTodayStr = () => {
+const getTodayStr = (): DateAnchor => {
     const today = new Date();
-    return `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+    return `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}` as DateAnchor;
 };
 
 export async function showExportCsvModal(): Promise<{mode: 'all' | 'range', start?: string, end?: string} | null> {
+    const weekStartDaySetting = await getSetting(SETTING_KEYS.WEEK_START_DAY);
+    const weekStartDay = normalizeWeekStartDay(weekStartDaySetting);
     return new Promise((resolve) => {
         const { overlay, cleanup, dismiss } = createCancelableOverlay(() => resolve(null));
-        
+
         const todayStr = getTodayStr();
-        
+
         overlay.innerHTML = `
             <div class="modal-content" style="max-width: 90vw; width: max-content;">
                 <h3>Export CSV</h3>
@@ -47,10 +64,10 @@ export async function showExportCsvModal(): Promise<{mode: 'all' | 'range', star
                 </div>
             </div>`;
         
-        let selectedStart = todayStr;
-        let selectedEnd = todayStr;
-        buildCalendar(overlay.querySelector<HTMLElement>('#cal-start-container')!, todayStr, (d) => selectedStart = d);
-        buildCalendar(overlay.querySelector<HTMLElement>('#cal-end-container')!, todayStr, (d) => selectedEnd = d);
+        let selectedStart: string = todayStr;
+        let selectedEnd: string = todayStr;
+        buildCalendar(overlay.querySelector<HTMLElement>('#cal-start-container')!, todayStr, (d) => selectedStart = d, { weekStartDay });
+        buildCalendar(overlay.querySelector<HTMLElement>('#cal-end-container')!, todayStr, (d) => selectedEnd = d, { weekStartDay });
 
         const modeRange = overlay.querySelector<HTMLInputElement>('input[value="range"]')!;
         const rangeInputs = overlay.querySelector<HTMLElement>('#export-range-inputs')!;
@@ -89,7 +106,7 @@ export async function showActivityCsvConflictModal(
                 <div class="activity-csv-conflict" data-conflict-index="${index}" style="padding: 0.75rem; background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: var(--radius-sm); display: flex; flex-direction: column; gap: 0.5rem;">
                     <div style="font-weight: 600;">${escapeHTML(content.log_name)}</div>
                     <div style="font-size: 0.8rem; color: var(--text-secondary);">
-                        ${escapeHTML(content.date)} · ${escapeHTML(content.activity_type)} · ${escapeHTML(metrics)}
+                        ${escapeHTML(formatReducedDate(content.date))} · ${escapeHTML(content.activity_type)} · ${escapeHTML(metrics)}
                         ${content.media_variant ? ` · Variant: ${escapeHTML(content.media_variant)}` : ''}
                     </div>
                     ${content.notes ? `<div style="font-size: 0.8rem; white-space: pre-wrap;">Notes: ${escapeHTML(content.notes)}</div>` : ''}
@@ -165,7 +182,11 @@ export async function showActivityCsvConflictModal(
 }
 
 export async function showLogActivityModal(prefillMediaId?: number, editLog?: ActivitySummary): Promise<boolean> {
-    const mediaList = await getAllMedia();
+    const [mediaList, weekStartDaySetting] = await Promise.all([
+        getAllMedia(),
+        getSetting(SETTING_KEYS.WEEK_START_DAY),
+    ]);
+    const weekStartDay = normalizeWeekStartDay(weekStartDaySetting);
     return new Promise((resolve) => {
         const baseHandle = createCancelableOverlay(() => resolve(false), { closeOnEscape: true });
         const { overlay } = baseHandle;
@@ -203,7 +224,8 @@ export async function showLogActivityModal(prefillMediaId?: number, editLog?: Ac
 
         // Determine the default activity type
         const defaultActivityType = editLog?.activity_type || getDefaultActivityType(initialMedia) || 'Reading';
-            
+        const initialScope: DateScope = editLog?.date_precision ?? 'day';
+
         overlay.innerHTML = `
             <div class="modal-content" style="width: 450px;">
                 <h3>${editLog ? 'Edit Activity' : 'Log Activity'}</h3>
@@ -213,18 +235,6 @@ export async function showLogActivityModal(prefillMediaId?: number, editLog?: Ac
                         <input type="text" id="activity-media" role="combobox" aria-autocomplete="list" aria-controls="activity-media-suggestions" aria-expanded="false" autocomplete="off" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm);" value="${escapedTitle}" ${editLog ? 'disabled' : ''} required oninvalid="this.setCustomValidity('Media Title is required')" oninput="this.setCustomValidity('')" />
                         <div id="activity-media-variant" style="display: none; color: var(--text-secondary); font-size: 0.78rem;"></div>
                         <div id="activity-media-suggestions" role="listbox" style="display: none; margin-top: 0.35rem; max-height: 11rem; overflow-y: auto; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: color-mix(in srgb, var(--bg-card) 94%, black 6%); box-shadow: 0 14px 34px color-mix(in srgb, var(--tint-dark) 22%, transparent); position: absolute; top: 100%; left: 0; right: 0;"></div>
-                    </div>
-                    <div style="display: flex; gap: 0.5rem; align-items: center;">
-                        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.5rem;">
-                                <label style="font-size: 0.85rem; color: var(--text-secondary);">Activity Type</label>
-                                <select id="activity-type" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); width: 100%;">
-                                    ${ACTIVITY_TYPES.map(t => `<option value="${t}" ${t === defaultActivityType ? 'selected' : ''}>${t}</option>`).join('')}
-                                </select>
-                        </div>
-                        <div id="mobile-date-field" style="display: none; flex-direction: column; gap: 0.5rem;">
-                            <label style="font-size: 0.85rem; color: var(--text-secondary);">Date</label>
-                            <input id="mobile-date-input" type="date" />
-                        </div>
                     </div>
                     <div style="display: flex; gap: 1rem; width: 100%;">
                         <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.5rem;">
@@ -237,9 +247,28 @@ export async function showLogActivityModal(prefillMediaId?: number, editLog?: Ac
                             <input type="number" id="activity-characters" value="${editLog?.characters || 0}" min="0" step="1" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); width: 100%;" />
                         </div>
                     </div>
-                    <div id="desktop-date-field" style="display: flex; flex-direction: column; gap: 0.5rem; align-items: center;">
-                        <label style="font-size: 0.85rem; color: var(--text-secondary);">Date</label>
-                        <div id="activity-cal-container"></div>
+                    <div style="display: flex; gap: 1rem; width: 100%;">
+                        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.5rem;">
+                            <label for="activity-type" style="font-size: 0.85rem; color: var(--text-secondary);">Activity Type</label>
+                            <select id="activity-type" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); width: 100%;">
+                                ${ACTIVITY_TYPES.map(t => `<option value="${t}" ${t === defaultActivityType ? 'selected' : ''}>${t}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.5rem;">
+                            <label for="activity-date-scope" style="font-size: 0.85rem; color: var(--text-secondary);">Date scope</label>
+                            <select id="activity-date-scope" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); width: 100%;">
+                                <option value="day" ${initialScope === 'day' ? 'selected' : ''}>Day</option>
+                                <option value="month" ${initialScope === 'month' ? 'selected' : ''}>Month</option>
+                                <option value="year" ${initialScope === 'year' ? 'selected' : ''}>Year</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="activity-date-picker-row">
+                        <div class="activity-date-row-heading">
+                            <label id="activity-date-row-label" style="font-size: 0.85rem; color: var(--text-secondary);">Date</label>
+                            <span id="activity-date-selection"></span>
+                        </div>
+                        <div id="activity-date-picker-content" style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem;"></div>
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">
                         <label style="font-size: 0.85rem; color: var(--text-secondary);">Notes</label>
@@ -252,12 +281,145 @@ export async function showLogActivityModal(prefillMediaId?: number, editLog?: Ac
                 </form>
             </div>`;
 
-        let selectedDate = editLog?.date || getTodayStr();
-        buildCalendar(overlay.querySelector<HTMLElement>('#activity-cal-container')!, selectedDate, (d) => selectedDate = d);
+        let scope: DateScope = initialScope;
+        let selectedDate: DateAnchor = editLog?.date ? (editLog.date as DateAnchor) : getTodayStr();
+        let lastPick: { scope: DateScope; value: DateAnchor } | null = null;
+        let activeDatePicker: DatePicker | null = null;
+        let hasUserPickedADate = editLog !== undefined;
 
-        // Set default date for mobile input
-        const mobileDateInput = overlay.querySelector<HTMLInputElement>('#mobile-date-input')!;
-        mobileDateInput.value = selectedDate;
+        const pickerContent = overlay.querySelector<HTMLElement>('#activity-date-picker-content')!;
+        const dateScopeSelect = overlay.querySelector<HTMLSelectElement>('#activity-date-scope')!;
+        const dateRowLabel = overlay.querySelector<HTMLLabelElement>('#activity-date-row-label')!;
+        const selectionSummary = overlay.querySelector<HTMLElement>('#activity-date-selection')!;
+
+        const usesNativeMobileControl = (candidateScope: DateScope): boolean =>
+            candidateScope === 'day' || (candidateScope === 'month' && supportsNativeMonthInput());
+
+        const mountScopedCalendar = (
+            container: HTMLElement,
+            initialValue: DateKey,
+            onSelect: (value: DateKey) => void,
+            options: BuildCalendarOptions,
+        ): DatePicker => buildCalendar(container, initialValue, (value) => onSelect(value as DateKey), options);
+
+        const handlePick = (value: DateAnchor): void => {
+            selectedDate = value;
+            hasUserPickedADate = true;
+            lastPick = { scope, value };
+            renderSelectionSummary();
+        };
+
+        const isSelectionInView = (): boolean => {
+            const viewAnchor = activeDatePicker?.getViewAnchor();
+            if (!viewAnchor) return true;
+            if (scope === 'year') {
+                const blockOrigin = Number(viewAnchor.slice(0, 4));
+                const selectedYear = Number(selectedDate.slice(0, 4));
+                return selectedYear >= blockOrigin && selectedYear < blockOrigin + YEAR_BLOCK_SIZE;
+            }
+            const viewScope: DateScope = scope === 'day' ? 'month' : 'year';
+            const viewKey = logDateKey({ date: viewAnchor, date_precision: viewScope });
+            return isContainedInBucket({ date: selectedDate, date_precision: 'day' }, viewKey);
+        };
+
+        const renderSelectionSummary = (): void => {
+            selectionSummary.textContent = `Selected: ${formatLogDate({ date: selectedDate, date_precision: scope })}`;
+        };
+
+        // Picks the anchor a scope switch lands on.
+        // The selection and the visible period are separate.
+        // A value the user picked always wins.
+        const deriveAnchorForScope = (targetScope: DateScope): DateAnchor => {
+            const viewAnchor = activeDatePicker?.getViewAnchor();
+            const base = hasUserPickedADate || isSelectionInView() || !viewAnchor
+                ? selectedDate
+                : viewAnchor;
+
+            const isNarrowing = precisionKeyLength(targetScope) > precisionKeyLength(scope);
+            if (!isNarrowing || hasUserPickedADate) return canonicalAnchor(base, targetScope);
+
+            const todayStr = getTodayStr();
+            const basePeriodKey = logDateKey({ date: base, date_precision: scope });
+            const containsToday = isContainedInBucket({ date: todayStr, date_precision: 'day' }, basePeriodKey);
+            return canonicalAnchor(containsToday ? todayStr : base, targetScope);
+        };
+
+        const focusMountedPicker = (): void => {
+            const mobileField = pickerContent.querySelector<HTMLElement>('#mobile-date-field');
+            if (mobileField && globalThis.getComputedStyle(mobileField).display !== 'none') {
+                pickerContent.querySelector<HTMLInputElement>('#mobile-date-input')?.focus();
+                return;
+            }
+            activeDatePicker?.focus();
+        };
+
+        const mountDatePicker = (shouldFocus: boolean, viewAnchor?: DateAnchor): void => {
+            const nextContent = document.createElement('div');
+            let nextPicker: DatePicker;
+
+            if (usesNativeMobileControl(scope)) {
+                nextContent.innerHTML = `
+                    <div id="mobile-date-field" style="display: none; flex-direction: column; gap: 0.5rem; width: 100%;">
+                        <input id="mobile-date-input" type="${scope === 'day' ? 'date' : 'month'}" />
+                    </div>
+                    <div id="desktop-date-field" style="display: flex; flex-direction: column; gap: 0.5rem; align-items: center;">
+                        <div id="activity-cal-container"></div>
+                    </div>
+                `;
+                const mobileInput = nextContent.querySelector<HTMLInputElement>('#mobile-date-input')!;
+                mobileInput.value = logDateKey({ date: selectedDate, date_precision: scope });
+                nextPicker = mountScopedCalendar(
+                    nextContent.querySelector<HTMLElement>('#activity-cal-container')!,
+                    logDateKey({ date: selectedDate, date_precision: scope }),
+                    (picked) => {
+                        handlePick(canonicalAnchor(picked, scope));
+                        mobileInput.value = picked;
+                    },
+                    { scope, weekStartDay, viewAnchor },
+                );
+                mobileInput.addEventListener('change', () => {
+                    if (!mobileInput.value) return;
+                    const picked = scope === 'day' ? (mobileInput.value as DateAnchor) : canonicalAnchor(mobileInput.value, 'month');
+                    handlePick(picked);
+                    nextPicker.setValue(logDateKey({ date: picked, date_precision: scope }));
+                });
+            } else {
+                nextContent.innerHTML = '<div id="activity-cal-container"></div>';
+                nextPicker = mountScopedCalendar(
+                    nextContent.querySelector<HTMLElement>('#activity-cal-container')!,
+                    logDateKey({ date: selectedDate, date_precision: scope }),
+                    (picked) => handlePick(canonicalAnchor(picked, scope)),
+                    { scope, weekStartDay, viewAnchor },
+                );
+            }
+
+            activeDatePicker?.destroy();
+            pickerContent.replaceChildren(...nextContent.childNodes);
+            activeDatePicker = nextPicker;
+            if (usesNativeMobileControl(scope)) {
+                dateRowLabel.setAttribute('for', 'mobile-date-input');
+            } else {
+                dateRowLabel.removeAttribute('for');
+            }
+
+            renderSelectionSummary();
+            if (shouldFocus) focusMountedPicker();
+        };
+
+        mountDatePicker(false);
+
+        dateScopeSelect.addEventListener('change', () => {
+            const nextScope = dateScopeSelect.value;
+            if (!isDateScope(nextScope)) return;
+            const focusWasInPicker = pickerContent.contains(document.activeElement);
+            const nextValue = lastPick?.scope === nextScope
+                ? lastPick.value
+                : deriveAnchorForScope(nextScope);
+            const nextViewAnchor = isSelectionInView() ? nextValue : activeDatePicker?.getViewAnchor();
+            scope = nextScope;
+            selectedDate = nextValue;
+            mountDatePicker(focusWasInPicker, nextViewAnchor);
+        });
 
         const durationInput = overlay.querySelector<HTMLInputElement>('#activity-duration')!;
         const durationHint = overlay.querySelector<HTMLElement>('#activity-duration-hint')!;
@@ -486,14 +648,9 @@ export async function showLogActivityModal(prefillMediaId?: number, editLog?: Ac
             const mediaTitle = mediaTitleRaw || (editLog ? editLog.title : '');
             const duration = getDurationMinutes();
             const characters = Number.parseInt(overlay.querySelector<HTMLInputElement>('#activity-characters')!.value, 10) || 0;
-            
-            // Use mobile date input if visible, otherwise use calendar date
-            const mobileDateField = overlay.querySelector<HTMLElement>('#mobile-date-field')!;
-            const isMobileDateVisible = globalThis.getComputedStyle(mobileDateField).display !== 'none';
-            const dateToSave = isMobileDateVisible 
-                ? overlay.querySelector<HTMLInputElement>('#mobile-date-input')!.value || selectedDate
-                : selectedDate;
-            
+            const dateToSave = selectedDate;
+            const scopeToSave = scope;
+
             if (!mediaTitle) {
                 await customAlert("Required Field", "Please enter a Media Title.");
                 return;
@@ -518,13 +675,14 @@ export async function showLogActivityModal(prefillMediaId?: number, editLog?: Ac
                         duration_minutes: duration,
                         characters,
                         date: dateToSave,
+                        date_precision: scopeToSave,
                         activity_type: activityType,
                         notes
                     });
                 } else {
                     const mediaId = await resolveMediaIdForSubmission(mediaTitle);
                     if (mediaId === null) return;
-                    await addLog({ media_id: mediaId, duration_minutes: duration, characters, date: dateToSave, activity_type: activityType, notes });
+                    await addLog({ media_id: mediaId, duration_minutes: duration, characters, date: dateToSave, date_precision: scopeToSave, activity_type: activityType, notes });
                 }
                 cleanup();
                 if (suggestionHideTimer) {

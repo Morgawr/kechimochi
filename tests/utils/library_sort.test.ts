@@ -361,8 +361,8 @@ describe('applyLibrarySort - builtin fields', () => {
             makeMedia({ id: 2, title: 'Older' }),
         ];
         const metricsByMediaId: Record<number, LibraryActivityMetrics> = {
-            1: { firstActivityDate: '2024-01-01', lastActivityDate: '2024-06-01', totalMinutes: 120, totalCharacters: 5000 },
-            2: { firstActivityDate: '2023-01-01', lastActivityDate: '2023-06-01', totalMinutes: 60, totalCharacters: 2000 },
+            1: { firstActivityDate: '2024-01-01', lastActivityDate: '2024-06-01', firstActivitySortKey: '2024-01-01', lastActivitySortKey: '2024-06-01', totalMinutes: 120, totalCharacters: 5000 },
+            2: { firstActivityDate: '2023-01-01', lastActivityDate: '2023-06-01', firstActivitySortKey: '2023-01-01', lastActivitySortKey: '2023-06-01', totalMinutes: 60, totalCharacters: 2000 },
         };
 
         const sorted = applyLibrarySort(mediaList, baseSortOptions({
@@ -380,9 +380,9 @@ describe('applyLibrarySort - builtin fields', () => {
             makeMedia({ id: 3, title: 'MostChars' }),
         ];
         const metricsByMediaId: Record<number, LibraryActivityMetrics> = {
-            1: { firstActivityDate: '2024-01-01', lastActivityDate: '2024-01-01', totalMinutes: 30, totalCharacters: 0 },
-            2: { firstActivityDate: '2024-01-01', lastActivityDate: '2024-01-01', totalMinutes: 30, totalCharacters: 500 },
-            3: { firstActivityDate: '2024-01-01', lastActivityDate: '2024-01-01', totalMinutes: 30, totalCharacters: 5000 },
+            1: { firstActivityDate: '2024-01-01', lastActivityDate: '2024-01-01', firstActivitySortKey: '2024-01-01', lastActivitySortKey: '2024-01-01', totalMinutes: 30, totalCharacters: 0 },
+            2: { firstActivityDate: '2024-01-01', lastActivityDate: '2024-01-01', firstActivitySortKey: '2024-01-01', lastActivitySortKey: '2024-01-01', totalMinutes: 30, totalCharacters: 500 },
+            3: { firstActivityDate: '2024-01-01', lastActivityDate: '2024-01-01', firstActivitySortKey: '2024-01-01', lastActivitySortKey: '2024-01-01', totalMinutes: 30, totalCharacters: 5000 },
         };
 
         const sortedAscending = applyLibrarySort(mediaList, baseSortOptions({
@@ -404,7 +404,7 @@ describe('applyLibrarySort - builtin fields', () => {
             makeMedia({ id: 2, title: 'HasChars' }),
         ];
         const metricsByMediaId: Record<number, LibraryActivityMetrics> = {
-            2: { firstActivityDate: '2024-01-01', lastActivityDate: '2024-01-01', totalMinutes: 30, totalCharacters: 500 },
+            2: { firstActivityDate: '2024-01-01', lastActivityDate: '2024-01-01', firstActivitySortKey: '2024-01-01', lastActivitySortKey: '2024-01-01', totalMinutes: 30, totalCharacters: 500 },
         };
 
         const sortedAscending = applyLibrarySort(mediaList, baseSortOptions({

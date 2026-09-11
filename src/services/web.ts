@@ -52,11 +52,26 @@ import type {
 import { getBuildVersion } from '../app_version';
 import { getMockExternalJsonResponse } from './external_mocks';
 import { logPerformance, performanceNow } from '../performance';
+import { isDateScope } from '../time';
 
 const API_BASE: string = import.meta.env.VITE_API_BASE_URL || '';
 
 function apiUrl(path: string): string {
     return `${API_BASE}/api${path}`;
+}
+
+function sanitizeDatePrecision(value: unknown): void {
+    if (Array.isArray(value)) {
+        for (const item of value) sanitizeDatePrecision(item);
+        return;
+    }
+    if (value !== null && typeof value === 'object') {
+        const record = value as Record<string, unknown>;
+        if ('date_precision' in record && !isDateScope(record.date_precision as string | undefined)) {
+            record.date_precision = 'day';
+        }
+        for (const key of Object.keys(record)) sanitizeDatePrecision(record[key]);
+    }
 }
 
 async function parseJsonResponse<T>(res: Response): Promise<T> {
@@ -71,7 +86,9 @@ async function parseJsonResponse<T>(res: Response): Promise<T> {
         throw new Error(hint);
     }
 
-    return res.json();
+    const parsed = await res.json();
+    sanitizeDatePrecision(parsed);
+    return parsed as T;
 }
 
 async function get<T>(path: string): Promise<T> {
