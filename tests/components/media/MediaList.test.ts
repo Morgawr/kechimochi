@@ -40,6 +40,8 @@ describe('MediaList', () => {
             1: {
                 firstActivityDate: '2026-03-01',
                 lastActivityDate: '2026-03-10',
+                firstActivitySortKey: '2026-03-01',
+                lastActivitySortKey: '2026-03-10',
                 totalMinutes: 150,
                 totalCharacters: 3000,
             },

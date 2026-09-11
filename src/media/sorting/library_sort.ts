@@ -71,11 +71,11 @@ const BUILTIN_SORT_DEFINITIONS: Record<LibraryBuiltinSortKey, BuiltinSortDefinit
     },
     lastActivity: {
         valueKind: 'text',
-        resolve: (media, options) => resolveMetric(media, options.metricsByMediaId, metrics => metrics.lastActivityDate),
+        resolve: (media, options) => resolveMetric(media, options.metricsByMediaId, metrics => metrics.lastActivitySortKey),
     },
     firstActivity: {
         valueKind: 'text',
-        resolve: (media, options) => resolveMetric(media, options.metricsByMediaId, metrics => metrics.firstActivityDate),
+        resolve: (media, options) => resolveMetric(media, options.metricsByMediaId, metrics => metrics.firstActivitySortKey),
     },
     timeLogged: {
         valueKind: 'numeric',

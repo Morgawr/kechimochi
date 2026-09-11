@@ -98,8 +98,8 @@ function renderStartupErrorScreen(message: string): void {
 
     appRoot.innerHTML = `
         <main style="min-height: 100vh; display: grid; place-items: center; padding: 2rem; background: linear-gradient(180deg, var(--bg-darkest), var(--bg-dark));">
-            <section style="width: min(92vw, 720px); border: 1px solid var(--border-color); border-radius: var(--radius-lg); background: color-mix(in srgb, var(--bg-dark) 92%, black); box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35); padding: 2rem;" role="alertdialog" aria-live="assertive">
-                <p style="margin: 0; color: var(--accent-red, #ff7b7b); font-size: 0.82rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;">Startup blocked</p>
+            <section style="width: min(92vw, 720px); border: 1px solid var(--border-color); border-radius: var(--radius-lg); background: color-mix(in srgb, var(--bg-dark) 92%, black); box-shadow: 0 24px 80px color-mix(in srgb, var(--tint-dark) 35%, transparent); padding: 2rem;" role="alertdialog" aria-live="assertive">
+                <p style="margin: 0; color: var(--accent-red); font-size: 0.82rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;">Startup blocked</p>
                 <h1 style="margin: 0.75rem 0 0; font-size: clamp(1.6rem, 3vw, 2.2rem);">${heading}</h1>
                 <p id="alert-body" style="margin: 1rem 0 0; color: var(--text-secondary); line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;">${escapedMessage}</p>
                 <p id="startup-error-message" style="display: none;">${escapedMessage}</p>

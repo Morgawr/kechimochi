@@ -7,6 +7,7 @@ import { navigateTo, verifyActiveView } from '../../helpers/navigation.js';
 import { dismissAlert } from '../../helpers/common.js';
 import { clickMediaItem } from '../../helpers/library.js';
 import { logActivityFromDetail } from '../../helpers/media-detail.js';
+import { setCheckbox } from '../../helpers/form-controls.js';
 
 const ACTIVITY_CSV_HEADERS = [
   'Date',
@@ -160,9 +161,7 @@ describe('CUJ: Data Management (CSV Export)', () => {
         await browser.execute((el: unknown) => (el as HTMLElement).click(), exportBtn);
     }
 
-    const radioRange = await $('input[name="export-mode"][value="range"]');
-    await radioRange.waitForDisplayed();
-    await radioRange.click();
+    await setCheckbox('input[name="export-mode"][value="range"]', true);
 
     const confirmBtn = await $('#export-confirm');
     await confirmBtn.click();

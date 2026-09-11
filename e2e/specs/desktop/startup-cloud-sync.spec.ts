@@ -66,12 +66,12 @@ describe('CUJ: Startup Cloud Sync', () => {
     });
   });
 
-  it('should transparently publish the legacy cloud profile at schema v7', async () => {
+  it('should transparently publish the legacy cloud profile at schema v8', async () => {
     await navigateTo('profile');
     await runSyncNow('Cloud Sync completed successfully');
 
     const upgraded = readRemoteProfile(remoteProfileId);
-    expect(upgraded.manifest.db_schema_version).toBe(7);
-    expect(upgraded.snapshot.db_schema_version).toBe(7);
+    expect(upgraded.manifest.db_schema_version).toBe(8);
+    expect(upgraded.snapshot.db_schema_version).toBe(8);
   });
 });

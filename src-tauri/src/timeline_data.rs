@@ -102,7 +102,7 @@ pub fn get_timeline_page(
 ) -> Result<Measured<TimelinePage>> {
     let mut timings = Timings::default();
     let transaction = timings.query(|| conn.unchecked_transaction())?;
-    let all_events = query_timeline_events(&transaction, &mut timings)?;
+    let (all_events, _contexts) = query_timeline_events(&transaction, &mut timings)?;
 
     let page = timings.aggregate(|| build_page(all_events, request));
     timings.query(|| transaction.commit())?;
@@ -115,10 +115,11 @@ pub fn get_timeline_buckets(
 ) -> Result<Measured<TimelineBucketPage>> {
     let mut timings = Timings::default();
     let transaction = timings.query(|| conn.unchecked_transaction())?;
-    let all_events = query_timeline_events(&transaction, &mut timings)?;
+    let (all_events, contexts) = query_timeline_events(&transaction, &mut timings)?;
     let bucket_totals =
         query_media_bucket_totals(&transaction, &mut timings, &request.granularity)?;
-    let page = timings.aggregate(|| build_bucket_page(all_events, bucket_totals, request));
+    let page =
+        timings.aggregate(|| build_bucket_page(all_events, contexts, bucket_totals, request));
     timings.query(|| transaction.commit())?;
     Ok(timings.finish(page))
 }
@@ -128,12 +129,15 @@ pub fn get_timeline_buckets(
 pub fn get_all_timeline_events(conn: &Connection) -> Result<Vec<TimelineEvent>> {
     let mut timings = Timings::default();
     let transaction = timings.query(|| conn.unchecked_transaction())?;
-    let events = query_timeline_events(&transaction, &mut timings)?;
+    let (events, _contexts) = query_timeline_events(&transaction, &mut timings)?;
     timings.query(|| transaction.commit())?;
     Ok(events)
 }
 
-fn query_timeline_events(conn: &Connection, timings: &mut Timings) -> Result<Vec<TimelineEvent>> {
+fn query_timeline_events(
+    conn: &Connection,
+    timings: &mut Timings,
+) -> Result<(Vec<TimelineEvent>, HashMap<i64, TimelineMediaContext>)> {
     let media_rows = query_media_rows(conn, timings)?;
     let dominant_activity_types = query_dominant_activity_types(conn, timings)?;
 
@@ -247,7 +251,7 @@ fn query_timeline_events(conn: &Connection, timings: &mut Timings) -> Result<Vec
         });
     });
 
-    Ok(events)
+    Ok((events, contexts))
 }
 
 fn query_media_rows(conn: &Connection, timings: &mut Timings) -> Result<Vec<TimelineMediaRow>> {
@@ -255,7 +259,9 @@ fn query_media_rows(conn: &Connection, timings: &mut Timings) -> Result<Vec<Time
         let mut statement = conn.prepare(
             "SELECT media.id, media.title, media.variant, media.cover_image,
                     media.default_activity_type, media.content_type,
-                    media.tracking_status, MIN(log.date), MAX(log.date),
+                    media.tracking_status,
+                    MIN(CASE WHEN log.date_precision = 'day' THEN log.date END),
+                    MAX(CASE WHEN log.date_precision = 'day' THEN log.date END),
                     COALESCE(SUM(log.duration_minutes), 0),
                     COALESCE(SUM(log.characters), 0)
              FROM shared.media media
@@ -291,34 +297,43 @@ fn query_dominant_activity_types(
     conn: &Connection,
     timings: &mut Timings,
 ) -> Result<HashMap<i64, String>> {
+    let query =
+        "WITH activity_counts AS (
+             SELECT media_id, activity_type, COUNT(*) AS activity_count
+             FROM main.activity_logs
+             GROUP BY media_id, activity_type
+         )
+         SELECT counts.media_id, counts.activity_type, counts.activity_count,
+                (
+                    SELECT recent.effective_end
+                    FROM main.activity_logs recent
+                    WHERE recent.media_id = counts.media_id
+                      AND recent.activity_type = counts.activity_type
+                    ORDER BY recent.effective_end DESC, recent.precision_key_length ASC, recent.id DESC
+                    LIMIT 1
+                ) AS latest_effective_end,
+                (
+                    SELECT recent.precision_key_length
+                    FROM main.activity_logs recent
+                    WHERE recent.media_id = counts.media_id
+                      AND recent.activity_type = counts.activity_type
+                    ORDER BY recent.effective_end DESC, recent.precision_key_length ASC, recent.id DESC
+                    LIMIT 1
+                ) AS latest_precision_key_length,
+                (
+                    SELECT recent.id
+                    FROM main.activity_logs recent
+                    WHERE recent.media_id = counts.media_id
+                      AND recent.activity_type = counts.activity_type
+                    ORDER BY recent.effective_end DESC, recent.precision_key_length ASC, recent.id DESC
+                    LIMIT 1
+                ) AS latest_id
+         FROM activity_counts counts
+         ORDER BY counts.media_id ASC, counts.activity_count DESC,
+                  latest_effective_end DESC, latest_precision_key_length ASC,
+                  latest_id DESC, counts.activity_type ASC";
     let rows = timings.query(|| {
-        let mut statement = conn.prepare(
-            "WITH activity_counts AS (
-                 SELECT media_id, activity_type, COUNT(*) AS activity_count
-                 FROM main.activity_logs
-                 GROUP BY media_id, activity_type
-             )
-             SELECT counts.media_id, counts.activity_type, counts.activity_count,
-                    (
-                        SELECT recent.date
-                        FROM main.activity_logs recent
-                        WHERE recent.media_id = counts.media_id
-                          AND recent.activity_type = counts.activity_type
-                        ORDER BY recent.date DESC, recent.id DESC
-                        LIMIT 1
-                    ) AS latest_date,
-                    (
-                        SELECT recent.id
-                        FROM main.activity_logs recent
-                        WHERE recent.media_id = counts.media_id
-                          AND recent.activity_type = counts.activity_type
-                        ORDER BY recent.date DESC, recent.id DESC
-                        LIMIT 1
-                    ) AS latest_id
-             FROM activity_counts counts
-             ORDER BY counts.media_id ASC, counts.activity_count DESC,
-                      latest_date DESC, latest_id DESC, counts.activity_type ASC",
-        )?;
+        let mut statement = conn.prepare(query)?;
         let rows = statement.query_map([], |row| {
             Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
         })?;
@@ -344,16 +359,16 @@ fn query_media_bucket_totals(
     granularity: &TimelineBucketGranularity,
 ) -> Result<Vec<(i64, String, i64, i64)>> {
     let key_len = i64::try_from(bucket_key_len(granularity)).unwrap_or(7);
+    let query =
+        "SELECT media_id,
+                substr(date, 1, ?1),
+                COALESCE(SUM(duration_minutes), 0),
+                COALESCE(SUM(characters), 0)
+         FROM main.activity_logs
+         WHERE date <> '' AND precision_key_length >= ?1
+         GROUP BY media_id, substr(date, 1, ?1)";
     timings.query(|| {
-        let mut statement = conn.prepare(
-            "SELECT media_id,
-                    substr(date, 1, ?1),
-                    COALESCE(SUM(duration_minutes), 0),
-                    COALESCE(SUM(characters), 0)
-             FROM main.activity_logs
-             WHERE date <> ''
-             GROUP BY media_id, substr(date, 1, ?1)",
-        )?;
+        let mut statement = conn.prepare(query)?;
         let rows = statement.query_map([key_len], |row| {
             Ok((
                 row.get::<_, i64>(0)?,
@@ -366,14 +381,20 @@ fn query_media_bucket_totals(
     })
 }
 
-fn compute_available_years(events: &[TimelineEvent]) -> Vec<i32> {
-    events
+fn compute_available_years(
+    events: &[TimelineEvent],
+    bucket_totals: &[(i64, String, i64, i64)],
+) -> Vec<i32> {
+    let mut years = events
         .iter()
         .filter_map(|event| event.date.get(0..4)?.parse::<i32>().ok())
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .rev()
-        .collect()
+        .collect::<BTreeSet<_>>();
+    years.extend(
+        bucket_totals
+            .iter()
+            .filter_map(|(_, bucket_key, _, _)| bucket_key.get(0..4)?.parse::<i32>().ok()),
+    );
+    years.into_iter().rev().collect()
 }
 
 fn compute_ambiguous_titles(events: &[TimelineEvent]) -> Vec<String> {
@@ -383,6 +404,27 @@ fn compute_ambiguous_titles(events: &[TimelineEvent]) -> Vec<String> {
             .entry(event.media_title.as_str())
             .or_default()
             .insert(event.media_id);
+    }
+    let mut ambiguous_titles = media_ids_by_title
+        .into_iter()
+        .filter_map(|(title, media_ids)| (media_ids.len() > 1).then_some(title.to_string()))
+        .collect::<Vec<_>>();
+    ambiguous_titles.sort();
+    ambiguous_titles
+}
+
+fn compute_bucket_ambiguous_titles(
+    contexts: &HashMap<i64, TimelineMediaContext>,
+    search_matched_media: &HashSet<i64>,
+) -> Vec<String> {
+    let mut media_ids_by_title = HashMap::<&str, HashSet<i64>>::new();
+    for context in contexts.values() {
+        if search_matched_media.contains(&context.media_id) {
+            media_ids_by_title
+                .entry(context.media_title.as_str())
+                .or_default()
+                .insert(context.media_id);
+        }
     }
     let mut ambiguous_titles = media_ids_by_title
         .into_iter()
@@ -412,32 +454,48 @@ fn matches_kind(event: &TimelineEvent, kind: Option<&TimelineEventKind>) -> bool
     }
 }
 
-fn matches_search(event: &TimelineEvent, normalized_query: &str) -> bool {
+fn matches_search_fields(
+    media_title: &str,
+    media_variant: &str,
+    activity_type: &str,
+    content_type: &str,
+    normalized_query: &str,
+) -> bool {
     normalized_query.is_empty()
-        || event.media_title.to_lowercase().contains(normalized_query)
-        || event
-            .media_variant
-            .to_lowercase()
-            .contains(normalized_query)
-        || event
-            .milestone_name
-            .as_deref()
-            .unwrap_or_default()
-            .to_lowercase()
-            .contains(normalized_query)
-        || event
-            .activity_type
-            .to_lowercase()
-            .contains(normalized_query)
-        || event
-            .content_type
-            .to_lowercase()
-            .contains(normalized_query)
+        || media_title.to_lowercase().contains(normalized_query)
+        || media_variant.to_lowercase().contains(normalized_query)
+        || activity_type.to_lowercase().contains(normalized_query)
+        || content_type.to_lowercase().contains(normalized_query)
+}
+
+fn matches_search(event: &TimelineEvent, normalized_query: &str) -> bool {
+    matches_search_fields(
+        &event.media_title,
+        &event.media_variant,
+        &event.activity_type,
+        &event.content_type,
+        normalized_query,
+    ) || event
+        .milestone_name
+        .as_deref()
+        .unwrap_or_default()
+        .to_lowercase()
+        .contains(normalized_query)
+}
+
+fn context_matches_search(context: &TimelineMediaContext, normalized_query: &str) -> bool {
+    matches_search_fields(
+        &context.media_title,
+        &context.media_variant,
+        &context.activity_type,
+        &context.content_type,
+        normalized_query,
+    )
 }
 
 fn build_page(events: Vec<TimelineEvent>, request: &TimelinePageRequest) -> TimelinePage {
     let all_event_count = i64::try_from(events.len()).unwrap_or(i64::MAX);
-    let available_years = compute_available_years(&events);
+    let available_years = compute_available_years(&events, &[]);
     let ambiguous_titles = compute_ambiguous_titles(&events);
     let normalized_query = request.search_query.trim().to_lowercase();
     let filtered = events
@@ -543,34 +601,46 @@ fn sort_media_by_immersion(
 
 fn build_bucket_page(
     events: Vec<TimelineEvent>,
+    contexts: HashMap<i64, TimelineMediaContext>,
     bucket_totals: Vec<(i64, String, i64, i64)>,
     request: &TimelineBucketRequest,
 ) -> TimelineBucketPage {
-    let available_years = compute_available_years(&events);
-    let ambiguous_titles = compute_ambiguous_titles(&events);
+    let available_years = compute_available_years(&events, &bucket_totals);
 
     let normalized_query = request.search_query.trim().to_lowercase();
     let search_matched_events = events
         .into_iter()
         .filter(|event| matches_search(event, &normalized_query))
         .collect::<Vec<_>>();
-    let search_matched_media = search_matched_events
+    let mut search_matched_media = search_matched_events
         .iter()
         .map(|event| event.media_id)
         .collect::<HashSet<_>>();
+    for context in contexts.values() {
+        if context_matches_search(context, &normalized_query) {
+            search_matched_media.insert(context.media_id);
+        }
+    }
+
+    let ambiguous_titles =
+        compute_bucket_ambiguous_titles(&contexts, &search_matched_media);
 
     let mut media_covers = HashMap::<i64, TimelineBucketMediaCover>::new();
-    for event in &search_matched_events {
-        if event.cover_image.is_empty() {
+    for media_id in &search_matched_media {
+        let Some(context) = contexts.get(media_id) else {
+            continue;
+        };
+        if context.cover_image.is_empty() {
             continue;
         }
-        media_covers
-            .entry(event.media_id)
-            .or_insert_with(|| TimelineBucketMediaCover {
-                media_title: event.media_title.clone(),
-                media_variant: event.media_variant.clone(),
-                cover_image: event.cover_image.clone(),
-            });
+        media_covers.insert(
+            *media_id,
+            TimelineBucketMediaCover {
+                media_title: context.media_title.clone(),
+                media_variant: context.media_variant.clone(),
+                cover_image: context.cover_image.clone(),
+            },
+        );
     }
 
     let filtered_events = search_matched_events
@@ -578,7 +648,6 @@ fn build_bucket_page(
         .filter(|event| matches_year(event, request.year))
         .collect::<Vec<_>>();
 
-    let summary = summarize(&filtered_events);
     let key_len = bucket_key_len(&request.granularity);
 
     let mut bucket_keys = BTreeSet::new();
@@ -627,6 +696,7 @@ fn build_bucket_page(
     let mut bucket_distinct_media = vec![HashSet::<i64>::new(); bucket_count];
     let mut bucket_highlight_seen = vec![HashSet::<i64>::new(); bucket_count];
     let mut bucket_highlight_candidates = vec![Vec::<i64>::new(); bucket_count];
+    let mut bucket_eligible_media = HashSet::<i64>::new();
 
     for (media_id, bucket_key, minutes, characters) in &bucket_totals {
         if !search_matched_media.contains(media_id) {
@@ -638,6 +708,7 @@ fn build_bucket_page(
         let Some(&index) = bucket_index.get(key) else {
             continue;
         };
+        bucket_eligible_media.insert(*media_id);
         let bucket = &mut buckets[index];
         bucket.logged_minutes += minutes;
         bucket.logged_characters += characters;
@@ -647,6 +718,8 @@ fn build_bucket_page(
         media_total.0 += minutes;
         media_total.1 += characters;
     }
+
+    let summary = summarize_bucket_page(&filtered_events, &contexts, &bucket_eligible_media);
 
     for event in &filtered_events {
         let Some(key) = event.date.get(0..key_len) else {
@@ -738,6 +811,38 @@ fn summarize(events: &[TimelineEvent]) -> TimelineSummary {
             .or_insert((event.total_minutes, event.total_characters));
         if event.kind == TimelineEventKind::Finished {
             completed_titles.insert(event.media_id);
+        }
+    }
+
+    TimelineSummary {
+        total_minutes: media_totals.values().map(|value| value.0).sum(),
+        completed_titles: i64::try_from(completed_titles.len()).unwrap_or(i64::MAX),
+        total_characters: media_totals.values().map(|value| value.1).sum(),
+        filtered_media_count: i64::try_from(media_totals.len()).unwrap_or(i64::MAX),
+    }
+}
+
+fn summarize_bucket_page(
+    filtered_events: &[TimelineEvent],
+    contexts: &HashMap<i64, TimelineMediaContext>,
+    bucket_eligible_media: &HashSet<i64>,
+) -> TimelineSummary {
+    let mut media_totals = HashMap::<i64, (i64, i64)>::new();
+    let mut completed_titles = HashSet::new();
+    for event in filtered_events {
+        media_totals
+            .entry(event.media_id)
+            .or_insert((event.total_minutes, event.total_characters));
+        if event.kind == TimelineEventKind::Finished {
+            completed_titles.insert(event.media_id);
+        }
+    }
+    for media_id in bucket_eligible_media {
+        if media_totals.contains_key(media_id) {
+            continue;
+        }
+        if let Some(context) = contexts.get(media_id) {
+            media_totals.insert(*media_id, (context.total_minutes, context.total_characters));
         }
     }
 
@@ -871,6 +976,7 @@ mod tests {
                     duration_minutes: minutes,
                     characters: 0,
                     date: date.to_string(),
+                    date_precision: db::DatePrecision::Day,
                     activity_type: "Reading".to_string(),
                     notes: "large notes must not be returned".to_string(),
                 },
@@ -939,6 +1045,7 @@ mod tests {
                     duration_minutes: 20,
                     characters: 0,
                     date: date.to_string(),
+                    date_precision: db::DatePrecision::Day,
                     activity_type: "Reading".to_string(),
                     notes: String::new(),
                 },
@@ -987,6 +1094,7 @@ mod tests {
                     duration_minutes: 10,
                     characters: 0,
                     date: date.to_string(),
+                    date_precision: db::DatePrecision::Day,
                     activity_type: activity_type.to_string(),
                     notes: String::new(),
                 },
@@ -1035,6 +1143,7 @@ mod tests {
                     duration_minutes: minutes,
                     characters,
                     date: date.to_string(),
+                    date_precision: db::DatePrecision::Day,
                     activity_type: "Reading".to_string(),
                     notes: String::new(),
                 },
@@ -1096,6 +1205,7 @@ mod tests {
                     duration_minutes: minutes,
                     characters: 0,
                     date: date.to_string(),
+                    date_precision: db::DatePrecision::Day,
                     activity_type: "Reading".to_string(),
                     notes: String::new(),
                 },
@@ -1130,6 +1240,7 @@ mod tests {
                     duration_minutes: minutes,
                     characters: 0,
                     date: date.to_string(),
+                    date_precision: db::DatePrecision::Day,
                     activity_type: "Reading".to_string(),
                     notes: String::new(),
                 },
@@ -1167,6 +1278,7 @@ mod tests {
                     duration_minutes: minutes,
                     characters: 0,
                     date: date.to_string(),
+                    date_precision: db::DatePrecision::Day,
                     activity_type: "Reading".to_string(),
                     notes: String::new(),
                 },
@@ -1207,6 +1319,7 @@ mod tests {
                     duration_minutes: 5,
                     characters: 0,
                     date: format!("2026-05-{index:02}"),
+                    date_precision: db::DatePrecision::Day,
                     activity_type: "Reading".to_string(),
                     notes: String::new(),
                 },
@@ -1256,6 +1369,7 @@ mod tests {
                 duration_minutes: minutes,
                 characters,
                 date: date.to_string(),
+                date_precision: db::DatePrecision::Day,
                 activity_type: "Reading".to_string(),
                 notes: String::new(),
             },
@@ -1301,6 +1415,7 @@ mod tests {
                     duration_minutes: minutes,
                     characters: 0,
                     date: date.to_string(),
+                    date_precision: db::DatePrecision::Day,
                     activity_type: "Reading".to_string(),
                     notes: String::new(),
                 },

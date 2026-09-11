@@ -35,6 +35,7 @@ function makeLog(overrides: Partial<ActivitySummary> & { id: number; media_id: n
         duration_minutes: overrides.duration_minutes ?? 0,
         characters: overrides.characters ?? 0,
         date: overrides.date,
+        date_precision: overrides.date_precision ?? 'day',
         language: overrides.language ?? 'Japanese',
         notes: overrides.notes ?? '',
     };

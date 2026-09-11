@@ -1,4 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('./calendar/calendar.css');
 
 :root {
   /* Layout & Utilities (Common across themes) */
@@ -18,8 +19,69 @@
   --heatmap-sat-range: 70;
   --heatmap-light-base: 45;
   --heatmap-light-range: 41;
-  
+
   --accent-text: #ffffff;
+
+  /* Palette Defaults */
+  --bg-dark: #2e232b;
+  --bg-card: #3d2e37;
+  --bg-card-hover: #4f3b47;
+  --text-primary: #fff0f5;
+  --text-secondary: #d8bfd8;
+  --accent-green: #ffb3ba;
+  --accent-green-hover: #ffdfba;
+  --accent-red: #ff9eaa;
+  --accent-blue: #b19cd9;
+  --accent-yellow: #fadadd;
+  --accent-purple: #f5c0c0;
+  --border-color: #554460;
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3);
+  --chart-1: #f4a6b8;
+  --chart-2: #b8cdda;
+  --chart-3: #e0bbe4;
+  --chart-4: #957DAD;
+  --chart-5: #D291BC;
+
+  /* Color Tokens */
+  --tint-light: #ffffff;      /* base for translucent light tints and highlights */
+  --tint-dark:  #000000;      /* base for translucent dark tints and depth */
+  --scrim:      rgba(0, 0, 0, 0.6);        /* modal overlay */
+  --shadow-color: rgba(0, 0, 0, 0.3);      /* default drop shadow */
+
+  --status-ongoing-led: #2196F3;      --status-ongoing-fill: #1c5a8a;      --status-ongoing-text: #ffffff;
+  --status-complete-led: #4CAF50;     --status-complete-fill: #1e8449;     --status-complete-text: #ffffff;
+  --status-paused-led: #FFEB3B;       --status-paused-fill: #f1c40f;       --status-paused-text: #000000;
+  --status-dropped-led: #F44336;      --status-dropped-fill: #c0392b;      --status-dropped-text: #ffffff;
+  --status-not-started-led: #FFFFFF;  --status-not-started-fill: #626567;  --status-not-started-text: #ffffff;
+
+  --danger: #ff4757;          /* ProfileView danger zone, calendar Sunday shares the value but NOT the meaning */
+  --danger-strong: #c0392b;   /* .alert-danger, status-dropped fill */
+  --danger-muted: #ff7582;    /* MediaDetail delete icon */
+  --warning: #f59e0b;         /* app-loader */
+
+  --accent-text-dark: #0f1b15;   /* dark-on-light-accent foreground */
+  /* Deliberately NOT overridden by any theme - white text on a saturated fill,
+     where --accent-text would flip to dark on the 6 themes that redefine it. */
+  --text-on-fill: #ffffff;
+  --switch-knob: #ffffff;     /* toggle knob face */
+
+  --info: #38bdf8;            /* informational callouts */
+  --info-bright: #6ee7f9;     /* progress bar gradient end */
+  --highlight: #ff7f50;       /* pending-conflict emphasis */
+
+  --bg-elevated: #1a151f;     /* jiten result cards */
+  --bg-elevated-alt: #2a2135; /* "Entire Series" section */
+  --heatmap-empty: #3b3b4a;   /* empty heatmap cell */
+  --calendar-sunday: #ff4757; --calendar-saturday: #1e90ff;   /* calendar.ts - semantic, kept separate from --danger */
+
+  --bg-boot: #06080c;         /* app startup loader backdrop */
+  --badge-tint: #f5c0c0;      /* .badge-content base tint */
+  --attention: #ff6384;       /* sync modal highlighted stat / conflict banner */
+  --warning-bright: #ffa600;  /* update modal backup warning */
+  --success: #2ed573;         /* sync connected, web server running */
+
+  --bg-darkest: color-mix(in srgb, var(--bg-dark) 92%, black);
 }
 
 .profile-avatar {
@@ -494,7 +556,7 @@ a {
 
 .btn-danger {
   background-color: var(--accent-red);
-  color: #fff;
+  color: var(--text-on-fill);
 }
 .btn-danger:hover {
   filter: brightness(1.1);
@@ -528,9 +590,9 @@ a {
   place-items: center;
   padding: 1.5rem;
   background:
-    radial-gradient(circle at top, rgba(255, 255, 255, 0.08), transparent 42%),
-    linear-gradient(180deg, rgba(6, 8, 12, 0.78), rgba(6, 8, 12, 0.92)),
-    var(--bg-dark, #121212);
+    radial-gradient(circle at top, color-mix(in srgb, var(--tint-light) 8%, transparent), transparent 42%),
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-boot) 78%, transparent), color-mix(in srgb, var(--bg-boot) 92%, transparent)),
+    var(--bg-dark);
   z-index: 200;
   transition: opacity 0.18s ease, visibility 0.18s ease;
 }
@@ -545,7 +607,7 @@ a {
   width: 2.75rem;
   height: 2.75rem;
   border-radius: 999px;
-  border: 3px solid rgba(255, 255, 255, 0.12);
+  border: 3px solid color-mix(in srgb, var(--tint-light) 12%, transparent);
   border-top-color: var(--accent-green);
   animation: app-loader-spin 0.75s linear infinite;
 }
@@ -596,8 +658,8 @@ a {
 }
 
 .win-btn-close:hover {
-  background-color: #c0392b !important;
-  color: #fff !important;
+  background-color: var(--danger-strong) !important;
+  color: var(--text-on-fill) !important;
 }
 
 .app-nav-bar {
@@ -786,14 +848,14 @@ a {
 
 .nav-sync-status-btn[data-sync-state='dirty'] .sync-status-dot,
 .mobile-sync-status-btn[data-sync-state='dirty'] .sync-status-dot {
-  background: #f59e0b;
+  background: var(--warning);
 }
 
 .nav-sync-status-btn[data-sync-state='conflict'] .sync-status-dot,
 .nav-sync-status-btn[data-sync-state='error'] .sync-status-dot,
 .mobile-sync-status-btn[data-sync-state='conflict'] .sync-status-dot,
 .mobile-sync-status-btn[data-sync-state='error'] .sync-status-dot {
-  background: #ff4757;
+  background: var(--danger);
 }
 
 .nav-sync-status-btn[data-sync-state='syncing'] .sync-status-dot,
@@ -1286,7 +1348,7 @@ input:focus, select:focus {
 .timeline-kind-pill {
   padding: 0.3rem 0.72rem;
   background: color-mix(in srgb, var(--timeline-accent) 80%, black 20%);
-  color: #ffffff;
+  color: var(--text-on-fill);
 }
 
 .timeline-date-pill {
@@ -1636,7 +1698,7 @@ input:focus, select:focus {
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.03em;
-  color: #ffffff;
+  color: var(--text-on-fill);
   background: color-mix(in srgb, var(--timeline-accent, var(--accent-blue)) 80%, black 20%);
 }
 
@@ -1703,7 +1765,7 @@ input:focus, select:focus {
 .modal-overlay {
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.6);
+  background: var(--scrim);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1761,7 +1823,7 @@ input:focus, select:focus {
   width: 100%;
   aspect-ratio: 1 / 1;
   border-radius: 2px;
-  background-color: #3b3b4a;
+  background-color: var(--heatmap-empty);
   min-width: 0;
 }
 
@@ -1780,6 +1842,28 @@ input:focus, select:focus {
   position: relative;
   width: 100%;
   height: 300px;
+}
+
+.chart-empty-message {
+  display: none;
+  position: absolute;
+  inset: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 1.5rem;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.chart-empty-message.is-visible {
+  display: flex;
+}
+
+.chart-empty-prompt {
+  color: var(--text-primary);
+  font-weight: 600;
 }
 
 /* Editable elements styling */
@@ -2010,12 +2094,12 @@ input:focus, select:focus {
   font-size: 0.75rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.04em;
   background-color: var(--accent-red);
-  color: #ffffff; /* Explicit white for contrast against red in most themes */
+  color: var(--text-on-fill);
   box-shadow: var(--shadow-sm);
   user-select: none;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid color-mix(in srgb, var(--tint-light) 10%, transparent);
   position: relative;
 }
 
@@ -2032,7 +2116,7 @@ input:focus, select:focus {
   border-radius: var(--radius-full);
   font-size: 0.75rem;
   font-weight: 700;
-  letter-spacing: 0.4px;
+  letter-spacing: 0.03em;
   background: color-mix(in srgb, var(--accent-blue) 22%, var(--bg-card));
   color: var(--text-primary);
   border: 1px solid color-mix(in srgb, var(--accent-blue) 55%, transparent);
@@ -2054,9 +2138,9 @@ input:focus, select:focus {
 }
 
 .badge-content {
-  background: rgba(245, 192, 192, 0.15);
+  background: color-mix(in srgb, var(--badge-tint) 15%, transparent);
   color: var(--accent-purple);
-  border: 1px solid rgba(245, 192, 192, 0.3);
+  border: 1px solid color-mix(in srgb, var(--badge-tint) 30%, transparent);
 }
 
 /* Fix for unreadable text in some themes */
@@ -2131,7 +2215,7 @@ input:focus, select:focus {
   letter-spacing: 1px;
   pointer-events: none;
   z-index: 5;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 4px 10px color-mix(in srgb, var(--tint-dark) 40%, transparent);
   opacity: 0.95;
   white-space: nowrap;
 }
@@ -2224,7 +2308,7 @@ input:focus, select:focus {
   border-radius: var(--radius-full);
   border: 1px solid var(--border-color);
   background: color-mix(in srgb, var(--bg-card) 88%, transparent);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--tint-light) 3%, transparent);
 }
 
 .toggle-option {
@@ -2243,7 +2327,7 @@ input:focus, select:focus {
 
 .toggle-option.is-active {
   background: var(--accent-green);
-  color: #0f1b15;
+  color: var(--accent-text-dark);
 }
 
 .toggle-option:disabled {
@@ -2263,7 +2347,7 @@ input:focus, select:focus {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-full);
   background: color-mix(in srgb, var(--bg-card) 88%, transparent);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--tint-light) 3%, transparent);
 }
 
 .media-grid-zoom-button,
@@ -2316,7 +2400,7 @@ input:focus, select:focus {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-full);
   background: color-mix(in srgb, var(--bg-card) 88%, transparent);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--tint-light) 3%, transparent);
 }
 
 .timeline-zoom-button,
@@ -2403,7 +2487,7 @@ input:focus, select:focus {
   color: var(--text-primary);
   border-color: color-mix(in srgb, var(--accent-green) 65%, var(--border-color) 35%);
   background: color-mix(in srgb, var(--bg-card-hover) 92%, transparent);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--tint-dark) 12%, transparent);
 }
 
 .media-grid-filters-chevron {
@@ -2423,7 +2507,7 @@ input:focus, select:focus {
   padding: 0 0.35rem;
   border-radius: var(--radius-full);
   background: var(--accent-green);
-  color: #0f1b15;
+  color: var(--accent-text-dark);
   font-size: 0.68rem;
   font-weight: 800;
   line-height: 1;
@@ -2510,7 +2594,7 @@ input:focus, select:focus {
 .media-filter-chip.is-active {
   background: var(--accent-green);
   border-color: var(--accent-green);
-  color: #0f1b15;
+  color: var(--accent-text-dark);
 }
 
 .media-extra-filter-builder {
@@ -2759,7 +2843,7 @@ input:focus, select:focus {
 
 .media-sort-direction-option.is-active {
   background: var(--accent-green);
-  color: #0f1b15;
+  color: var(--accent-text-dark);
 }
 
 .media-sort-direction-option:disabled {
@@ -3060,7 +3144,7 @@ input:focus, select:focus {
 
 /* Tracking Status Colors */
 .badge-status {
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid color-mix(in srgb, var(--tint-light) 10%, transparent);
     background: var(--bg-card-hover);
     color: var(--text-secondary);
 }
@@ -3075,27 +3159,27 @@ input:focus, select:focus {
     height: 10px;
     border-radius: 50%;
     z-index: 10;
-    box-shadow: 0 0 4px rgba(0, 0, 0, 0.5), inset 0 0 2px rgba(255, 255, 255, 0.3);
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 0 4px color-mix(in srgb, var(--tint-dark) 50%, transparent), inset 0 0 2px color-mix(in srgb, var(--tint-light) 30%, transparent);
+    border: 1px solid color-mix(in srgb, var(--tint-light) 20%, transparent);
 }
 
-.status-led.status-ongoing { background-color: #2196F3 !important; }
-.status-led.status-complete { background-color: #4CAF50 !important; }
-.status-led.status-paused { background-color: #FFEB3B !important; }
-.status-led.status-dropped { background-color: #F44336 !important; }
-.status-led.status-not-started { background-color: #FFFFFF !important; }
+.status-led.status-ongoing { background-color: var(--status-ongoing-led) !important; }
+.status-led.status-complete { background-color: var(--status-complete-led) !important; }
+.status-led.status-paused { background-color: var(--status-paused-led) !important; }
+.status-led.status-dropped { background-color: var(--status-dropped-led) !important; }
+.status-led.status-not-started { background-color: var(--status-not-started-led) !important; }
 
 /* Ensure the LED stands out in all themes */
 [data-theme='light'] .status-led {
-    box-shadow: 0 0 2px rgba(0, 0, 0, 0.3);
-    border-color: rgba(0, 0, 0, 0.1);
+    box-shadow: 0 0 2px var(--shadow-color);
+    border-color: color-mix(in srgb, var(--tint-dark) 10%, transparent);
 }
 
-.status-ongoing { background-color: #1c5a8a !important; color: #ffffff !important; }
-.status-complete { background-color: #1e8449 !important; color: #ffffff !important; }
-.status-paused { background-color: #f1c40f !important; color: #000000 !important; }
-.status-dropped { background-color: #c0392b !important; color: #ffffff !important; }
-.status-not-started { background-color: #626567 !important; color: #ffffff !important; }
+.status-ongoing { background-color: var(--status-ongoing-fill) !important; color: var(--status-ongoing-text) !important; }
+.status-complete { background-color: var(--status-complete-fill) !important; color: var(--status-complete-text) !important; }
+.status-paused { background-color: var(--status-paused-fill) !important; color: var(--status-paused-text) !important; }
+.status-dropped { background-color: var(--status-dropped-fill) !important; color: var(--status-dropped-text) !important; }
+.status-not-started { background-color: var(--status-not-started-fill) !important; color: var(--status-not-started-text) !important; }
 .status-untracked { background-color: transparent !important; color: var(--text-secondary) !important; border: 1px dashed var(--border-color) !important; }
  
  .badge-select {
@@ -3238,7 +3322,7 @@ input:focus, select:focus {
 
 .media-detail-icon-button--complete.is-active {
   background: color-mix(in srgb, var(--accent-green) 88%, black 12%);
-  color: #ffffff;
+  color: var(--text-on-fill);
   cursor: default;
 }
 
@@ -3322,7 +3406,7 @@ input:focus, select:focus {
 
 .media-detail-archive-toggle.is-archived .media-detail-archive-icon {
   background: color-mix(in srgb, var(--accent-green) 88%, black 12%);
-  color: #ffffff;
+  color: var(--text-on-fill);
   border-radius: var(--radius-sm);
   padding: 0 .1rem ;
 }
@@ -3336,11 +3420,6 @@ input:focus, select:focus {
   background: color-mix(in srgb, var(--accent-blue) 12%, transparent) !important;
   outline: none;
 }
-
-/* Theme overrides for better contrast if needed */
-[data-theme='light'] .status-ongoing { color: white !important; }
-[data-theme='light'] .status-paused { color: #000 !important; }
-
 
 .heatmap-header {
     display: flex;
@@ -3395,12 +3474,12 @@ input:focus, select:focus {
     width: 100%;
     max-width: 100%;
     min-width: 0;
-    background: rgba(0, 0, 0, 0.2);
+    background: color-mix(in srgb, var(--tint-dark) 20%, transparent);
     backdrop-filter: blur(8px);
     padding: 0.35rem 0.45rem;
     border-radius: var(--radius-lg);
     border: 1px solid var(--border-color);
-    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.05), var(--shadow-sm);
+    box-shadow: inset 0 1px 1px color-mix(in srgb, var(--tint-light) 5%, transparent), var(--shadow-sm);
 }
 
 .chart-toolbar-group {
@@ -3428,8 +3507,8 @@ input:focus, select:focus {
     right: 0.7rem;
     width: 0.36rem;
     height: 0.36rem;
-    border-right: 1.5px solid var(--text-secondary);
-    border-bottom: 1.5px solid var(--text-secondary);
+    border-right: 0.1rem solid var(--text-secondary);
+    border-bottom: 0.1rem solid var(--text-secondary);
     transform: translateY(-62%) rotate(45deg);
     pointer-events: none;
 }
@@ -4143,7 +4222,7 @@ input:focus, select:focus {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   border-radius: 20px;
   border: 1px solid var(--border-color);
-  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+  box-shadow: inset 0 2px 4px color-mix(in srgb, var(--tint-dark) 20%, transparent);
 }
 
 .slider:before {
@@ -4153,15 +4232,15 @@ input:focus, select:focus {
   width: 14px;
   left: 2px;
   bottom: 2px;
-  background-color: #fff;
+  background-color: var(--switch-knob);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   border-radius: 50%;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 4px var(--shadow-color);
 }
 
 input:checked + .slider {
   background-color: var(--accent-green);
-  border-color: rgba(0, 0, 0, 0.1);
+  border-color: color-mix(in srgb, var(--tint-dark) 10%, transparent);
 }
 
 input:checked + .slider:before {
@@ -4307,6 +4386,14 @@ input:checked + .slider:before {
   padding: 0.8rem 1rem;
   font-size: 0.85rem;
 }
+
+/* Sits on cover artwork, not a themed surface, so it must not follow --text-primary.
+   Must stay outside the width query below: the button renders at every width and its SVG
+   strokes with currentColor. */
+.cover-action {
+    color: var(--text-on-fill);
+}
+
 @media (max-width: 1024px) {
 
   .quick-log-cover {
@@ -4332,8 +4419,8 @@ input:checked + .slider:before {
     background:
         radial-gradient(
             circle at bottom right,
-            rgba(0,0,0,0.75) 0%,
-            rgba(0,0,0,0.45) 22%,
+            color-mix(in srgb, var(--tint-dark) 75%, transparent) 0%,
+            color-mix(in srgb, var(--tint-dark) 45%, transparent) 22%,
             transparent 45%
         );
 
@@ -4685,7 +4772,7 @@ input:checked + .slider:before {
     justify-content: center;
     border-top: 1px solid var(--border-color);
     border-bottom: none;
-    box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.22);
+    box-shadow: 0 -10px 30px color-mix(in srgb, var(--tint-dark) 22%, transparent);
   }
 
   #nav-spacer,
@@ -4774,7 +4861,7 @@ input:checked + .slider:before {
     height: 2rem;
     
     
-    box-shadow: 0 16px 28px rgba(0, 0, 0, 0.28);
+    box-shadow: 0 16px 28px color-mix(in srgb, var(--tint-dark) 28%, transparent);
     display: grid;
     justify-items: center;
 
@@ -5095,6 +5182,26 @@ input:checked + .slider:before {
   }
 }
 
+.activity-date-picker-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.activity-date-row-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+}
+
+#activity-date-selection {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-style: italic;
+  white-space: nowrap;
+}
+
 @media (max-width: 750px) {
 
   .chart-toolbar {
@@ -5205,7 +5312,7 @@ input:checked + .slider:before {
     height: 3.2rem;
     padding: 0;
     border-radius: 999px;
-    box-shadow: 0 16px 28px rgba(0, 0, 0, 0.28);
+    box-shadow: 0 16px 28px color-mix(in srgb, var(--tint-dark) 28%, transparent);
     -webkit-tap-highlight-color: transparent;
     display: flex;
     font-family: initial; /*so it's centered vertically*/
@@ -5237,7 +5344,7 @@ input[type=number] {
 }
 
 input:focus + .slider {
-  box-shadow: 0 0 0 2px rgba(var(--accent-green-rgb, 0, 255, 0), 0.2);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-green) 20%, transparent);
 }
 
 @media (hover:none) {
@@ -5309,7 +5416,7 @@ button:hover{
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
     background: color-mix(in srgb, var(--bg-dark) 94%, black);
-    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+    box-shadow: 0 24px 80px color-mix(in srgb, var(--tint-dark) 35%, transparent);
 }
 
 .database-recovery-header,
@@ -5333,7 +5440,7 @@ button:hover{
 }
 
 .database-recovery-eyebrow {
-    color: var(--accent-red, #ff7b7b);
+    color: var(--accent-red);
     font-size: 0.76rem;
     font-weight: 700;
     letter-spacing: 0.08em;
@@ -5367,7 +5474,7 @@ button:hover{
     flex: none;
     padding: 0.3rem 0.55rem;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.07);
+    background: color-mix(in srgb, var(--tint-light) 7%, transparent);
     color: var(--text-secondary);
     font-size: 0.76rem;
 }
@@ -5387,7 +5494,7 @@ button:hover{
     gap: 1rem;
     padding: 0.45rem 0.6rem;
     border-radius: var(--radius-sm);
-    background: rgba(255, 255, 255, 0.035);
+    background: color-mix(in srgb, var(--tint-light) 3.5%, transparent);
 }
 
 .database-recovery-milestone-name {
@@ -5425,14 +5532,14 @@ button:hover{
 }
 
 .database-recovery-discard-choice {
-    color: var(--accent-red, #ff7b7b);
+    color: var(--accent-red);
 }
 
 .database-recovery-action-panel {
     margin-top: 0.9rem;
     padding: 0.8rem;
     border-radius: var(--radius-sm);
-    background: rgba(255, 255, 255, 0.035);
+    background: color-mix(in srgb, var(--tint-light) 3.5%, transparent);
 }
 
 .database-recovery-action-panel > label {
@@ -5473,7 +5580,7 @@ button:hover{
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
     background: color-mix(in srgb, var(--bg-card) 96%, black);
-    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 14px 34px var(--shadow-color);
 }
 
 .database-recovery-media-option {
@@ -5491,7 +5598,7 @@ button:hover{
 
 .database-recovery-media-option:hover,
 .database-recovery-media-option.is-highlighted {
-    background: rgba(255, 255, 255, 0.08);
+    background: color-mix(in srgb, var(--tint-light) 8%, transparent);
 }
 
 .database-recovery-media-variant {
@@ -5504,7 +5611,7 @@ button:hover{
 
 .database-recovery-discard-panel,
 .database-recovery-error {
-    color: var(--accent-red, #ff7b7b);
+    color: var(--accent-red);
 }
 
 .database-recovery-error {

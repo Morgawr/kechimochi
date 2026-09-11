@@ -1,5 +1,6 @@
 use chrono::{NaiveDate, SecondsFormat, Utc};
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Result};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
@@ -12,7 +13,7 @@ use crate::models::{
     ActivityLog, ActivitySummary, DailyHeatmap, Media, Milestone, ProfilePicture, TimelineEvent,
 };
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 7;
+pub const CURRENT_SCHEMA_VERSION: i64 = 8;
 
 type MigrationFn = fn(&Connection) -> Result<()>;
 
@@ -53,6 +54,11 @@ const VERSIONED_MIGRATIONS: &[Migration] = &[
         to: 7,
         apply: migrate_v6_to_v7_add_sync_record_uids,
     },
+    Migration {
+        from: 7,
+        to: 8,
+        apply: migrate_v7_to_v8_add_activity_date_precision,
+    },
 ];
 
 const KECHIMOCHI_SYNC_NAMESPACE: &str = "0718e147-943f-4f0a-977d-5447bb2342f2";
@@ -82,6 +88,7 @@ const ACTIVITY_LOG_COLUMNS: &[&str] = &[
     "duration_minutes",
     "characters",
     "date",
+    "date_precision",
     "activity_type",
     "notes",
 ];
@@ -151,6 +158,7 @@ pub(crate) struct SyncActivityRow {
     pub duration_minutes: i64,
     pub characters: i64,
     pub date: String,
+    pub date_precision: DatePrecision,
     pub activity_type: String,
     pub notes: String,
 }
@@ -376,6 +384,31 @@ fn table_has_column(conn: &Connection, schema: &str, table: &str, column: &str) 
     Ok(false)
 }
 
+const GENERATED_COLUMN_VIRTUAL: i64 = 2;
+const GENERATED_COLUMN_STORED: i64 = 3;
+
+fn table_has_generated_column(
+    conn: &Connection,
+    schema: &str,
+    table: &str,
+    column: &str,
+) -> Result<bool> {
+    if !table_exists(conn, schema, table)? {
+        return Ok(false);
+    }
+
+    let mut stmt = conn.prepare(&format!("PRAGMA {}.table_xinfo({})", schema, table))?;
+    let columns =
+        stmt.query_map([], |row| Ok((row.get::<_, String>(1)?, row.get::<_, i64>(6)?)))?;
+    for existing in columns {
+        let (name, hidden) = existing?;
+        if name == column {
+            return Ok(hidden == GENERATED_COLUMN_STORED || hidden == GENERATED_COLUMN_VIRTUAL);
+        }
+    }
+    Ok(false)
+}
+
 fn table_column_is_not_null(
     conn: &Connection,
     schema: &str,
@@ -546,6 +579,9 @@ fn latest_schema_is_present(conn: &Connection) -> Result<bool> {
             && first_blank_media_title_row(conn)?.is_none()
             && table_has_all_columns(conn, "main", "activity_logs", ACTIVITY_LOG_COLUMNS)?
             && table_column_is_not_null(conn, "main", "activity_logs", "uid")?
+            && table_column_is_not_null(conn, "main", "activity_logs", "date_precision")?
+            && table_has_generated_column(conn, "main", "activity_logs", "effective_end")?
+            && table_has_generated_column(conn, "main", "activity_logs", "precision_key_length")?
             && first_blank_record_uid(conn, "activity_logs")?.is_none()
             && table_has_all_columns(conn, "main", "milestones", MILESTONE_COLUMNS)?
             && table_column_is_not_null(conn, "main", "milestones", "uid")?
@@ -565,6 +601,11 @@ fn validate_latest_schema(conn: &Connection) -> Result<()> {
     }
     validate_media_titles(conn)?;
     ensure_table_has_columns(conn, "main", "activity_logs", ACTIVITY_LOG_COLUMNS)?;
+    if !table_column_is_not_null(conn, "main", "activity_logs", "date_precision")? {
+        return Err(migration_error(
+            "main.activity_logs.date_precision must be required in the latest schema",
+        ));
+    }
     validate_record_uid_column(conn, "activity_logs", "Activity")?;
     validate_activity_media_links(conn)?;
     ensure_table_has_columns(conn, "main", "milestones", MILESTONE_COLUMNS)?;
@@ -1147,6 +1188,31 @@ fn migrate_v6_to_v7_add_sync_record_uids(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn migrate_v7_to_v8_add_activity_date_precision(conn: &Connection) -> Result<()> {
+    let _ = add_column_if_missing(
+        conn,
+        "main",
+        "activity_logs",
+        "date_precision",
+        "TEXT NOT NULL DEFAULT 'day' CHECK (date_precision IN ('day', 'month', 'year'))",
+    )?;
+    if !table_has_generated_column(conn, "main", "activity_logs", "effective_end")? {
+        conn.execute(
+            &format!("ALTER TABLE main.activity_logs ADD COLUMN {EFFECTIVE_END_COLUMN_DEFINITION}"),
+            [],
+        )?;
+    }
+    if !table_has_generated_column(conn, "main", "activity_logs", "precision_key_length")? {
+        conn.execute(
+            &format!(
+                "ALTER TABLE main.activity_logs ADD COLUMN {PRECISION_KEY_LENGTH_COLUMN_DEFINITION}"
+            ),
+            [],
+        )?;
+    }
+    Ok(())
+}
+
 fn migrate_settings_updated_at(conn: &Connection) -> Result<()> {
     if !table_exists(conn, "main", "settings")? {
         return Ok(());
@@ -1474,18 +1540,37 @@ fn create_shared_media_table(conn: &Connection) -> Result<()> {
     create_shared_media_table_named(conn, "shared.media")
 }
 
+const EFFECTIVE_END_COLUMN_DEFINITION: &str = "effective_end TEXT GENERATED ALWAYS AS (
+    COALESCE(
+        CASE date_precision
+            WHEN 'day'   THEN date
+            WHEN 'month' THEN date(substr(date,1,7)||'-01','+1 month','-1 day')
+            WHEN 'year'  THEN date(substr(date,1,4)||'-01-01','+1 year','-1 day')
+        END,
+        CASE WHEN substr(date,1,4)='9999' THEN '9999-12-31' END)
+) VIRTUAL";
+
+const PRECISION_KEY_LENGTH_COLUMN_DEFINITION: &str = "precision_key_length INTEGER GENERATED ALWAYS AS (
+    CASE date_precision WHEN 'day' THEN 10 WHEN 'month' THEN 7 WHEN 'year' THEN 4 END
+) VIRTUAL";
+
 fn create_activity_logs_table(conn: &Connection) -> Result<()> {
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS main.activity_logs (
+        &format!(
+            "CREATE TABLE IF NOT EXISTS main.activity_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             uid TEXT NOT NULL DEFAULT '',
             media_id INTEGER NOT NULL,
             duration_minutes INTEGER NOT NULL,
             characters INTEGER NOT NULL DEFAULT 0,
             date TEXT NOT NULL,
+            date_precision TEXT NOT NULL DEFAULT 'day' CHECK (date_precision IN ('day', 'month', 'year')),
+            {EFFECTIVE_END_COLUMN_DEFINITION},
+            {PRECISION_KEY_LENGTH_COLUMN_DEFINITION},
             activity_type TEXT NOT NULL DEFAULT '',
             notes TEXT NOT NULL DEFAULT ''
-        )",
+        )"
+        ),
         [],
     )?;
     Ok(())
@@ -1692,6 +1777,16 @@ fn create_indexes(conn: &Connection) -> Result<()> {
         [],
     )?;
     conn.execute(
+        "CREATE INDEX IF NOT EXISTS main.idx_activity_logs_effective_end_id
+         ON activity_logs(effective_end DESC, precision_key_length ASC, id DESC)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS main.idx_activity_logs_media_id_effective_end_id
+         ON activity_logs(media_id, effective_end DESC, precision_key_length ASC, id DESC)",
+        [],
+    )?;
+    conn.execute(
         "CREATE INDEX IF NOT EXISTS main.idx_milestones_media_title_id
          ON milestones(media_title, id ASC)",
         [],
@@ -1738,6 +1833,7 @@ fn migrate_legacy_pre_release_to_current_schema(conn: &Connection) -> Result<()>
     migrate_v4_to_v5_rename_default_activity_type(conn)?;
     migrate_v5_to_v6_use_media_title_variant_identity(conn)?;
     migrate_v6_to_v7_add_sync_record_uids(conn)?;
+    migrate_v7_to_v8_add_activity_date_precision(conn)?;
     validate_activity_media_links(conn)?;
     create_indexes(conn)?;
     Ok(())
@@ -2064,13 +2160,12 @@ fn ensure_media_identity_available(
 
 // Media Operations
 pub fn get_all_media(conn: &Connection) -> Result<Vec<Media>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, uid, title, default_activity_type, status, language, description, cover_image, extra_data, content_type, tracking_status, variant
+    let query = "SELECT id, uid, title, default_activity_type, status, language, description, cover_image, extra_data, content_type, tracking_status, variant
          FROM shared.media m
          ORDER BY
-            (SELECT MAX(date) FROM main.activity_logs WHERE media_id = m.id) DESC,
-            m.id DESC"
-    )?;
+            (SELECT MAX(effective_end) FROM main.activity_logs WHERE media_id = m.id) DESC,
+            m.id DESC";
+    let mut stmt = conn.prepare(query)?;
     let media_iter = stmt.query_map([], |row| {
         Ok(Media {
             id: row.get(0)?,
@@ -2209,6 +2304,45 @@ pub fn delete_media(conn: &Connection, id: i64) -> Result<()> {
 }
 
 // Activity Log Operations
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum DatePrecision {
+    #[default]
+    Day,
+    Month,
+    Year,
+}
+
+impl rusqlite::types::FromSql for DatePrecision {
+    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+        match value.as_str()? {
+            "day" => Ok(DatePrecision::Day),
+            "month" => Ok(DatePrecision::Month),
+            "year" => Ok(DatePrecision::Year),
+            _ => Err(rusqlite::types::FromSqlError::InvalidType),
+        }
+    }
+}
+
+impl rusqlite::ToSql for DatePrecision {
+    fn to_sql(&self) -> Result<rusqlite::types::ToSqlOutput<'_>> {
+        let value = match self {
+            DatePrecision::Day => "day",
+            DatePrecision::Month => "month",
+            DatePrecision::Year => "year",
+        };
+        Ok(rusqlite::types::ToSqlOutput::from(value))
+    }
+}
+
+fn canonicalize_activity_date_anchor(date: &str, precision: DatePrecision) -> String {
+    match precision {
+        DatePrecision::Day => date.to_string(),
+        DatePrecision::Month => format!("{}-01", &date[0..7]),
+        DatePrecision::Year => format!("{}-01-01", &date[0..4]),
+    }
+}
+
 fn validate_extra_data_object(extra_data: &str) -> Result<()> {
     match serde_json::from_str::<serde_json::Value>(extra_data) {
         Ok(serde_json::Value::Object(_)) => Ok(()),
@@ -2330,9 +2464,10 @@ pub(crate) fn add_log_with_uid(conn: &Connection, log: &ActivityLog, uid: &str) 
         return Err(migration_error("Activity sync UID cannot be blank"));
     }
     let activity_type = resolve_activity_type_for_write(conn, log.media_id, &log.activity_type)?;
+    let anchor = canonicalize_activity_date_anchor(&log.date, log.date_precision);
     conn.execute(
-        "INSERT INTO main.activity_logs (uid, media_id, duration_minutes, characters, date, activity_type, notes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![uid, log.media_id, log.duration_minutes, log.characters, log.date, activity_type, log.notes],
+        "INSERT INTO main.activity_logs (uid, media_id, duration_minutes, characters, date, date_precision, activity_type, notes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![uid, log.media_id, log.duration_minutes, log.characters, anchor, log.date_precision, activity_type, log.notes],
     )?;
     Ok(conn.last_insert_rowid())
 }
@@ -2353,9 +2488,10 @@ pub fn update_log(conn: &Connection, log: &ActivityLog) -> Result<()> {
         .id
         .ok_or_else(|| migration_error("Activity update requires an id"))?;
     let activity_type = resolve_activity_type_for_write(conn, log.media_id, &log.activity_type)?;
+    let anchor = canonicalize_activity_date_anchor(&log.date, log.date_precision);
     let changed = conn.execute(
-        "UPDATE main.activity_logs SET media_id = ?1, duration_minutes = ?2, characters = ?3, date = ?4, activity_type = ?5, notes = ?6 WHERE id = ?7",
-        params![log.media_id, log.duration_minutes, log.characters, log.date, activity_type, log.notes, log_id],
+        "UPDATE main.activity_logs SET media_id = ?1, duration_minutes = ?2, characters = ?3, date = ?4, date_precision = ?5, activity_type = ?6, notes = ?7 WHERE id = ?8",
+        params![log.media_id, log.duration_minutes, log.characters, anchor, log.date_precision, activity_type, log.notes, log_id],
     )?;
     if changed == 0 {
         Err(migration_error(format!("Activity {log_id} not found")))
@@ -2370,12 +2506,12 @@ pub fn clear_activities(conn: &Connection) -> Result<()> {
 }
 
 pub fn get_logs(conn: &Connection) -> Result<Vec<ActivitySummary>> {
-    let mut stmt = conn.prepare(
-        "SELECT a.id, a.media_id, m.title, a.activity_type, a.duration_minutes, a.characters, a.date, m.language, a.notes
+    let query =
+        "SELECT a.id, a.media_id, m.title, a.activity_type, a.duration_minutes, a.characters, a.date, a.date_precision, m.language, a.notes
          FROM main.activity_logs a
          JOIN shared.media m ON a.media_id = m.id
-         ORDER BY a.date DESC, a.id DESC",
-    )?;
+         ORDER BY a.effective_end DESC, a.precision_key_length ASC, a.id DESC";
+    let mut stmt = conn.prepare(query)?;
     let logs_iter = stmt.query_map([], |row| {
         Ok(ActivitySummary {
             id: row.get(0)?,
@@ -2385,8 +2521,9 @@ pub fn get_logs(conn: &Connection) -> Result<Vec<ActivitySummary>> {
             duration_minutes: row.get(4)?,
             characters: row.get(5)?,
             date: row.get(6)?,
-            language: row.get(7)?,
-            notes: row.get(8)?,
+            date_precision: row.get(7)?,
+            language: row.get(8)?,
+            notes: row.get(9)?,
         })
     })?;
 
@@ -2399,7 +2536,7 @@ pub fn get_logs(conn: &Connection) -> Result<Vec<ActivitySummary>> {
 
 pub(crate) fn get_sync_activity_rows(conn: &Connection) -> Result<Vec<SyncActivityRow>> {
     let mut stmt = conn.prepare(
-        "SELECT uid, media_id, duration_minutes, characters, date, activity_type, notes
+        "SELECT uid, media_id, duration_minutes, characters, date, date_precision, activity_type, notes
          FROM main.activity_logs
          ORDER BY media_id, date, activity_type, duration_minutes, characters, notes, uid",
     )?;
@@ -2410,21 +2547,22 @@ pub(crate) fn get_sync_activity_rows(conn: &Connection) -> Result<Vec<SyncActivi
             duration_minutes: row.get(2)?,
             characters: row.get(3)?,
             date: row.get(4)?,
-            activity_type: row.get(5)?,
-            notes: row.get(6)?,
+            date_precision: row.get(5)?,
+            activity_type: row.get(6)?,
+            notes: row.get(7)?,
         })
     })?;
     rows.collect()
 }
 
 pub fn get_logs_for_media(conn: &Connection, media_id: i64) -> Result<Vec<ActivitySummary>> {
-    let mut stmt = conn.prepare(
-        "SELECT a.id, a.media_id, m.title, a.activity_type, a.duration_minutes, a.characters, a.date, m.language, a.notes
+    let query =
+        "SELECT a.id, a.media_id, m.title, a.activity_type, a.duration_minutes, a.characters, a.date, a.date_precision, m.language, a.notes
          FROM main.activity_logs a
          JOIN shared.media m ON a.media_id = m.id
          WHERE a.media_id = ?1
-         ORDER BY a.date DESC, a.id DESC",
-    )?;
+         ORDER BY a.effective_end DESC, a.precision_key_length ASC, a.id DESC";
+    let mut stmt = conn.prepare(query)?;
     let logs_iter = stmt.query_map(params![media_id], |row| {
         Ok(ActivitySummary {
             id: row.get(0)?,
@@ -2434,8 +2572,9 @@ pub fn get_logs_for_media(conn: &Connection, media_id: i64) -> Result<Vec<Activi
             duration_minutes: row.get(4)?,
             characters: row.get(5)?,
             date: row.get(6)?,
-            language: row.get(7)?,
-            notes: row.get(8)?,
+            date_precision: row.get(7)?,
+            language: row.get(8)?,
+            notes: row.get(9)?,
         })
     })?;
 
@@ -2449,8 +2588,9 @@ pub fn get_logs_for_media(conn: &Connection, media_id: i64) -> Result<Vec<Activi
 pub fn get_heatmap(conn: &Connection) -> Result<Vec<DailyHeatmap>> {
     let mut stmt = conn.prepare(
         "SELECT date, SUM(duration_minutes) as total_minutes, SUM(characters) as total_characters
-         FROM main.activity_logs 
-         GROUP BY date 
+         FROM main.activity_logs
+         WHERE date_precision = 'day'
+         GROUP BY date
          ORDER BY date ASC",
     )?;
     let heatmap_iter = stmt.query_map([], |row| {
@@ -3034,6 +3174,7 @@ mod tests {
             duration_minutes: 30,
             characters: 1200,
             date: date.to_string(),
+            date_precision: DatePrecision::Day,
             activity_type: activity_type.to_string(),
             notes: String::new(),
         }
@@ -3538,6 +3679,7 @@ mod tests {
             duration_minutes: 60,
             characters: 0,
             date: "2024-01-15".to_string(),
+            date_precision: DatePrecision::Day,
             activity_type: String::new(),
             notes: String::new(),
         };
@@ -3608,6 +3750,7 @@ mod tests {
                 duration_minutes: 30,
                 characters: 0,
                 date: "2024-01-01".to_string(),
+                date_precision: DatePrecision::Day,
                 activity_type: String::new(),
                 notes: String::new(),
             },
@@ -3631,6 +3774,7 @@ mod tests {
             duration_minutes: 45,
             characters: 100,
             date: "2024-03-01".to_string(),
+            date_precision: DatePrecision::Day,
             activity_type: String::new(),
             notes: String::new(),
         };
@@ -3655,6 +3799,7 @@ mod tests {
             duration_minutes: 0,
             characters: 0,
             date: "2024-03-01".to_string(),
+            date_precision: DatePrecision::Day,
             activity_type: String::new(),
             notes: String::new(),
         };
@@ -3675,6 +3820,7 @@ mod tests {
                 duration_minutes,
                 characters,
                 date: "2024-03-01".to_string(),
+                date_precision: DatePrecision::Day,
                 activity_type: String::new(),
                 notes: String::new(),
             };
@@ -3690,6 +3836,7 @@ mod tests {
                 duration_minutes: 10,
                 characters: 0,
                 date: "2024-03-01".to_string(),
+                date_precision: DatePrecision::Day,
                 activity_type: String::new(),
                 notes: String::new(),
             },
@@ -3703,6 +3850,7 @@ mod tests {
                 duration_minutes: 10,
                 characters: -1,
                 date: "2024-03-01".to_string(),
+                date_precision: DatePrecision::Day,
                 activity_type: String::new(),
                 notes: String::new(),
             },
@@ -3728,6 +3876,7 @@ mod tests {
                 duration_minutes: 30,
                 characters: 100,
                 date: "2024-06-01".to_string(),
+                date_precision: DatePrecision::Day,
                 activity_type: String::new(),
                 notes: String::new(),
             },
@@ -3741,6 +3890,7 @@ mod tests {
                 duration_minutes: 45,
                 characters: 200,
                 date: "2024-06-01".to_string(),
+                date_precision: DatePrecision::Day,
                 activity_type: String::new(),
                 notes: String::new(),
             },
@@ -3756,6 +3906,7 @@ mod tests {
                 duration_minutes: 20,
                 characters: 50,
                 date: "2024-06-02".to_string(),
+                date_precision: DatePrecision::Day,
                 activity_type: String::new(),
                 notes: String::new(),
             },
@@ -3786,6 +3937,7 @@ mod tests {
                 duration_minutes: 10,
                 characters: 0,
                 date: "2024-03-01".to_string(),
+                date_precision: DatePrecision::Day,
                 activity_type: String::new(),
                 notes: String::new(),
             },
@@ -3799,6 +3951,7 @@ mod tests {
                 duration_minutes: 10,
                 characters: 0,
                 date: "2024-03-02".to_string(),
+                date_precision: DatePrecision::Day,
                 activity_type: String::new(),
                 notes: String::new(),
             },
@@ -3812,6 +3965,89 @@ mod tests {
         let m2_logs = get_logs_for_media(&conn, m2_id).unwrap();
         assert_eq!(m2_logs.len(), 1);
         assert_eq!(m2_logs[0].title, "Media 2");
+    }
+
+    #[test]
+    fn test_effective_end_generated_column_matches_precision_semantics() {
+        let conn = setup_test_db();
+        let media_id = add_media_with_id(&conn, &sample_media("Effective End Precision")).unwrap();
+
+        let day_id = add_log(
+            &conn,
+            &ActivityLog {
+                id: None,
+                media_id,
+                duration_minutes: 10,
+                characters: 0,
+                date: "2024-01-05".to_string(),
+                date_precision: DatePrecision::Day,
+                activity_type: String::new(),
+                notes: String::new(),
+            },
+        )
+        .unwrap();
+        let month_id = add_log(
+            &conn,
+            &ActivityLog {
+                id: None,
+                media_id,
+                duration_minutes: 10,
+                characters: 0,
+                date: "2024-06-10".to_string(),
+                date_precision: DatePrecision::Month,
+                activity_type: String::new(),
+                notes: String::new(),
+            },
+        )
+        .unwrap();
+        let year_id = add_log(
+            &conn,
+            &ActivityLog {
+                id: None,
+                media_id,
+                duration_minutes: 10,
+                characters: 0,
+                date: "2024-03-01".to_string(),
+                date_precision: DatePrecision::Year,
+                activity_type: String::new(),
+                notes: String::new(),
+            },
+        )
+        .unwrap();
+        let year_end_day_id = add_log(
+            &conn,
+            &ActivityLog {
+                id: None,
+                media_id,
+                duration_minutes: 10,
+                characters: 0,
+                date: "2024-12-31".to_string(),
+                date_precision: DatePrecision::Day,
+                activity_type: String::new(),
+                notes: String::new(),
+            },
+        )
+        .unwrap();
+
+        let effective_end = |id: i64| -> String {
+            conn.query_row(
+                "SELECT effective_end FROM main.activity_logs WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(effective_end(day_id), "2024-01-05");
+        assert_eq!(effective_end(month_id), "2024-06-30");
+        assert_eq!(effective_end(year_id), "2024-12-31");
+        assert_eq!(effective_end(year_end_day_id), "2024-12-31");
+
+        let logs = get_logs(&conn).unwrap();
+        let ordered_dates = logs.iter().map(|log| log.date.clone()).collect::<Vec<_>>();
+        assert_eq!(
+            ordered_dates,
+            vec!["2024-01-01", "2024-12-31", "2024-06-01", "2024-01-05"]
+        );
     }
 
     #[test]
@@ -4269,6 +4505,7 @@ mod tests {
                 duration_minutes: 30,
                 characters: 0,
                 date: "2024-01-01".to_string(),
+                date_precision: DatePrecision::Day,
                 activity_type: String::new(),
                 notes: String::new(),
             },
@@ -4305,6 +4542,7 @@ mod tests {
                 duration_minutes: 10,
                 characters: 0,
                 date: "2024-03-01".to_string(),
+                date_precision: DatePrecision::Day,
                 activity_type: String::new(),
                 notes: String::new(),
             },
@@ -4329,6 +4567,7 @@ mod tests {
                 duration_minutes: 10,
                 characters: 0,
                 date: "2024-03-02".to_string(),
+                date_precision: DatePrecision::Day,
                 activity_type: String::new(),
                 notes: String::new(),
             },
@@ -4353,6 +4592,7 @@ mod tests {
                 duration_minutes: 10,
                 characters: 0,
                 date: "2024-01-01".to_string(),
+                date_precision: DatePrecision::Day,
                 activity_type: String::new(),
                 notes: String::new(),
             },
@@ -4547,6 +4787,16 @@ mod tests {
         assert_eq!(logs.len(), 1);
         assert_eq!(logs[0].title, "Legacy Manga");
         assert_eq!(logs[0].duration_minutes, 60);
+
+        assert!(table_has_generated_column(&conn, "main", "activity_logs", "effective_end").unwrap());
+        let effective_end: String = conn
+            .query_row(
+                "SELECT effective_end FROM main.activity_logs WHERE media_id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(effective_end, "2024-01-01");
 
         std::fs::remove_dir_all(temp_dir).ok();
     }
@@ -5125,6 +5375,7 @@ mod tests {
             duration_minutes: 30,
             characters: 0,
             date: "2024-01-01".to_string(),
+            date_precision: DatePrecision::Day,
             activity_type: String::new(),
             notes: String::new(),
         };
@@ -5136,6 +5387,7 @@ mod tests {
             duration_minutes: 45,
             characters: 100,
             date: "2024-01-02".to_string(),
+            date_precision: DatePrecision::Day,
             activity_type: "Watching".to_string(),
             notes: String::new(),
         };
@@ -5184,6 +5436,7 @@ mod tests {
                 duration_minutes: 30,
                 characters: 1200,
                 date: "2024-01-01".to_string(),
+                date_precision: DatePrecision::Day,
                 activity_type: String::new(),
                 notes: String::new(),
             },
@@ -5200,8 +5453,8 @@ mod tests {
     }
 
     #[test]
-    fn test_fresh_db_has_latest_columns_and_is_at_schema_v7() {
-        let temp_dir = unique_temp_dir("fresh_v7");
+    fn test_fresh_db_has_latest_columns_and_is_at_schema_v8() {
+        let temp_dir = unique_temp_dir("fresh_v8");
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         let conn = init_db(temp_dir.clone(), None).unwrap();
@@ -5210,7 +5463,7 @@ mod tests {
             get_bundle_schema_version(&conn).unwrap(),
             CURRENT_SCHEMA_VERSION
         );
-        assert_eq!(CURRENT_SCHEMA_VERSION, 7);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 8);
         assert!(table_has_column(&conn, "main", "activity_logs", "notes").unwrap());
         assert!(table_has_column(&conn, "shared", "media", "variant").unwrap());
         assert!(table_has_column(&conn, "shared", "media", "default_activity_type").unwrap());
@@ -5219,6 +5472,9 @@ mod tests {
         assert!(table_column_is_not_null(&conn, "main", "milestones", "media_uid").unwrap());
         assert!(latest_schema_is_present(&conn).unwrap());
         validate_latest_schema(&conn).unwrap();
+        assert!(table_has_generated_column(&conn, "main", "activity_logs", "effective_end").unwrap());
+        conn.prepare("SELECT effective_end FROM main.activity_logs")
+            .unwrap();
 
         std::fs::remove_dir_all(temp_dir).ok();
     }
@@ -5342,7 +5598,19 @@ mod tests {
 
         assert_eq!(activity_uids, expected_activity_uids);
         assert_eq!(milestone_uids, expected_milestone_uids);
-        assert_eq!(get_bundle_schema_version(&conn).unwrap(), 7);
+        assert_eq!(
+            get_bundle_schema_version(&conn).unwrap(),
+            CURRENT_SCHEMA_VERSION
+        );
+        assert!(table_has_generated_column(&conn, "main", "activity_logs", "effective_end").unwrap());
+        let effective_end: String = conn
+            .query_row(
+                "SELECT effective_end FROM main.activity_logs WHERE date = '2026-07-01'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(effective_end, "2026-07-01");
 
         migrate_schema(&conn).unwrap();
         let activity_uids_after_reopen = conn
@@ -5537,6 +5805,7 @@ mod tests {
                 duration_minutes: 20,
                 characters: 0,
                 date: "2024-05-01".to_string(),
+                date_precision: DatePrecision::Day,
                 activity_type: "Reading".to_string(),
                 notes: "persistent note".to_string(),
             },
@@ -6156,6 +6425,7 @@ mod tests {
                 duration_minutes: 30,
                 characters: 0,
                 date: "2024-06-01".to_string(),
+                date_precision: DatePrecision::Day,
                 activity_type: "Reading".to_string(),
                 notes: "My first note".to_string(),
             },
@@ -6178,6 +6448,7 @@ mod tests {
                 duration_minutes: 30,
                 characters: 0,
                 date: "2024-06-01".to_string(),
+                date_precision: DatePrecision::Day,
                 activity_type: "Reading".to_string(),
                 notes: "Updated note".to_string(),
             },

@@ -5,6 +5,9 @@ import { Media } from '../../src/api';
 import { MediaLibraryBrowser } from '../../src/media/MediaLibraryBrowser';
 import { MediaDetail } from '../../src/media/MediaDetail';
 import { SETTING_KEYS, CONTENT_TYPES, TRACKING_STATUSES, EVENTS } from '../../src/constants';
+import type { LibraryActivityMetricsDto } from '../../src/types';
+
+type NonNullableMetricsDto = { [K in keyof LibraryActivityMetricsDto]: NonNullable<LibraryActivityMetricsDto[K]> };
 
 vi.mock('../../src/api', () => ({
     getLibrarySnapshot: vi.fn(),
@@ -165,16 +168,20 @@ describe('MediaView', () => {
                     media_id: log.media_id,
                     first_activity_date: log.date,
                     last_activity_date: log.date,
+                    first_activity_sort_key: log.date,
+                    last_activity_sort_key: log.date,
                     total_minutes: 0,
                     total_characters: 0,
                 };
                 value.first_activity_date = value.first_activity_date < log.date ? value.first_activity_date : log.date;
                 value.last_activity_date = value.last_activity_date > log.date ? value.last_activity_date : log.date;
+                value.first_activity_sort_key = value.first_activity_date;
+                value.last_activity_sort_key = value.last_activity_date;
                 value.total_minutes += log.duration_minutes;
                 value.total_characters += log.characters;
                 byMedia.set(log.media_id, value);
                 return byMedia;
-            }, new Map<number, { media_id: number; first_activity_date: string; last_activity_date: string; total_minutes: number; total_characters: number }>()).values());
+            }, new Map<number, NonNullableMetricsDto>()).values());
             return {
                 request_id: request.request_id,
                 media,
@@ -829,6 +836,8 @@ describe('MediaView', () => {
                 media_id: 7,
                 first_activity_date: '2026-03-01',
                 last_activity_date: '2026-03-18',
+                first_activity_sort_key: '2026-03-01',
+                last_activity_sort_key: '2026-03-18',
                 total_minutes: 115,
                 total_characters: 8000,
             }],

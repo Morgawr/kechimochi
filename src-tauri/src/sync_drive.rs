@@ -1730,6 +1730,7 @@ mod tests {
                 activities: vec![sync_snapshot::SnapshotActivity {
                     uid: "activity-1".to_string(),
                     date: "2026-04-01".to_string(),
+                    date_precision: db::DatePrecision::Day,
                     activity_type: "Playing".to_string(),
                     duration_minutes: 90,
                     characters: 0,

@@ -34,6 +34,8 @@ interface BucketRow {
     totals: Totals;
     isCurrent: boolean;
     isSelected: boolean;
+    selectable: boolean;
+    spansLabel?: boolean;
 }
 
 interface TotalsColumns {
@@ -104,24 +106,32 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
     render() {
         this.clear();
 
-        const rangeLogs = this.state.logs ?? this.state.rangeData?.bucket_totals.map((bucket, index) => ({
-            id: index,
-            media_id: 0,
-            title: '',
-            activity_type: '',
-            duration_minutes: bucket.total_minutes,
-            characters: bucket.total_characters,
-            date: bucket.bucket,
-            language: '',
-            notes: '',
-        })) ?? [];
+        const rangeLogs = this.state.logs ?? this.state.rangeData?.bucket_totals
+            .filter((bucket): bucket is typeof bucket & { bucket: string } => bucket.bucket !== null)
+            .map((bucket, index) => ({
+                id: index,
+                media_id: 0,
+                title: '',
+                activity_type: '',
+                duration_minutes: bucket.total_minutes,
+                characters: bucket.total_characters,
+                date: bucket.bucket,
+                date_precision: 'day' as const,
+                language: '',
+                notes: '',
+            })) ?? [];
         const range = getActivityRange(this.state.timeRangeDays, this.state.timeRangeOffset, rangeLogs, this.state.weekStartDay);
-        const bucketTotals = this.getBucketTotals(range.labels.length, range.getBucketIndex);
+        const unbucketedRowLabel = this.getUnbucketedRowLabel(range.period);
+        const { totals: bucketTotals, unbucketedTotals } = this.getBucketTotals(
+            range.labels.length,
+            range.getBucketIndex,
+            unbucketedRowLabel !== null,
+        );
         const currentIndex = this.getCurrentBucketIndex(range.getBucketIndex, bucketTotals.length);
         const selectedIndex = this.state.selectedBucketIndex ?? currentIndex;
         const categoryTotals = this.getCategoryTotals(range.validStart, range.validEnd);
         const weekStartDay = normalizeWeekStartDay(this.state.weekStartDay);
-        const bucketRows = bucketTotals.map((totals, index) => {
+        const bucketRows: BucketRow[] = bucketTotals.map((totals, index) => {
             const meta = this.getBucketMeta(range.labels[index], index, range.unit, range.validStart);
             return {
                 key: String(index),
@@ -135,21 +145,33 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
                 totals,
                 isCurrent: index === currentIndex,
                 isSelected: index === selectedIndex,
+                selectable: true,
             };
         });
-        const categoryRows = categoryTotals.map(([category, totals]) => ({
+        const statsTableRows: BucketRow[] = unbucketedRowLabel ? [...bucketRows, {
+            key: 'unbucketed',
+            label: unbucketedRowLabel,
+            subject: unbucketedRowLabel,
+            totals: unbucketedTotals,
+            isCurrent: false,
+            isSelected: false,
+            selectable: false,
+            spansLabel: true,
+        }] : bucketRows;
+        const categoryRows: BucketRow[] = categoryTotals.map(([category, totals]) => ({
             key: category,
             label: category,
             subject: category,
             totals,
             isCurrent: false,
             isSelected: false,
+            selectable: false,
         }));
         const selectedSubject = bucketRows[selectedIndex]?.subject || this.getCurrentSubjectLabel(range.unit);
         const highlights = this.getHighlights(range.validStart, range.validEnd);
         const sections = [
             this.renderWeekdayDistributionPanel(),
-            this.renderStatsPanel(range, bucketTotals, bucketRows, selectedIndex, currentIndex, selectedSubject),
+            this.renderStatsPanel(range, bucketTotals, statsTableRows, selectedIndex, currentIndex, selectedSubject),
             this.renderCategoriesPanel(range, categoryRows),
             this.renderHighlightsPanel(highlights),
         ].filter(Boolean).join('');
@@ -198,12 +220,12 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
     private renderStatsPanel(
         range: ActivityRange,
         bucketTotals: Totals[],
-        bucketRows: BucketRow[],
+        rows: BucketRow[],
         selectedIndex: number,
         currentIndex: number,
         selectedSubject: string,
     ): string {
-        const columns = this.getTotalsColumns(bucketRows);
+        const columns = this.getTotalsColumns(rows);
         if (!this.hasVisibleTotals(columns)) return '';
 
         return `
@@ -212,7 +234,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
                     <h3 class="dashboard-module-title dashboard-totals-title">${this.getTitle(range.period)} Stats</h3>
                     <span class="dashboard-stats-range-label">${this.getRangeLabel(range.validStart, range.validEnd, range.period)}</span>
                 </div>
-                ${this.renderTotalsTable(this.getUnitHeader(range.unit), bucketRows, true, columns, range.unit === 'day')}
+                ${this.renderTotalsTable(this.getUnitHeader(range.unit), rows, columns, range.unit === 'day')}
                 ${this.renderSelectedSummary(
             bucketTotals,
             selectedIndex,
@@ -235,7 +257,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
                     <h3 class="dashboard-module-title dashboard-totals-title">Categories</h3>
                     <span class="dashboard-stats-range-label">${this.getRangeLabel(range.validStart, range.validEnd, range.period)}</span>
                 </div>
-                ${this.renderTotalsTable('Title', categoryRows, false, columns)}
+                ${this.renderTotalsTable('Title', categoryRows, columns)}
             </section>
         `;
     }
@@ -392,29 +414,65 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
         return columns.showCharacters || columns.showHours;
     }
 
-    private getBucketTotals(length: number, getBucketIndex: (dateStr: string) => number): Totals[] {
+    private getBucketTotals(length: number, getBucketIndex: (dateStr: string) => number, collectUnbucketed: boolean): { totals: Totals[]; unbucketedTotals: Totals } {
         const totals = Array.from({ length }, () => ({ minutes: 0, characters: 0 }));
-
-        if (this.state.rangeData) {
-            for (const bucket of this.state.rangeData.bucket_totals) {
-                const index = getBucketIndex(bucket.bucket);
-                if (index !== -1) {
-                    totals[index].minutes += bucket.total_minutes;
-                    totals[index].characters += bucket.total_characters;
-                }
-            }
-            return totals;
+        const unbucketedTotals: Totals = { minutes: 0, characters: 0 };
+        const bucketTotals = this.state.rangeData?.bucket_totals;
+        if (bucketTotals) {
+            this.accumulateBackendBuckets(bucketTotals, totals, unbucketedTotals, getBucketIndex, collectUnbucketed);
+        } else {
+            this.accumulateLogBuckets(totals, unbucketedTotals, getBucketIndex, collectUnbucketed);
         }
+        return { totals, unbucketedTotals };
+    }
 
+    private accumulateBackendBuckets(
+        bucketTotals: DashboardRangeResponse['bucket_totals'],
+        totals: Totals[],
+        unbucketedTotals: Totals,
+        getBucketIndex: (dateStr: string) => number,
+        collectUnbucketed: boolean,
+    ): void {
+        for (const bucket of bucketTotals) {
+            if (bucket.bucket === null) {
+                if (!collectUnbucketed) continue;
+                unbucketedTotals.minutes += bucket.total_minutes;
+                unbucketedTotals.characters += bucket.total_characters;
+                continue;
+            }
+            const index = getBucketIndex(bucket.bucket);
+            if (index === -1) continue;
+            totals[index].minutes += bucket.total_minutes;
+            totals[index].characters += bucket.total_characters;
+        }
+    }
+
+    private accumulateLogBuckets(
+        totals: Totals[],
+        unbucketedTotals: Totals,
+        getBucketIndex: (dateStr: string) => number,
+        collectUnbucketed: boolean,
+    ): void {
         for (const log of this.state.logs ?? []) {
             const index = getBucketIndex(log.date);
-            if (index !== -1) {
-                totals[index].minutes += log.duration_minutes;
-                totals[index].characters += log.characters || 0;
+            if (index === -1) continue;
+            if (log.date_precision !== 'day') {
+                if (!collectUnbucketed) continue;
+                unbucketedTotals.minutes += log.duration_minutes;
+                unbucketedTotals.characters += log.characters || 0;
+                continue;
             }
+            totals[index].minutes += log.duration_minutes;
+            totals[index].characters += log.characters || 0;
         }
+    }
 
-        return totals;
+    private getUnbucketedRowLabel(period: ActivityPeriod): string | null {
+        switch (period) {
+            case 'month': return 'Month-scoped';
+            case 'year': return 'Year-scoped';
+            default: return null;
+        }
     }
 
     private getCategoryTotals(validStart: string, validEnd: string): Array<[string, Totals]> {
@@ -683,7 +741,6 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
     private renderTotalsTable(
         headerLabel: string,
         rows: BucketRow[],
-        selectable: boolean,
         columns: TotalsColumns,
         splitDayLabel = false,
     ): string {
@@ -704,7 +761,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
                     ${columns.showCharacters ? '<span class="dashboard-stats-row-value">Chars</span>' : ''}
                     ${columns.showHours ? '<span class="dashboard-stats-row-value">Hours</span>' : ''}
                 </div>
-                ${rows.map((row, index) => this.renderTotalsRow(row, selectable ? index : null, columns, gridTemplateColumns, splitDayLabel)).join('')}
+                ${rows.map((row, index) => this.renderTotalsRow(row, row.selectable ? index : null, columns, gridTemplateColumns, splitDayLabel)).join('')}
                 <div class="dashboard-stats-row dashboard-stats-row-total" style="grid-template-columns: ${gridTemplateColumns};">
                     <span class="${splitDayLabel ? 'dashboard-stats-row-total-label' : ''}">Total</span>
                     ${columns.showCharacters ? `<span class="dashboard-stats-row-value">${escapeHTML(this.getRowsTotal(rows, 'characters'))}</span>` : ''}
@@ -728,17 +785,20 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
             index === null ? '' : 'is-selectable',
             row.startsWeek ? 'is-week-start' : '',
         ].filter(Boolean).join(' ');
+        const useSplitLabel = splitDayLabel && !row.spansLabel;
+        const spanningLabelClass = splitDayLabel ? ' dashboard-stats-row-total-label' : '';
         const rowContent = `
-            ${splitDayLabel
+            ${useSplitLabel
                 ? `<span class="dashboard-stats-row-label dashboard-stats-row-day">${escapeHTML(row.dayOfMonth ?? '')}</span>
                    <span class="dashboard-stats-row-label dashboard-stats-row-weekday">${escapeHTML(row.weekday ?? '')}</span>`
-                : `<span class="dashboard-stats-row-label">${escapeHTML(row.label)}</span>`}
+                : `<span class="dashboard-stats-row-label${spanningLabelClass}">${escapeHTML(row.label)}</span>`}
             ${columns.showCharacters ? `<span class="dashboard-stats-row-value">${escapeHTML(row.totals.characters.toLocaleString())}</span>` : ''}
             ${columns.showHours ? `<span class="dashboard-stats-row-value">${escapeHTML(this.formatHours(row.totals.minutes))}</span>` : ''}
         `;
 
         if (index === null) {
-            return `<div class="${classes}" style="grid-template-columns: ${gridTemplateColumns};">${rowContent}</div>`;
+            const unbucketedAttribute = row.spansLabel ? ' data-dashboard-unbucketed-row' : '';
+            return `<div class="${classes}"${unbucketedAttribute} style="grid-template-columns: ${gridTemplateColumns};">${rowContent}</div>`;
         }
 
         return `<button type="button" class="${classes}" style="grid-template-columns: ${gridTemplateColumns};" data-dashboard-total-index="${index}">${rowContent}</button>`;

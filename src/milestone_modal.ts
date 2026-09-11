@@ -1,8 +1,9 @@
-import { Milestone } from './api';
-import { buildCalendar } from './calendar';
+import { getSetting, Milestone } from './api';
+import { buildCalendar, normalizeWeekStartDay } from './calendar';
 import { createCancelableOverlay, customAlert } from './modal_base';
 import { escapeAttribute } from './html';
 import { DURATION_INPUT_PLACEHOLDER, DURATION_INPUT_TOOLTIP, wireDurationInput } from './time';
+import { SETTING_KEYS } from './constants';
 
 type MilestoneDefaults = {
     duration?: number;
@@ -15,6 +16,8 @@ function isExistingMilestone(input?: Milestone | MilestoneDefaults): input is Mi
 }
 
 export async function showAddMilestoneModal(mediaTitle: string, mediaUid: string, initialValues?: Milestone | MilestoneDefaults): Promise<Milestone | null> {
+    const weekStartDaySetting = await getSetting(SETTING_KEYS.WEEK_START_DAY);
+    const weekStartDay = normalizeWeekStartDay(weekStartDaySetting);
     return new Promise((resolve) => {
         const { overlay, cleanup, dismiss } = createCancelableOverlay(() => resolve(null), { closeOnEscape: true });
         const existingMilestone = isExistingMilestone(initialValues) ? initialValues : undefined;
@@ -83,7 +86,7 @@ export async function showAddMilestoneModal(mediaTitle: string, mediaUid: string
         if (hasExistingDate) {
             buildCalendar(overlay.querySelector<HTMLElement>('#milestone-calendar')!, existingDate, (d) => {
                 selectedDate = d;
-            });
+            }, { weekStartDay });
         }
 
         const handleConfirm = () => {
@@ -129,7 +132,7 @@ export async function showAddMilestoneModal(mediaTitle: string, mediaUid: string
                 selectedDate = selectedDate || today;
                 buildCalendar(overlay.querySelector<HTMLElement>('#milestone-calendar')!, selectedDate, (d) => {
                     selectedDate = d;
-                });
+                }, { weekStartDay });
             } else {
                 calendarContainer.style.display = 'none';
                 selectedDate = undefined;

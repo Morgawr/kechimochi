@@ -1,6 +1,6 @@
 import { html, escapeHTML, rawHtml } from '../html';
 import { Media } from '../api';
-import { formatHhMm } from '../time';
+import { formatHhMm, formatReducedDate } from '../time';
 import type { LibraryActivityMetrics } from './library_types';
 import { resolveDisplayContentType } from './content_type';
 import type { CoverVisibilityController } from './cover_visibility';
@@ -49,7 +49,7 @@ export class MediaListItem extends ProgressiveCoverComponent<MediaListItemState>
             return 'Loading...';
         }
 
-        return value && value.trim().length > 0 ? value : fallback;
+        return value && value.trim().length > 0 ? formatReducedDate(value) : fallback;
     }
 
     private getDurationValue(): string {

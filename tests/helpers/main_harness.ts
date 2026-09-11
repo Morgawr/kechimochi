@@ -16,6 +16,7 @@ type ShowSyncEnablementWizard = typeof import('../../src/sync_modal').showSyncEn
 const defaultActivitySummary: ActivitySummary = {
     id: 0,
     date: '2024-01-01',
+    date_precision: 'day',
     duration_minutes: 0,
     characters: 0,
     title: 'T',
@@ -45,6 +46,8 @@ function defaultDashboardSnapshot(request: DashboardSnapshotRequest) {
             group_by: 'activity_type' as const,
             week_start_day: 1,
             migrate_legacy_group_by: false,
+            time_range_days: 7,
+            metric: 'minutes' as const,
         },
         summary: {
             total_logs: 1,
@@ -56,6 +59,8 @@ function defaultDashboardSnapshot(request: DashboardSnapshotRequest) {
             current_streak: 0,
             total_minutes: 0,
             total_characters: 0,
+            day_scoped_total_minutes: 0,
+            day_scoped_total_characters: 0,
             activity_totals: [],
         },
         quick_log_media: [],
@@ -67,17 +72,6 @@ function defaultDashboardSnapshot(request: DashboardSnapshotRequest) {
             items: [],
         },
         heatmap: { request_id: request.request_id, year: request.heatmap_year, days: [] },
-        range: {
-            request_id: request.request_id,
-            start_date: request.today,
-            end_date: request.today,
-            bucket: 'day' as const,
-            group_by: 'activity_type' as const,
-            series: [],
-            bucket_totals: [],
-            category_totals: [],
-            highlights: [],
-        },
         weekday_distribution: {
             start_date: request.today,
             end_date: request.today,

@@ -469,7 +469,8 @@ export async function closeModal(cancelBtnSelector: string): Promise<void> {
 
 /**
  * Picks a date in the activity-log modal on any platform. Desktop shows an in-page
- * calendar (.cal-day); mobile (<750px) hides it and shows a native
+ * calendar (.cal-day, six fixed week rows whose adjacent-month cells carry
+ * .cal-day-outside and are selectable); mobile (<750px) hides it and shows a native
  * <input type="date" id="mobile-date-input"> pre-filled with today. Pass a
  * YYYY-MM-DD date to choose one, or omit to keep the pre-filled "today".
  */

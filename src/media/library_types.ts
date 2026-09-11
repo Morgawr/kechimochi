@@ -24,6 +24,8 @@ export function normalizeLibraryGridZoom(value: unknown): number {
 export interface LibraryActivityMetrics {
     firstActivityDate: string | null;
     lastActivityDate: string | null;
+    firstActivitySortKey: string | null;
+    lastActivitySortKey: string | null;
     totalMinutes: number | null;
     totalCharacters: number | null;
 }

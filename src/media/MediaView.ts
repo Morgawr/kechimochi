@@ -471,6 +471,8 @@ private async handleBack() {
                 metrics[value.media_id] = {
                     firstActivityDate: value.first_activity_date,
                     lastActivityDate: value.last_activity_date,
+                    firstActivitySortKey: value.first_activity_sort_key,
+                    lastActivitySortKey: value.last_activity_sort_key,
                     totalMinutes: value.total_minutes,
                     totalCharacters: value.total_characters,
                 };
@@ -631,6 +633,8 @@ private async handleBack() {
             const rightMetric = right[Number(id)];
             return leftMetric.firstActivityDate === rightMetric?.firstActivityDate
                 && leftMetric.lastActivityDate === rightMetric?.lastActivityDate
+                && leftMetric.firstActivitySortKey === rightMetric?.firstActivitySortKey
+                && leftMetric.lastActivitySortKey === rightMetric?.lastActivitySortKey
                 && leftMetric.totalMinutes === rightMetric?.totalMinutes
                 && leftMetric.totalCharacters === rightMetric?.totalCharacters;
         });

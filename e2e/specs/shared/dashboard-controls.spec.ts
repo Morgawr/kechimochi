@@ -1,6 +1,7 @@
 import { waitForAppReady } from '../../helpers/setup.js';
 import { navigateTo } from '../../helpers/navigation.js';
 import { setSelect } from '../../helpers/form-controls.js';
+import { getActivityChartRangeMetadata } from '../../helpers/dashboard.js';
 
 interface ChartSnapshot {
   chartType: string | null;
@@ -40,6 +41,7 @@ describe('CUJ: Dashboard Analytics Controls', () => {
 
   it('updates real chart datasets and persists chart and grouping preferences', async () => {
     await setSelect('#select-time-range', { value: '30' });
+    await getActivityChartRangeMetadata();
     const initial = await getChartSnapshot();
     expect(initial.chartType).toBe('bar');
     expect(initial.groupBy).toBe('activity_type');
@@ -54,10 +56,19 @@ describe('CUJ: Dashboard Analytics Controls', () => {
     const groupedByName = await getChartSnapshot();
     expect(groupedByName.labels).not.toEqual(initial.labels);
 
+    await setSelect('#select-time-range', { value: '7' });
+    await getActivityChartRangeMetadata();
+    expect(await $('#activity-charts-grid').getAttribute('data-chart-empty')).toBe('true');
+
+    await setSelect('#select-time-range', { value: '30' });
+    await getActivityChartRangeMetadata();
+    expect(await $('#activity-charts-grid').getAttribute('data-chart-empty')).toBe('false');
+
     await clickChartToggle('#toggle-metric');
     await browser.waitUntil(async () => (await getChartSnapshot()).metric === 'characters');
     const characters = await getChartSnapshot();
-    expect(characters.totals).not.toEqual(groupedByName.totals);
+    expect(characters.totals).toEqual([]);
+    expect(await $('#activity-charts-grid').getAttribute('data-chart-empty')).toBe('true');
 
     expect(await $('#activity-charts-grid').getAttribute('data-time-range-days')).toBe('30');
     await $('#btn-chart-prev').click();
@@ -74,5 +85,7 @@ describe('CUJ: Dashboard Analytics Controls', () => {
     const afterReload = await getChartSnapshot();
     expect(afterReload.chartType).toBe('line');
     expect(afterReload.groupBy).toBe('log_name');
+    expect(afterReload.metric).toBe('characters');
+    expect(await $('#activity-charts-grid').getAttribute('data-time-range-days')).toBe('0');
   });
 });

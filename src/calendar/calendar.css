@@ -1,0 +1,117 @@
+.calendar-date-picker {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  background: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem;
+  user-select: none;
+}
+
+.calendar-date-picker-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.calendar-date-picker-label {
+  font-size: 0.9rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.cal-nav-prev,
+.cal-nav-next {
+  padding: 0 0.5rem;
+  height: 24px;
+  min-width: 24px;
+  font-size: 0.8rem;
+}
+
+.cal-nav-prev:focus-visible,
+.cal-nav-next:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 1px;
+}
+
+.calendar-grid {
+  border-collapse: collapse;
+}
+
+.calendar-grid th,
+.calendar-grid td {
+  padding: 1px;
+  text-align: center;
+}
+
+.calendar-grid-column-header {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--text-secondary);
+  padding-bottom: 0.4rem;
+}
+
+.calendar-grid-column-header-sunday {
+  color: var(--calendar-sunday);
+}
+
+.calendar-grid-column-header-saturday {
+  color: var(--calendar-saturday);
+}
+
+.cal-day,
+.cal-month,
+.cal-year {
+  all: unset;
+  cursor: pointer;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+}
+
+.cal-day {
+  width: 30px;
+  height: 30px;
+  font-size: 0.85rem;
+}
+
+.cal-day-outside {
+  color: var(--text-secondary);
+}
+
+.cal-month,
+.cal-year {
+  width: 56px;
+  height: 36px;
+  font-size: 0.8rem;
+}
+
+.cal-day:hover,
+.cal-month:hover,
+.cal-year:hover {
+  background: var(--bg-card-hover);
+}
+
+.cal-day[aria-pressed="true"],
+.cal-month[aria-pressed="true"],
+.cal-year[aria-pressed="true"] {
+  background: var(--accent-blue);
+  color: var(--text-on-fill);
+}
+
+.cal-day.today {
+  outline: 1px solid var(--accent-blue);
+  outline-offset: -1px;
+}
+
+.cal-day:focus-visible,
+.cal-month:focus-visible,
+.cal-year:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 1px;
+}

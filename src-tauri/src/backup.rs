@@ -1294,6 +1294,7 @@ mod tests {
                 duration_minutes: 50,
                 characters: 0,
                 date: "2024-11-01".to_string(),
+                date_precision: db::DatePrecision::Day,
                 activity_type: "Reading".to_string(),
                 notes: "backup note content".to_string(),
             },

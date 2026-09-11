@@ -6,6 +6,22 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+### Added
+ - The Activity Visualization and Activity Breakdown cards now show a message instead of an empty chart when the selected period has no data.
+ - Activity logs can now be scoped to a whole month or year instead of a single day, for recording time you know you spent without inventing a date for it. Dashboard graphs gained according visualization.
+
+### Changed
+ - The dashboard's chart time period and metric selections are now remembered across reloads, alongside the existing chart type and grouping.
+ - Clicking a heatmap day now jumps to the containing period without resetting the currently selected time range back to Week.
+ - The Log Activity date picker now switches between day, month and year views, shows the date you have selected above it, and keeps a constant height so the dialog no longer resizes as you page through months.
+ - Days from the neighbouring months are now shown in the day picker and can be selected directly.
+ - Dates in a few places are now written out in full, as `August 3, 2026` rather than `Aug 3, 2026`.
+
+### Fixed
+ - The startup error and database recovery screens now show their intended background gradient
+ - The Jiten.moe search dialog title was invisible on the light themes
+ - The calendar's first column now follows the week start day preference instead of always beginning on Sunday.
+
 ## [0.3.2] - 2026-08-25
 
 ### Added

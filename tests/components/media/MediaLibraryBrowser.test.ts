@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Media } from '../../../src/api';
 import * as api from '../../../src/api';
 import { MediaLibraryBrowser } from '../../../src/media/MediaLibraryBrowser';
-import type { LibraryLayoutMode } from '../../../src/media/library_types';
+import type { LibraryActivityMetrics, LibraryLayoutMode } from '../../../src/media/library_types';
 import type { LibraryFilterRule } from '../../../src/media/filtering';
 import type { LibraryRow } from '../../../src/media/sorting';
 import { showAddMediaModal } from '../../../src/media/modal';
@@ -60,7 +60,7 @@ const createState = (overrides: Partial<{
     preferredLayout: LibraryLayoutMode;
     gridZoom: number;
     isGridSupported: boolean;
-    listMetricsByMediaId: Record<number, { firstActivityDate: string | null; lastActivityDate: string | null; totalMinutes: number; totalCharacters: number }>;
+    listMetricsByMediaId: Record<number, LibraryActivityMetrics>;
     isListMetricsLoading: boolean;
 }> = {}) => ({
     mediaList: [],

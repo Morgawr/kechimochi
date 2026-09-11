@@ -24,10 +24,10 @@ import { ActivityCharts } from './ActivityCharts';
 import { QuickLog } from './QuickLog';
 import { ActivityTotals } from './ActivityTotals';
 import { setupCopyButton } from '../clipboard';
-import { formatLoggedDuration } from '../time';
+import { formatLoggedDuration, formatLogDate } from '../time';
 import { Logger } from '../logger';
 import { VIEW_NAMES, EVENTS, SETTING_KEYS } from '../constants';
-import { getActivityRange } from './activity_ranges';
+import { ACTIVITY_TIME_RANGES, getActivityRange } from './activity_ranges';
 import { measureSynchronous } from '../performance';
 
 const RECENT_LOGS_PER_PAGE = 15;
@@ -70,6 +70,7 @@ export class Dashboard extends Component<DashboardState> {
     private activeRecentRequest = 0;
     private recentPageLoading = false;
     private sidePanelCollapsed = false;
+    private readonly pendingSettingWriteCounts = new Map<string, number>();
 
     private readonly containers: {
         leftColumn?: HTMLElement;
@@ -141,7 +142,6 @@ export class Dashboard extends Component<DashboardState> {
                 quickLogMedia: snapshot.quick_log_media,
                 recentPage: snapshot.recent_logs,
                 heatmapData: snapshot.heatmap.days,
-                rangeData: snapshot.range,
                 weekdayDistribution: snapshot.weekday_distribution,
                 currentHeatmapYear: snapshot.heatmap.year,
                 currentPage: 1,
@@ -150,7 +150,12 @@ export class Dashboard extends Component<DashboardState> {
                     chartType: snapshot.settings.chart_type,
                     groupByMode: snapshot.settings.group_by,
                     weekStartDay: snapshot.settings.week_start_day,
-                    timeRangeDays: 7,
+                    timeRangeDays: this.hasPendingSettingWrite(SETTING_KEYS.DASHBOARD_TIME_RANGE_DAYS)
+                        ? this.state.chartParams.timeRangeDays
+                        : snapshot.settings.time_range_days,
+                    metric: this.hasPendingSettingWrite(SETTING_KEYS.DASHBOARD_METRIC)
+                        ? this.state.chartParams.metric
+                        : snapshot.settings.metric,
                     timeRangeOffset: 0,
                 },
                 isInitialized: true,
@@ -263,10 +268,8 @@ export class Dashboard extends Component<DashboardState> {
             this.setRenderRequestMarker('dashboardHeatmapRequestId', snapshotRequestId);
             this.onNextFrame(() => {
                 if (!this.isCurrentSnapshot(generation, snapshotRequestId)) return;
-                measureSynchronous('render', 'dashboard_visualization_stage', () => {
-                    this.updateCharts();
-                    this.updateTotals();
-                });
+                this.activeChartsComponent?.updatePendingParams(this.state.chartParams);
+                this.requestRange().catch(error => Logger.error('Unexpected dashboard range failure', error));
             });
         });
     }
@@ -376,6 +379,18 @@ export class Dashboard extends Component<DashboardState> {
             setSetting(SETTING_KEYS.DASHBOARD_GROUP_BY, params.groupByMode)
                 .catch(error => Logger.error('Failed to save dashboard group by setting', error));
         }
+        if (params.timeRangeDays !== undefined) {
+            this.beginPendingSettingWrite(SETTING_KEYS.DASHBOARD_TIME_RANGE_DAYS);
+            setSetting(SETTING_KEYS.DASHBOARD_TIME_RANGE_DAYS, params.timeRangeDays.toString())
+                .catch(error => Logger.error('Failed to save dashboard time range setting', error))
+                .finally(() => this.endPendingSettingWrite(SETTING_KEYS.DASHBOARD_TIME_RANGE_DAYS));
+        }
+        if (params.metric) {
+            this.beginPendingSettingWrite(SETTING_KEYS.DASHBOARD_METRIC);
+            setSetting(SETTING_KEYS.DASHBOARD_METRIC, params.metric)
+                .catch(error => Logger.error('Failed to save dashboard metric setting', error))
+                .finally(() => this.endPendingSettingWrite(SETTING_KEYS.DASHBOARD_METRIC));
+        }
 
         const needsRange = next.timeRangeDays !== previous.timeRangeDays
             || next.timeRangeOffset !== previous.timeRangeOffset
@@ -435,6 +450,7 @@ export class Dashboard extends Component<DashboardState> {
         } catch (error) {
             if (generation === this.dataGeneration && requestId === this.activeRangeRequest) {
                 Logger.error('Failed to load dashboard range', error);
+                if (!this.state.rangeData) this.renderRangeLoadError();
             }
         } finally {
             // An older request must never clear the loading state belonging to
@@ -462,6 +478,7 @@ export class Dashboard extends Component<DashboardState> {
                 duration_minutes: 0,
                 characters: 0,
                 date: `${year.toString().padStart(4, '0')}-01-01`,
+                date_precision: 'day',
                 language: '',
                 notes: '',
             });
@@ -496,10 +513,30 @@ export class Dashboard extends Component<DashboardState> {
     }
 
     private focusChartsOnHeatmapDate(date: string): void {
+        if (this.state.chartParams.timeRangeDays === ACTIVITY_TIME_RANGES.ALL_TIME) return;
         this.handleChartParamChange({
-            timeRangeDays: 7,
-            timeRangeOffset: this.getWeeklyOffsetForDate(date),
+            timeRangeOffset: this.getOffsetForDate(date),
         });
+    }
+
+    private getOffsetForDate(date: string): number {
+        switch (this.state.chartParams.timeRangeDays) {
+            case ACTIVITY_TIME_RANGES.MONTHLY: return this.getMonthlyOffsetForDate(date);
+            case ACTIVITY_TIME_RANGES.YEARLY: return this.getYearlyOffsetForDate(date);
+            default: return this.getWeeklyOffsetForDate(date);
+        }
+    }
+
+    private getMonthlyOffsetForDate(date: string): number {
+        const [year, month] = date.split('-').map(Number);
+        const today = new Date();
+        const monthsAgo = (today.getFullYear() * 12 + today.getMonth()) - (year * 12 + (month - 1));
+        return Math.max(0, monthsAgo);
+    }
+
+    private getYearlyOffsetForDate(date: string): number {
+        const year = Number.parseInt(date.slice(0, 4), 10);
+        return Math.max(0, new Date().getFullYear() - year);
     }
 
     private getWeeklyOffsetForDate(date: string): number {
@@ -651,7 +688,7 @@ export class Dashboard extends Component<DashboardState> {
                         </div>
                     </div>
                     <div class="dashboard-activity-actions" style="display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0;">
-                        <div class="dashboard-activity-date" style="color: var(--text-secondary); margin-right: 0.5rem;">${escapeHTML(log.date)}</div>
+                        <div class="dashboard-activity-date" style="color: var(--text-secondary); margin-right: 0.5rem;">${escapeHTML(formatLogDate(log))}</div>
                         <button class="btn btn-ghost btn-sm edit-log-btn" data-id="${log.id}" title="Edit Log" style="padding: 2px 6px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
                         <button class="btn btn-ghost btn-sm delete-log-btn" data-id="${log.id}" title="Delete Log" style="padding: 2px 6px; color: var(--accent-red);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg></button>
                     </div>
@@ -699,6 +736,30 @@ export class Dashboard extends Component<DashboardState> {
         }
         if (this.containers.logsList?.querySelector('.dashboard-stage-placeholder')) {
             this.containers.logsList.innerHTML = '<p style="color: var(--accent-red);">Unable to load recent activity.</p>';
+        }
+    }
+
+    private beginPendingSettingWrite(key: string): void {
+        this.pendingSettingWriteCounts.set(key, (this.pendingSettingWriteCounts.get(key) ?? 0) + 1);
+    }
+
+    private endPendingSettingWrite(key: string): void {
+        const count = this.pendingSettingWriteCounts.get(key) ?? 0;
+        if (count <= 1) {
+            this.pendingSettingWriteCounts.delete(key);
+        } else {
+            this.pendingSettingWriteCounts.set(key, count - 1);
+        }
+    }
+
+    private hasPendingSettingWrite(key: string): boolean {
+        return this.pendingSettingWriteCounts.has(key);
+    }
+
+    private renderRangeLoadError(): void {
+        const message = '<div class="card" style="color: var(--accent-red);">Unable to load chart data.</div>';
+        for (const container of [this.containers.charts, this.containers.totals]) {
+            if (container?.querySelector('.dashboard-stage-placeholder')) container.innerHTML = message;
         }
     }
 
