@@ -282,7 +282,7 @@ export class App {
         await this.switchView(this.currentView);
         // Restoring Android's Google authorization can require a network call.
         // Keep the local library usable while the sync status is loading.
-        void this.refreshSyncChrome();
+        this.refreshSyncChrome();
         this.setBootState(APP_BOOT_STATES.READY);
 
         try {
