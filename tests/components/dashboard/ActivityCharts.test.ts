@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ActivityCharts } from '../../../src/dashboard/ActivityCharts';
 import { ActivitySummary, Media } from '../../../src/api';
 import type { ChartConfiguration, ChartType } from 'chart.js';
@@ -11,10 +11,10 @@ vi.mock('chart.js/auto', () => ({
     }))
 }));
 
-type CapturedChartConfiguration = ChartConfiguration<ChartType, number[], string>;
+type CapturedChartConfiguration<TType extends ChartType = ChartType> = ChartConfiguration<TType, number[], string>;
 
-function captureChartConfiguration(callIndex: number): CapturedChartConfiguration {
-    return vi.mocked(Chart).mock.calls[callIndex][1] as CapturedChartConfiguration;
+function captureChartConfiguration<TType extends ChartType = ChartType>(callIndex: number): CapturedChartConfiguration<TType> {
+    return vi.mocked(Chart).mock.calls[callIndex][1] as CapturedChartConfiguration<TType>;
 }
 
 function requireChartLabels(labels: string[] | undefined): string[] {
@@ -24,6 +24,8 @@ function requireChartLabels(labels: string[] | undefined): string[] {
     return labels;
 }
 
+const THEME_BORDER_COLOR = '#314159';
+
 describe('ActivityCharts', () => {
     let container: HTMLElement;
     let onParamChange: (params: Record<string, unknown>) => void;
@@ -32,8 +34,13 @@ describe('ActivityCharts', () => {
         applyThemePalette();
         container = document.createElement('div');
         onParamChange = vi.fn();
+        document.body.style.setProperty('--border-color', THEME_BORDER_COLOR);
         vi.useRealTimers();
         vi.clearAllMocks();
+    });
+
+    afterEach(() => {
+        document.body.style.removeProperty('--border-color');
     });
 
     async function waitForChartConstruction(): Promise<void> {
@@ -371,6 +378,67 @@ describe('ActivityCharts', () => {
             'Unique title',
         ]);
         expect(barChartConfig.data.datasets.map(dataset => dataset.data.reduce((sum, value) => sum + value, 0))).toEqual([20, 10, 5]);
+    });
+
+    it('gives the doughnut chart segments a separator border', async () => {
+        const component = new ActivityCharts(
+            container,
+            { logs: [{ date: '2024-01-01', duration_minutes: 10, title: 'T', media_id: 1, activity_type: 'M', language: 'Japanese' } as unknown as ActivitySummary], timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'activity_type', chartType: 'bar', metric: 'minutes' },
+            onParamChange
+        );
+        component.render();
+        await waitForChartConstruction();
+
+        const pieChartConfig = captureChartConfiguration<'doughnut'>(0);
+
+        expect(pieChartConfig.data.datasets[0].borderColor).toBe(THEME_BORDER_COLOR);
+        expect(pieChartConfig.data.datasets[0].borderWidth).toBe(1);
+        expect(pieChartConfig.data.datasets[0].borderAlign).toBeUndefined();
+    });
+
+    it('separates stacked bar segments without outlining the stack', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-06-10T12:00:00'));
+
+        const logs = [
+            { date: '2026-06-10', duration_minutes: 10, title: 'A', media_id: 1, activity_type: 'Reading', language: 'Japanese' },
+            { date: '2026-06-10', duration_minutes: 20, title: 'B', media_id: 2, activity_type: 'Watching', language: 'Japanese' },
+        ] as ActivitySummary[];
+
+        const component = new ActivityCharts(
+            container,
+            { logs, timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'activity_type', chartType: 'bar', metric: 'minutes' },
+            onParamChange
+        );
+        component.render();
+        await waitForChartConstruction();
+
+        const datasets = captureChartConfiguration<'bar'>(1).data.datasets;
+
+        expect(datasets[0].borderColor).toBe(THEME_BORDER_COLOR);
+        expect(datasets[0].borderColor).not.toBe(datasets[0].backgroundColor);
+        expect(datasets[0].borderWidth).toEqual({ top: 0, right: 0, bottom: 0, left: 0 });
+        expect(datasets[1].borderWidth).toEqual({ top: 0, right: 0, bottom: 2, left: 0 });
+        expect(datasets[1].borderSkipped).toBe(false);
+    });
+
+    it('keeps each line chart dataset\'s own color as its borderColor', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-06-10T12:00:00'));
+
+        const component = new ActivityCharts(
+            container,
+            { logs: [{ date: '2026-06-10', duration_minutes: 10, title: 'T', media_id: 1, activity_type: 'M', language: 'Japanese' } as unknown as ActivitySummary], timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'activity_type', chartType: 'line', metric: 'minutes' },
+            onParamChange
+        );
+        component.render();
+        await waitForChartConstruction();
+
+        const lineChartConfig = captureChartConfiguration(1);
+        const dataset = lineChartConfig.data.datasets[0];
+
+        expect(dataset.borderColor).toBe(dataset.backgroundColor);
+        expect(dataset.borderColor).not.toBe(THEME_BORDER_COLOR);
     });
 
     it('should trigger param change on metric toggle', () => {
