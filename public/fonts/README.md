@@ -1,6 +1,6 @@
 # Bundled fonts
 
-Kechimochi ships its UI fonts to comply with GDPR.
+Kechimochi ships its UI fonts directly with the app.
 
 Each file is the **latin subset, variable weight** build (`wght` axis, 100–900), which covers every
 weight the UI uses in a single file. No italic build is bundled — italics are synthesised by the
