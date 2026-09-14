@@ -230,8 +230,9 @@ fn validate_record_uids<'a>(
     let mut seen = HashSet::new();
     for record_uid in record_uids {
         if record_uid.trim().is_empty() {
+            let article = if record_kind == "activity" { "an" } else { "a" };
             return Err(format!(
-                "Media '{media_uid}' contains a {record_kind} with a blank sync UID"
+                "Media '{media_uid}' contains {article} {record_kind} with a blank sync UID"
             ));
         }
         if !seen.insert(record_uid) {
@@ -1301,6 +1302,22 @@ mod tests {
             updated_at: updated_at.to_string(),
             updated_by_device_id: device.to_string(),
         }
+    }
+
+    #[test]
+    fn blank_record_uid_errors_use_the_correct_article() {
+        for (kind, article) in [("activity", "an"), ("milestone", "a")] {
+            let error = validate_record_uids("media-1", kind, [" \t"].into_iter()).unwrap_err();
+            assert_eq!(
+                error,
+                format!("Media 'media-1' contains {article} {kind} with a blank sync UID")
+            );
+        }
+        assert!(
+            validate_record_uids("media-1", "activity", ["same", "same"].into_iter())
+                .unwrap_err()
+                .contains("duplicate activity sync UID")
+        );
     }
 
     #[test]

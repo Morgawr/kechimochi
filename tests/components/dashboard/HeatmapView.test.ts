@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { HeatmapView } from '../../../src/dashboard';
+import { applyThemePalette } from '../../helpers/theme_palette';
 
 describe('HeatmapView', () => {
     let container: HTMLElement;
@@ -7,6 +8,7 @@ describe('HeatmapView', () => {
     let onDateSelect: (dateStr: string) => void;
 
     beforeEach(() => {
+        applyThemePalette();
         container = document.createElement('div');
         onYearChange = vi.fn();
         onDateSelect = vi.fn();

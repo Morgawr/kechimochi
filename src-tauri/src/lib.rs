@@ -174,7 +174,10 @@ impl LocalHttpApiState {
 
 #[cfg(target_os = "android")]
 #[derive(Debug, Serialize, Default)]
-struct AndroidGoogleAuthRequest;
+#[serde(rename_all = "camelCase")]
+struct AndroidGoogleAuthRequest {
+    allow_interaction: bool,
+}
 
 #[cfg(target_os = "android")]
 #[derive(Debug, Serialize)]
@@ -187,7 +190,9 @@ struct AndroidGoogleClearTokenRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AndroidGoogleAuthResponse {
-    access_token: String,
+    access_token: Option<String>,
+    #[serde(default)]
+    requires_interaction: bool,
 }
 
 fn with_conn<T, F>(state: &State<DbState>, operation: F) -> Result<T, String>
@@ -578,6 +583,7 @@ fn sync_command_setup(
 async fn ensure_android_google_drive_access_token(
     app_handle: &tauri::AppHandle,
     token_store: &dyn sync_auth::SecureTokenStore,
+    allow_interaction: bool,
 ) -> Result<(), String> {
     let google_auth_mobile = app_handle.state::<GoogleAuthMobileState>();
     let plugin = google_auth_mobile
@@ -585,15 +591,26 @@ async fn ensure_android_google_drive_access_token(
         .as_ref()
         .ok_or_else(|| "Google Drive sign-in is unavailable on this Android build.".to_string())?;
     let response: AndroidGoogleAuthResponse = plugin
-        .run_mobile_plugin("authorizeGoogleDrive", AndroidGoogleAuthRequest)
+        .run_mobile_plugin(
+            "authorizeGoogleDrive",
+            AndroidGoogleAuthRequest { allow_interaction },
+        )
         .map_err(|e| e.to_string())?;
-    sync_auth::persist_google_drive_android_access_token(token_store, &response.access_token).await
+    if response.requires_interaction && !allow_interaction {
+        return Ok(());
+    }
+    let access_token = response
+        .access_token
+        .filter(|token| !token.trim().is_empty())
+        .ok_or_else(|| "Google Drive authorization did not return an access token.".to_string())?;
+    sync_auth::persist_google_drive_android_access_token(token_store, &access_token).await
 }
 
 #[cfg(not(target_os = "android"))]
 async fn ensure_android_google_drive_access_token(
     _app_handle: &tauri::AppHandle,
     _token_store: &dyn sync_auth::SecureTokenStore,
+    _allow_interaction: bool,
 ) -> Result<(), String> {
     Ok(())
 }
@@ -691,7 +708,7 @@ where
     Fut: Future<Output = Result<T, String>>,
 {
     let (app_dir, config, token_store) = sync_command_setup(app_handle)?;
-    ensure_android_google_drive_access_token(app_handle, token_store.as_ref()).await?;
+    ensure_android_google_drive_access_token(app_handle, token_store.as_ref(), true).await?;
     with_sync_command_timeout(
         operation_name,
         timeout_secs,
@@ -1268,9 +1285,14 @@ fn delete_profile_picture(
     })
 }
 #[tauri::command]
-fn get_sync_status(app_handle: tauri::AppHandle) -> Result<sync_state::SyncStatus, String> {
+async fn get_sync_status(app_handle: tauri::AppHandle) -> Result<sync_state::SyncStatus, String> {
     let app_dir = db::get_data_dir(&app_handle);
     let token_store = sync_token_store();
+    #[cfg(target_os = "android")]
+    sync_auth::restore_google_drive_auth_if_missing(&app_dir, token_store.as_ref(), || {
+        ensure_android_google_drive_access_token(&app_handle, token_store.as_ref(), false)
+    })
+    .await?;
     let google_authenticated = match sync_auth::has_google_drive_tokens(token_store.as_ref()) {
         Ok(authenticated) => authenticated,
         Err(err) => {
@@ -1302,7 +1324,7 @@ async fn connect_google_drive(
 
     #[cfg(target_os = "android")]
     {
-        ensure_android_google_drive_access_token(&app_handle, token_store.as_ref()).await?;
+        ensure_android_google_drive_access_token(&app_handle, token_store.as_ref(), true).await?;
         return sync_auth::build_google_drive_auth_session(&app_dir, token_store.as_ref());
     }
 

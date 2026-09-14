@@ -251,8 +251,8 @@ export function showBlockingStatus(title: string, text: string): BlockingStatusH
                 <div aria-hidden="true" style="width: 28px; height: 28px; border-radius: 999px; border: 3px solid var(--border-color); border-top-color: var(--accent-blue); animation: spin 0.8s linear infinite;"></div>
             </div>
             <div id="blocking-status-progress" style="display: none; margin-top: 1.25rem;">
-                <div style="width: 100%; height: 10px; border-radius: 999px; background: rgba(255,255,255,0.08); overflow: hidden;">
-                    <div id="blocking-status-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--accent-blue), #6ee7f9); transition: width 0.18s ease;"></div>
+                <div style="width: 100%; height: 10px; border-radius: 999px; background: color-mix(in srgb, var(--tint-light) 8%, transparent); overflow: hidden;">
+                    <div id="blocking-status-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--accent-blue), var(--info-bright)); transition: width 0.18s ease;"></div>
                 </div>
                 <p id="blocking-status-progress-label" style="margin-top: 0.65rem; font-size: 0.84rem; color: var(--text-secondary);">0 / 0</p>
             </div>

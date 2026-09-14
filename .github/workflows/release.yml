@@ -279,6 +279,7 @@ jobs:
         env:
           KECHIMOCHI_GOOGLE_CLIENT_ID: ${{ secrets.KECHIMOCHI_GOOGLE_CLIENT_ID }}
           KECHIMOCHI_GOOGLE_CLIENT_SECRET: ${{ secrets.KECHIMOCHI_GOOGLE_CLIENT_SECRET }}
+          ANYLINUX_LIB_SOURCE: https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/2ad1bcd2c81b0d314b1435c08ae9d0196fedacc0/useful-tools/lib/anylinux.c
           TAURI_BUNDLER_NEW_APPIMAGE_FORMAT: 1
           VITE_APP_VERSION: ${{ needs.validate-release.outputs.version }}
           VITE_APP_CHANNEL: release

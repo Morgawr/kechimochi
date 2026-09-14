@@ -7041,6 +7041,200 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn sync_recovers_legacy_cached_record_uids_without_losing_local_changes() {
+        for remote_advanced in [false, true] {
+            let (temp_dir, conn) = setup_app();
+            let client = build_client(MemoryDriveTransport::new());
+            let token_store = test_token_store();
+            let media_uid = add_media(&conn, "Upgrade history");
+            {
+                let db = conn.lock().unwrap();
+                let media_id = db::get_all_media(&db).unwrap()[0].id.unwrap();
+                for _ in 0..2 {
+                    db::add_log(
+                        &db,
+                        &crate::models::ActivityLog {
+                            id: None,
+                            media_id,
+                            duration_minutes: 30,
+                            characters: 100,
+                            date: "2026-07-01".into(),
+                            activity_type: "Reading".into(),
+                            notes: "Repeated session".into(),
+                        },
+                    )
+                    .unwrap();
+                    db::add_milestone(
+                        &db,
+                        &Milestone {
+                            id: None,
+                            media_uid: Some(media_uid.clone()),
+                            media_title: "Upgrade history".into(),
+                            name: "Checkpoint".into(),
+                            duration: 30,
+                            characters: 100,
+                            date: Some("2026-07-01".into()),
+                        },
+                    )
+                    .unwrap();
+                }
+            }
+            create_remote_sync_profile_with_client(
+                temp_dir.path(),
+                &conn,
+                &client,
+                &token_store,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+            let config = sync_state::load_sync_config(temp_dir.path())
+                .unwrap()
+                .unwrap();
+            let base = sync_state::load_base_snapshot(temp_dir.path())
+                .unwrap()
+                .unwrap();
+
+            // Recreate the actual 0.3.1 wire format and schema, then run the
+            // normal DB upgrade. The separate cached JSON must upgrade too.
+            let mut legacy = serde_json::to_value(&base).unwrap();
+            legacy["db_schema_version"] = serde_json::json!(6);
+            for media in legacy["library"].as_object_mut().unwrap().values_mut() {
+                for kind in ["activities", "milestones"] {
+                    for record in media[kind].as_array_mut().unwrap() {
+                        record.as_object_mut().unwrap().remove("uid");
+                    }
+                }
+            }
+            {
+                use std::io::Write;
+                let file =
+                    std::fs::File::create(sync_state::base_snapshot_path(temp_dir.path())).unwrap();
+                let mut encoder =
+                    flate2::write::GzEncoder::new(file, flate2::Compression::default());
+                encoder
+                    .write_all(&serde_json::to_vec(&legacy).unwrap())
+                    .unwrap();
+                encoder.finish().unwrap();
+                let db = conn.lock().unwrap();
+                db.execute_batch(
+                    "DROP INDEX main.idx_activity_logs_uid;
+                     DROP INDEX main.idx_milestones_uid;
+                     ALTER TABLE main.activity_logs DROP COLUMN uid;
+                     ALTER TABLE main.milestones DROP COLUMN uid;
+                     PRAGMA main.user_version = 6;
+                     PRAGMA shared.user_version = 6;",
+                )
+                .unwrap();
+            }
+            drop(conn);
+            let conn = Arc::new(Mutex::new(
+                db::init_db(temp_dir.path().to_path_buf(), None).unwrap(),
+            ));
+            let mut remote = sync_snapshot::parse_snapshot_json(&legacy.to_string()).unwrap();
+            if remote_advanced {
+                remote.db_schema_version = db::CURRENT_SCHEMA_VERSION;
+                remote.snapshot_id = "snap_other_device_upgraded_first".into();
+                remote.library.get_mut(&media_uid).unwrap().description = "Remote edit".into();
+                let manifest = load_remote_manifest(&client, &token_store, &config.sync_profile_id)
+                    .await
+                    .unwrap();
+                upload_remote_snapshot_for_test(
+                    &client,
+                    &token_store,
+                    &config,
+                    manifest.manifest.remote_generation,
+                    &remote,
+                )
+                .await;
+            }
+
+            // Unsynced edits, a deletion, and new records must survive recovery.
+            {
+                let db = conn.lock().unwrap();
+                db.execute("UPDATE main.activity_logs SET notes = 'Unsynced edit' WHERE id = (SELECT MIN(id) FROM main.activity_logs)", []).unwrap();
+                db.execute(
+                    "DELETE FROM main.milestones WHERE id = (SELECT MIN(id) FROM main.milestones)",
+                    [],
+                )
+                .unwrap();
+                let media_id = db::get_all_media(&db).unwrap()[0].id.unwrap();
+                db::add_log(
+                    &db,
+                    &crate::models::ActivityLog {
+                        id: None,
+                        media_id,
+                        duration_minutes: 45,
+                        characters: 0,
+                        date: "2026-07-02".into(),
+                        activity_type: "Reading".into(),
+                        notes: "Unsynced new session".into(),
+                    },
+                )
+                .unwrap();
+            }
+            let local_only_uid = add_media(&conn, "Only on this device");
+            let before = build_local_snapshot(
+                temp_dir.path(),
+                &conn,
+                &config.sync_profile_id,
+                Some(&remote),
+            )
+            .unwrap()
+            .snapshot;
+            sync_state::mark_sync_dirty_if_configured(temp_dir.path()).unwrap();
+            let result = run_sync_with_client(temp_dir.path(), &conn, &client, &token_store, None)
+                .await
+                .unwrap();
+            assert_eq!(
+                result.sync_status.state,
+                sync_state::SyncConnectionState::ConnectedClean
+            );
+            let final_manifest =
+                load_remote_manifest(&client, &token_store, &config.sync_profile_id)
+                    .await
+                    .unwrap();
+            let published = download_remote_snapshot(&client, &token_store, &final_manifest)
+                .await
+                .unwrap();
+            let after = build_local_snapshot(
+                temp_dir.path(),
+                &conn,
+                &config.sync_profile_id,
+                Some(&published),
+            )
+            .unwrap()
+            .snapshot;
+            for snapshot in [&published, &after] {
+                assert!(snapshot.library.contains_key(&local_only_uid));
+                assert_eq!(
+                    snapshot.library[&media_uid].activities,
+                    before.library[&media_uid].activities
+                );
+                assert_eq!(
+                    snapshot.library[&media_uid].milestones,
+                    before.library[&media_uid].milestones
+                );
+                assert_eq!(snapshot.library[&media_uid].activities.len(), 3);
+                assert_eq!(snapshot.library[&media_uid].milestones.len(), 1);
+                if remote_advanced {
+                    assert_eq!(snapshot.library[&media_uid].description, "Remote edit");
+                }
+            }
+            // A second sync must not regenerate IDs or duplicate records.
+            let again = run_sync_with_client(temp_dir.path(), &conn, &client, &token_store, None)
+                .await
+                .unwrap();
+            assert_eq!(
+                again.sync_status.state,
+                sync_state::SyncConnectionState::ConnectedClean
+            );
+            assert!(!again.remote_changed);
+        }
+    }
+
+    #[tokio::test]
     async fn sync_transparently_upgrades_every_shipped_legacy_cloud_schema() {
         for legacy_schema_version in 2..db::CURRENT_SCHEMA_VERSION {
             let (temp_dir, conn) = setup_app();

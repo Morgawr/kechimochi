@@ -5,6 +5,7 @@ import {
     resolveReportCardThemeColors,
 } from '../../../src/profile/reportcard/report_card_image';
 import type { ReportCardImageOptions } from '../../../src/profile/reportcard/report_card_image';
+import { applyThemePalette } from '../../helpers/theme_palette';
 
 const chartMocks = vi.hoisted(() => ({
     create: vi.fn<(canvas: HTMLCanvasElement, config: Record<string, unknown>) => void>(),
@@ -64,19 +65,20 @@ describe('resolveReportCardThemeColors', () => {
         vi.restoreAllMocks();
     });
 
-    it('returns hard-coded fallbacks when CSS variables are absent', () => {
-        vi.spyOn(window, 'getComputedStyle').mockReturnValue({
-            getPropertyValue: () => '',
-        } as unknown as CSSStyleDeclaration);
+    it('resolves every color from the active theme', () => {
+        applyThemePalette();
 
         const colors = resolveReportCardThemeColors();
 
-        expect(colors.backgroundColor).toBe('#1e1e2e');
-        expect(colors.cardBackgroundColor).toBe('#2a2a3e');
-        expect(colors.primaryTextColor).toBe('#cdd6f4');
-        expect(colors.secondaryTextColor).toBe('#a6adc8');
-        expect(colors.borderColor).toBe('#45475a');
-        expect(colors.chartColors).toEqual(['#f4a6b8', '#b8cdda', '#e0bbe4', '#957DAD', '#D291BC']);
+        const resolvedValues = [
+            colors.backgroundColor,
+            colors.cardBackgroundColor,
+            colors.primaryTextColor,
+            colors.secondaryTextColor,
+            colors.borderColor,
+            ...colors.chartColors,
+        ];
+        expect(resolvedValues.filter((value) => value.length === 0)).toEqual([]);
     });
 
     it('returns values from CSS variables when they are set', () => {
