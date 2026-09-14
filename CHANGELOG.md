@@ -11,6 +11,7 @@ The format is based on Keep a Changelog, with one section per released version.
  - The Jiten.moe search dialog title was invisible on the light themes
  - Fixed a stuck error message when syncing from gdrive and some data had missing IDs
  - Android should not require users to "Re-authenticate" every time the app is opened anymore
+ - Android app now renders with safe top padding even on large resoluton sizes (this prevents the notification bar from blocking the view)
 
 ## [0.3.2] - 2026-08-25
 
