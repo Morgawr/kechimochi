@@ -10,6 +10,12 @@ The format is based on Keep a Changelog, with one section per released version.
  - Hovering a library grid card now shows its title over the cover, with a border tinted to its tracking status
  - Right-clicking a library item opens a menu for Add log, Add milestone, Mark complete, Archive/Unarchive, and Delete without opening the detail view
  - Right-clicking empty space in the library opens a menu for New media
+ - Added an E-Ink theme: black on white, borders instead of fill-tints, no motion or elevation, tuned for e-ink panels
+
+### Changed
+ - Doughnut and stacked-bar chart segments now have a border separating them, across all themes
+ - Added a Font choice to the Appearance settings
+ - Fonts are now bundled with the app instead of fetched from Google Fonts
 
 ### Fixed
  - The startup error and database recovery screens now show their intended background gradient
@@ -17,6 +23,7 @@ The format is based on Keep a Changelog, with one section per released version.
  - Fixed a stuck error message when syncing from gdrive and some data had missing IDs
  - Android should not require users to "Re-authenticate" every time the app is opened anymore
  - Android app now renders with safe top padding even on large resoluton sizes (this prevents the notification bar from blocking the view)
+ - Selected toggle buttons, filter chips and sort direction options are now readable on themes with a dark accent colour
 
 ## [0.3.2] - 2026-08-25
 

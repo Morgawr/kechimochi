@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import './fonts.css';
 @import './dashboard/dashboard.css';
 
 :root {
@@ -63,7 +63,6 @@
   --danger-text: #ff7582;
   --warning: #f59e0b;         /* app-loader */
 
-  --accent-text-dark: #0f1b15;   /* dark-on-light-accent foreground */
   /* Deliberately NOT overridden by any theme - white text on a saturated fill,
      where --accent-text would flip to dark on the 6 themes that redefine it. */
   --text-on-fill: #ffffff;
@@ -464,6 +463,67 @@ body[data-theme='noctua-brown'] {
   --chart-5: #46342e;
 }
 
+/* E-Ink */
+body[data-theme='eink'] {
+  --bg-dark: #ffffff;
+  --bg-card: #ffffff;
+  --bg-card-hover: #e6e6e6;
+  --text-primary: #000000;
+  --text-secondary: #333333;
+  --accent-green: #000000;
+  --accent-green-hover: #333333;
+  --accent-red: #1a1a1a;
+  --accent-blue: #404040;
+  --accent-yellow: #595959;
+  --accent-purple: #262626;
+  --border-color: #000000;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --transition-fast: 0s;
+  --transition-normal: 0s;
+  --accent-text: #ffffff;
+  --heatmap-hue: 0;
+  --heatmap-sat-base: 0;
+  --heatmap-sat-range: 0;
+  --heatmap-light-base: 92;
+  --heatmap-light-range: -80;
+  --heatmap-empty: #ffffff;
+  --chart-1: #000000;
+  --chart-2: #404040;
+  --chart-3: #808080;
+  --chart-4: #a6a6a6;
+  --chart-5: #cccccc;
+  --scrim: rgba(0, 0, 0, 0.35);
+  --shadow-color: transparent;
+  --tint-light: #ffffff;
+  --tint-dark: #000000;
+  --danger: #000000;
+  --danger-strong: #000000;
+  --danger-muted: #333333;
+  --warning: #000000;
+  --warning-bright: #000000;
+  --info: #000000;
+  --info-bright: #333333;
+  --highlight: #000000;
+  --attention: #000000;
+  --success: #000000;
+  --bg-elevated: #ffffff;
+  --bg-elevated-alt: #f2f2f2;
+  --bg-boot: #ffffff;
+  --text-on-fill: #ffffff;
+  --switch-knob: #ffffff;
+  --badge-tint: #ffffff;
+  --calendar-sunday: #000000;
+  --calendar-saturday: #000000;
+  --status-ongoing-led: #000000;      --status-ongoing-fill: #ffffff;      --status-ongoing-text: #000000;
+  --status-complete-led: #000000;     --status-complete-fill: #ffffff;     --status-complete-text: #000000;
+  --status-paused-led: #ffffff;       --status-paused-fill: #ffffff;       --status-paused-text: #000000;
+  --status-dropped-led: #000000;      --status-dropped-fill: #ffffff;      --status-dropped-text: #000000;
+  --status-not-started-led: #ffffff;  --status-not-started-fill: #ffffff;  --status-not-started-text: #000000;
+
+  font-weight: 500;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -500,7 +560,7 @@ select option {
 }
 
 body {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--app-font-family), sans-serif;
   background-color: var(--bg-dark);
   color: var(--text-primary);
   display: flex;
@@ -510,6 +570,10 @@ body {
 }
 
 /* Typography */
+button, input, select, textarea {
+  font-family: inherit;
+}
+
 h1, h2, h3, h4, h5, h6 {
   font-weight: 600;
   color: var(--text-primary);
@@ -2266,7 +2330,7 @@ input:focus, select:focus {
 
 .toggle-option.is-active {
   background: var(--accent-green);
-  color: var(--accent-text-dark);
+  color: var(--accent-text);
 }
 
 .toggle-option:disabled {
@@ -2446,7 +2510,7 @@ input:focus, select:focus {
   padding: 0 0.35rem;
   border-radius: var(--radius-full);
   background: var(--accent-green);
-  color: var(--accent-text-dark);
+  color: var(--accent-text);
   font-size: 0.68rem;
   font-weight: 800;
   line-height: 1;
@@ -2533,7 +2597,7 @@ input:focus, select:focus {
 .media-filter-chip.is-active {
   background: var(--accent-green);
   border-color: var(--accent-green);
-  color: var(--accent-text-dark);
+  color: var(--accent-text);
 }
 
 .media-extra-filter-builder {
@@ -2892,7 +2956,7 @@ input:focus, select:focus {
 
 .media-sort-direction-option.is-active {
   background: var(--accent-green);
-  color: var(--accent-text-dark);
+  color: var(--accent-text);
 }
 
 .media-sort-direction-option:disabled {
@@ -5035,4 +5099,72 @@ button:hover{
     .database-recovery-footer {
         flex-direction: column-reverse;
     }
+}
+
+body[data-theme='eink'] *,
+body[data-theme='eink'] *::before,
+body[data-theme='eink'] *::after {
+  transition: none !important;
+  animation: none !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  background-image: none !important;
+  backdrop-filter: none !important;
+  filter: none !important;
+}
+
+body[data-theme='eink'] #blocking-status-progress-bar {
+  background: var(--text-primary) !important;
+}
+
+body[data-theme='eink'] #blocking-status-progress-track {
+  background: transparent !important;
+  outline: 1px solid var(--border-color);
+}
+
+body[data-theme='eink'] .update-available-badge:disabled {
+  opacity: 1;
+}
+
+body[data-theme='eink'] .grid-item-type-badge {
+  opacity: 1;
+}
+
+body[data-theme='eink'] .grid-item-placeholder-label {
+  opacity: 1;
+}
+
+body[data-theme='eink'] .card,
+body[data-theme='eink'] .modal-content,
+body[data-theme='eink'] input,
+body[data-theme='eink'] select {
+  border: 2px solid var(--border-color) !important;
+}
+
+body[data-theme='eink'] .activity-btn-icon {
+  font-weight: 400;
+}
+
+body[data-theme='eink'] .status-led {
+  border: 1px solid var(--border-color);
+}
+
+body[data-theme='eink'] .status-ongoing:not(.status-led) {
+  border: 2px solid var(--border-color) !important;
+}
+
+body[data-theme='eink'] .status-complete:not(.status-led) {
+  border: 3px double var(--border-color) !important;
+}
+
+body[data-theme='eink'] .status-paused:not(.status-led) {
+  border: 2px dashed var(--border-color) !important;
+}
+
+body[data-theme='eink'] .status-dropped:not(.status-led) {
+  border: 2px dotted var(--border-color) !important;
+}
+
+body[data-theme='eink'] .status-not-started:not(.status-led) {
+  border: 1px solid var(--border-color) !important;
 }
