@@ -887,6 +887,99 @@ mod tests {
     }
 
     #[test]
+    fn cached_snapshots_recover_missing_and_blank_record_uids() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut legacy = concurrency_test_snapshot("legacy-base");
+        let media = serde_json::from_value(serde_json::json!({
+            "uid": "media-legacy", "title": "Legacy history", "media_type": "Reading",
+            "status": "Active", "language": "Japanese", "description": "",
+            "content_type": "Novel", "tracking_status": "Ongoing", "extra_data": "{}",
+            "cover_blob_sha256": null, "updated_at": legacy.created_at,
+            "updated_by_device_id": "dev_1",
+            "activities": [
+                {"date": "2026-07-01", "activity_type": "Reading", "duration_minutes": 30, "characters": 100},
+                {"uid": " \t", "date": "2026-07-01", "activity_type": "Reading", "duration_minutes": 30, "characters": 100},
+                {"uid": "existing-activity", "date": "2026-07-02", "activity_type": "Reading", "duration_minutes": 45, "characters": 0}
+            ],
+            "milestones": [
+                {"name": "Checkpoint", "duration": 30, "characters": 100, "date": null},
+                {"uid": "", "name": "Checkpoint", "duration": 30, "characters": 100, "date": null},
+                {"uid": "existing-milestone", "name": "Finished", "duration": 60, "characters": 200, "date": null}
+            ]
+        })).unwrap();
+        legacy.library.insert("media-legacy".into(), media);
+        let expected =
+            sync_snapshot::parse_snapshot_json(&serde_json::to_string(&legacy).unwrap()).unwrap();
+        let records = &expected.library["media-legacy"];
+        assert_eq!(records.activities.len(), 3);
+        assert_eq!(records.milestones.len(), 3);
+        for index in 0..2 {
+            assert_eq!(
+                records.activities[index].uid,
+                crate::db::legacy_activity_record_uid(
+                    "media-legacy",
+                    "2026-07-01",
+                    "Reading",
+                    30,
+                    100,
+                    "",
+                    index
+                )
+                .unwrap()
+            );
+            assert_eq!(
+                records.milestones[index].uid,
+                crate::db::legacy_milestone_record_uid(
+                    "media-legacy",
+                    "Checkpoint",
+                    30,
+                    100,
+                    None,
+                    index
+                )
+                .unwrap()
+            );
+        }
+        assert_eq!(records.activities[2].uid, "existing-activity");
+        assert_eq!(records.milestones[2].uid, "existing-milestone");
+
+        save_base_snapshot(temp_dir.path(), &legacy).unwrap();
+        let cache_before = fs::read(base_snapshot_path(temp_dir.path())).unwrap();
+        assert_eq!(
+            load_base_snapshot(temp_dir.path()).unwrap().unwrap(),
+            expected
+        );
+        // Loading only repairs the in-memory representation; the original cache
+        // remains available until the normal sync commit replaces it.
+        assert_eq!(
+            fs::read(base_snapshot_path(temp_dir.path())).unwrap(),
+            cache_before
+        );
+        save_pending_merged_snapshot(temp_dir.path(), &legacy).unwrap();
+        assert_eq!(
+            load_pending_merged_snapshot(temp_dir.path())
+                .unwrap()
+                .unwrap(),
+            expected
+        );
+
+        let mut pending = concurrency_test_pending_state();
+        pending.local_baseline = legacy.clone();
+        pending.merged_snapshot = legacy.clone();
+        pending.remote_base_snapshot = legacy;
+        save_pending_sync_state(temp_dir.path(), &pending).unwrap();
+        let loaded = load_pending_sync_state(temp_dir.path()).unwrap().unwrap();
+        assert_eq!(loaded.local_baseline, expected);
+        assert_eq!(loaded.merged_snapshot, expected);
+        assert_eq!(loaded.remote_base_snapshot, expected);
+        save_pending_sync_state(temp_dir.path(), &loaded).unwrap();
+        assert_eq!(
+            load_pending_sync_state(temp_dir.path()).unwrap().unwrap(),
+            loaded
+        );
+    }
+
+    #[test]
     fn device_id_is_stable_once_created() {
         let temp_dir = TempDir::new().unwrap();
 
