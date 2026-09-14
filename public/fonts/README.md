@@ -1,8 +1,6 @@
 # Bundled fonts
 
-Kechimochi ships its UI fonts so that rendering its own interface stays local to the machine. A
-webfont CDN sees the user's IP address on every load, which counts as a transfer to a third party
-under the GDPR and needs consent first.
+Kechimochi ships its UI fonts to comply with GDPR.
 
 Each file is the **latin subset, variable weight** build (`wght` axis, 100–900), which covers every
 weight the UI uses in a single file. No italic build is bundled — italics are synthesised by the
