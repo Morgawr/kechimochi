@@ -1,11 +1,12 @@
 # Bundled fonts
 
-Kechimochi ships its UI fonts instead of fetching them from the Google Fonts CDN at runtime, so the
-app makes no third-party request to render its own interface.
+Kechimochi ships its UI fonts so that rendering its own interface stays local to the machine. A
+webfont CDN sees the user's IP address on every load, which counts as a transfer to a third party
+under the GDPR and needs consent first.
 
 Each file is the **latin subset, variable weight** build (`wght` axis, 100–900), which covers every
 weight the UI uses in a single file. No italic build is bundled — italics are synthesised by the
-browser, as they were before.
+browser.
 
 | Family | File | Size | Upstream | License |
 | --- | --- | --- | --- | --- |
