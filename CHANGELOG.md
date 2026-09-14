@@ -6,6 +6,12 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+### Added
+ - Added a Font choice to the Appearance settings
+
+### Changed
+ - Fonts are now bundled with the app instead of fetched from Google Fonts
+
 ### Fixed
  - The startup error and database recovery screens now show their intended background gradient
  - The Jiten.moe search dialog title was invisible on the light themes

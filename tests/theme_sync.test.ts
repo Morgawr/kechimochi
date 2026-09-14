@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DEFAULTS, STORAGE_KEYS } from '../src/constants';
 
 const loggerError = vi.fn();
 
@@ -15,6 +16,7 @@ describe('theme_sync.ts', () => {
         vi.resetModules();
         loggerError.mockReset();
         document.body.dataset.theme = '';
+        document.body.dataset.font = '';
     });
 
     afterEach(() => {
@@ -50,6 +52,32 @@ describe('theme_sync.ts', () => {
         expect(document.body.dataset.theme).toBe('pastel-pink');
     });
 
+    it('applies the cached font from localStorage on import', async () => {
+        Object.defineProperty(globalThis, 'localStorage', {
+            value: {
+                getItem: vi.fn((key: string) => key === STORAGE_KEYS.FONT_CACHE ? 'montserrat' : null),
+            },
+            configurable: true,
+        });
+
+        await import('../src/theme_sync');
+
+        expect(document.body.dataset.font).toBe('montserrat');
+    });
+
+    it('falls back to the default font when no cached font exists', async () => {
+        Object.defineProperty(globalThis, 'localStorage', {
+            value: {
+                getItem: vi.fn(() => null),
+            },
+            configurable: true,
+        });
+
+        await import('../src/theme_sync');
+
+        expect(document.body.dataset.font).toBe(DEFAULTS.FONT);
+    });
+
     it('logs an error when theme sync throws', async () => {
         const failure = new Error('storage unavailable');
         Object.defineProperty(globalThis, 'localStorage', {
@@ -64,5 +92,6 @@ describe('theme_sync.ts', () => {
         await import('../src/theme_sync');
 
         expect(loggerError).toHaveBeenCalledWith('Theme sync failed', failure);
+        expect(document.body.dataset.font).toBe('');
     });
 });

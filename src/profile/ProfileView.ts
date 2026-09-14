@@ -83,6 +83,15 @@ import {
     setThemeOverrideValue,
     applyTheme,
 } from "../theme.ts";
+import {
+    FONT_OPTIONS,
+    getCachedFont,
+    getFontOverrideValue,
+    setFontOverrideValue,
+    isValidFontChoice,
+    applyFont,
+    type FontChoice,
+} from "../fonts.ts";
 
 const THEME_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
     { value: 'pastel-pink', label: 'Pastel Pink (Default)' },
@@ -142,6 +151,7 @@ const LIBRARY_ORDER_DESCRIPTORS: ReadonlyArray<LibraryOrderDescriptor> = [
 interface ProfileState {
     currentProfile: string;
     theme: string;
+    font: FontChoice;
     profilePicture: ProfilePicture | null;
     report: {
         novelSpeed: string;
@@ -166,6 +176,7 @@ interface ProfileState {
     localHttpApiStatus: LocalHttpApiStatus | null;
     themeOverrideEnabled: boolean;
     themeOverrideValue: string;
+    fontOverrideValue: FontChoice;
     weekStartDay: string;
     contentTypeOrder: string[];
     trackingStatusOrder: string[];
@@ -330,6 +341,7 @@ export class ProfileView extends Component<ProfileState> {
         super(container, {
             currentProfile: localStorage.getItem(STORAGE_KEYS.CURRENT_PROFILE) || DEFAULTS.PROFILE,
             theme: localStorage.getItem(STORAGE_KEYS.THEME_CACHE) || DEFAULTS.THEME,
+            font: getCachedFont(),
             profilePicture: null,
             report: {
                 novelSpeed: '0',
@@ -360,6 +372,7 @@ export class ProfileView extends Component<ProfileState> {
             localHttpApiStatus: null,
             themeOverrideEnabled: isThemeOverrideEnabled(),
             themeOverrideValue: getThemeOverrideValue(),
+            fontOverrideValue: getFontOverrideValue(),
             weekStartDay: '1',
             contentTypeOrder: [...CONTENT_TYPES],
             trackingStatusOrder: [...TRACKING_STATUSES],
@@ -392,6 +405,7 @@ export class ProfileView extends Component<ProfileState> {
 
         const [
             theme,
+            font,
             novelSpeed,
             novelCount,
             mangaSpeed,
@@ -411,6 +425,7 @@ export class ProfileView extends Component<ProfileState> {
             mediaList,
         ] = await Promise.all([
             getSetting(SETTING_KEYS.THEME),
+            getSetting(SETTING_KEYS.FONT_FAMILY),
             getSetting(SETTING_KEYS.STATS_NOVEL_SPEED),
             getSetting(SETTING_KEYS.STATS_NOVEL_COUNT),
             getSetting(SETTING_KEYS.STATS_MANGA_SPEED),
@@ -439,12 +454,14 @@ export class ProfileView extends Component<ProfileState> {
         ]);
 
         const resolvedTheme = theme || DEFAULTS.THEME;
+        const resolvedFont = font && isValidFontChoice(font) ? font : DEFAULTS.FONT;
         const resolvedProfileName = currentProfile || DEFAULTS.PROFILE;
 
         localStorage.setItem(STORAGE_KEYS.THEME_CACHE, resolvedTheme);
         this.setState({
             currentProfile: resolvedProfileName,
             theme: resolvedTheme,
+            font: resolvedFont,
             weekStartDay: this.normalizeWeekStartDay(weekStartDay),
             contentTypeOrder: reconcileEnumOrder(contentTypeOrderStr, CONTENT_TYPES),
             trackingStatusOrder: reconcileEnumOrder(trackingStatusOrderStr, TRACKING_STATUSES),
@@ -548,8 +565,9 @@ export class ProfileView extends Component<ProfileState> {
         }
 
         this.clear();
-        const { currentProfile, theme, profilePicture, appVersion, themeOverrideEnabled, themeOverrideValue, weekStartDay } = this.state;
+        const { currentProfile, theme, font, profilePicture, appVersion, themeOverrideEnabled, themeOverrideValue, fontOverrideValue, weekStartDay } = this.state;
         applyTheme(themeOverrideEnabled ? themeOverrideValue : theme);
+        applyFont(themeOverrideEnabled ? fontOverrideValue : font);
         const profilePictureSrc = profilePictureToDataUrl(profilePicture);
         const initials = getProfileInitials(currentProfile);
         const hasLoggedTime = this.state.logs.some(log => log.duration_minutes > 0);
@@ -598,14 +616,21 @@ export class ProfileView extends Component<ProfileState> {
                         </select>
                     </div>
 
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                        <label for="profile-select-font" style="font-size: 0.85rem; font-weight: 500;">Font</label>
+                        <select id="profile-select-font" style="width: 100%;">
+                            ${this.renderFontOptions(font)}
+                        </select>
+                    </div>
+
                     <div style="display: flex; align-items: center; gap: 0.6rem; margin-top: 0.5rem;">
                         <input id="profile-checkbox-theme-override" type="checkbox" ${themeOverrideEnabled ? 'checked' : ''} />
                         <label for="profile-checkbox-theme-override" style="cursor: pointer;">
-                            Override remote theme on this device
+                            Override remote appearance on this device
                         </label>
                     </div>
                     <p style="color: var(--text-secondary); font-size: 0.85rem; margin: 0;">
-                        When enabled, this device will use a local theme that won't be synced or overwritten by other devices.
+                        When enabled, this device will use a local theme and font that won't be synced or overwritten by other devices.
                     </p>
 
                     ${themeOverrideEnabled ? html`
@@ -613,6 +638,15 @@ export class ProfileView extends Component<ProfileState> {
                             <label for="profile-select-theme-local" style="font-size: 0.85rem; font-weight: 500;">Local theme</label>
                                 <select id="profile-select-theme-local" style="width: 100%;">
                                     ${this.renderThemeOptions(themeOverrideValue)}
+                                </select>
+                        </div>
+                    ` : ''}
+
+                    ${themeOverrideEnabled ? html`
+                        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                            <label for="profile-select-font-local" style="font-size: 0.85rem; font-weight: 500;">Local font</label>
+                                <select id="profile-select-font-local" style="width: 100%;">
+                                    ${this.renderFontOptions(fontOverrideValue)}
                                 </select>
                         </div>
                     ` : ''}
@@ -758,6 +792,14 @@ export class ProfileView extends Component<ProfileState> {
         const optionsHtml = THEME_OPTIONS.map(({ value, label }) => {
             const selected = value === currentValue ? ' selected' : '';
             return `<option value="${escapeHTML(value)}"${selected}>${escapeHTML(label)}</option>`;
+        }).join('');
+        return rawHtml(optionsHtml);
+    }
+
+    private renderFontOptions(currentValue: FontChoice) {
+        const optionsHtml = FONT_OPTIONS.map(({ value, label }) => {
+            const selected = value === currentValue ? ' selected' : '';
+            return `<option value="${escapeHTML(value)}" class="font-option-${escapeHTML(value)}"${selected}>${escapeHTML(label)}</option>`;
         }).join('');
         return rawHtml(optionsHtml);
     }
@@ -1477,11 +1519,22 @@ export class ProfileView extends Component<ProfileState> {
             this.setState({ theme });
         });
 
+        root.querySelector('#profile-select-font')?.addEventListener('change', async (e) => {
+            const font = (e.target as HTMLSelectElement).value as FontChoice;
+            await setSetting(SETTING_KEYS.FONT_FAMILY, font);
+            if (!isThemeOverrideEnabled()) {
+                applyFont(font);
+            }
+            this.setState({ font });
+        });
+
         root.querySelector('#profile-checkbox-theme-override')?.addEventListener('change', (e) => {
             const enabled = (e.target as HTMLInputElement).checked;
             setThemeOverrideEnabled(enabled);
             const effectiveTheme = enabled ? getThemeOverrideValue() : this.state.theme;
             applyTheme(effectiveTheme);
+            const effectiveFont = enabled ? getFontOverrideValue() : this.state.font;
+            applyFont(effectiveFont);
             this.setState({ themeOverrideEnabled: enabled });
             this.render();
         });
@@ -1493,6 +1546,15 @@ export class ProfileView extends Component<ProfileState> {
                 applyTheme(localTheme);
             }
             this.setState({ themeOverrideValue: localTheme });
+        });
+
+        root.querySelector('#profile-select-font-local')?.addEventListener('change', (e) => {
+            const localFont = (e.target as HTMLSelectElement).value as FontChoice;
+            setFontOverrideValue(localFont);
+            if (isThemeOverrideEnabled()) {
+                applyFont(localFont);
+            }
+            this.setState({ fontOverrideValue: localFont });
         });
 
         root.querySelector('#profile-select-week-start')?.addEventListener('change', async (e) => {

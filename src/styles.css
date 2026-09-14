@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import './fonts.css';
 @import './dashboard/dashboard.css';
 
 :root {
@@ -495,7 +495,7 @@ select option {
 }
 
 body {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--app-font-family), sans-serif;
   background-color: var(--bg-dark);
   color: var(--text-primary);
   display: flex;
@@ -505,6 +505,10 @@ body {
 }
 
 /* Typography */
+button, input, select, textarea {
+  font-family: inherit;
+}
+
 h1, h2, h3, h4, h5, h6 {
   font-weight: 600;
   color: var(--text-primary);
