@@ -181,7 +181,7 @@ export class StatsCard extends Component<StatsCardState> {
                     </div>` : '';
 
             return `
-                <div class="study-stats-breakdown-item" style="display: flex; flex-direction: column; gap: 0.2rem; background: rgba(255,255,255,0.03); padding: 0.4rem; border-radius: var(--radius-sm);">
+                <div class="study-stats-breakdown-item" style="display: flex; flex-direction: column; gap: 0.2rem; background: color-mix(in srgb, var(--tint-light) 3%, transparent); padding: 0.4rem; border-radius: var(--radius-sm);">
                     <div style="display: flex; justify-content: space-between; font-size: 0.85rem;">
                         <span style="color: var(--text-secondary);">${mtype}</span>
                         <span style="font-weight: bold; color: var(--text-primary);">${totalFormat}</span>

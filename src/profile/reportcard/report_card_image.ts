@@ -50,29 +50,27 @@ export interface ReportCardImageOptions {
 
 /**
  * Reads CSS custom properties from the current document theme and returns a
- * typed color bundle used during canvas drawing. Falls back to safe hard-coded
- * defaults so the function is safe even when variables are absent.
+ * typed color bundle used during canvas drawing.
  */
 export function resolveReportCardThemeColors(): ReportCardThemeColors {
     const style = getComputedStyle(document.body);
 
-    function readVariable(name: string, fallback: string): string {
-        const value = style.getPropertyValue(name).trim();
-        return value.length > 0 ? value : fallback;
+    function readVariable(name: string): string {
+        return style.getPropertyValue(name).trim();
     }
 
     return {
-        backgroundColor: readVariable('--bg-dark', '#1e1e2e'),
-        cardBackgroundColor: readVariable('--bg-card', '#2a2a3e'),
-        primaryTextColor: readVariable('--text-primary', '#cdd6f4'),
-        secondaryTextColor: readVariable('--text-secondary', '#a6adc8'),
-        borderColor: readVariable('--border-color', '#45475a'),
+        backgroundColor: readVariable('--bg-dark'),
+        cardBackgroundColor: readVariable('--bg-card'),
+        primaryTextColor: readVariable('--text-primary'),
+        secondaryTextColor: readVariable('--text-secondary'),
+        borderColor: readVariable('--border-color'),
         chartColors: [
-            readVariable('--chart-1', '#f4a6b8'),
-            readVariable('--chart-2', '#b8cdda'),
-            readVariable('--chart-3', '#e0bbe4'),
-            readVariable('--chart-4', '#957DAD'),
-            readVariable('--chart-5', '#D291BC'),
+            readVariable('--chart-1'),
+            readVariable('--chart-2'),
+            readVariable('--chart-3'),
+            readVariable('--chart-4'),
+            readVariable('--chart-5'),
         ],
     };
 }

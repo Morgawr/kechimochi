@@ -383,11 +383,11 @@ export class ActivityCharts extends Component<ActivityChartsState> {
     private getChartColors(): string[] {
         const style = getComputedStyle(document.body);
         return [
-            style.getPropertyValue('--chart-1').trim() || '#f4a6b8',
-            style.getPropertyValue('--chart-2').trim() || '#b8cdda',
-            style.getPropertyValue('--chart-3').trim() || '#e0bbe4',
-            style.getPropertyValue('--chart-4').trim() || '#957DAD',
-            style.getPropertyValue('--chart-5').trim() || '#D291BC'
+            style.getPropertyValue('--chart-1').trim(),
+            style.getPropertyValue('--chart-2').trim(),
+            style.getPropertyValue('--chart-3').trim(),
+            style.getPropertyValue('--chart-4').trim(),
+            style.getPropertyValue('--chart-5').trim()
         ];
     }
 
@@ -441,7 +441,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    legend: { display: data.labels.length <= 6, position: 'bottom', labels: { color: style.getPropertyValue('--text-secondary').trim() ||'#f0f0f5' } },
+                    legend: { display: data.labels.length <= 6, position: 'bottom', labels: { color: style.getPropertyValue('--text-secondary').trim() } },
                     tooltip: {
                         callbacks: {
                             label: (context) => {
@@ -462,8 +462,8 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         const { chartType } = this.state;
         const { labels } = timeRange;
         const style = getComputedStyle(document.body);
-        const secondaryColor = style.getPropertyValue('--text-secondary').trim() || '#a0a0b0'
-        const gridColor = `color-mix(in srgb, ${style.getPropertyValue('--text-secondary').trim() || '#3f3f4e'} 30%, transparent)`;
+        const secondaryColor = style.getPropertyValue('--text-secondary').trim()
+        const gridColor = `color-mix(in srgb, ${secondaryColor} 30%, transparent)`;
 
         this.barChartInstance = measureSynchronous('chart_construction', 'dashboard_activity_chart', () => new Chart(canvas, {
             type: chartType,

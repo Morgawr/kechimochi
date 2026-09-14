@@ -60,6 +60,7 @@ pub struct SyncSnapshot {
     pub created_at: String,
     pub created_by_device_id: String,
     pub profile: SnapshotProfile,
+    #[serde(deserialize_with = "deserialize_snapshot_library")]
     pub library: BTreeMap<String, SnapshotMediaAggregate>,
     pub settings: BTreeMap<String, SnapshotSettingValue>,
     pub profile_picture: Option<SnapshotProfilePicture>,
@@ -373,13 +374,29 @@ pub fn snapshot_to_canonical_json(snapshot: &SyncSnapshot) -> Result<String, Str
 }
 
 pub fn parse_snapshot_json(json: &str) -> Result<SyncSnapshot, String> {
-    let mut snapshot: SyncSnapshot = serde_json::from_str(json).map_err(|e| e.to_string())?;
-    normalize_legacy_record_uids(&mut snapshot)?;
-    Ok(snapshot)
+    serde_json::from_str(json).map_err(|e| e.to_string())
 }
 
-fn normalize_legacy_record_uids(snapshot: &mut SyncSnapshot) -> Result<(), String> {
-    for (media_uid, aggregate) in &mut snapshot.library {
+// Compatibility belongs at deserialization: local base snapshots and snapshots
+// nested in pending sync journals use serde directly, bypassing the Drive JSON
+// parser. Use the same deterministic IDs as the v6 -> v7 SQLite migration so
+// old history retains its identity during a three-way merge, without discarding
+// records or replacing unsynced local data.
+fn deserialize_snapshot_library<'de, D>(
+    deserializer: D,
+) -> Result<BTreeMap<String, SnapshotMediaAggregate>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let mut library = BTreeMap::deserialize(deserializer)?;
+    normalize_legacy_record_uids(&mut library).map_err(serde::de::Error::custom)?;
+    Ok(library)
+}
+
+fn normalize_legacy_record_uids(
+    library: &mut BTreeMap<String, SnapshotMediaAggregate>,
+) -> Result<(), String> {
+    for (media_uid, aggregate) in library {
         let mut activity_occurrences: HashMap<(String, String, i64, i64, String), usize> =
             HashMap::new();
         for activity in &mut aggregate.activities {
