@@ -265,6 +265,21 @@ describe('main.ts initialization', () => {
         await vi.waitFor(() => expect(api.runSync).toHaveBeenCalled());
     });
 
+    it('opens the local library while silent cloud authentication is still pending', async () => {
+        const status = createDeferred<Awaited<ReturnType<typeof api.getSyncStatus>>>();
+        vi.mocked(api.getSyncStatus).mockReturnValue(status.promise);
+
+        await bootApp();
+
+        expect(document.getElementById('app')?.dataset.bootState).toBe('ready');
+        expect(api.getSyncStatus).toHaveBeenCalled();
+        expect(api.connectGoogleDrive).not.toHaveBeenCalled();
+
+        status.resolve(createSyncStatusMock({ state: 'connected_clean' }));
+        const button = document.getElementById('nav-sync-status-btn') as HTMLButtonElement;
+        await vi.waitFor(() => expect(button.dataset.syncState).toBe('idle'));
+    });
+
     it('marks sync chrome as conflict when pending conflicts are reported', async () => {
         vi.mocked(api.getSyncStatus).mockResolvedValue(createSyncStatusMock({
             state: 'conflict_pending',

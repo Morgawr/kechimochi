@@ -24,6 +24,11 @@ private const val GOOGLE_USERINFO_EMAIL_SCOPE = "https://www.googleapis.com/auth
 private const val GOOGLE_USERINFO_PROFILE_SCOPE = "https://www.googleapis.com/auth/userinfo.profile"
 
 @InvokeArg
+class AuthorizeGoogleDriveArgs {
+  var allowInteraction: Boolean = false
+}
+
+@InvokeArg
 class ClearTokenArgs {
   lateinit var accessToken: String
 }
@@ -32,6 +37,7 @@ class ClearTokenArgs {
 class GoogleAuthPlugin(private val activity: Activity) : Plugin(activity) {
   @Command
   fun authorizeGoogleDrive(invoke: Invoke) {
+    val args = invoke.parseArgs(AuthorizeGoogleDriveArgs::class.java)
     val authorizationRequest = AuthorizationRequest.builder()
       .setRequestedScopes(
         listOf(
@@ -49,6 +55,14 @@ class GoogleAuthPlugin(private val activity: Activity) : Plugin(activity) {
         val pendingIntent = authorizationResult.pendingIntent
         if (pendingIntent == null) {
           resolveAuthorizationResult(invoke, authorizationResult)
+          return@addOnSuccessListener
+        }
+
+        // Status checks may restore an existing grant, but must never open UI.
+        if (!args.allowInteraction) {
+          invoke.resolve(JSObject().apply {
+            put("requiresInteraction", true)
+          })
           return@addOnSuccessListener
         }
 
