@@ -285,14 +285,14 @@ export async function showJitenSearchModal(media: Media): Promise<string | null>
         overlay.innerHTML = `
             <div class="modal-content" style="max-width: 800px; width: 95vw; max-height: 90vh; display: flex; flex-direction: column; padding: 1.5rem;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                    <h3 style="margin: 0; font-size: 1.5rem; font-weight: 700; color: #fff;">Search on Jiten.moe</h3>
+                    <h3 style="margin: 0; font-size: 1.5rem; font-weight: 700; color: var(--text-primary);">Search on Jiten.moe</h3>
                     <div id="jiten-back-container"></div>
                 </div>
                 <div style="position: relative; margin-bottom: 1rem;">
                     <input type="text" id="jiten-search-input" value="${escapeAttribute(media.title)}" style="width: 100%; padding: 0.8rem 2.8rem 0.8rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-color); background: var(--bg-dark); color: var(--text-primary); font-size: 1rem; outline: none;" placeholder="Search for media..." />
                     <div id="jiten-search-clear" style="position: absolute; right: 1rem; top: 50%; transform: translateY(-50%); cursor: pointer; color: var(--text-secondary); opacity: 0.6; font-size: 1.2rem;">&times;</div>
                 </div>
-                <div id="jiten-results-container" style="flex: 1; overflow-y: auto; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: rgba(0,0,0,0.3); min-height: 350px; padding: 1.2rem;">
+                <div id="jiten-results-container" style="flex: 1; overflow-y: auto; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--shadow-color); min-height: 350px; padding: 1.2rem;">
                     <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 1.2rem;" id="jiten-results-grid"></div>
                 </div>
                 <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 0.8rem;">
@@ -361,14 +361,14 @@ export async function showJitenSearchModal(media: Media): Promise<string | null>
 
 function renderJitenResults(grid: HTMLElement, results: JitenResult[], onSelect: (res: JitenResult) => void) {
     grid.innerHTML = results.map(res => `
-        <div class="jiten-result-card" data-id="${escapeAttribute(String(res.deckId))}" style="cursor: pointer; background: #1a151f; border: 1px solid var(--border-color); border-radius: var(--radius-md); overflow: hidden; display: flex; flex-direction: column; transition: transform 0.2s; position: relative;">
-            <div style="aspect-ratio: 2/3; position: relative; background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden;">
+        <div class="jiten-result-card" data-id="${escapeAttribute(String(res.deckId))}" style="cursor: pointer; background: var(--bg-elevated); border: 1px solid var(--border-color); border-radius: var(--radius-md); overflow: hidden; display: flex; flex-direction: column; transition: transform 0.2s; position: relative;">
+            <div style="aspect-ratio: 2/3; position: relative; background: var(--tint-dark); display: flex; align-items: center; justify-content: center; overflow: hidden;">
                 <img src="${escapeAttribute(getJitenCoverUrl(res.deckId, res.parentDeckId))}" style="max-width: 100%; max-height: 100%; object-fit: contain; min-height: 100%;" />
-                <div style="position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.73); color: white; padding: 0.2rem 0.4rem; font-size: 0.65rem; font-weight: 600; text-transform: uppercase;">
+                <div style="position: absolute; bottom: 0; left: 0; right: 0; background: color-mix(in srgb, var(--tint-dark) 73%, transparent); color: var(--text-on-fill); padding: 0.2rem 0.4rem; font-size: 0.65rem; font-weight: 600; text-transform: uppercase;">
                     ${escapeHTML(getJitenMediaLabel(res.mediaType))}
                 </div>
             </div>
-            <div style="padding: 0.6rem 0.4rem; flex: 1; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.02);">
+            <div style="padding: 0.6rem 0.4rem; flex: 1; display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--tint-light) 2%, transparent);">
                 <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-primary); text-align: center; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3;">${escapeHTML(res.originalTitle)}</div>
             </div>
         </div>`).join('');
@@ -384,14 +384,14 @@ function renderJitenResults(grid: HTMLElement, results: JitenResult[], onSelect:
 
 function renderJitenVolumes(grid: HTMLElement, parent: JitenResult, children: JitenResult[], onSelect: (id: number) => void) {
     grid.innerHTML = [
-        `<div class="jiten-result-card jiten-volume-card" data-deck-id="${escapeAttribute(String(parent.deckId))}" style="cursor: pointer; background: #1a151f; border: 2px solid var(--accent-blue); border-radius: var(--radius-md); overflow: hidden; display: flex; flex-direction: column; transition: transform 0.2s; position: relative;">
-            <div style="aspect-ratio: 2/3; position: relative; background: #000; display: flex; align-items: center; justify-content: center;"><img src="${escapeAttribute(getJitenCoverUrl(parent.deckId, parent.parentDeckId))}" style="max-width: 100%; max-height: 100%; object-fit: contain; min-height: 100%;" /></div>
-            <div style="padding: 0.6rem 0.4rem; flex: 1; display: flex; align-items: center; justify-content: center; background: #2a2135;"><div style="font-size: 0.8rem; font-weight: 800; color: #fff; text-align: center;">Entire Series</div></div>
+        `<div class="jiten-result-card jiten-volume-card" data-deck-id="${escapeAttribute(String(parent.deckId))}" style="cursor: pointer; background: var(--bg-elevated); border: 2px solid var(--accent-blue); border-radius: var(--radius-md); overflow: hidden; display: flex; flex-direction: column; transition: transform 0.2s; position: relative;">
+            <div style="aspect-ratio: 2/3; position: relative; background: var(--tint-dark); display: flex; align-items: center; justify-content: center;"><img src="${escapeAttribute(getJitenCoverUrl(parent.deckId, parent.parentDeckId))}" style="max-width: 100%; max-height: 100%; object-fit: contain; min-height: 100%;" /></div>
+            <div style="padding: 0.6rem 0.4rem; flex: 1; display: flex; align-items: center; justify-content: center; background: var(--bg-elevated-alt);"><div style="font-size: 0.8rem; font-weight: 800; color: var(--text-on-fill); text-align: center;">Entire Series</div></div>
         </div>`,
         ...children.map((res, i) => `
-        <div class="jiten-result-card jiten-volume-card" data-deck-id="${escapeAttribute(String(res.deckId))}" style="cursor: pointer; background: #1a151f; border: 1px solid var(--border-color); border-radius: var(--radius-md); overflow: hidden; display: flex; flex-direction: column; transition: transform 0.2s; position: relative;">
-            <div style="aspect-ratio: 2/3; position: relative; background: #000; display: flex; align-items: center; justify-content: center;"><img src="${escapeAttribute(getJitenCoverUrl(res.deckId, res.parentDeckId || parent.deckId))}" style="max-width: 100%; max-height: 100%; object-fit: contain; opacity: 0.9; min-height: 100%;" /><div style="position: absolute; top: 0.3rem; left: 0.3rem; background: rgba(0,0,0,0.7); color: #fff; min-width: 1.3rem; height: 1.3rem; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 900; border: 1px solid rgba(255,255,255,0.2);">${i+1}</div></div>
-            <div style="padding: 0.6rem 0.4rem; flex: 1; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.02);"><div style="font-size: 0.75rem; font-weight: 600; color: var(--text-primary); text-align: center;">${escapeHTML(res.originalTitle)}</div></div>
+        <div class="jiten-result-card jiten-volume-card" data-deck-id="${escapeAttribute(String(res.deckId))}" style="cursor: pointer; background: var(--bg-elevated); border: 1px solid var(--border-color); border-radius: var(--radius-md); overflow: hidden; display: flex; flex-direction: column; transition: transform 0.2s; position: relative;">
+            <div style="aspect-ratio: 2/3; position: relative; background: var(--tint-dark); display: flex; align-items: center; justify-content: center;"><img src="${escapeAttribute(getJitenCoverUrl(res.deckId, res.parentDeckId || parent.deckId))}" style="max-width: 100%; max-height: 100%; object-fit: contain; opacity: 0.9; min-height: 100%;" /><div style="position: absolute; top: 0.3rem; left: 0.3rem; background: color-mix(in srgb, var(--tint-dark) 70%, transparent); color: var(--text-on-fill); min-width: 1.3rem; height: 1.3rem; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 900; border: 1px solid color-mix(in srgb, var(--tint-light) 20%, transparent);">${i+1}</div></div>
+            <div style="padding: 0.6rem 0.4rem; flex: 1; display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--tint-light) 2%, transparent);"><div style="font-size: 0.75rem; font-weight: 600; color: var(--text-primary); text-align: center;">${escapeHTML(res.originalTitle)}</div></div>
         </div>`)
     ].join('');
     

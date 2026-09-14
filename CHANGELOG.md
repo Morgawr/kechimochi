@@ -6,6 +6,10 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+### Fixed
+ - The startup error and database recovery screens now show their intended background gradient
+ - The Jiten.moe search dialog title was invisible on the light themes
+
 ## [0.3.2] - 2026-08-25
 
 ### Added

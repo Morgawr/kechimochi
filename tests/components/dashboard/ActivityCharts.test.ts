@@ -3,6 +3,7 @@ import { ActivityCharts } from '../../../src/dashboard/ActivityCharts';
 import { ActivitySummary, Media } from '../../../src/api';
 import type { ChartConfiguration, ChartType } from 'chart.js';
 import Chart from 'chart.js/auto';
+import { applyThemePalette } from '../../helpers/theme_palette';
 
 vi.mock('chart.js/auto', () => ({
     default: vi.fn().mockImplementation(() => ({
@@ -28,6 +29,7 @@ describe('ActivityCharts', () => {
     let onParamChange: (params: Record<string, unknown>) => void;
 
     beforeEach(() => {
+        applyThemePalette();
         container = document.createElement('div');
         onParamChange = vi.fn();
         vi.useRealTimers();
