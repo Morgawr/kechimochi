@@ -524,11 +524,11 @@ export class MediaDetail extends Component<MediaDetailState> {
                                         <circle cx="13" cy="8" r="1.5"/>
                                     </svg>
                                 </button>
-                                <div id="media-overflow-menu" hidden style="position: absolute; top: calc(100% + 0.5rem); right: 0; min-width: 12rem; padding: 0.35rem; border: 1px solid var(--border-color); border-radius: 12px; background: color-mix(in srgb, var(--bg-card) 94%, black 6%); box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35); z-index: 20;">
+                                <div id="media-overflow-menu" hidden style="position: absolute; top: calc(100% + 0.5rem); right: 0; min-width: 12rem; padding: 0.35rem; border: 1px solid var(--border-color); border-radius: 12px; background: color-mix(in srgb, var(--bg-card) 94%, black 6%); box-shadow: 0 18px 50px color-mix(in srgb, var(--tint-dark) 35%, transparent); z-index: 20;">
                                     <button
                                         type="button"
                                         id="btn-delete-media-detail"
-                                        style="width: 100%; display: flex; align-items: center; gap: 0.5rem; padding: 0.55rem 0.7rem; border: none; border-radius: 9px; background: transparent; color: #ff7582; font: inherit; font-size: 0.9rem; text-align: left; cursor: pointer;">
+                                        style="width: 100%; display: flex; align-items: center; gap: 0.5rem; padding: 0.55rem 0.7rem; border: none; border-radius: 9px; background: transparent; color: var(--danger-muted); font: inherit; font-size: 0.9rem; text-align: left; cursor: pointer;">
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg>
                                         Delete media
                                     </button>
@@ -562,7 +562,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                                     ${rawHtml(this.renderMilestones())}
                                 </div>
                                 ${this.state.milestones.length > 0 ? html`
-                                    <div style="display: flex; justify-content: flex-end; margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.05);">
+                                    <div style="display: flex; justify-content: flex-end; margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid color-mix(in srgb, var(--tint-light) 5%, transparent);">
                                         <button class="btn btn-ghost" id="btn-clear-milestones" style="padding: 0.2rem 0.4rem; font-size: 0.6rem; border-radius: 4px; color: var(--accent-red); opacity: 0.6; font-weight: 500;">Delete all milestones</button>
                                     </div>
                                 ` : ''}
@@ -714,7 +714,7 @@ export class MediaDetail extends Component<MediaDetailState> {
         return this.state.milestones.map(m => {
             const dateHover = m.date ? `title="Achieved on ${escapeAttribute(m.date)}"` : '';
             return `
-                <div class="milestone-item" data-milestone-name="${escapeAttribute(m.name)}" ${dateHover} style="display: flex; align-items: center; justify-content: space-between; padding: 0.3rem 0.5rem; background: rgba(255,255,255,0.03); border-radius: 3px; border: 1px solid rgba(255,255,255,0.05); position: relative;">
+                <div class="milestone-item" data-milestone-name="${escapeAttribute(m.name)}" ${dateHover} style="display: flex; align-items: center; justify-content: space-between; padding: 0.3rem 0.5rem; background: color-mix(in srgb, var(--tint-light) 3%, transparent); border-radius: 3px; border: 1px solid color-mix(in srgb, var(--tint-light) 5%, transparent); position: relative;">
                     <div style="flex: 1; display: flex; flex-direction: column; gap: 0.05rem;">
                         <span style="font-weight: 600; font-size: 0.8rem; line-height: 1.1;">${escapeHTML(m.name)}</span>
                         <span style="font-size: 0.7rem; color: var(--text-secondary); opacity: 0.7;">

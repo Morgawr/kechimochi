@@ -275,6 +275,17 @@ Optional environment variables:
 *   `KECHIMOCHI_DATA_DIR`: override application data directory
 *   `KECHIMOCHI_WEB_DIST_DIR`: override frontend build directory (defaults to `dist`)
 
+## Frontend Styling
+
+`src/styles.css` holds design tokens (CSS custom properties), theme definitions, global element/
+utility styles, and rules not yet split out. Feature CSS lives next to the code that renders it —
+`src/dashboard/dashboard.css` holds the `.dashboard-*` rules — pulled in via `@import` at the top of
+`styles.css`. Vite inlines these imports at build time, so the production bundle is still a single
+CSS asset; in dev the browser resolves the relative `@import` natively.
+
+These files are colocated, not scoped: the rules are global, and the class-name prefix is what keeps
+one feature's styles from reaching another's.
+
 ## Contributing
 
 We welcome contributions to Kechimochi! To ensure the project maintains its standard of quality, please follow these guidelines when submitting a Pull Request (PR) on GitHub.

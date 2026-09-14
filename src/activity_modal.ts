@@ -37,7 +37,7 @@ export async function showExportCsvModal(): Promise<{mode: 'all' | 'range', star
                     <label style="display: flex; gap: 0.5rem; align-items: center; cursor: pointer;"><input type="radio" name="export-mode" value="all" checked /> All History</label>
                     <label style="display: flex; gap: 0.5rem; align-items: center; cursor: pointer; margin-top: 0.5rem;"><input type="radio" name="export-mode" value="range" /> Date Range</label>
                 </div>
-                <div id="export-range-inputs" style="display: none; align-items: flex-start; gap: 1.5rem; margin-top: 1rem; padding: 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: #1a151f;">
+                <div id="export-range-inputs" style="display: none; align-items: flex-start; gap: 1.5rem; margin-top: 1rem; padding: 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-elevated);">
                     <div style="display: flex; flex-direction: column; gap: 0.5rem; align-items: center;"><label style="font-size: 0.85rem; color: var(--text-secondary);">Start Date</label><div id="cal-start-container"></div></div>
                     <div style="display: flex; flex-direction: column; gap: 0.5rem; align-items: center;"><label style="font-size: 0.85rem; color: var(--text-secondary);">End Date</label><div id="cal-end-container"></div></div>
                 </div>
@@ -212,7 +212,7 @@ export async function showLogActivityModal(prefillMediaId?: number, editLog?: Ac
                         <label style="font-size: 0.85rem; color: var(--text-secondary);">Media Title</label>
                         <input type="text" id="activity-media" role="combobox" aria-autocomplete="list" aria-controls="activity-media-suggestions" aria-expanded="false" autocomplete="off" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm);" value="${escapedTitle}" ${editLog ? 'disabled' : ''} required oninvalid="this.setCustomValidity('Media Title is required')" oninput="this.setCustomValidity('')" />
                         <div id="activity-media-variant" style="display: none; color: var(--text-secondary); font-size: 0.78rem;"></div>
-                        <div id="activity-media-suggestions" role="listbox" style="display: none; margin-top: 0.35rem; max-height: 11rem; overflow-y: auto; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: color-mix(in srgb, var(--bg-card) 94%, black 6%); box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22); position: absolute; top: 100%; left: 0; right: 0;"></div>
+                        <div id="activity-media-suggestions" role="listbox" style="display: none; margin-top: 0.35rem; max-height: 11rem; overflow-y: auto; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: color-mix(in srgb, var(--bg-card) 94%, black 6%); box-shadow: 0 14px 34px color-mix(in srgb, var(--tint-dark) 22%, transparent); position: absolute; top: 100%; left: 0; right: 0;"></div>
                     </div>
                     <div style="display: flex; gap: 0.5rem; align-items: center;">
                         <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.5rem;">
@@ -383,7 +383,7 @@ export async function showLogActivityModal(prefillMediaId?: number, editLog?: Ac
                 suggestionList.querySelectorAll<HTMLElement>('.activity-media-suggestion').forEach((option, optionIndex) => {
                     const isHighlighted = optionIndex === highlightedSuggestionIndex;
                     option.setAttribute('aria-selected', String(isHighlighted));
-                    option.style.background = isHighlighted ? 'rgba(255,255,255,0.08)' : 'transparent';
+                    option.style.background = isHighlighted ? 'color-mix(in srgb, var(--tint-light) 8%, transparent)' : 'transparent';
                     if (isHighlighted) option.scrollIntoView?.({ block: 'nearest' });
                 });
                 titleInput.setAttribute('aria-activedescendant', `activity-media-suggestion-${highlightedSuggestionIndex}`);

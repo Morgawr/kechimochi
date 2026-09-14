@@ -177,7 +177,7 @@ export class QuickLog extends Component<QuickLogState> {
                         <svg viewBox="0 0 24 24" fill="none">
                             <path
                                 d="M8 5L16 12L8 19"
-                                stroke="white"
+                                stroke="currentColor"
                                 stroke-width="2.5"
                                 stroke-linecap="round"
                                 stroke-linejoin="round"
