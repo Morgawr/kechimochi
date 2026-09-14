@@ -19,13 +19,16 @@ export const EVENTS = {
 export const STORAGE_KEYS = {
     CURRENT_PROFILE: 'kechimochi_profile',
     THEME_CACHE: 'kechimochi_theme',
+    FONT_CACHE: 'kechimochi_font',
     THEME_OVERRIDE_ENABLED: 'kechimochi_theme_override_enabled',
     THEME_OVERRIDE: 'kechimochi_theme_override',
+    FONT_OVERRIDE: 'kechimochi_font_override',
     MOCK_DATE: 'kechimochi_mock_date',
 } as const;
 
 export const SETTING_KEYS = {
     THEME: 'theme',
+    FONT_FAMILY: 'font_family',
     PROFILE_NAME: 'profile_name',
     STATS_NOVEL_SPEED: 'stats_novel_speed',
     STATS_NOVEL_COUNT: 'stats_novel_count',
@@ -54,6 +57,7 @@ export const SETTING_KEYS = {
 
 export const DEFAULTS = {
     THEME: 'pastel-pink',
+    FONT: 'inter',
     PROFILE: 'default',
 } as const;
 

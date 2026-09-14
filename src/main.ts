@@ -36,6 +36,7 @@ import {
     stringifySyncEnablementError,
 } from './sync_enablement';
 import {applyTheme, resolveEffectiveTheme} from "./theme.ts";
+import {applyFont, resolveEffectiveFont} from "./fonts.ts";
 import { renderDatabaseRecoveryScreen } from './database_recovery';
 
 // Support global date mocking for E2E tests
@@ -277,7 +278,7 @@ export class App {
         }
 
         const isFreshInstall = await this.initProfile();
-        await this.loadTheme();
+        await this.loadAppearance();
 
         await this.switchView(this.currentView);
         // Restoring Android's Google authorization can require a network call.
@@ -354,7 +355,7 @@ export class App {
         });
 
         globalThis.addEventListener(EVENTS.PROFILE_UPDATED, async () => {
-            await this.loadTheme();
+            await this.loadAppearance();
             await this.refreshProfileChrome();
             await this.refreshSyncChrome();
         });
@@ -467,9 +468,13 @@ export class App {
         }
     }
 
-    private async loadTheme() {
-        const syncedTheme = await getSetting(SETTING_KEYS.THEME) || DEFAULTS.THEME;
-        applyTheme(resolveEffectiveTheme(syncedTheme));
+    private async loadAppearance() {
+        const [syncedTheme, syncedFont] = await Promise.all([
+            getSetting(SETTING_KEYS.THEME),
+            getSetting(SETTING_KEYS.FONT_FAMILY),
+        ]);
+        applyTheme(resolveEffectiveTheme(syncedTheme || DEFAULTS.THEME));
+        applyFont(resolveEffectiveFont(syncedFont || DEFAULTS.FONT));
     }
 
     private async refreshProfileChrome() {

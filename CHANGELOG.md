@@ -11,6 +11,8 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ### Changed
  - Doughnut and stacked-bar chart segments now have a border separating them, across all themes
+ - Added a Font choice to the Appearance settings
+ - Fonts are now bundled with the app instead of fetched from Google Fonts
 
 ### Fixed
  - The startup error and database recovery screens now show their intended background gradient
