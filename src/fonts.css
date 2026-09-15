@@ -1,0 +1,72 @@
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/inter-variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Montserrat';
+  src: url('/fonts/montserrat-variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Nunito';
+  src: url('/fonts/nunito-variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Source Sans 3';
+  src: url('/fonts/source-sans-3-variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --font-family-inter: 'Inter';
+  --font-family-montserrat: 'Montserrat';
+  --font-family-nunito: 'Nunito';
+  --font-family-source-sans-3: 'Source Sans 3';
+
+  --app-font-family: var(--font-family-inter);
+}
+
+body[data-font='inter'] {
+  --app-font-family: var(--font-family-inter);
+}
+
+body[data-font='montserrat'] {
+  --app-font-family: var(--font-family-montserrat);
+}
+
+body[data-font='nunito'] {
+  --app-font-family: var(--font-family-nunito);
+}
+
+body[data-font='source-sans-3'] {
+  --app-font-family: var(--font-family-source-sans-3);
+}
+
+.font-option-inter {
+  font-family: var(--font-family-inter), sans-serif;
+}
+
+.font-option-montserrat {
+  font-family: var(--font-family-montserrat), sans-serif;
+}
+
+.font-option-nunito {
+  font-family: var(--font-family-nunito), sans-serif;
+}
+
+.font-option-source-sans-3 {
+  font-family: var(--font-family-source-sans-3), sans-serif;
+}

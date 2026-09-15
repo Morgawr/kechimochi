@@ -12,6 +12,38 @@ function sanitizeButtonClass(input: string): string {
     return 'btn-danger';
 }
 
+let openOverlayCount = 0;
+let stopBlockingBackgroundScroll: (() => void) | null = null;
+
+function blockScrollOutsideOverlays(event: Event): void {
+    const target = event.target;
+    if (target instanceof Element && target.closest('.modal-overlay')) return;
+    event.preventDefault();
+}
+
+function suppressBackgroundScroll(): () => void {
+    openOverlayCount += 1;
+    if (openOverlayCount === 1) {
+        document.addEventListener('wheel', blockScrollOutsideOverlays, { capture: true, passive: false });
+        document.addEventListener('touchmove', blockScrollOutsideOverlays, { capture: true, passive: false });
+        stopBlockingBackgroundScroll = () => {
+            document.removeEventListener('wheel', blockScrollOutsideOverlays, true);
+            document.removeEventListener('touchmove', blockScrollOutsideOverlays, true);
+        };
+    }
+
+    let released = false;
+    return () => {
+        if (released) return;
+        released = true;
+        openOverlayCount -= 1;
+        if (openOverlayCount === 0) {
+            stopBlockingBackgroundScroll?.();
+            stopBlockingBackgroundScroll = null;
+        }
+    };
+}
+
 export function createOverlay(): { overlay: HTMLDivElement, cleanup: () => void } {
     const g = globalThis as unknown as Record<string, number>;
     g.__modalCounter = (g.__modalCounter || 0) + 1;
@@ -24,8 +56,10 @@ export function createOverlay(): { overlay: HTMLDivElement, cleanup: () => void 
     overlay.offsetWidth; // Force reflow
     overlay.classList.add('active');
     const cleanupViewportPlacement = bindOverlayToVisualViewport(overlay);
+    const restoreBackgroundScroll = suppressBackgroundScroll();
 
     const cleanup = () => {
+        restoreBackgroundScroll();
         cleanupViewportPlacement();
         overlay.classList.remove('active');
         delete overlay.dataset.modalId;
@@ -251,8 +285,8 @@ export function showBlockingStatus(title: string, text: string): BlockingStatusH
                 <div aria-hidden="true" style="width: 28px; height: 28px; border-radius: 999px; border: 3px solid var(--border-color); border-top-color: var(--accent-blue); animation: spin 0.8s linear infinite;"></div>
             </div>
             <div id="blocking-status-progress" style="display: none; margin-top: 1.25rem;">
-                <div style="width: 100%; height: 10px; border-radius: 999px; background: rgba(255,255,255,0.08); overflow: hidden;">
-                    <div id="blocking-status-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--accent-blue), #6ee7f9); transition: width 0.18s ease;"></div>
+                <div id="blocking-status-progress-track" style="width: 100%; height: 10px; border-radius: 999px; background: color-mix(in srgb, var(--tint-light) 8%, transparent); overflow: hidden;">
+                    <div id="blocking-status-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--accent-blue), var(--info-bright)); transition: width 0.18s ease;"></div>
                 </div>
                 <p id="blocking-status-progress-label" style="margin-top: 0.65rem; font-size: 0.84rem; color: var(--text-secondary);">0 / 0</p>
             </div>

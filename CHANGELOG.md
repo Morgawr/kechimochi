@@ -6,7 +6,17 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+### Added
+ - Hovering a library grid card now shows its title over the cover, with a border tinted to its tracking status
+ - Right-clicking a library item opens a menu for Add log, Add milestone, Mark complete, Archive/Unarchive, and Delete without opening the detail view
+ - Right-clicking empty space in the library opens a menu for New media
+ - Added an E-Ink theme: black on white, borders instead of fill-tints, no motion or elevation, tuned for e-ink panels
+ - Media details now have a Create variant action that carries over the same medatada into a new variant
+
 ### Changed
+ - Doughnut and stacked-bar chart segments now have a border separating them, across all themes
+ - Added a Font choice to the Appearance settings
+ - Fonts are now bundled with the app instead of fetched from Google Fonts
  - Reading speed and completion estimates are now computed from a work's own logged sessions (or, for
    completed works, from the metadata character total) before falling back to your average speed for
    that content type
@@ -15,6 +25,14 @@ The format is based on Keep a Changelog, with one section per released version.
  - The Reading Report Card on the Profile page now recomputes automatically whenever you open it
 
 ### Fixed
+ - The startup error and database recovery screens now show their intended background gradient
+ - The Jiten.moe search dialog title was invisible on the light themes
+ - Fixed a stuck error message when syncing from gdrive and some data had missing IDs
+ - Android should not require users to "Re-authenticate" every time the app is opened anymore
+ - Android app now renders with safe top padding even on large resoluton sizes (this prevents the notification bar from blocking the view)
+ - Selected toggle buttons, filter chips and sort direction options are now readable on themes with a dark accent colour
+ - Media detail navigation and overflow actions are now clickable over the cover banner at narrow window and phone widths
+ - Applied consistent spacing and padding below the compact desktop top bar
  - Ongoing works with a logged character count no longer ignore it in favor of a stale, less accurate
    average speed when estimating remaining time and completion
 

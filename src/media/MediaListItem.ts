@@ -128,9 +128,11 @@ export class MediaListItem extends ProgressiveCoverComponent<MediaListItemState>
         root.querySelector('.media-list-cover-shell')?.appendChild(cover);
 
         this.container.classList.add('media-list-item-shell');
-        this.container.title = media.variant ? `${media.title} — ${media.variant}` : media.title;
         this.container.dataset.title = media.title;
         this.container.dataset.variant = media.variant || '';
+        if (media.id != null) {
+            this.container.dataset.mediaId = String(media.id);
+        }
         this.container.style.cursor = 'pointer';
         this.container.appendChild(root);
     }

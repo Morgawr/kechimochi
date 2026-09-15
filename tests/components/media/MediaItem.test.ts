@@ -29,7 +29,6 @@ describe('MediaItem', () => {
 
         expect(container.textContent).toContain('Test Media');
         expect(container.textContent).toContain('TV Series');
-        expect(container.title).toBe('Test Media — TV Series');
         expect(container.textContent).toContain('No Image');
     });
 
@@ -232,6 +231,76 @@ describe('MediaItem', () => {
         component.render();
 
         expect(container.style.height).toBe('');
+    });
+
+    it('should set data-media-id from the media id', () => {
+        const media = { id: 42, title: 'Test Media', status: 'Active', content_type: 'Anime', tracking_status: 'Untracked' };
+        const component = new MediaItem(container, media as unknown as Media, vi.fn());
+        component.render();
+
+        expect(container.dataset.mediaId).toBe('42');
+    });
+
+    it('should not set data-media-id when the media has no id', () => {
+        const media = { title: 'Test Media', status: 'Active', content_type: 'Anime', tracking_status: 'Untracked' };
+        const component = new MediaItem(container, media as unknown as Media, vi.fn());
+        component.render();
+
+        expect(container.dataset.mediaId).toBeUndefined();
+    });
+
+    it('should set data-tracking-status from a tracked status and drop it for Untracked', () => {
+        const media = { id: 1, title: 'Test Media', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' };
+        const component = new MediaItem(container, media as unknown as Media, vi.fn());
+        component.render();
+
+        expect(container.dataset.trackingStatus).toBe('Ongoing');
+
+        component.setState({ media: { ...media, tracking_status: 'Untracked' } as unknown as Media });
+        expect(container.dataset.trackingStatus).toBeUndefined();
+    });
+
+    it('should render the title in the overlay rather than the placeholder for a card without a cover', () => {
+        const withoutCover = { title: 'No Cover', status: 'Active', content_type: 'Anime', tracking_status: 'Untracked' };
+        const componentWithoutCover = new MediaItem(container, withoutCover as unknown as Media, vi.fn());
+        componentWithoutCover.render();
+
+        const overlay = container.querySelector('.grid-item-overlay');
+        expect(overlay?.querySelector('.grid-item-title')?.textContent).toBe('No Cover');
+        expect(container.querySelector('.image-placeholder')?.textContent?.trim()).toBe('No Image');
+    });
+
+    it('should render the variant beneath the title when the media has one', () => {
+        const media = { title: 'With Variant', variant: 'TV Series', status: 'Active', content_type: 'Anime', tracking_status: 'Untracked' };
+        const component = new MediaItem(container, media as unknown as Media, vi.fn());
+        component.render();
+
+        const overlay = container.querySelector('.grid-item-overlay');
+        expect(overlay?.querySelector('.grid-item-variant')?.textContent).toBe('TV Series');
+    });
+
+    it('should omit the variant element when the media has none', () => {
+        const media = { title: 'No Variant', status: 'Active', content_type: 'Anime', tracking_status: 'Untracked' };
+        const component = new MediaItem(container, media as unknown as Media, vi.fn());
+        component.render();
+
+        expect(container.querySelector('.grid-item-variant')).toBeNull();
+    });
+
+    it('should keep the title overlay after a cover image replaces the placeholder', async () => {
+        vi.mocked(api.readFileBytes).mockResolvedValue(new Uint8Array([1, 2, 3]).buffer);
+        globalThis.URL.createObjectURL = vi.fn(() => 'blob:committed');
+
+        const media = { title: 'Committed', cover_image: '/path/to/committed.jpg', status: 'Active' };
+        const component = new MediaItemTestHarness(container, media as unknown as Media, vi.fn());
+        component.render();
+
+        triggerLatestIntersection();
+        await vi.waitUntil(() => component.state.imgSrc === 'blob:committed');
+
+        const overlay = container.querySelector('.grid-item-overlay');
+        expect(overlay?.previousElementSibling?.classList.contains('media-grid-cover-image')).toBe(true);
+        expect(overlay?.querySelector('.grid-item-title')?.textContent).toBe('Committed');
     });
 
     it('should preserve contentVisibility and containIntrinsicSize set on the container before rendering', () => {

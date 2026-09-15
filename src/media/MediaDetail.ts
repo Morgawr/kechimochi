@@ -3,9 +3,7 @@ import {Component} from '../component';
 import {escapeAttribute, escapeHTML, html, rawHtml} from '../html';
 import {
     ActivitySummary,
-    addMilestone,
     clearMilestones,
-    deleteMedia,
     deleteMilestone,
     downloadAndSaveImage,
     getLogsForMedia,
@@ -17,13 +15,26 @@ import {
     updateMilestone
 } from '../api';
 import {customAlert, customConfirm, customPrompt} from '../modal_base';
-import {showLogActivityModal} from '../activity_modal';
 import {showAddMilestoneModal} from '../milestone_modal';
 import {showImportMergeModal, showJitenSearchModal} from './modal';
 import {fetchMetadataForUrl, isValidImporterUrl} from '../importers';
 import {getServices} from '../services';
 import {MediaCoverLoader} from './cover_loader';
 import {pushBackHandler} from '../back_stack';
+import {openPopupMenu, type PopupMenuHandle} from '../popup_menu';
+import {FORK, TRASH_CAN} from '../icons';
+import {
+    addLogForMedia,
+    addMilestoneForMedia,
+    canAddMilestone,
+    canMarkComplete,
+    createMediaVariant,
+    deleteMediaWithConfirmation,
+    markMediaComplete,
+    notifyLocalDataChanged,
+    toggleMediaArchived,
+    type MediaActionOutcome
+} from './media_actions';
 import {MediaLog} from './MediaLog';
 import {setupCopyButton} from '../clipboard';
 import {
@@ -37,7 +48,6 @@ import {formatHhMm} from '../time';
 import {
     ACTIVITY_TYPES,
     CONTENT_TYPE_TO_ACTIVITY_TYPE,
-    EVENTS,
     MEDIA_STATUS,
     SETTING_KEYS,
     TRACKING_STATUSES
@@ -70,24 +80,16 @@ export class MediaDetail extends Component<MediaDetailState> {
     private readonly onPrev: () => void;
     private readonly onNavigate: (index: number) => void;
     private readonly onNavigateToMedia: (mediaId: number) => void;
+    private readonly onVariantCreated: (mediaId: number) => void;
     private readonly onDelete: () => void;
     private readonly mediaList: Media[];
     private readonly libraryMediaList: Media[];
     private readonly currentIndex: number;
     private readonly onViewportResize: () => void;
-    private readonly onGlobalPointerDown: (event: PointerEvent) => void;
-    private readonly onGlobalKeyDown: (event: KeyboardEvent) => void;
     private isDestroyed = false;
-    private overflowMenuRoot: HTMLElement | null = null;
-    private overflowMenu: HTMLElement | null = null;
     private overflowMenuButton: HTMLButtonElement | null = null;
+    private overflowMenuHandle: PopupMenuHandle | null = null;
     private readonly cleanupBackHandler: () => void;
-
-    private notifyLocalDataChanged(coversChanged = false) {
-        globalThis.dispatchEvent(new CustomEvent(EVENTS.LOCAL_DATA_CHANGED, {
-            detail: { coversChanged },
-        }));
-    }
 
     private requireMediaUid(): string {
         const mediaUid = this.state.media.uid?.trim();
@@ -106,7 +108,7 @@ export class MediaDetail extends Component<MediaDetailState> {
 
     private async persistMediaChanges() {
         await updateMedia(this.state.media);
-        this.notifyLocalDataChanged();
+        notifyLocalDataChanged();
         this.render();
     }
 
@@ -136,6 +138,7 @@ export class MediaDetail extends Component<MediaDetailState> {
             onPrev: () => void,
             onNavigate: (index: number) => void,
             onNavigateToMedia?: (mediaId: number) => void,
+            onVariantCreated?: (mediaId: number) => void,
             onDelete: () => void,
         },
         libraryMediaList: Media[] = mediaList,
@@ -162,18 +165,15 @@ export class MediaDetail extends Component<MediaDetailState> {
         this.onPrev = callbacks.onPrev;
         this.onNavigate = callbacks.onNavigate;
         this.onNavigateToMedia = callbacks.onNavigateToMedia ?? (() => undefined);
+        this.onVariantCreated = callbacks.onVariantCreated ?? (() => undefined);
         this.onDelete = callbacks.onDelete;
         this.libraryMediaList = libraryMediaList;
         this.onViewportResize = () => this.syncViewportLayout();
-        this.onGlobalPointerDown = (event: PointerEvent) => this.handleGlobalPointerDown(event);
-        this.onGlobalKeyDown = (event: KeyboardEvent) => this.handleGlobalKeyDown(event);
         this.cleanupBackHandler = pushBackHandler(() => {
             this.onBack();
             return true;
         });
         globalThis.addEventListener('resize', this.onViewportResize);
-        globalThis.addEventListener('pointerdown', this.onGlobalPointerDown, true);
-        globalThis.addEventListener('keydown', this.onGlobalKeyDown);
     }
 
     protected override onMount() {
@@ -187,15 +187,20 @@ export class MediaDetail extends Component<MediaDetailState> {
             return false;
         }
         this.state.logs = logs;
-        this.render();
+        const logsContainer = this.container.querySelector<HTMLElement>('#media-logs-container');
+        if (logsContainer) {
+            this.renderStats(this.container);
+            new MediaLog(logsContainer, logs).render();
+        } else {
+            this.render();
+        }
         return true;
     }
 
     public override destroy() {
         this.isDestroyed = true;
+        this.closeOverflowMenu();
         globalThis.removeEventListener('resize', this.onViewportResize);
-        globalThis.removeEventListener('pointerdown', this.onGlobalPointerDown, true);
-        globalThis.removeEventListener('keydown', this.onGlobalKeyDown);
         this.cleanupBackHandler();
         super.destroy();
     }
@@ -204,7 +209,8 @@ export class MediaDetail extends Component<MediaDetailState> {
         try {
             const milestones = await getMilestones(this.requireMediaUid());
             if (!this.isDestroyed) {
-                this.setState({ milestones });
+                this.state.milestones = milestones;
+                this.refreshMilestones();
             }
         } catch (e) {
             Logger.error("Failed to load milestones", e);
@@ -221,15 +227,15 @@ export class MediaDetail extends Component<MediaDetailState> {
                 getSetting(SETTING_KEYS.STATS_VN_SPEED),
             ]);
             if (!this.isDestroyed) {
-                this.setState({
-                    readingSpeedSettings: {
-                        [SETTING_KEYS.STATS_NOVEL_SPEED]: Number.parseInt(novelSpeed || "0", 10),
-                        [SETTING_KEYS.STATS_WEBNOVEL_SPEED]: Number.parseInt(webNovelSpeed || "0", 10),
-                        [SETTING_KEYS.STATS_NONFICTION_SPEED]: Number.parseInt(nonFictionSpeed || "0", 10),
-                        [SETTING_KEYS.STATS_MANGA_SPEED]: Number.parseInt(mangaSpeed || "0", 10),
-                        [SETTING_KEYS.STATS_VN_SPEED]: Number.parseInt(vnSpeed || "0", 10),
-                    },
-                });
+                this.state.readingSpeedSettings = {
+                    [SETTING_KEYS.STATS_NOVEL_SPEED]: Number.parseInt(novelSpeed || "0", 10),
+                    [SETTING_KEYS.STATS_WEBNOVEL_SPEED]: Number.parseInt(webNovelSpeed || "0", 10),
+                    [SETTING_KEYS.STATS_NONFICTION_SPEED]: Number.parseInt(nonFictionSpeed || "0", 10),
+                    [SETTING_KEYS.STATS_MANGA_SPEED]: Number.parseInt(mangaSpeed || "0", 10),
+                    [SETTING_KEYS.STATS_VN_SPEED]: Number.parseInt(vnSpeed || "0", 10),
+                };
+                if (this.container.querySelector('#media-first-last-stats')) this.renderStats(this.container);
+                else this.render();
             }
         } catch (e) {
             Logger.warn("Could not load reading speed settings", e);
@@ -338,13 +344,9 @@ export class MediaDetail extends Component<MediaDetailState> {
         }
     }
 
-    private isCompleteTracking(status: string): boolean {
-        return status === 'Complete';
-    }
-
     private renderHeaderActions(media: Media): string {
         const isArchived = !this.isActive(media.status);
-        const isComplete = this.isCompleteTracking(media.tracking_status);
+        const isComplete = !canMarkComplete(media);
 
         return `
             <div class="media-detail-action-row">
@@ -494,7 +496,6 @@ export class MediaDetail extends Component<MediaDetailState> {
     }
 
     render() {
-        this.clear();
         const { media, imgSrc, logs, isDescriptionExpanded } = this.state;
         const mediaOptions = this.mediaList.map((entry, index) => {
             const label = entry.variant ? entry.title + ' — ' + entry.variant : entry.title;
@@ -535,15 +536,6 @@ export class MediaDetail extends Component<MediaDetailState> {
                                         <circle cx="13" cy="8" r="1.5"/>
                                     </svg>
                                 </button>
-                                <div id="media-overflow-menu" hidden style="position: absolute; top: calc(100% + 0.5rem); right: 0; min-width: 12rem; padding: 0.35rem; border: 1px solid var(--border-color); border-radius: 12px; background: color-mix(in srgb, var(--bg-card) 94%, black 6%); box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35); z-index: 20;">
-                                    <button
-                                        type="button"
-                                        id="btn-delete-media-detail"
-                                        style="width: 100%; display: flex; align-items: center; gap: 0.5rem; padding: 0.55rem 0.7rem; border: none; border-radius: 9px; background: transparent; color: #ff7582; font: inherit; font-size: 0.9rem; text-align: left; cursor: pointer;">
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg>
-                                        Delete media
-                                    </button>
-                                </div>
                             </div>
                         </div>
                         <button class="btn btn-ghost single-char-btn" id="media-next" style="font-size: 1.2rem; padding: 0.2rem 1rem;">
@@ -572,11 +564,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                                 <div id="milestone-list-container" style="display: flex; flex-direction: column; gap: 0.3rem; flex: 1; min-height: 0; overflow-y: auto;">
                                     ${rawHtml(this.renderMilestones())}
                                 </div>
-                                ${this.state.milestones.length > 0 ? html`
-                                    <div style="display: flex; justify-content: flex-end; margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.05);">
-                                        <button class="btn btn-ghost" id="btn-clear-milestones" style="padding: 0.2rem 0.4rem; font-size: 0.6rem; border-radius: 4px; color: var(--accent-red); opacity: 0.6; font-weight: 500;">Delete all milestones</button>
-                                    </div>
-                                ` : ''}
+                                ${this.state.milestones.length > 0 ? this.createMilestoneClearAction() : ''}
                             </div>
                         </div>
                     </div>
@@ -624,22 +612,64 @@ export class MediaDetail extends Component<MediaDetailState> {
             </div>
         `;
 
-        this.container.appendChild(detailView);
-        this.syncOverflowMenuRefs();
+        const currentContent = this.container.querySelector('#media-content-area');
+        const currentSelect = this.container.querySelector<HTMLSelectElement>('#media-select');
+        let updatedRoot = detailView;
+        if (currentContent && currentSelect) {
+            // Keep the header connected: replacing a pressed button cancels its
+            // native click, and replacing a focused select dismisses its picker.
+            const nextContent = detailView.querySelector<HTMLElement>('#media-content-area')!;
+            const nextSelect = detailView.querySelector<HTMLSelectElement>('#media-select')!;
+            if (currentSelect.innerHTML !== nextSelect.innerHTML) {
+                currentSelect.innerHTML = nextSelect.innerHTML;
+            }
+            currentContent.replaceWith(nextContent);
+            updatedRoot = nextContent;
+        } else {
+            this.clear();
+            this.container.appendChild(detailView);
+            this.syncOverflowMenuRefs();
+        }
         this.syncViewportLayout();
-        this.setupListeners(detailView);
-        this.renderStats(detailView);
+        this.setupListeners(updatedRoot);
+        this.renderStats(updatedRoot);
 
-        const logsContainer = detailView.querySelector('#media-logs-container') as HTMLElement;
+        const logsContainer = updatedRoot.querySelector('#media-logs-container') as HTMLElement;
         new MediaLog(logsContainer, logs).render();
 
         logsContainer.addEventListener('activity-updated', async () => {
             if (this.state.media.id) {
                 const updatedLogs = await getLogsForMedia(this.state.media.id);
-                this.setState({ logs: updatedLogs });
-                this.notifyLocalDataChanged();
+                if (this.updateLogs(this.state.media.id, updatedLogs)) notifyLocalDataChanged();
             }
         });
+    }
+
+    private createMilestoneClearAction(): HTMLElement {
+        return html`
+            <div style="display: flex; justify-content: flex-end; margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid color-mix(in srgb, var(--tint-light) 5%, transparent);">
+                <button class="btn btn-ghost" id="btn-clear-milestones" style="padding: 0.2rem 0.4rem; font-size: 0.6rem; border-radius: 4px; color: var(--accent-red); opacity: 0.6; font-weight: 500;">Delete all milestones</button>
+            </div>
+        `;
+    }
+
+    private refreshMilestones() {
+        const list = this.container.querySelector<HTMLElement>('#milestone-list-container');
+        const card = this.container.querySelector('#media-milestones-card');
+        if (!list || !card) {
+            this.render();
+            return;
+        }
+        list.innerHTML = this.renderMilestones();
+        this.setupListeners(list);
+        const clearAction = card.querySelector('#btn-clear-milestones')?.parentElement;
+        if (this.state.milestones.length === 0) {
+            clearAction?.remove();
+        } else if (!clearAction) {
+            const action = this.createMilestoneClearAction();
+            card.appendChild(action);
+            this.setupListeners(action);
+        }
     }
 
     private placeMilestonesCard() {
@@ -663,34 +693,69 @@ export class MediaDetail extends Component<MediaDetailState> {
     }
 
     private syncOverflowMenuRefs() {
-        this.overflowMenuRoot = this.container.querySelector<HTMLElement>('#media-overflow-root');
-        this.overflowMenu = this.container.querySelector<HTMLElement>('#media-overflow-menu');
+        const wasOpen = this.overflowMenuHandle !== null;
+        this.closeOverflowMenu();
         this.overflowMenuButton = this.container.querySelector<HTMLButtonElement>('#btn-media-overflow');
+        if (wasOpen) this.openOverflowMenu();
     }
 
     private closeOverflowMenu() {
-        if (this.overflowMenu) this.overflowMenu.hidden = true;
-        if (this.overflowMenuButton) this.overflowMenuButton.setAttribute('aria-expanded', 'false');
+        this.overflowMenuHandle?.close();
+        this.overflowMenuHandle = null;
     }
 
     private toggleOverflowMenu() {
-        if (!this.overflowMenu || !this.overflowMenuButton) return;
-        const nextOpen = this.overflowMenu.hidden;
-        this.overflowMenu.hidden = !nextOpen;
-        this.overflowMenuButton.setAttribute('aria-expanded', nextOpen ? 'true' : 'false');
+        if (this.overflowMenuHandle) {
+            this.closeOverflowMenu();
+            return;
+        }
+        this.openOverflowMenu();
     }
 
-    private handleGlobalPointerDown(event: PointerEvent) {
-        if (!this.overflowMenu || !this.overflowMenuButton || this.overflowMenu.hidden) return;
-        const target = event.target as Node | null;
-        if (!target || !this.overflowMenuRoot?.contains(target)) {
-            this.closeOverflowMenu();
+    private openOverflowMenu() {
+        if (!this.overflowMenuButton) return;
+
+        this.overflowMenuHandle = openPopupMenu({
+            label: `Actions for ${this.state.media.title}`,
+            anchor: { kind: 'element', element: this.overflowMenuButton, align: 'end' },
+            onClose: () => { this.overflowMenuHandle = null; },
+            items: [
+                {
+                    actionId: 'create-variant',
+                    elementId: 'btn-create-media-variant',
+                    label: 'Create variant',
+                    iconMarkup: FORK,
+                    onSelect: () => { this.createVariantFromDetail().catch(e => Logger.error('Failed to create media variant', e)); },
+                },
+                {
+                    actionId: 'delete',
+                    elementId: 'btn-delete-media-detail',
+                    label: 'Delete media',
+                    iconMarkup: TRASH_CAN,
+                    isDanger: true,
+                    separatorBefore: true,
+                    onSelect: () => { this.deleteMediaFromDetail().catch(e => Logger.error('Failed to delete media', e)); },
+                },
+            ],
+        });
+    }
+
+    private async createVariantFromDetail() {
+        const outcome = await createMediaVariant(this.state.media, this.libraryMediaList);
+        if (outcome.committed && outcome.createdMediaId !== undefined) {
+            this.onVariantCreated(outcome.createdMediaId);
         }
     }
 
-    private handleGlobalKeyDown(event: KeyboardEvent) {
-        if (event.key !== 'Escape') return;
-        this.closeOverflowMenu();
+    private async deleteMediaFromDetail() {
+        const outcome = await deleteMediaWithConfirmation(this.state.media);
+        if (outcome.committed) this.onDelete();
+    }
+
+    private applyMediaActionOutcome(outcome: MediaActionOutcome) {
+        if (!outcome.updatedMedia) return;
+        Object.assign(this.state.media, outcome.updatedMedia);
+        this.render();
     }
 
     private syncViewportLayout() {
@@ -725,7 +790,7 @@ export class MediaDetail extends Component<MediaDetailState> {
         return this.state.milestones.map(m => {
             const dateHover = m.date ? `title="Achieved on ${escapeAttribute(m.date)}"` : '';
             return `
-                <div class="milestone-item" data-milestone-name="${escapeAttribute(m.name)}" ${dateHover} style="display: flex; align-items: center; justify-content: space-between; padding: 0.3rem 0.5rem; background: rgba(255,255,255,0.03); border-radius: 3px; border: 1px solid rgba(255,255,255,0.05); position: relative;">
+                <div class="milestone-item" data-milestone-name="${escapeAttribute(m.name)}" ${dateHover} style="display: flex; align-items: center; justify-content: space-between; padding: 0.3rem 0.5rem; background: color-mix(in srgb, var(--tint-light) 3%, transparent); border-radius: 3px; border: 1px solid color-mix(in srgb, var(--tint-light) 5%, transparent); position: relative;">
                     <div style="flex: 1; display: flex; flex-direction: column; gap: 0.05rem;">
                         <span style="font-weight: 600; font-size: 0.8rem; line-height: 1.1;">${escapeHTML(m.name)}</span>
                         <span style="font-size: 0.7rem; color: var(--text-secondary); opacity: 0.7;">
@@ -834,7 +899,11 @@ export class MediaDetail extends Component<MediaDetailState> {
     private renderStats(root: HTMLElement) {
         const statsDiv = root.querySelector('#media-first-last-stats') as HTMLElement;
         const { logs, media, readingSpeedSettings } = this.state;
-        if (!statsDiv || logs.length === 0) return;
+        if (!statsDiv) return;
+        if (logs.length === 0) {
+            statsDiv.replaceChildren();
+            return;
+        }
 
         statsDiv.style.display = 'flex';
         statsDiv.style.alignItems = 'center';
@@ -1047,34 +1116,17 @@ export class MediaDetail extends Component<MediaDetailState> {
         });
 
         root.querySelector('#btn-toggle-archive')?.addEventListener('click', async () => {
-            const previousMedia = { ...this.state.media };
-            this.state.media.status = this.isActive(this.state.media.status) ? MEDIA_STATUS.ARCHIVED : MEDIA_STATUS.ACTIVE;
-            await this.persistMediaMutation(previousMedia);
+            this.applyMediaActionOutcome(await toggleMediaArchived(this.state.media));
         });
 
         root.querySelector('#btn-mark-complete')?.addEventListener('click', async () => {
-            if (this.isCompleteTracking(this.state.media.tracking_status)) {
-                return;
-            }
-            const previousMedia = { ...this.state.media };
-            this.state.media.tracking_status = 'Complete';
-            await this.persistMediaMutation(previousMedia);
+            this.applyMediaActionOutcome(await markMediaComplete(this.state.media));
         });
 
         root.querySelector('#btn-media-overflow')?.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
             this.toggleOverflowMenu();
-        });
-
-        root.querySelector('#btn-delete-media-detail')?.addEventListener('click', async () => {
-            this.closeOverflowMenu();
-            const ok = await customConfirm("Delete Media", `Are you sure you want to permanently delete "${this.state.media.title}" and all its logs?`, "btn-danger", "Delete");
-            if (ok) {
-                await deleteMedia(this.state.media.id!);
-                this.notifyLocalDataChanged(true);
-                this.onDelete();
-            }
         });
 
         root.querySelector('#btn-add-extra')?.addEventListener('click', async () => {
@@ -1120,20 +1172,14 @@ export class MediaDetail extends Component<MediaDetailState> {
         });
 
         root.querySelector('#btn-add-milestone')?.addEventListener('click', async () => {
-            const currentDuration = this.state.logs.reduce((acc, log) => acc + log.duration_minutes, 0);
-            const currentCharacters = this.state.logs.reduce((acc, log) => acc + log.characters, 0);
-            try {
-                const milestone = await showAddMilestoneModal(this.state.media.title, this.requireMediaUid(), {
-                    duration: currentDuration,
-                    characters: currentCharacters
-                });
-                if (milestone) {
-                    await addMilestone(milestone);
-                    await this.loadMilestones();
-                    this.render();
-                }
-            } catch (e) {
-                await customAlert("Error", "Failed to add milestone: " + e);
+            if (!canAddMilestone(this.state.media)) {
+                await customAlert("Error", "Media UID is unavailable. Reload the media library and try again.");
+                return;
+            }
+            const outcome = await addMilestoneForMedia(this.state.media, this.state.logs);
+            if (outcome.committed) {
+                await this.loadMilestones();
+                this.render();
             }
         });
 
@@ -1185,11 +1231,10 @@ export class MediaDetail extends Component<MediaDetailState> {
         });
 
         root.querySelector('#btn-new-media-entry')?.addEventListener('click', async () => {
-            const success = await showLogActivityModal(this.state.media.id);
-            if (success) {
+            const outcome = await addLogForMedia(this.state.media);
+            if (outcome.committed) {
                 const logs = await getLogsForMedia(this.state.media.id!);
-                this.setState({ logs });
-                this.notifyLocalDataChanged();
+                this.updateLogs(this.state.media.id!, logs);
             }
         });
     }
@@ -1204,7 +1249,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                     await this.loadImage();
                     // The cache was invalidated before loading the replacement.
                     // Do not clear again after the new object URL is committed.
-                    this.notifyLocalDataChanged();
+                    notifyLocalDataChanged();
                 }
             } catch (e) {
                 await customAlert("Error", "Failed to upload image: " + e);
@@ -1266,7 +1311,7 @@ export class MediaDetail extends Component<MediaDetailState> {
 
             // The cache was invalidated before loading the replacement.
             // Do not clear again after the new object URL is committed.
-            this.notifyLocalDataChanged();
+            notifyLocalDataChanged();
             this.render();
         } catch (e) {
             await customAlert("Import Failed", "Metadata import failed: " + e);

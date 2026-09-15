@@ -8,18 +8,46 @@ interface ChartSnapshot {
   metric: string | null;
   labels: string[];
   totals: number[];
+  rangeStart: string;
+  rangeEnd: string;
 }
 
 async function getChartSnapshot(): Promise<ChartSnapshot> {
   const canvas = $('#barChart');
   await canvas.waitForDisplayed({ timeout: 5000 });
-  return {
-    chartType: await canvas.getAttribute('data-chart-type'),
-    groupBy: await canvas.getAttribute('data-group-by'),
-    metric: await canvas.getAttribute('data-metric'),
-    labels: JSON.parse((await canvas.getAttribute('data-series-labels')) || '[]') as string[],
-    totals: JSON.parse((await canvas.getAttribute('data-series-totals')) || '[]') as number[],
-  };
+  let snapshot: ChartSnapshot | null = null;
+  await browser.waitUntil(async () => {
+    snapshot = await browser.execute(() => {
+      const root = document.querySelector<HTMLElement>('.dashboard-root');
+      const layout = root?.querySelector<HTMLElement>('#activity-charts-grid');
+      const chart = layout?.querySelector<HTMLCanvasElement>('#barChart');
+      const requestId = root?.dataset.dashboardRequestId;
+      // Controls update before the range response and lazy Chart.js render.
+      // Read one coherent snapshot only after the current render completes.
+      if (!requestId || layout?.dataset.dashboardRequestId !== requestId
+          || !chart?.dataset.seriesLabels || !chart.dataset.seriesTotals) return null;
+      return {
+        chartType: chart.dataset.chartType ?? null,
+        groupBy: chart.dataset.groupBy ?? null,
+        metric: chart.dataset.metric ?? null,
+        labels: JSON.parse(chart.dataset.seriesLabels) as string[],
+        totals: JSON.parse(chart.dataset.seriesTotals) as number[],
+        rangeStart: layout.dataset.rangeStart ?? '',
+        rangeEnd: layout.dataset.rangeEnd ?? '',
+      };
+    });
+    return snapshot !== null;
+  }, {
+    timeout: 5000,
+    interval: 100,
+    timeoutMsg: 'Dashboard chart did not finish rendering the current range',
+  });
+  return snapshot!;
+}
+
+function totalsByLabel(snapshot: ChartSnapshot): Record<string, number> {
+  expect(snapshot.totals).toHaveLength(snapshot.labels.length);
+  return Object.fromEntries(snapshot.labels.map((label, index) => [label, snapshot.totals[index]]));
 }
 
 async function clickChartToggle(selector: string): Promise<void> {
@@ -45,6 +73,9 @@ describe('CUJ: Dashboard Analytics Controls', () => {
     expect(initial.groupBy).toBe('activity_type');
     expect(initial.metric).toBe('minutes');
     expect(initial.labels.length).toBeGreaterThan(0);
+    expect(initial.rangeStart).toBe('2024-03-01');
+    expect(initial.rangeEnd).toBe('2024-03-31');
+    expect(totalsByLabel(initial)).toEqual({ Reading: 160, Playing: 60, Watching: 24 });
 
     await clickChartToggle('#toggle-chart-type');
     await browser.waitUntil(async () => (await getChartSnapshot()).chartType === 'line');
@@ -53,11 +84,21 @@ describe('CUJ: Dashboard Analytics Controls', () => {
     await browser.waitUntil(async () => (await getChartSnapshot()).groupBy === 'log_name');
     const groupedByName = await getChartSnapshot();
     expect(groupedByName.labels).not.toEqual(initial.labels);
+    expect(totalsByLabel(groupedByName)).toEqual({
+      '本好きの下剋上': 70,
+      'ある魔女が死ぬまで': 40,
+      '葬送のフリーレン': 24,
+      '薬屋のひとりごと': 50,
+      'ペルソナ5': 60,
+    });
 
     await clickChartToggle('#toggle-metric');
     await browser.waitUntil(async () => (await getChartSnapshot()).metric === 'characters');
     const characters = await getChartSnapshot();
     expect(characters.totals).not.toEqual(groupedByName.totals);
+    expect(totalsByLabel(characters)).toEqual(
+      Object.fromEntries(groupedByName.labels.map(label => [label, 0])),
+    );
 
     expect(await $('#activity-charts-grid').getAttribute('data-time-range-days')).toBe('30');
     await $('#btn-chart-prev').click();

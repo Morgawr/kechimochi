@@ -64,6 +64,20 @@ including duplicate rows with identical visible values, and adds unique indexes
 for both record types. This lets three-way sync distinguish an edit or deletion
 of one record from a separate concurrent record with otherwise identical data.
 
+Sync snapshots use the same deterministic UID assignment as the SQLite
+migration. When a snapshot is loaded, missing or blank activity and milestone
+UIDs are filled in automatically. This applies to cloud downloads, the local
+base cache used for three-way merges, and snapshots stored in pending sync
+journals. Existing UIDs and record contents are preserved, and identical
+duplicate records receive distinct identities.
+
+This compatibility handling lets older snapshots participate in normal sync
+alongside the current database, preserving unsynced local changes. Loading
+normalizes the snapshot in memory; a successful sync persists the resulting
+state through the usual sync workflow. The snapshot retains its recorded schema
+version, and downloaded snapshots are checked against their remote checksum
+before normalization.
+
 ## Storage Model
 
 Kechimochi persists data in two SQLite files:

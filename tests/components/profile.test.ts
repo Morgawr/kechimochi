@@ -106,16 +106,19 @@ function mockStandardProfileLoad(options?: {
     appVersion?: string;
     profileName?: string;
     theme?: string;
+    font?: string;
 }) {
     const {
         appVersion = '1.0.0',
         profileName = 'test-user',
         theme = 'pastel-pink',
+        font = 'inter',
     } = options ?? {};
 
     vi.mocked(api.getSetting).mockImplementation(async (key) => {
         if (key === SETTING_KEYS.PROFILE_NAME) return profileName;
         if (key === SETTING_KEYS.THEME) return theme;
+        if (key === SETTING_KEYS.FONT_FAMILY) return font;
         return '0';
     });
     vi.mocked(api.getAppVersion).mockResolvedValue(appVersion);
@@ -1487,6 +1490,42 @@ describe('ProfileView', () => {
         await vi.waitFor(() => expect(container.querySelector('#profile-select-theme-local')).toBeNull());
         expect(localStorage.setItem).toHaveBeenCalledWith(STORAGE_KEYS.THEME_OVERRIDE_ENABLED, '0');
         expect(document.body.dataset.theme).toBe('pastel-pink');
+    });
+
+    it('supports local font overrides from the profile controls', async () => {
+        localStorage.setItem(STORAGE_KEYS.THEME_OVERRIDE_ENABLED, '1');
+        localStorage.setItem(STORAGE_KEYS.FONT_OVERRIDE, 'nunito');
+        mockStandardProfileLoad({ font: 'inter' });
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-select-font-local')).not.toBeNull());
+
+        const localSelect = container.querySelector('#profile-select-font-local') as HTMLSelectElement;
+        localSelect.value = 'montserrat';
+        localSelect.dispatchEvent(new Event('change'));
+
+        expect(localStorage.setItem).toHaveBeenCalledWith(STORAGE_KEYS.FONT_OVERRIDE, 'montserrat');
+        expect(document.body.dataset.font).toBe('montserrat');
+
+        const checkbox = container.querySelector('#profile-checkbox-theme-override') as HTMLInputElement;
+        checkbox.checked = false;
+        checkbox.dispatchEvent(new Event('change'));
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-select-font-local')).toBeNull());
+        expect(document.body.dataset.font).toBe('inter');
+    });
+
+    it('renders both the local theme and local font selects while the override is enabled', async () => {
+        localStorage.setItem(STORAGE_KEYS.THEME_OVERRIDE_ENABLED, '1');
+        mockStandardProfileLoad();
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-select-theme-local')).not.toBeNull());
+        expect(container.querySelector('#profile-select-font-local')).not.toBeNull();
     });
 
     it('renders edge-case sync status labels and timestamps', async () => {

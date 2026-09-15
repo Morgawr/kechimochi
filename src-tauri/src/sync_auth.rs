@@ -614,6 +614,28 @@ pub fn has_google_drive_tokens(token_store: &dyn SecureTokenStore) -> Result<boo
     Ok(token_store.load_tokens()?.is_some())
 }
 
+/// Android keeps its authorization grant in Google Play services, while this
+/// process only caches the resulting access token (keyring has no Android
+/// backend). Restore that cache before reporting a missing login. The callback
+/// must never launch consent UI; it may leave tokens absent if consent is needed.
+pub async fn restore_google_drive_auth_if_missing<F, Fut>(
+    app_dir: &Path,
+    token_store: &dyn SecureTokenStore,
+    restore_silently: F,
+) -> Result<(), String>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<(), String>>,
+{
+    // The shell and profile view can request status concurrently at startup.
+    static RESTORE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _guard = RESTORE_LOCK.lock().await;
+    if sync_state::load_sync_config(app_dir)?.is_none() || has_google_drive_tokens(token_store)? {
+        return Ok(());
+    }
+    restore_silently().await
+}
+
 pub fn disconnect_google_drive_data(
     app_dir: &Path,
     token_store: &dyn SecureTokenStore,
@@ -1327,6 +1349,134 @@ mod tests {
         assert!(!sync_state::sync_config_path(temp_dir.path()).exists());
         assert!(!sync_state::base_snapshot_path(temp_dir.path()).exists());
         assert!(!sync_state::pending_conflicts_path(temp_dir.path()).exists());
+    }
+
+    fn configured_sync_dir() -> TempDir {
+        let dir = TempDir::new().unwrap();
+        sync_state::save_sync_config(
+            dir.path(),
+            &sync_state::SyncConfig {
+                sync_profile_id: "prof_1".to_string(),
+                profile_name: "Test".to_string(),
+                google_account_email: Some("user@example.com".to_string()),
+                remote_manifest_name: "manifest.json".to_string(),
+                last_confirmed_snapshot_id: None,
+                last_sync_at: None,
+                last_sync_status: sync_state::SyncLifecycleStatus::Clean,
+                device_name: "Phone".to_string(),
+            },
+        )
+        .unwrap();
+        dir
+    }
+
+    fn restored_android_tokens() -> StoredGoogleTokens {
+        StoredGoogleTokens {
+            refresh_token: ANDROID_ACCESS_TOKEN_SENTINEL_REFRESH_TOKEN.to_string(),
+            access_token: Some("restored-token".to_string()),
+            access_token_expires_at: Some(compute_expiry_timestamp(3600)),
+            scope: None,
+            token_type: Some("Bearer".to_string()),
+            google_account_email: Some("user@example.com".to_string()),
+        }
+    }
+
+    #[tokio::test]
+    async fn silent_restore_recovers_restart_without_changing_sync_profile() {
+        let dir = configured_sync_dir();
+        let original_config = fs::read(sync_state::sync_config_path(dir.path())).unwrap();
+        let store = MemoryTokenStore::default();
+        restore_google_drive_auth_if_missing(dir.path(), &store, || async {
+            store.save_tokens(&restored_android_tokens())
+        })
+        .await
+        .unwrap();
+
+        let status = sync_state::get_sync_status(
+            dir.path(),
+            has_google_drive_tokens(&store).unwrap(),
+            load_google_account_email(&store).unwrap(),
+        )
+        .unwrap();
+        assert!(status.google_authenticated);
+        assert_eq!(
+            status.google_account_email.as_deref(),
+            Some("user@example.com")
+        );
+        assert_eq!(
+            fs::read(sync_state::sync_config_path(dir.path())).unwrap(),
+            original_config
+        );
+
+        restore_google_drive_auth_if_missing(dir.path(), &store, || async {
+            panic!("cached credentials must not trigger another authorization");
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn silent_restore_does_not_reconnect_a_disconnected_profile() {
+        let dir = configured_sync_dir();
+        let store = MemoryTokenStore::default();
+        store.save_tokens(&restored_android_tokens()).unwrap();
+        disconnect_google_drive_data(dir.path(), &store).unwrap();
+        restore_google_drive_auth_if_missing(dir.path(), &store, || async {
+            panic!("disconnected profiles must remain disconnected");
+        })
+        .await
+        .unwrap();
+        assert!(!has_google_drive_tokens(&store).unwrap());
+    }
+
+    #[tokio::test]
+    async fn silent_restore_leaves_manual_reconnect_available_when_consent_is_needed() {
+        let dir = configured_sync_dir();
+        let store = MemoryTokenStore::default();
+        // The native plugin returns without a token when Google needs UI.
+        restore_google_drive_auth_if_missing(dir.path(), &store, || async { Ok(()) })
+            .await
+            .unwrap();
+        assert!(!has_google_drive_tokens(&store).unwrap());
+        assert!(sync_state::load_sync_config(dir.path()).unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn silent_restore_propagates_network_failure_and_allows_retry() {
+        let dir = configured_sync_dir();
+        let store = MemoryTokenStore::default();
+        let error = restore_google_drive_auth_if_missing(dir.path(), &store, || async {
+            Err("Network unavailable".to_string())
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(error, "Network unavailable");
+        assert!(sync_state::load_sync_config(dir.path()).unwrap().is_some());
+        restore_google_drive_auth_if_missing(dir.path(), &store, || async {
+            store.save_tokens(&restored_android_tokens())
+        })
+        .await
+        .unwrap();
+        assert!(has_google_drive_tokens(&store).unwrap());
+    }
+
+    #[tokio::test]
+    async fn silent_restore_coalesces_concurrent_startup_status_requests() {
+        let dir = configured_sync_dir();
+        let store = MemoryTokenStore::default();
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let restore = || async {
+            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            tokio::task::yield_now().await;
+            store.save_tokens(&restored_android_tokens())
+        };
+        let (first, second) = tokio::join!(
+            restore_google_drive_auth_if_missing(dir.path(), &store, restore),
+            restore_google_drive_auth_if_missing(dir.path(), &store, restore),
+        );
+        first.unwrap();
+        second.unwrap();
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     #[test]

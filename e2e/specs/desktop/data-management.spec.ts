@@ -4,9 +4,10 @@ import os from "node:os";
 import { Logger } from '../../../src/logger';
 import { waitForAppReady } from '../../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../../helpers/navigation.js';
-import { dismissAlert } from '../../helpers/common.js';
+import { clickTopmostOverlayChild, dismissAlert } from '../../helpers/common.js';
 import { clickMediaItem } from '../../helpers/library.js';
 import { logActivityFromDetail } from '../../helpers/media-detail.js';
+import { setCheckbox } from '../../helpers/form-controls.js';
 
 const ACTIVITY_CSV_HEADERS = [
   'Date',
@@ -117,8 +118,7 @@ describe('CUJ: Data Management (CSV Export)', () => {
     await radioAll.waitForDisplayed();
     await radioAll.click();
 
-    const confirmBtn = await $('#export-confirm');
-    await confirmBtn.click();
+    await clickTopmostOverlayChild('#export-confirm');
 
     await browser.waitUntil(() => fs.existsSync(tempExportAll), {
         timeout: 15000,
@@ -160,12 +160,9 @@ describe('CUJ: Data Management (CSV Export)', () => {
         await browser.execute((el: unknown) => (el as HTMLElement).click(), exportBtn);
     }
 
-    const radioRange = await $('input[name="export-mode"][value="range"]');
-    await radioRange.waitForDisplayed();
-    await radioRange.click();
+    await setCheckbox('input[name="export-mode"][value="range"]', true);
 
-    const confirmBtn = await $('#export-confirm');
-    await confirmBtn.click();
+    await clickTopmostOverlayChild('#export-confirm');
 
     await browser.waitUntil(() => fs.existsSync(tempExportRange), {
         timeout: 15000,

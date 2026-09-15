@@ -88,6 +88,15 @@ import {
     setThemeOverrideValue,
     applyTheme,
 } from "../theme.ts";
+import {
+    FONT_OPTIONS,
+    getCachedFont,
+    getFontOverrideValue,
+    setFontOverrideValue,
+    isValidFontChoice,
+    applyFont,
+    type FontChoice,
+} from "../fonts.ts";
 
 const THEME_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
     { value: 'pastel-pink', label: 'Pastel Pink (Default)' },
@@ -102,6 +111,7 @@ const THEME_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
     { value: 'fire-red', label: 'Fire Red' },
     { value: 'yellow-lime', label: 'Yellow Lime' },
     { value: 'noctua-brown', label: 'Noctua Brown' },
+    { value: 'eink', label: 'E-Ink' },
 ];
 
 const WEEK_START_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
@@ -147,6 +157,7 @@ const LIBRARY_ORDER_DESCRIPTORS: ReadonlyArray<LibraryOrderDescriptor> = [
 interface ProfileState {
     currentProfile: string;
     theme: string;
+    font: FontChoice;
     profilePicture: ProfilePicture | null;
     report: Record<ReadingContentType, TypeReadingSpeed>;
     logs: ActivitySummary[];
@@ -163,6 +174,7 @@ interface ProfileState {
     localHttpApiStatus: LocalHttpApiStatus | null;
     themeOverrideEnabled: boolean;
     themeOverrideValue: string;
+    fontOverrideValue: FontChoice;
     weekStartDay: string;
     contentTypeOrder: string[];
     trackingStatusOrder: string[];
@@ -212,15 +224,15 @@ function formatSyncStatusLabel(syncStatus: SyncStatus): string {
 function syncStateColor(state: SyncConnectionState): string {
     switch (state) {
         case 'connected_clean':
-            return '#2ed573';
+            return 'var(--success)';
         case 'dirty':
-            return '#f59e0b';
+            return 'var(--warning)';
         case 'syncing':
             return 'var(--accent-blue)';
         case 'conflict_pending':
-            return '#ff7f50';
+            return 'var(--highlight)';
         case 'error':
-            return '#ff4757';
+            return 'var(--danger)';
         case 'disconnected':
         default:
             return 'var(--text-secondary)';
@@ -229,7 +241,7 @@ function syncStateColor(state: SyncConnectionState): string {
 
 function syncStatusColor(syncStatus: SyncStatus): string {
     if (syncStatus.sync_profile_id && !syncStatus.google_authenticated) {
-        return '#ff4757';
+        return 'var(--danger)';
     }
     return syncStateColor(syncStatus.state);
 }
@@ -265,10 +277,10 @@ function profilePictureLabel(picture: SyncConflictProfilePicture | null): string
 
 function syncCardBorderColor(state: SyncConnectionState): string {
     if (state === 'error') {
-        return 'rgba(255, 71, 87, 0.25)';
+        return 'color-mix(in srgb, var(--danger) 25%, transparent)';
     }
     if (state === 'conflict_pending') {
-        return 'rgba(255, 127, 80, 0.25)';
+        return 'color-mix(in srgb, var(--highlight) 25%, transparent)';
     }
     return 'var(--border-color)';
 }
@@ -333,6 +345,7 @@ export class ProfileView extends Component<ProfileState> {
         super(container, {
             currentProfile: localStorage.getItem(STORAGE_KEYS.CURRENT_PROFILE) || DEFAULTS.PROFILE,
             theme: localStorage.getItem(STORAGE_KEYS.THEME_CACHE) || DEFAULTS.THEME,
+            font: getCachedFont(),
             profilePicture: null,
             report: defaultReadingReport(),
             logs: [],
@@ -355,6 +368,7 @@ export class ProfileView extends Component<ProfileState> {
             localHttpApiStatus: null,
             themeOverrideEnabled: isThemeOverrideEnabled(),
             themeOverrideValue: getThemeOverrideValue(),
+            fontOverrideValue: getFontOverrideValue(),
             weekStartDay: '1',
             contentTypeOrder: [...CONTENT_TYPES],
             trackingStatusOrder: [...TRACKING_STATUSES],
@@ -387,6 +401,7 @@ export class ProfileView extends Component<ProfileState> {
 
         const [
             theme,
+            font,
             appVersion,
             profilePicture,
             currentProfile,
@@ -399,6 +414,7 @@ export class ProfileView extends Component<ProfileState> {
             loadedMediaList,
         ] = await Promise.all([
             getSetting(SETTING_KEYS.THEME),
+            getSetting(SETTING_KEYS.FONT_FAMILY),
             getAppVersion(),
             this.loadProfilePicture(),
             getSetting(SETTING_KEYS.PROFILE_NAME),
@@ -420,6 +436,7 @@ export class ProfileView extends Component<ProfileState> {
         ]);
 
         const resolvedTheme = theme || DEFAULTS.THEME;
+        const resolvedFont = font && isValidFontChoice(font) ? font : DEFAULTS.FONT;
         const resolvedProfileName = currentProfile || DEFAULTS.PROFILE;
         const logs = loadedLogs ?? [];
         const mediaList = loadedMediaList ?? [];
@@ -437,6 +454,7 @@ export class ProfileView extends Component<ProfileState> {
         this.setState({
             currentProfile: resolvedProfileName,
             theme: resolvedTheme,
+            font: resolvedFont,
             weekStartDay: this.normalizeWeekStartDay(weekStartDay),
             contentTypeOrder: reconcileEnumOrder(contentTypeOrderStr, CONTENT_TYPES),
             trackingStatusOrder: reconcileEnumOrder(trackingStatusOrderStr, TRACKING_STATUSES),
@@ -555,8 +573,9 @@ export class ProfileView extends Component<ProfileState> {
         }
 
         this.clear();
-        const { currentProfile, theme, profilePicture, appVersion, themeOverrideEnabled, themeOverrideValue, weekStartDay } = this.state;
+        const { currentProfile, theme, font, profilePicture, appVersion, themeOverrideEnabled, themeOverrideValue, fontOverrideValue, weekStartDay } = this.state;
         applyTheme(themeOverrideEnabled ? themeOverrideValue : theme);
+        applyFont(themeOverrideEnabled ? fontOverrideValue : font);
         const profilePictureSrc = profilePictureToDataUrl(profilePicture);
         const initials = getProfileInitials(currentProfile);
         const hasLoggedTime = this.state.logs.some(log => log.duration_minutes > 0);
@@ -602,14 +621,21 @@ export class ProfileView extends Component<ProfileState> {
                         </select>
                     </div>
 
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                        <label for="profile-select-font" style="font-size: 0.85rem; font-weight: 500;">Font</label>
+                        <select id="profile-select-font" style="width: 100%;">
+                            ${this.renderFontOptions(font)}
+                        </select>
+                    </div>
+
                     <div style="display: flex; align-items: center; gap: 0.6rem; margin-top: 0.5rem;">
                         <input id="profile-checkbox-theme-override" type="checkbox" ${themeOverrideEnabled ? 'checked' : ''} />
                         <label for="profile-checkbox-theme-override" style="cursor: pointer;">
-                            Override remote theme on this device
+                            Override remote appearance on this device
                         </label>
                     </div>
                     <p style="color: var(--text-secondary); font-size: 0.85rem; margin: 0;">
-                        When enabled, this device will use a local theme that won't be synced or overwritten by other devices.
+                        When enabled, this device will use a local theme and font that won't be synced or overwritten by other devices.
                     </p>
 
                     ${themeOverrideEnabled ? html`
@@ -617,6 +643,15 @@ export class ProfileView extends Component<ProfileState> {
                             <label for="profile-select-theme-local" style="font-size: 0.85rem; font-weight: 500;">Local theme</label>
                                 <select id="profile-select-theme-local" style="width: 100%;">
                                     ${this.renderThemeOptions(themeOverrideValue)}
+                                </select>
+                        </div>
+                    ` : ''}
+
+                    ${themeOverrideEnabled ? html`
+                        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                            <label for="profile-select-font-local" style="font-size: 0.85rem; font-weight: 500;">Local font</label>
+                                <select id="profile-select-font-local" style="width: 100%;">
+                                    ${this.renderFontOptions(fontOverrideValue)}
                                 </select>
                         </div>
                     ` : ''}
@@ -680,24 +715,24 @@ export class ProfileView extends Component<ProfileState> {
                     </div>
                 </div>
 
-                <div class="card" style="display: flex; flex-direction: column; gap: 1rem; border: 1px solid #ff4757;">
-                    <h3 style="color: #ff4757;">Danger Zone</h3>
+                <div class="card" style="display: flex; flex-direction: column; gap: 1rem; border: 1px solid var(--danger);">
+                    <h3 style="color: var(--danger);">Danger Zone</h3>
 
                     <div style="display: flex; flex-direction: column; gap: 1rem; margin-top: 0.5rem;">
                         <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
                             <div>
-                                <strong style="color: #ff4757;">Clear User Activities</strong>
+                                <strong style="color: var(--danger);">Clear User Activities</strong>
                                 <p style="color: var(--text-secondary); font-size: 0.8rem; margin: 0;">Removes all recorded activity logs, but keeps the profile and media library intact.</p>
                             </div>
-                            <button class="btn btn-danger" id="profile-btn-clear-activities" style="background-color: transparent !important; border: 1px solid #ff4757; color: #ff4757 !important; min-width: 140px;">Clear Activities</button>
+                            <button class="btn btn-danger" id="profile-btn-clear-activities" style="background-color: transparent !important; border: 1px solid var(--danger); color: var(--danger) !important; min-width: 140px;">Clear Activities</button>
                         </div>
 
                         <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem;">
                             <div>
-                                <strong style="color: #ff4757;">Delete Everything</strong>
+                                <strong style="color: var(--danger);">Delete Everything</strong>
                                 <p style="color: var(--text-secondary); font-size: 0.8rem; margin: 0;">Perform a total factory reset. Deletes ALL profiles, ALL activity logs, and the ENTIRE media library along with its cover images. Irreversible.</p>
                             </div>
-                            <button class="btn btn-danger" id="profile-btn-wipe-everything" style="background-color: darkred !important; color: #ffffff !important; border: none; min-width: 140px; font-weight: bold;">Factory Reset</button>
+                            <button class="btn btn-danger" id="profile-btn-wipe-everything" style="background-color: var(--danger-strong) !important; color: var(--text-on-fill) !important; border: none; min-width: 140px; font-weight: bold;">Factory Reset</button>
                         </div>
                     </div>
                 </div>
@@ -757,6 +792,14 @@ export class ProfileView extends Component<ProfileState> {
         const optionsHtml = THEME_OPTIONS.map(({ value, label }) => {
             const selected = value === currentValue ? ' selected' : '';
             return `<option value="${escapeHTML(value)}"${selected}>${escapeHTML(label)}</option>`;
+        }).join('');
+        return rawHtml(optionsHtml);
+    }
+
+    private renderFontOptions(currentValue: FontChoice) {
+        const optionsHtml = FONT_OPTIONS.map(({ value, label }) => {
+            const selected = value === currentValue ? ' selected' : '';
+            return `<option value="${escapeHTML(value)}" class="font-option-${escapeHTML(value)}"${selected}>${escapeHTML(label)}</option>`;
         }).join('');
         return rawHtml(optionsHtml);
     }
@@ -884,12 +927,12 @@ export class ProfileView extends Component<ProfileState> {
         }
 
         const runningLabel = status.running ? 'Running' : 'Stopped';
-        const runningColor = status.running ? '#2ed573' : 'var(--text-secondary)';
+        const runningColor = status.running ? 'var(--success)' : 'var(--text-secondary)';
         const lanEnabled = status.bindHost === '0.0.0.0';
         const originsText = status.allowedOrigins.join('\n');
 
         return html`
-            <div class="card" id="profile-local-http-api-card" style="display: flex; flex-direction: column; gap: 1rem; border: 1px solid ${status.enabled ? 'rgba(245, 158, 11, 0.35)' : 'var(--border-color)'};">
+            <div class="card" id="profile-local-http-api-card" style="display: flex; flex-direction: column; gap: 1rem; border: 1px solid ${status.enabled ? 'color-mix(in srgb, var(--warning) 35%, transparent)' : 'var(--border-color)'};">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap;">
                     <div style="display: flex; flex-direction: column; gap: 0.45rem;">
                         <h3 style="margin: 0;">HTTP API</h3>
@@ -917,7 +960,7 @@ export class ProfileView extends Component<ProfileState> {
 
                 ${status.url
                     ? html`
-                        <div style="display: flex; flex-direction: column; gap: 0.25rem; padding: 0.75rem 0.9rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: rgba(255,255,255,0.02);">
+                        <div style="display: flex; flex-direction: column; gap: 0.25rem; padding: 0.75rem 0.9rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: color-mix(in srgb, var(--tint-light) 2%, transparent);">
                             <span style="font-size: 0.78rem; color: var(--text-secondary);">Endpoint</span>
                             <code style="color: var(--text-primary); overflow-wrap: anywhere;">${status.url}</code>
                         </div>
@@ -926,7 +969,7 @@ export class ProfileView extends Component<ProfileState> {
 
                 ${status.lastError
                     ? html`
-                        <div style="padding: 0.75rem 0.9rem; border-radius: var(--radius-md); border: 1px solid rgba(255, 71, 87, 0.35); background: rgba(255, 71, 87, 0.08); color: var(--text-primary); font-size: 0.88rem;">
+                        <div style="padding: 0.75rem 0.9rem; border-radius: var(--radius-md); border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent); background: color-mix(in srgb, var(--danger) 8%, transparent); color: var(--text-primary); font-size: 0.88rem;">
                             ${status.lastError}
                         </div>
                     `
@@ -935,7 +978,7 @@ export class ProfileView extends Component<ProfileState> {
                 <details id="profile-local-api-advanced" style="border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 0.75rem 0.9rem;">
                     <summary style="cursor: pointer; color: var(--text-primary); font-weight: 600;">Advanced settings</summary>
                     <div style="display: flex; flex-direction: column; gap: 0.85rem; margin-top: 1rem;">
-                        <div style="padding: 0.9rem 1rem; border-radius: var(--radius-md); border: 1px solid rgba(245, 158, 11, 0.35); background: rgba(245, 158, 11, 0.08); color: var(--text-primary); font-size: 0.88rem; line-height: 1.45;">
+                        <div style="padding: 0.9rem 1rem; border-radius: var(--radius-md); border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent); background: color-mix(in srgb, var(--warning) 8%, transparent); color: var(--text-primary); font-size: 0.88rem; line-height: 1.45;">
                             This API is unauthenticated. While enabled, local programs can read and change Kechimochi data. LAN access lets other devices on your network do the same. Full API mode also exposes import, export, reset, cover upload, and network proxy endpoints.
                         </div>
 
@@ -1009,10 +1052,10 @@ export class ProfileView extends Component<ProfileState> {
 
     private renderSyncUnavailableCard(message: string) {
         return html`
-            <div class="card" id="profile-sync-card" style="display: flex; flex-direction: column; gap: 1rem; border: 1px solid rgba(255, 71, 87, 0.25);">
+            <div class="card" id="profile-sync-card" style="display: flex; flex-direction: column; gap: 1rem; border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);">
                 <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
                     <h3 style="margin: 0;">Cloud Sync</h3>
-                    <span style="font-size: 0.8rem; color: #ff4757; border: 1px solid rgba(255, 71, 87, 0.35); border-radius: 999px; padding: 0.2rem 0.65rem;">Unavailable</span>
+                    <span style="font-size: 0.8rem; color: var(--danger); border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent); border-radius: 999px; padding: 0.2rem 0.65rem;">Unavailable</span>
                 </div>
                 <p style="color: var(--text-secondary); font-size: 0.9rem; margin: 0;">${message}</p>
                 <div style="display: flex; justify-content: flex-end;">
@@ -1054,7 +1097,7 @@ export class ProfileView extends Component<ProfileState> {
 
                 ${this.state.syncError
                     ? html`
-                        <div style="padding: 0.9rem 1rem; border-radius: var(--radius-md); border: 1px solid rgba(255, 71, 87, 0.35); background: rgba(255, 71, 87, 0.08); color: var(--text-primary);">
+                        <div style="padding: 0.9rem 1rem; border-radius: var(--radius-md); border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent); background: color-mix(in srgb, var(--danger) 8%, transparent); color: var(--text-primary);">
                             ${this.state.syncError}
                         </div>
                     `
@@ -1081,7 +1124,7 @@ export class ProfileView extends Component<ProfileState> {
         const chips: HTMLElement[] = [];
         if (hasConflicts) {
             chips.push(html`
-                <span style="font-size: 0.76rem; color: var(--text-primary); border: 1px solid rgba(255, 127, 80, 0.35); border-radius: 999px; padding: 0.22rem 0.65rem; background: rgba(255, 127, 80, 0.08);">
+                <span style="font-size: 0.76rem; color: var(--text-primary); border: 1px solid color-mix(in srgb, var(--highlight) 35%, transparent); border-radius: 999px; padding: 0.22rem 0.65rem; background: color-mix(in srgb, var(--highlight) 8%, transparent);">
                     ${syncStatus.conflict_count} pending conflict${syncStatus.conflict_count === 1 ? '' : 's'}
                 </span>
             `);
@@ -1147,7 +1190,7 @@ export class ProfileView extends Component<ProfileState> {
         const toggleLabel = this.state.showSyncRecoveryTools ? 'Hide tools' : 'Show tools';
 
         return html`
-            <div style="display: flex; flex-direction: column; gap: 0.75rem; padding: 0.9rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-color); background: rgba(255,255,255,0.02);">
+            <div style="display: flex; flex-direction: column; gap: 0.75rem; padding: 0.9rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-color); background: color-mix(in srgb, var(--tint-light) 2%, transparent);">
                 <button
                     id="profile-btn-toggle-sync-recovery"
                     type="button"
@@ -1163,7 +1206,7 @@ export class ProfileView extends Component<ProfileState> {
                 </button>
                 ${this.state.showSyncRecoveryTools
                     ? html`
-                        <div style="display: flex; flex-direction: column; gap: 0.75rem; padding: 0.9rem 1rem; border-radius: var(--radius-md); border: 1px solid rgba(255, 71, 87, 0.28); background: rgba(255, 71, 87, 0.06);">
+                        <div style="display: flex; flex-direction: column; gap: 0.75rem; padding: 0.9rem 1rem; border-radius: var(--radius-md); border: 1px solid color-mix(in srgb, var(--danger) 28%, transparent); background: color-mix(in srgb, var(--danger) 6%, transparent);">
                             <span style="color: var(--text-secondary); font-size: 0.85rem;">
                                 These actions are destructive. ${hint}
                             </span>
@@ -1240,7 +1283,7 @@ export class ProfileView extends Component<ProfileState> {
     private renderSyncInfoTile(label: string, value: string, fullWidth = false, extra?: HTMLElement) {
         const spanStyle = fullWidth ? 'grid-column: 1 / -1;' : '';
         return html`
-            <div style="${spanStyle} display: flex; flex-direction: column; gap: 0.25rem; padding: 0.9rem 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: rgba(255,255,255,0.02);">
+            <div style="${spanStyle} display: flex; flex-direction: column; gap: 0.25rem; padding: 0.9rem 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: color-mix(in srgb, var(--tint-light) 2%, transparent);">
                 <span style="font-size: 0.78rem; color: var(--text-secondary);">${label}</span>
                 <strong style="font-size: 0.96rem; color: var(--text-primary);">${value}</strong>
                 ${extra || ''}
@@ -1277,7 +1320,7 @@ export class ProfileView extends Component<ProfileState> {
 
     private renderDuplicateMediaIdentityConflict(conflict: Extract<SyncConflict, { kind: 'duplicate_media_identity' }>, index: number) {
         const renderMediaSummary = (label: string, media: typeof conflict.local_media) => html`
-            <div style="display: flex; flex-direction: column; gap: 0.35rem; padding: 0.9rem 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: rgba(255,255,255,0.02);">
+            <div style="display: flex; flex-direction: column; gap: 0.35rem; padding: 0.9rem 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: color-mix(in srgb, var(--tint-light) 2%, transparent);">
                 <span style="font-size: 0.8rem; color: var(--text-secondary);">${label}</span>
                 <strong style="color: var(--text-primary);">${media.title}</strong>
                 <span style="font-size: 0.82rem; color: var(--text-secondary);">Variant: ${media.variant || '(none)'}</span>
@@ -1303,7 +1346,7 @@ export class ProfileView extends Component<ProfileState> {
         };
 
         return html`
-            <div class="sync-duplicate-media-conflict" data-sync-duplicate-conflict-index="${index}" style="display: flex; flex-direction: column; gap: 0.8rem; padding: 1rem; border: 1px solid rgba(255, 127, 80, 0.24); border-radius: var(--radius-md); background: rgba(255, 127, 80, 0.05);">
+            <div class="sync-duplicate-media-conflict" data-sync-duplicate-conflict-index="${index}" style="display: flex; flex-direction: column; gap: 0.8rem; padding: 1rem; border: 1px solid color-mix(in srgb, var(--highlight) 24%, transparent); border-radius: var(--radius-md); background: color-mix(in srgb, var(--highlight) 5%, transparent);">
                 <div style="display: flex; flex-direction: column; gap: 0.25rem;">
                     <strong>Duplicate media identity conflict</strong>
                     <span style="color: var(--text-secondary); font-size: 0.85rem;">Local and Cloud contain separate media entries with the same title and variant. Combine them, or rename one side before keeping both.</span>
@@ -1329,7 +1372,7 @@ export class ProfileView extends Component<ProfileState> {
             : conflict.media_uid;
 
         return html`
-            <div style="display: flex; flex-direction: column; gap: 0.8rem; padding: 1rem; border: 1px solid rgba(255, 127, 80, 0.24); border-radius: var(--radius-md); background: rgba(255, 127, 80, 0.05);">
+            <div style="display: flex; flex-direction: column; gap: 0.8rem; padding: 1rem; border: 1px solid color-mix(in srgb, var(--highlight) 24%, transparent); border-radius: var(--radius-md); background: color-mix(in srgb, var(--highlight) 5%, transparent);">
                 <div style="display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
                     <div style="display: flex; flex-direction: column; gap: 0.25rem;">
                         <strong>${formatFieldLabel(conflict.field_name)} conflict</strong>
@@ -1353,7 +1396,7 @@ export class ProfileView extends Component<ProfileState> {
         const remoteLabel = conflict.remote_value === null ? 'Discard entry' : 'Use Remote Entry';
 
         return html`
-            <div style="display: flex; flex-direction: column; gap: 0.8rem; padding: 1rem; border: 1px solid rgba(255, 127, 80, 0.24); border-radius: var(--radius-md); background: rgba(255, 127, 80, 0.05);">
+            <div style="display: flex; flex-direction: column; gap: 0.8rem; padding: 1rem; border: 1px solid color-mix(in srgb, var(--highlight) 24%, transparent); border-radius: var(--radius-md); background: color-mix(in srgb, var(--highlight) 5%, transparent);">
                 <div style="display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
                     <div style="display: flex; flex-direction: column; gap: 0.25rem;">
                         <strong>Extra data entry conflict</strong>
@@ -1381,7 +1424,7 @@ export class ProfileView extends Component<ProfileState> {
                 : conflict.local_media?.title || conflict.media_uid;
 
         return html`
-            <div style="display: flex; flex-direction: column; gap: 0.8rem; padding: 1rem; border: 1px solid rgba(255, 127, 80, 0.24); border-radius: var(--radius-md); background: rgba(255, 127, 80, 0.05);">
+            <div style="display: flex; flex-direction: column; gap: 0.8rem; padding: 1rem; border: 1px solid color-mix(in srgb, var(--highlight) 24%, transparent); border-radius: var(--radius-md); background: color-mix(in srgb, var(--highlight) 5%, transparent);">
                 <div style="display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
                     <div style="display: flex; flex-direction: column; gap: 0.25rem;">
                         <strong>Delete vs update conflict</strong>
@@ -1389,7 +1432,7 @@ export class ProfileView extends Component<ProfileState> {
                     </div>
                     <span style="font-size: 0.76rem; color: var(--text-secondary);">UID ${conflict.media_uid}</span>
                 </div>
-                <div style="padding: 0.9rem 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: rgba(255,255,255,0.02);">
+                <div style="padding: 0.9rem 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: color-mix(in srgb, var(--tint-light) 2%, transparent);">
                     <div style="font-size: 0.8rem; color: var(--text-secondary);">Restore candidate</div>
                     <div style="font-weight: 600; color: var(--text-primary);">${restoredTitle}</div>
                     <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.35rem;">Deleted at ${formatSyncTimestamp(conflict.tombstone.deleted_at)}</div>
@@ -1404,7 +1447,7 @@ export class ProfileView extends Component<ProfileState> {
 
     private renderProfilePictureConflict(conflict: Extract<SyncConflict, { kind: 'profile_picture_conflict' }>, index: number) {
         return html`
-            <div style="display: flex; flex-direction: column; gap: 0.8rem; padding: 1rem; border: 1px solid rgba(255, 127, 80, 0.24); border-radius: var(--radius-md); background: rgba(255, 127, 80, 0.05);">
+            <div style="display: flex; flex-direction: column; gap: 0.8rem; padding: 1rem; border: 1px solid color-mix(in srgb, var(--highlight) 24%, transparent); border-radius: var(--radius-md); background: color-mix(in srgb, var(--highlight) 5%, transparent);">
                 <div style="display: flex; flex-direction: column; gap: 0.25rem;">
                     <strong>Profile picture conflict</strong>
                     <span style="color: var(--text-secondary); font-size: 0.85rem;">Choose which picture should become the synced version.</span>
@@ -1423,7 +1466,7 @@ export class ProfileView extends Component<ProfileState> {
 
     private renderSyncValueChoice(label: string, value: string, preformatted = false) {
         return html`
-            <div style="display: flex; flex-direction: column; gap: 0.4rem; padding: 0.9rem 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: rgba(255,255,255,0.02);">
+            <div style="display: flex; flex-direction: column; gap: 0.4rem; padding: 0.9rem 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: color-mix(in srgb, var(--tint-light) 2%, transparent);">
                 <span style="font-size: 0.8rem; color: var(--text-secondary);">${label}</span>
                 <pre style="margin: 0; white-space: pre-wrap; word-break: break-word; font-family: ${preformatted ? 'monospace' : 'inherit'}; font-size: 0.9rem; color: var(--text-primary);">${value}</pre>
             </div>
@@ -1433,9 +1476,9 @@ export class ProfileView extends Component<ProfileState> {
     private renderProfilePictureChoice(label: string, picture: SyncConflictProfilePicture | null) {
         const pictureSrc = picture ? profilePictureToDataUrl(picture as ProfilePicture) : null;
         return html`
-            <div style="display: flex; flex-direction: column; gap: 0.6rem; padding: 0.9rem 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: rgba(255,255,255,0.02);">
+            <div style="display: flex; flex-direction: column; gap: 0.6rem; padding: 0.9rem 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: color-mix(in srgb, var(--tint-light) 2%, transparent);">
                 <span style="font-size: 0.8rem; color: var(--text-secondary);">${label}</span>
-                <div style="display: flex; justify-content: center; align-items: center; min-height: 124px; padding: 0.75rem; border-radius: var(--radius-md); background: rgba(255,255,255,0.03);">
+                <div style="display: flex; justify-content: center; align-items: center; min-height: 124px; padding: 0.75rem; border-radius: var(--radius-md); background: color-mix(in srgb, var(--tint-light) 3%, transparent);">
                     ${pictureSrc
                         ? html`<img src="${pictureSrc}" alt="${label}" style="max-width: 100px; max-height: 100px; border-radius: 999px; object-fit: cover;" />`
                         : html`<span style="color: var(--text-secondary); font-size: 0.88rem;">No picture</span>`}
@@ -1481,11 +1524,22 @@ export class ProfileView extends Component<ProfileState> {
             this.setState({ theme });
         });
 
+        root.querySelector('#profile-select-font')?.addEventListener('change', async (e) => {
+            const font = (e.target as HTMLSelectElement).value as FontChoice;
+            await setSetting(SETTING_KEYS.FONT_FAMILY, font);
+            if (!isThemeOverrideEnabled()) {
+                applyFont(font);
+            }
+            this.setState({ font });
+        });
+
         root.querySelector('#profile-checkbox-theme-override')?.addEventListener('change', (e) => {
             const enabled = (e.target as HTMLInputElement).checked;
             setThemeOverrideEnabled(enabled);
             const effectiveTheme = enabled ? getThemeOverrideValue() : this.state.theme;
             applyTheme(effectiveTheme);
+            const effectiveFont = enabled ? getFontOverrideValue() : this.state.font;
+            applyFont(effectiveFont);
             this.setState({ themeOverrideEnabled: enabled });
             this.render();
         });
@@ -1497,6 +1551,15 @@ export class ProfileView extends Component<ProfileState> {
                 applyTheme(localTheme);
             }
             this.setState({ themeOverrideValue: localTheme });
+        });
+
+        root.querySelector('#profile-select-font-local')?.addEventListener('change', (e) => {
+            const localFont = (e.target as HTMLSelectElement).value as FontChoice;
+            setFontOverrideValue(localFont);
+            if (isThemeOverrideEnabled()) {
+                applyFont(localFont);
+            }
+            this.setState({ fontOverrideValue: localFont });
         });
 
         root.querySelector('#profile-select-week-start')?.addEventListener('change', async (e) => {

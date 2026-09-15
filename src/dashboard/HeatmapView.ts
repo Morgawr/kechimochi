@@ -94,16 +94,13 @@ export class HeatmapView extends Component<HeatmapViewState> {
         }
 
         const style = getComputedStyle(document.body);
-        const getThemeNum = (v: string, def: number) => {
-            const s = style.getPropertyValue(v).trim();
-            return s === "" ? def : Number.parseFloat(s);
-        };
+        const getThemeNum = (v: string) => Number.parseFloat(style.getPropertyValue(v).trim());
 
-        const heatmapHue = style.getPropertyValue('--heatmap-hue').trim() || '353';
-        const satBase = getThemeNum('--heatmap-sat-base', 30);
-        const satRange = getThemeNum('--heatmap-sat-range', 70);
-        const lightBase = getThemeNum('--heatmap-light-base', 45);
-        const lightRange = getThemeNum('--heatmap-light-range', 41);
+        const heatmapHue = style.getPropertyValue('--heatmap-hue').trim();
+        const satBase = getThemeNum('--heatmap-sat-base');
+        const satRange = getThemeNum('--heatmap-sat-range');
+        const lightBase = getThemeNum('--heatmap-light-base');
+        const lightRange = getThemeNum('--heatmap-light-range');
 
         const todayStr = this.getLocalISODate(new Date());
 
