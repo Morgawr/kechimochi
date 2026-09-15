@@ -5,6 +5,7 @@ import { Logger } from '../../../src/logger';
 import * as api from '../../../src/api';
 
 vi.mock('../../../src/api', () => ({
+    addMedia: vi.fn(),
     getMilestones: vi.fn(),
     readFileBytes: vi.fn(),
     updateMedia: vi.fn(),
@@ -100,6 +101,7 @@ describe('MediaDetail', () => {
         onPrev: vi.fn(),
         onNavigate: vi.fn(),
         onNavigateToMedia: vi.fn(),
+        onVariantCreated: vi.fn(),
         onDelete: vi.fn(),
     };
 
@@ -497,6 +499,36 @@ describe('MediaDetail', () => {
             expect(mockCallbacks.onDelete).toHaveBeenCalled();
             expect(modals.customConfirm).toHaveBeenCalled();
             expect(api.deleteMedia).toHaveBeenCalledWith(1);
+        });
+    });
+
+    it('creates a copied variant from the overflow menu and opens it', async () => {
+        vi.mocked(modals.customPrompt).mockResolvedValue('Manga');
+        vi.mocked(api.addMedia).mockResolvedValue(22);
+        const component = new MediaDetail(
+            container,
+            { ...mockMedia, variant: 'Anime' } as unknown as Media,
+            [],
+            [{ ...mockMedia, variant: 'Anime' } as unknown as Media],
+            0,
+            mockCallbacks,
+        );
+        component.render();
+
+        (container.querySelector('#btn-media-overflow') as HTMLElement).click();
+        const createVariantButton = document.querySelector('#btn-create-media-variant') as HTMLElement;
+        expect(createVariantButton.textContent).toContain('Create variant');
+        createVariantButton.click();
+
+        await vi.waitFor(() => {
+            expect(api.addMedia).toHaveBeenCalledWith(expect.objectContaining({
+                title: 'Test Media',
+                variant: 'Manga',
+                description: 'Test Desc',
+                cover_image: '/path/to/img.jpg',
+                extra_data: '{"Author":"Writer"}',
+            }));
+            expect(mockCallbacks.onVariantCreated).toHaveBeenCalledWith(22);
         });
     });
 

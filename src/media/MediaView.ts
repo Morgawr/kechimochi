@@ -884,6 +884,7 @@ private async handleBack() {
                 onPrev: () => { this.runAsync(this.navigateDetail(-1), 'Failed to navigate to previous media'); },
                 onNavigate: (index) => { this.runAsync(this.navigateToDetailIndex(index), 'Failed to navigate to selected media'); },
                 onNavigateToMedia: (mediaId) => { this.runAsync(this.navigateToMedia(mediaId), 'Failed to navigate to related media variant'); },
+                onVariantCreated: (mediaId) => { this.runAsync(this.loadData(mediaId), 'Failed to open created media variant'); },
                 onDelete: () => { this.runAsync(this.exitDetail(true), 'Failed to refresh library after delete'); },
             },
             this.state.libraryMediaList,

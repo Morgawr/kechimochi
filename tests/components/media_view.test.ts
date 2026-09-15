@@ -618,6 +618,28 @@ describe('MediaView', () => {
         await vi.waitFor(() => expect(component.state.viewMode).toBe('grid'));
     });
 
+    it('refreshes the library and opens a newly created variant', async () => {
+        const source = { id: 10, title: 'Shared Title', variant: 'Anime' };
+        const created = { id: 20, title: 'Shared Title', variant: 'Manga' };
+        vi.mocked(api.getAllMedia).mockResolvedValue([source] as unknown as Media[]);
+        vi.mocked(api.getLogsForMedia).mockResolvedValue([]);
+
+        const component = new MediaViewTestHarness(container);
+        await renderAndWaitForBrowser(component);
+        vi.mocked(MediaLibraryBrowser).mock.calls[0][2]({ mediaId: 10, navigationIds: [10] });
+        await vi.waitFor(() => expect(MediaDetail).toHaveBeenCalled());
+
+        vi.mocked(api.getAllMedia).mockResolvedValue([source, created] as unknown as Media[]);
+        const detailCallbacks = lastMockCallArguments(vi.mocked(MediaDetail).mock.calls, 'MediaDetail')[5];
+        detailCallbacks.onVariantCreated?.(20);
+
+        await vi.waitFor(() => {
+            expect(api.getLogsForMedia).toHaveBeenCalledWith(20);
+            expect(component.state.viewMode).toBe('detail');
+            expect(component.state.detailMediaList[component.state.currentIndex]?.id).toBe(20);
+        });
+    });
+
     it('reloads detail logs when navigating between media', async () => {
         const mockMedia = [{ id: 10, title: 'Old' }, { id: 20, title: 'New' }];
         const oldLogs = [{

@@ -3597,6 +3597,32 @@ mod tests {
     }
 
     #[test]
+    fn test_delete_media_keeps_a_managed_cover_referenced_by_a_variant() {
+        let temp_dir = unique_temp_dir("managed_cover_shared_by_variant");
+        std::fs::create_dir_all(temp_dir.join("covers")).unwrap();
+        let conn = init_db(temp_dir.clone(), None).unwrap();
+        let cover_path = temp_dir.join("covers").join("shared.png");
+        std::fs::write(&cover_path, "managed cover").unwrap();
+
+        let mut original = sample_media("Shared cover");
+        original.variant = "Original".to_string();
+        original.cover_image = cover_path.to_string_lossy().to_string();
+        let original_id = add_media_with_id(&conn, &original).unwrap();
+
+        let mut variant = original.clone();
+        variant.variant = "Variant".to_string();
+        let variant_id = add_media_with_id(&conn, &variant).unwrap();
+
+        delete_media(&conn, original_id).unwrap();
+        assert!(cover_path.exists());
+
+        delete_media(&conn, variant_id).unwrap();
+        assert!(!cover_path.exists());
+        drop(conn);
+        std::fs::remove_dir_all(temp_dir).ok();
+    }
+
+    #[test]
     fn test_delete_log() {
         let conn = setup_test_db();
         let media_id = add_media_with_id(&conn, &sample_media("Log")).unwrap();

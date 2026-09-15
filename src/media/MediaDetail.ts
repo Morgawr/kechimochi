@@ -22,12 +22,13 @@ import {getServices} from '../services';
 import {MediaCoverLoader} from './cover_loader';
 import {pushBackHandler} from '../back_stack';
 import {openPopupMenu, type PopupMenuHandle} from '../popup_menu';
-import {TRASH_CAN} from '../icons';
+import {FORK, TRASH_CAN} from '../icons';
 import {
     addLogForMedia,
     addMilestoneForMedia,
     canAddMilestone,
     canMarkComplete,
+    createMediaVariant,
     deleteMediaWithConfirmation,
     markMediaComplete,
     notifyLocalDataChanged,
@@ -74,6 +75,7 @@ export class MediaDetail extends Component<MediaDetailState> {
     private readonly onPrev: () => void;
     private readonly onNavigate: (index: number) => void;
     private readonly onNavigateToMedia: (mediaId: number) => void;
+    private readonly onVariantCreated: (mediaId: number) => void;
     private readonly onDelete: () => void;
     private readonly mediaList: Media[];
     private readonly libraryMediaList: Media[];
@@ -131,6 +133,7 @@ export class MediaDetail extends Component<MediaDetailState> {
             onPrev: () => void,
             onNavigate: (index: number) => void,
             onNavigateToMedia?: (mediaId: number) => void,
+            onVariantCreated?: (mediaId: number) => void,
             onDelete: () => void,
         },
         libraryMediaList: Media[] = mediaList,
@@ -155,6 +158,7 @@ export class MediaDetail extends Component<MediaDetailState> {
         this.onPrev = callbacks.onPrev;
         this.onNavigate = callbacks.onNavigate;
         this.onNavigateToMedia = callbacks.onNavigateToMedia ?? (() => undefined);
+        this.onVariantCreated = callbacks.onVariantCreated ?? (() => undefined);
         this.onDelete = callbacks.onDelete;
         this.libraryMediaList = libraryMediaList;
         this.onViewportResize = () => this.syncViewportLayout();
@@ -654,15 +658,32 @@ export class MediaDetail extends Component<MediaDetailState> {
             label: `Actions for ${this.state.media.title}`,
             anchor: { kind: 'element', element: this.overflowMenuButton, align: 'end' },
             onClose: () => { this.overflowMenuHandle = null; },
-            items: [{
-                actionId: 'delete',
-                elementId: 'btn-delete-media-detail',
-                label: 'Delete media',
-                iconMarkup: TRASH_CAN,
-                isDanger: true,
-                onSelect: () => { this.deleteMediaFromDetail().catch(e => Logger.error('Failed to delete media', e)); },
-            }],
+            items: [
+                {
+                    actionId: 'create-variant',
+                    elementId: 'btn-create-media-variant',
+                    label: 'Create variant',
+                    iconMarkup: FORK,
+                    onSelect: () => { this.createVariantFromDetail().catch(e => Logger.error('Failed to create media variant', e)); },
+                },
+                {
+                    actionId: 'delete',
+                    elementId: 'btn-delete-media-detail',
+                    label: 'Delete media',
+                    iconMarkup: TRASH_CAN,
+                    isDanger: true,
+                    separatorBefore: true,
+                    onSelect: () => { this.deleteMediaFromDetail().catch(e => Logger.error('Failed to delete media', e)); },
+                },
+            ],
         });
+    }
+
+    private async createVariantFromDetail() {
+        const outcome = await createMediaVariant(this.state.media, this.libraryMediaList);
+        if (outcome.committed && outcome.createdMediaId !== undefined) {
+            this.onVariantCreated(outcome.createdMediaId);
+        }
     }
 
     private async deleteMediaFromDetail() {

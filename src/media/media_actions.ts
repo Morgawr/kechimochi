@@ -1,7 +1,7 @@
-import { ActivitySummary, Media, addMilestone, deleteMedia, updateMedia } from '../api';
+import { ActivitySummary, Media, addMedia, addMilestone, deleteMedia, updateMedia } from '../api';
 import { showLogActivityModal } from '../activity_modal';
 import { showAddMilestoneModal } from '../milestone_modal';
-import { customAlert, customConfirm } from '../modal_base';
+import { customAlert, customConfirm, customPrompt } from '../modal_base';
 import { EVENTS, MEDIA_STATUS } from '../constants';
 import { Logger } from '../logger';
 
@@ -10,6 +10,7 @@ const COMPLETE_TRACKING_STATUS = 'Complete';
 export interface MediaActionOutcome {
     committed: boolean;
     updatedMedia?: Media;
+    createdMediaId?: number;
 }
 
 export function notifyLocalDataChanged(coversChanged = false): void {
@@ -22,6 +23,21 @@ export function canAddMilestone(media: Media): boolean {
 
 export function canMarkComplete(media: Media): boolean {
     return media.tracking_status !== COMPLETE_TRACKING_STATUS;
+}
+
+function buildMediaVariant(source: Media, variant: string): Media {
+    return {
+        title: source.title,
+        variant,
+        default_activity_type: source.default_activity_type,
+        status: source.status,
+        language: source.language,
+        description: source.description,
+        cover_image: source.cover_image,
+        extra_data: source.extra_data,
+        content_type: source.content_type,
+        tracking_status: source.tracking_status,
+    };
 }
 
 async function persistMediaUpdate(updatedMedia: Media): Promise<MediaActionOutcome> {
@@ -67,6 +83,44 @@ export async function addMilestoneForMedia(media: Media, logs: ActivitySummary[]
 
     notifyLocalDataChanged();
     return { committed: true };
+}
+
+export async function createMediaVariant(media: Media, mediaList: Media[]): Promise<MediaActionOutcome> {
+    const requestedVariant = await customPrompt(
+        'Create Variant',
+        '',
+        `Create a new entry for "${media.title}". Its media details will be copied, while activity and milestones will start empty.`,
+    );
+    if (requestedVariant === null) return { committed: false };
+
+    const variant = requestedVariant.trim();
+    if (!variant) {
+        await customAlert('Variant Name Required', 'Enter a name for the new variant.');
+        return { committed: false };
+    }
+
+    const existing = mediaList.some(candidate => (
+        candidate.title === media.title && (candidate.variant || '') === variant
+    ));
+    if (existing) {
+        await customAlert(
+            'Variant Already Exists',
+            `A media entry for "${media.title}" with variant "${variant}" already exists.`,
+        );
+        return { committed: false };
+    }
+
+    let createdMediaId: number;
+    try {
+        createdMediaId = await addMedia(buildMediaVariant(media, variant));
+    } catch (error) {
+        Logger.error('Failed to create media variant', error);
+        await customAlert('Unable to Create Variant', `The media variant was not created: ${error}`);
+        return { committed: false };
+    }
+
+    notifyLocalDataChanged();
+    return { committed: true, createdMediaId };
 }
 
 export async function markMediaComplete(media: Media): Promise<MediaActionOutcome> {
