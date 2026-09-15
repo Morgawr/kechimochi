@@ -30,6 +30,7 @@ The format is based on Keep a Changelog, with one section per released version.
  - Selected toggle buttons, filter chips and sort direction options are now readable on themes with a dark accent colour
  - Media detail navigation and overflow actions are now clickable over the cover banner at narrow window and phone widths
  - Applied consistent spacing and padding below the compact desktop top bar
+ - Right-click and overflow menus no longer close themselves right after opening when a scroll from just before the menu opened arrives late
 
 ## [0.3.2] - 2026-08-25
 
