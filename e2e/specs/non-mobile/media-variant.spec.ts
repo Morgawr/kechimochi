@@ -5,8 +5,10 @@ import { backToGrid, logActivityFromDetail } from '../../helpers/media-detail.js
 import { logActivity } from '../../helpers/dashboard.js';
 import { setText } from '../../helpers/form-controls.js';
 import {
+  clickMenuItem,
   clickTopmostOverlayChild,
   dismissAlert,
+  submitPrompt,
   waitForNoActiveOverlays,
   waitForTopmostOverlayText,
 } from '../../helpers/common.js';
@@ -119,6 +121,36 @@ describe('Media Variant CUJ', () => {
     await clickMediaItem(duplicateTitle, 'Manga');
     expect(await $('#media-variant').getText()).toBe('Manga');
     await waitForSingleMediaDetailLog('13');
+  });
+
+  it('creates a variant with copied metadata and empty progress history', async () => {
+    const sourceTitle = '薬屋のひとりごと';
+    const newVariant = 'Collector Edition';
+
+    await navigateTo('media');
+    if (await $('#media-detail-header').isDisplayed().catch(() => false)) {
+      await backToGrid();
+    }
+    await clickMediaItem(sourceTitle, '');
+
+    await $('.milestone-item').waitForDisplayed({ timeout: 5000 });
+    expect(await $$('.media-detail-log-item').length).toBeGreaterThan(0);
+    expect(await $$('.milestone-item').length).toBeGreaterThan(0);
+    await $('#btn-media-overflow').click();
+    await clickMenuItem('#btn-create-media-variant');
+    await submitPrompt(newVariant);
+
+    await browser.waitUntil(async () => (await $('#media-variant').getText()) === newVariant, {
+      timeout: 8000,
+      timeoutMsg: 'Expected the newly created variant detail to open',
+    });
+    expect(await $('#media-title').getText()).toBe(sourceTitle);
+    expect(await $('#media-description').getText()).toContain('後宮で働く薬師の少女');
+    expect(await $('.editable-extra[data-key="Platform"]').getText()).toBe('PC');
+    expect(await $('.media-boolean-tag[data-ekey="amazing"]').isExisting()).toBe(true);
+    expect(await $$('.media-detail-log-item').length).toBe(0);
+    expect(await $$('.milestone-item').length).toBe(0);
+    expect(await $('#milestone-list-container').getText()).toContain('No milestones yet.');
   });
 
   it('rejects a title collision when both media have no variant', async () => {

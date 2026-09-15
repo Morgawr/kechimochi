@@ -4,6 +4,7 @@ import {
     addMilestoneForMedia,
     canAddMilestone,
     canMarkComplete,
+    createMediaVariant,
     deleteMediaWithConfirmation,
     markMediaComplete,
     toggleMediaArchived,
@@ -12,10 +13,11 @@ import type { ActivitySummary, Media } from '../../../src/api';
 import * as api from '../../../src/api';
 import { showLogActivityModal } from '../../../src/activity_modal';
 import { showAddMilestoneModal } from '../../../src/milestone_modal';
-import { customAlert, customConfirm } from '../../../src/modal_base';
+import { customAlert, customConfirm, customPrompt } from '../../../src/modal_base';
 import { EVENTS } from '../../../src/constants';
 
 vi.mock('../../../src/api', () => ({
+    addMedia: vi.fn(),
     addMilestone: vi.fn(),
     deleteMedia: vi.fn(),
     updateMedia: vi.fn(),
@@ -32,6 +34,7 @@ vi.mock('../../../src/milestone_modal', () => ({
 vi.mock('../../../src/modal_base', () => ({
     customAlert: vi.fn(),
     customConfirm: vi.fn(),
+    customPrompt: vi.fn(),
 }));
 
 function makeMedia(overrides: Partial<Media> = {}): Media {
@@ -152,6 +155,64 @@ describe('media actions', () => {
 
             expect(outcome.committed).toBe(false);
             expect(customAlert).toHaveBeenCalledOnce();
+            expect(dataChangedListener).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('createMediaVariant', () => {
+        it('copies media-level data into a new identity and announces the change', async () => {
+            vi.mocked(customPrompt).mockResolvedValueOnce('  Print Edition  ');
+            vi.mocked(api.addMedia).mockResolvedValueOnce(42);
+            const source = makeMedia({
+                id: 7,
+                uid: 'source-uid',
+                variant: 'Digital',
+                status: 'Archived',
+                language: 'English',
+                description: 'Copied description',
+                cover_image: '/covers/source.png',
+                extra_data: '{"Favorite":"","Author":"Writer"}',
+                tracking_status: 'Complete',
+            });
+
+            const outcome = await createMediaVariant(source, [source]);
+
+            expect(api.addMedia).toHaveBeenCalledWith({
+                title: 'Some Media',
+                variant: 'Print Edition',
+                default_activity_type: 'Reading',
+                status: 'Archived',
+                language: 'English',
+                description: 'Copied description',
+                cover_image: '/covers/source.png',
+                extra_data: '{"Favorite":"","Author":"Writer"}',
+                content_type: 'Manga',
+                tracking_status: 'Complete',
+            });
+            expect(outcome).toEqual({ committed: true, createdMediaId: 42 });
+            expect(dataChangedListener).toHaveBeenCalledOnce();
+        });
+
+        it('rejects an existing title and variant before writing', async () => {
+            vi.mocked(customPrompt).mockResolvedValueOnce('Manga');
+            const source = makeMedia({ variant: 'Anime' });
+
+            const outcome = await createMediaVariant(source, [source, makeMedia({ id: 2, variant: 'Manga' })]);
+
+            expect(outcome.committed).toBe(false);
+            expect(api.addMedia).not.toHaveBeenCalled();
+            expect(customAlert).toHaveBeenCalledWith('Variant Already Exists', expect.stringContaining('Manga'));
+            expect(dataChangedListener).not.toHaveBeenCalled();
+        });
+
+        it('reports a failed create without announcing a data change', async () => {
+            vi.mocked(customPrompt).mockResolvedValueOnce('Manga');
+            vi.mocked(api.addMedia).mockRejectedValueOnce(new Error('database locked'));
+
+            const outcome = await createMediaVariant(makeMedia(), []);
+
+            expect(outcome.committed).toBe(false);
+            expect(customAlert).toHaveBeenCalledWith('Unable to Create Variant', expect.stringContaining('database locked'));
             expect(dataChangedListener).not.toHaveBeenCalled();
         });
     });
