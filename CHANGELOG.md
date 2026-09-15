@@ -25,6 +25,8 @@ The format is based on Keep a Changelog, with one section per released version.
  - Android should not require users to "Re-authenticate" every time the app is opened anymore
  - Android app now renders with safe top padding even on large resoluton sizes (this prevents the notification bar from blocking the view)
  - Selected toggle buttons, filter chips and sort direction options are now readable on themes with a dark accent colour
+ - Media detail navigation and overflow actions are now clickable over the cover banner at narrow window and phone widths
+ - Applied consistent spacing and padding below the compact desktop top bar
 
 ## [0.3.2] - 2026-08-25
 

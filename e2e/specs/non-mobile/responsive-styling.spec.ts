@@ -582,6 +582,7 @@ describe('Responsive Styling CUJ', () => {
   });
 
   it('should apply mobile media-detail layout structure and style hooks', async () => {
+    await browser.setWindowSize(952, 1200);
     await navigateTo('media');
     expect(await verifyActiveView('media')).toBe(true);
 
@@ -589,6 +590,15 @@ describe('Responsive Styling CUJ', () => {
     await safeClick('.media-grid-item');
 
     await waitForSelectorDisplayed('#media-title', 10000);
+
+    const compactDesktopBannerGap = await browser.execute(() => {
+      const topBar = document.querySelector<HTMLElement>('.app-nav-bar');
+      const coverColumn = document.getElementById('media-cover-column');
+      if (!topBar || !coverColumn) return null;
+      return coverColumn.getBoundingClientRect().top - topBar.getBoundingClientRect().bottom;
+    });
+    expect(compactDesktopBannerGap).not.toBeNull();
+    expect(compactDesktopBannerGap as number).toBeGreaterThanOrEqual(12);
 
     await browser.setWindowSize(760, 1200);
     await browser.waitUntil(async () => {
@@ -606,6 +616,11 @@ describe('Responsive Styling CUJ', () => {
       const overflowRoot = document.getElementById('media-overflow-root');
       const statsGrid = document.getElementById('media-stats-grid');
       const contentArea = document.getElementById('media-content-area');
+      const headerControls = [
+        document.getElementById('media-prev'),
+        document.getElementById('btn-media-overflow'),
+        document.getElementById('media-next'),
+      ];
 
       if (!coverColumn || !backSlot || !header || !titleGroup || !overflowRoot || !statsGrid || !contentArea) {
         return {
@@ -617,8 +632,19 @@ describe('Responsive Styling CUJ', () => {
           overflowRootDisplay: null,
           statsColumns: null,
           contentPaddingTop: null,
+          headerControlsReceivePointerInput: false,
         };
       }
+
+      const headerControlsReceivePointerInput = headerControls.every((control) => {
+        if (!(control instanceof HTMLElement)) return false;
+        const rect = control.getBoundingClientRect();
+        const topmostElement = document.elementFromPoint(
+          rect.left + (rect.width / 2),
+          rect.top + (rect.height / 2),
+        );
+        return topmostElement === control || control.contains(topmostElement);
+      });
 
       return {
         hasRequiredNodes: true,
@@ -629,6 +655,7 @@ describe('Responsive Styling CUJ', () => {
         overflowRootDisplay: getComputedStyle(overflowRoot).display,
         statsColumnCount: getComputedStyle(statsGrid).gridTemplateColumns.split(' ').length,
         contentPaddingTop: getComputedStyle(contentArea).paddingTop,
+        headerControlsReceivePointerInput,
       };
     });
 
@@ -640,5 +667,28 @@ describe('Responsive Styling CUJ', () => {
     expect(mediaLayout.overflowRootDisplay).toBe('flex');
     expect(mediaLayout.statsColumnCount).toBe(1);
     expect(mediaLayout.contentPaddingTop).toBe('180px');
+    expect(mediaLayout.headerControlsReceivePointerInput).toBe(true);
+
+    await $('#btn-media-overflow').click();
+    await waitForSelectorDisplayed('#btn-delete-media-detail');
+
+    await $('#btn-media-overflow').click();
+    await browser.waitUntil(async () => !(await $('#btn-delete-media-detail').isExisting()), {
+      timeout: 3000,
+      timeoutMsg: 'Media actions menu did not close before testing navigation',
+    });
+
+    const initialMediaIndex = await $('#media-select').getValue();
+    await $('#media-next').click();
+    await browser.waitUntil(async () => (await $('#media-select').getValue()) !== initialMediaIndex, {
+      timeout: 3000,
+      timeoutMsg: 'Next media control did not change the selected media at mobile width',
+    });
+
+    await $('#media-prev').click();
+    await browser.waitUntil(async () => (await $('#media-select').getValue()) === initialMediaIndex, {
+      timeout: 3000,
+      timeoutMsg: 'Previous media control did not restore the selected media at mobile width',
+    });
   });
 });
