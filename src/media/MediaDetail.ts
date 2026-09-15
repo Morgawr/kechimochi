@@ -638,8 +638,10 @@ export class MediaDetail extends Component<MediaDetailState> {
     }
 
     private syncOverflowMenuRefs() {
+        const wasOpen = this.overflowMenuHandle !== null;
         this.closeOverflowMenu();
         this.overflowMenuButton = this.container.querySelector<HTMLButtonElement>('#btn-media-overflow');
+        if (wasOpen) this.openOverflowMenu();
     }
 
     private closeOverflowMenu() {
@@ -652,6 +654,10 @@ export class MediaDetail extends Component<MediaDetailState> {
             this.closeOverflowMenu();
             return;
         }
+        this.openOverflowMenu();
+    }
+
+    private openOverflowMenu() {
         if (!this.overflowMenuButton) return;
 
         this.overflowMenuHandle = openPopupMenu({

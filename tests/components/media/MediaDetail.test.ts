@@ -502,6 +502,30 @@ describe('MediaDetail', () => {
         });
     });
 
+    it('should keep an open media actions menu through a detail re-render', () => {
+        const component = new MediaDetail(
+            container,
+            { ...mockMedia } as unknown as Media,
+            [],
+            [{ ...mockMedia } as unknown as Media],
+            0,
+            mockCallbacks,
+        );
+        component.render();
+
+        (container.querySelector('#btn-media-overflow') as HTMLElement).click();
+        expect(document.querySelectorAll('.popup-menu')).toHaveLength(1);
+
+        expect(component.updateLogs(1, [])).toBe(true);
+
+        const replacementButton = container.querySelector('#btn-media-overflow');
+        expect(replacementButton?.getAttribute('aria-expanded')).toBe('true');
+        expect(document.querySelectorAll('.popup-menu')).toHaveLength(1);
+        expect(document.querySelector('#btn-delete-media-detail')).not.toBeNull();
+
+        component.destroy();
+    });
+
     it('creates a copied variant from the overflow menu and opens it', async () => {
         vi.mocked(modals.customPrompt).mockResolvedValue('Manga');
         vi.mocked(api.addMedia).mockResolvedValue(22);
