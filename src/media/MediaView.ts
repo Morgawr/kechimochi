@@ -201,7 +201,10 @@ export class MediaView extends Component<MediaViewState> {
             return;
         }
 
-        this.setState({ isGridSupported });
+        // Grid support only changes the library browser. Recreating the detail
+        // here would discard edits and open menus when crossing the breakpoint.
+        this.state.isGridSupported = isGridSupported;
+        if (this.state.viewMode === 'grid') this.render();
     }
 
     private readonly keyboardHandler = (e: KeyboardEvent) => {
