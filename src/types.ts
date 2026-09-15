@@ -264,6 +264,7 @@ export interface DashboardRangeResponse {
     group_by: DashboardGroupBy;
     series: DashboardChartPoint[];
     bucket_totals: DashboardBucketTotals[];
+    previous_bucket_totals: DashboardBucketTotals;
     category_totals: DashboardNamedTotals[];
     highlights: DashboardHighlight[];
 }

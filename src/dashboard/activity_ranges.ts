@@ -103,6 +103,30 @@ function getYearlyRange(timeRangeOffset: number): ActivityRange {
     return { labels, getBucketIndex, validStart, validEnd, unit: 'month', period: 'year' };
 }
 
+export function getPreviousBucketKey(range: ActivityRange): string | null {
+    if (range.unit === 'week') return null;
+
+    // A bare YYYY-MM-DD is parsed as UTC midnight, which reads back as the previous
+    // calendar day west of UTC; parsing as local midnight avoids that.
+    const start = new Date(range.validStart + 'T00:00:00');
+    const pad = (n: number) => n.toString().padStart(2, '0');
+
+    switch (range.unit) {
+        case 'day': {
+            const previousDay = new Date(start);
+            previousDay.setDate(start.getDate() - 1);
+            return getLocalISODate(previousDay);
+        }
+        case 'month': {
+            const previousMonth = new Date(start.getFullYear(), start.getMonth() - 1, 1);
+            return `${previousMonth.getFullYear()}-${pad(previousMonth.getMonth() + 1)}-01`;
+        }
+        case 'year': {
+            return `${start.getFullYear() - 1}-01-01`;
+        }
+    }
+}
+
 function getAllTimeRange(logs: ActivitySummary[]): ActivityRange {
     const years = Array.from(new Set(logs.map(log => log.date.slice(0, 4))))
         .sort((left, right) => left.localeCompare(right));

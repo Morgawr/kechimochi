@@ -75,6 +75,7 @@ function defaultDashboardSnapshot(request: DashboardSnapshotRequest) {
             group_by: 'activity_type' as const,
             series: [],
             bucket_totals: [],
+            previous_bucket_totals: { bucket: '', total_minutes: 0, total_characters: 0 },
             category_totals: [],
             highlights: [],
         },
@@ -145,6 +146,7 @@ export function createMainApiMock() {
             group_by: request.group_by,
             series: [],
             bucket_totals: [],
+            previous_bucket_totals: { bucket: '', total_minutes: 0, total_characters: 0 },
             category_totals: [],
             highlights: [],
         })),
@@ -288,6 +290,7 @@ export function resetMainApiMocks(mockedApi: ApiModule) {
         group_by: request.group_by,
         series: [],
         bucket_totals: [],
+        previous_bucket_totals: { bucket: '', total_minutes: 0, total_characters: 0 },
         category_totals: [],
         highlights: [],
     }));

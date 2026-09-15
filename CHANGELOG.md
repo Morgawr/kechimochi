@@ -27,6 +27,7 @@ The format is based on Keep a Changelog, with one section per released version.
  - Selected toggle buttons, filter chips and sort direction options are now readable on themes with a dark accent colour
  - Media detail navigation and overflow actions are now clickable over the cover banner at narrow window and phone widths
  - Applied consistent spacing and padding below the compact desktop top bar
+ - The first bucket of a Weekly/Monthly/Yearly Stats card in the Dashboard now compares against the last bucket of the prior period instead of showing zero
 
 ## [0.3.2] - 2026-08-25
 
