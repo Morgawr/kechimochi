@@ -322,6 +322,7 @@ describe('ActivityCharts', () => {
                     { bucket: '2026-06-08', total_minutes: 30, total_characters: 1000 },
                     { bucket: '2026-06-09', total_minutes: 45, total_characters: 2000 },
                 ],
+                previous_bucket_totals: { bucket: '', total_minutes: 0, total_characters: 0 },
                 category_totals: [],
                 highlights: [],
             },
