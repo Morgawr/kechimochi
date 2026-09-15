@@ -503,6 +503,7 @@ describe('MediaDetail', () => {
     });
 
     it('should keep an open media actions menu through a detail re-render', () => {
+        document.body.appendChild(container);
         const component = new MediaDetail(
             container,
             { ...mockMedia } as unknown as Media,
@@ -513,17 +514,86 @@ describe('MediaDetail', () => {
         );
         component.render();
 
-        (container.querySelector('#btn-media-overflow') as HTMLElement).click();
+        const header = container.querySelector('#media-detail-header');
+        const menuButton = container.querySelector('#btn-media-overflow') as HTMLElement;
+        menuButton.focus();
+        menuButton.click();
         expect(document.querySelectorAll('.popup-menu')).toHaveLength(1);
+        const menu = document.querySelector('.popup-menu');
 
         expect(component.updateLogs(1, [])).toBe(true);
+        component.setState({ milestones: [] });
 
-        const replacementButton = container.querySelector('#btn-media-overflow');
-        expect(replacementButton?.getAttribute('aria-expanded')).toBe('true');
+        expect(container.querySelector('#media-detail-header')).toBe(header);
+        expect(container.querySelector('#btn-media-overflow')).toBe(menuButton);
+        expect(document.activeElement).toBe(menuButton);
+        expect(menuButton.getAttribute('aria-expanded')).toBe('true');
+        expect(document.querySelector('.popup-menu')).toBe(menu);
         expect(document.querySelectorAll('.popup-menu')).toHaveLength(1);
         expect(document.querySelector('#btn-delete-media-detail')).not.toBeNull();
 
+        menuButton.click();
+        expect(document.querySelector('.popup-menu')).toBeNull();
+        (container.querySelector('#media-next') as HTMLElement).click();
+        expect(mockCallbacks.onNext).toHaveBeenCalledOnce();
         component.destroy();
+        container.remove();
+    });
+
+    it('updates navigation labels without replacing the select or duplicating its listener', () => {
+        const media = { ...mockMedia } as unknown as Media;
+        const component = new MediaDetail(container, media, [], [media], 0, mockCallbacks);
+        component.render();
+        const select = container.querySelector<HTMLSelectElement>('#media-select')!;
+
+        media.title = 'Renamed media';
+        media.variant = 'Manga';
+        component.render();
+        component.render();
+
+        expect(container.querySelector('#media-select')).toBe(select);
+        expect(select.selectedOptions[0].textContent).toBe('Renamed media — Manga');
+        select.dispatchEvent(new Event('change'));
+        expect(mockCallbacks.onNavigate).toHaveBeenCalledOnce();
+        expect(mockCallbacks.onNavigate).toHaveBeenCalledWith(0);
+        component.destroy();
+    });
+
+    it('preserves a description draft while logs, milestones, and reading settings load', async () => {
+        document.body.appendChild(container);
+        vi.mocked(api.getMilestones).mockResolvedValue([
+            { id: 1, name: 'Loaded milestone', duration: 42, characters: 0 } as Milestone,
+        ]);
+        vi.mocked(api.getSetting).mockResolvedValue('100');
+        const media = { ...mockMedia } as unknown as Media;
+        const component = new MediaDetail(container, media, [], [media], 0, mockCallbacks);
+        component.render();
+        component.triggerMount();
+        container.querySelector('#media-description')!.dispatchEvent(new Event('dblclick'));
+        const editor = container.querySelector<HTMLTextAreaElement>('.edit-input')!;
+        editor.value = 'Unsaved description';
+
+        component.updateLogs(1, [{
+            id: 1, media_id: 1, date: '2024-03-01', duration_minutes: 42,
+            characters: 0, notes: 'Loaded activity', activity_type: 'Reading',
+        } as api.ActivitySummary]);
+        await vi.waitFor(() => expect(container.querySelector('#milestone-list-container')?.textContent)
+            .toContain('Loaded milestone'));
+
+        expect(container.querySelector('.edit-input')).toBe(editor);
+        expect(editor.value).toBe('Unsaved description');
+        expect(document.activeElement).toBe(editor);
+        expect(container.querySelector('#media-logs-container')?.textContent).toContain('Loaded activity');
+        expect(container.querySelector('#media-first-last-stats')?.textContent).toContain('42');
+
+        component.updateLogs(1, []);
+        expect(container.querySelector('#media-first-last-stats')?.textContent).toBe('');
+        expect(container.querySelector('#media-logs-container')?.textContent).toContain('No activity logs');
+        expect(container.querySelector('.edit-input')).toBe(editor);
+        expect(api.updateMedia).not.toHaveBeenCalled();
+        editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+        component.destroy();
+        container.remove();
     });
 
     it('creates a copied variant from the overflow menu and opens it', async () => {
