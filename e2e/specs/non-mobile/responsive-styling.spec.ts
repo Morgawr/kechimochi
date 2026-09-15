@@ -591,14 +591,52 @@ describe('Responsive Styling CUJ', () => {
 
     await waitForSelectorDisplayed('#media-title', 10000);
 
-    const compactDesktopBannerGap = await browser.execute(() => {
+    const showMediaHeader = async () => {
+      // Chromium preserves scroll anchors across view changes and responsive
+      // reflows. Put the controls in view before asking which element is on top.
+      await browser.execute(() => {
+        const mainContent = document.querySelector<HTMLElement>('.main-content');
+        if (mainContent) mainContent.scrollTop = 0;
+        window.scrollTo(0, 0);
+      });
+      await browser.waitUntil(async () => browser.execute(() => {
+        const header = document.getElementById('media-detail-header');
+        if (!header) return false;
+        const rect = header.getBoundingClientRect();
+        return rect.top >= 0 && rect.bottom <= window.innerHeight;
+      }), { timeout: 3000, timeoutMsg: 'Media detail controls did not return to the viewport' });
+    };
+
+    await showMediaHeader();
+
+    const compactDesktopLayout = await browser.execute(() => {
       const topBar = document.querySelector<HTMLElement>('.app-nav-bar');
       const coverColumn = document.getElementById('media-cover-column');
+      const headerControls = [
+        document.getElementById('media-prev'),
+        document.getElementById('btn-media-overflow'),
+        document.getElementById('media-next'),
+      ];
       if (!topBar || !coverColumn) return null;
-      return coverColumn.getBoundingClientRect().top - topBar.getBoundingClientRect().bottom;
+
+      const headerControlsReceivePointerInput = headerControls.every((control) => {
+        if (!(control instanceof HTMLElement)) return false;
+        const rect = control.getBoundingClientRect();
+        const topmostElement = document.elementFromPoint(
+          rect.left + (rect.width / 2),
+          rect.top + (rect.height / 2),
+        );
+        return topmostElement === control || control.contains(topmostElement);
+      });
+
+      return {
+        bannerGap: coverColumn.getBoundingClientRect().top - topBar.getBoundingClientRect().bottom,
+        headerControlsReceivePointerInput,
+      };
     });
-    expect(compactDesktopBannerGap).not.toBeNull();
-    expect(compactDesktopBannerGap as number).toBeGreaterThanOrEqual(12);
+    expect(compactDesktopLayout).not.toBeNull();
+    expect(compactDesktopLayout?.bannerGap).toBeGreaterThanOrEqual(12);
+    expect(compactDesktopLayout?.headerControlsReceivePointerInput).toBe(true);
 
     await browser.setWindowSize(760, 1200);
     await browser.waitUntil(async () => {
@@ -607,6 +645,8 @@ describe('Responsive Styling CUJ', () => {
         return header && getComputedStyle(header).flexWrap === 'wrap';
       });
     }, { timeout: 3000 });
+
+    await showMediaHeader();
 
     const mediaLayout = await browser.execute(() => {
       const coverColumn = document.getElementById('media-cover-column');
