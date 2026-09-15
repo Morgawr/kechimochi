@@ -665,11 +665,11 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
 
     private getPrecedingPeriodTotals(range: ActivityRange): Totals {
         const previousBucketTotals = this.state.rangeData?.previous_bucket_totals;
-        if (!previousBucketTotals || previousBucketTotals.bucket !== getPreviousBucketKey(range)) {
-            return { minutes: 0, characters: 0 };
+        if (previousBucketTotals?.bucket === getPreviousBucketKey(range)) {
+            return { minutes: previousBucketTotals.total_minutes, characters: previousBucketTotals.total_characters };
         }
 
-        return { minutes: previousBucketTotals.total_minutes, characters: previousBucketTotals.total_characters };
+        return { minutes: 0, characters: 0 };
     }
 
     private renderSelectedMetric(label: string, value: string, diff: string): string {
