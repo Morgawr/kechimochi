@@ -245,6 +245,7 @@ export async function waitForAppReady(
       try {
         await browser.execute((date: string, shouldSeedLocalProfile: boolean, profileName: string) => {
           sessionStorage.setItem('kechimochi_mock_date', date);
+          sessionStorage.setItem('kechimochi_keep_popup_menus_on_blur', 'true');
           if (shouldSeedLocalProfile) {
             localStorage.setItem('kechimochi_profile', profileName);
           } else {

@@ -42,31 +42,44 @@ export class MediaItem extends ProgressiveCoverComponent<MediaItemState> {
         this.clear();
 
         const noImageLabel = media.cover_image ? 'Loading...' : 'No Image';
-        const placeholderVariant = media.variant
-            ? html`<div class="grid-item-variant">${media.variant}</div>`
-            : '';
         const content = imgSrc
             ? html`<img class="media-grid-cover-image progressive-cover-image is-loaded" src="${imgSrc}" loading="lazy" decoding="async" alt="${media.title}" />`
             : html`
                 <div class="image-placeholder">
-                    <div>
-                        <div class="grid-item-title">${media.title}</div>
-                        ${placeholderVariant}
-                    </div>
                     <div class="grid-item-placeholder-label">${noImageLabel}</div>
                 </div>
             `;
+        const titleOverlay = document.createElement('div');
+        titleOverlay.className = 'grid-item-overlay';
+        const titleElement = document.createElement('div');
+        titleElement.className = 'grid-item-title';
+        titleElement.textContent = media.title;
+        titleOverlay.appendChild(titleElement);
+        if (media.variant) {
+            const variantElement = document.createElement('div');
+            variantElement.className = 'grid-item-variant';
+            variantElement.textContent = media.variant;
+            titleOverlay.appendChild(variantElement);
+        }
 
         this.container.classList.add('media-grid-item');
-        this.container.title = media.variant ? `${media.title} — ${media.variant}` : media.title;
         this.container.dataset.title = media.title;
         this.container.dataset.variant = media.variant || '';
+        if (media.id != null) {
+            this.container.dataset.mediaId = String(media.id);
+        }
+        if (media.tracking_status === 'Untracked') {
+            delete this.container.dataset.trackingStatus;
+        } else {
+            this.container.dataset.trackingStatus = media.tracking_status;
+        }
 
         const isArchived = media.status === 'Archived';
         const cardBody = document.createElement('div');
         cardBody.className = `media-grid-item-body${isArchived ? ' is-archived' : ''}`;
 
         cardBody.appendChild(content);
+        cardBody.appendChild(titleOverlay);
         if (contentType !== 'Unknown' && contentType.trim() !== '') {
             cardBody.appendChild(html`<div class="grid-item-type-badge">${contentType}</div>`);
         }

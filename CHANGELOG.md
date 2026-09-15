@@ -7,6 +7,9 @@ The format is based on Keep a Changelog, with one section per released version.
 ## [Unreleased]
 
 ### Added
+ - Hovering a library grid card now shows its title over the cover, with a border tinted to its tracking status
+ - Right-clicking a library item opens a menu for Add log, Add milestone, Mark complete, Archive/Unarchive, and Delete without opening the detail view
+ - Right-clicking empty space in the library opens a menu for New media
  - Added an E-Ink theme: black on white, borders instead of fill-tints, no motion or elevation, tuned for e-ink panels
 
 ### Changed

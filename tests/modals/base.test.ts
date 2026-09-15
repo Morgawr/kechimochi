@@ -152,6 +152,49 @@ describe('modals/base.ts', () => {
             expect(document.body.contains(overlay)).toBe(false);
         });
 
+        it('should block a wheel scroll outside the overlay while one is open', () => {
+            const background = document.createElement('div');
+            document.body.appendChild(background);
+            const { cleanup } = base.createOverlay();
+
+            const blocked = new WheelEvent('wheel', { bubbles: true, cancelable: true });
+            background.dispatchEvent(blocked);
+            expect(blocked.defaultPrevented).toBe(true);
+
+            cleanup();
+            const allowed = new WheelEvent('wheel', { bubbles: true, cancelable: true });
+            background.dispatchEvent(allowed);
+            expect(allowed.defaultPrevented).toBe(false);
+        });
+
+        it('should still let the overlay scroll its own content', () => {
+            const { overlay, cleanup } = base.createOverlay();
+            overlay.innerHTML = '<div class="modal-content"></div>';
+
+            const event = new WheelEvent('wheel', { bubbles: true, cancelable: true });
+            overlay.querySelector('.modal-content')!.dispatchEvent(event);
+
+            expect(event.defaultPrevented).toBe(false);
+            cleanup();
+        });
+
+        it('should keep blocking until the last of several overlays is closed', () => {
+            const background = document.createElement('div');
+            document.body.appendChild(background);
+            const first = base.createOverlay();
+            const second = base.createOverlay();
+
+            second.cleanup();
+            const stillBlocked = new WheelEvent('wheel', { bubbles: true, cancelable: true });
+            background.dispatchEvent(stillBlocked);
+            expect(stillBlocked.defaultPrevented).toBe(true);
+
+            first.cleanup();
+            const allowed = new WheelEvent('wheel', { bubbles: true, cancelable: true });
+            background.dispatchEvent(allowed);
+            expect(allowed.defaultPrevented).toBe(false);
+        });
+
         it('should dismiss the top cancelable overlay through the back stack', async () => {
             const promptPromise = base.customPrompt('First');
             const confirmPromise = base.customConfirm('Second', 'Text');

@@ -63,6 +63,7 @@ export const config: WebdriverIO.Config = {
         '--disable-dev-shm-usage',
         '--disable-gpu',
         '--window-size=1280,800',
+        '--blink-settings=availablePointerTypes=4,primaryPointerType=4,availableHoverTypes=2,primaryHoverType=2',
       ],
     },
   } as WebdriverIO.Capabilities],
