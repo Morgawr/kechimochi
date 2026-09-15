@@ -2,29 +2,8 @@
  * Profile view helpers.
  */
 import type { ChainablePromiseElement } from 'webdriverio';
-import { Logger } from '../../src/logger';
 import { dismissAlert, setDialogMockPath } from './common.js';
 
-/**
- * Triggers report calculation in the Profile view.
- */
-export async function calculateReport(): Promise<void> {
-    const reportAlertTimeout = 3000;
-    const btn = $('#profile-btn-calculate-report');
-    await btn.waitForDisplayed({ timeout: 5000 });
-    await btn.click();
-
-    const successMessage = 'Reading report card calculated successfully!';
-    await browser.waitUntil(async () => {
-        return await browser.execute((text) => document.body.innerText.includes(text), successMessage);
-    }, {
-        timeout: reportAlertTimeout,
-        timeoutMsg: 'Report success notification never appeared'
-    });
-
-    Logger.info(`[E2E-TRACE] calculateReport: ${successMessage}`);
-    await dismissAlert(successMessage, reportAlertTimeout);
-}
 /**
  * Exports milestones to a CSV file.
  */

@@ -12,11 +12,18 @@ The format is based on Keep a Changelog, with one section per released version.
  - Right-clicking empty space in the library opens a menu for New media
  - Added an E-Ink theme: black on white, borders instead of fill-tints, no motion or elevation, tuned for e-ink panels
  - Media details now have a Create variant action that carries over the same medatada into a new variant
+ - Media supporting reading speed estimates can now carry a custom override, set from the media detail menu
 
 ### Changed
  - Doughnut and stacked-bar chart segments now have a border separating them, across all themes
  - Added a Font choice to the Appearance settings
  - Fonts are now bundled with the app instead of fetched from Google Fonts
+ - Reading speed and completion estimates are now computed from a work's own logged sessions (or, for
+   completed works, from the metadata character total) before falling back to your average speed for
+   that content type
+ - Visual Novel sessions logged as "Playing" now count toward reading speed and completion estimates,
+   same as "Reading"
+ - The Reading Report Card on the Profile page now recomputes automatically whenever you open it
 
 ### Fixed
  - The startup error and database recovery screens now show their intended background gradient
@@ -28,6 +35,8 @@ The format is based on Keep a Changelog, with one section per released version.
  - Media detail navigation and overflow actions are now clickable over the cover banner at narrow window and phone widths
  - Applied consistent spacing and padding below the compact desktop top bar
  - The first bucket of a Weekly/Monthly/Yearly Stats card in the Dashboard now compares against the last bucket of the prior period instead of showing zero
+ - Ongoing works with a logged character count no longer ignore it in favor of a stale, less accurate
+   average speed when estimating remaining time and completion
 
 ## [0.3.2] - 2026-08-25
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getCharacterCountFromExtraData, getExtraDataValue, mergeExtraData, normalizeExtraData, renameExtraDataKey, upsertExtraDataValue } from '../../src/extra_data';
+import { getCharacterCountFromExtraData, getExtraDataValue, getReadingSpeedFromExtraData, mergeExtraData, normalizeExtraData, renameExtraDataKey, upsertExtraDataValue } from '../../src/extra_data';
 
 describe('extra_data utils', () => {
     it('should find extra data values case-insensitively', () => {
@@ -16,6 +16,16 @@ describe('extra_data utils', () => {
 
     it('should return null for invalid character counts', () => {
         expect(getCharacterCountFromExtraData({ 'Character count': 'abc' })).toBeNull();
+    });
+
+    it('should parse reading speeds written with separators', () => {
+        expect(getReadingSpeedFromExtraData({ 'READING SPEED': '5 000 char/hr' })).toBe(5000);
+    });
+
+    it('should return null for missing, non-positive or invalid reading speeds', () => {
+        expect(getReadingSpeedFromExtraData({})).toBeNull();
+        expect(getReadingSpeedFromExtraData({ 'Reading speed': '0' })).toBeNull();
+        expect(getReadingSpeedFromExtraData({ 'Reading speed': 'fast' })).toBeNull();
     });
 
     it('should normalize duplicate keys case-insensitively while keeping the first casing', () => {

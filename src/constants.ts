@@ -32,12 +32,10 @@ export const SETTING_KEYS = {
     FONT_FAMILY: 'font_family',
     PROFILE_NAME: 'profile_name',
     STATS_NOVEL_SPEED: 'stats_novel_speed',
-    STATS_NOVEL_COUNT: 'stats_novel_count',
+    STATS_WEBNOVEL_SPEED: 'stats_webnovel_speed',
+    STATS_NONFICTION_SPEED: 'stats_nonfiction_speed',
     STATS_MANGA_SPEED: 'stats_manga_speed',
-    STATS_MANGA_COUNT: 'stats_manga_count',
     STATS_VN_SPEED: 'stats_vn_speed',
-    STATS_VN_COUNT: 'stats_vn_count',
-    STATS_REPORT_TIMESTAMP: 'stats_report_timestamp',
     GRID_HIDE_ARCHIVED: 'grid_hide_archived',
     LIBRARY_LAYOUT_MODE: 'library_layout_mode',
     LIBRARY_GRID_ZOOM: 'library_grid_zoom',
@@ -118,4 +116,5 @@ export const FILTERS = {
 
 export const EXTRA_FIELD_LABELS = {
     CHARACTER_COUNT: 'Character count',
+    READING_SPEED: 'Reading speed',
 } as const;

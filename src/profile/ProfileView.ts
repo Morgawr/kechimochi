@@ -4,7 +4,6 @@ import { html, rawHtml, escapeHTML, escapeAttribute } from '../html';
 import {
     getAllMedia,
     getLogs,
-    getLogsForMedia,
     clearActivities,
     wipeEverything,
     applyMediaImport,
@@ -64,8 +63,14 @@ import {
     renderReportCardButtons,
     wireReportCardButtons,
 } from './reportcard/report_card_controls';
-import { getCharacterCountFromExtraData } from '../extra_data';
 import { STORAGE_KEYS, SETTING_KEYS, DEFAULTS, EVENTS, CONTENT_TYPES, TRACKING_STATUSES } from '../constants';
+import {
+    calculateTypeReadingSpeeds,
+    READING_CONTENT_TYPES,
+    READING_SPEED_SETTING_KEY_BY_CONTENT_TYPE,
+    ReadingContentType,
+    TypeReadingSpeed
+} from '../stats/reading_speed';
 import { reconcileEnumOrder } from '../media/sorting';
 import type { UpdateManager } from '../update/manager';
 import {
@@ -154,15 +159,7 @@ interface ProfileState {
     theme: string;
     font: FontChoice;
     profilePicture: ProfilePicture | null;
-    report: {
-        novelSpeed: string;
-        novelCount: string;
-        mangaSpeed: string;
-        mangaCount: string;
-        vnSpeed: string;
-        vnCount: string;
-        timestamp: string;
-    };
+    report: Record<ReadingContentType, TypeReadingSpeed>;
     logs: ActivitySummary[];
     mediaList: Media[];
     appVersion: string;
@@ -319,6 +316,12 @@ function formatBytes(bytes: number, decimals = 1): string {
     return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 }
 
+function defaultReadingReport(): Record<ReadingContentType, TypeReadingSpeed> {
+    return Object.fromEntries(
+        READING_CONTENT_TYPES.map(contentType => [contentType, { charactersPerHour: 0, hours: 0 }]),
+    ) as Record<ReadingContentType, TypeReadingSpeed>;
+}
+
 function defaultLocalHttpApiStatus(): LocalHttpApiStatus {
     return {
         supported: false,
@@ -344,15 +347,7 @@ export class ProfileView extends Component<ProfileState> {
             theme: localStorage.getItem(STORAGE_KEYS.THEME_CACHE) || DEFAULTS.THEME,
             font: getCachedFont(),
             profilePicture: null,
-            report: {
-                novelSpeed: '0',
-                novelCount: '0',
-                mangaSpeed: '0',
-                mangaCount: '0',
-                vnSpeed: '0',
-                vnCount: '0',
-                timestamp: ''
-            },
+            report: defaultReadingReport(),
             logs: [],
             mediaList: [],
             appVersion: '',
@@ -407,13 +402,6 @@ export class ProfileView extends Component<ProfileState> {
         const [
             theme,
             font,
-            novelSpeed,
-            novelCount,
-            mangaSpeed,
-            mangaCount,
-            vnSpeed,
-            vnCount,
-            timestamp,
             appVersion,
             profilePicture,
             currentProfile,
@@ -422,18 +410,11 @@ export class ProfileView extends Component<ProfileState> {
             trackingStatusOrderStr,
             syncState,
             localHttpApiStatus,
-            logs,
-            mediaList,
+            loadedLogs,
+            loadedMediaList,
         ] = await Promise.all([
             getSetting(SETTING_KEYS.THEME),
             getSetting(SETTING_KEYS.FONT_FAMILY),
-            getSetting(SETTING_KEYS.STATS_NOVEL_SPEED),
-            getSetting(SETTING_KEYS.STATS_NOVEL_COUNT),
-            getSetting(SETTING_KEYS.STATS_MANGA_SPEED),
-            getSetting(SETTING_KEYS.STATS_MANGA_COUNT),
-            getSetting(SETTING_KEYS.STATS_VN_SPEED),
-            getSetting(SETTING_KEYS.STATS_VN_COUNT),
-            getSetting(SETTING_KEYS.STATS_REPORT_TIMESTAMP),
             getAppVersion(),
             this.loadProfilePicture(),
             getSetting(SETTING_KEYS.PROFILE_NAME),
@@ -443,20 +424,31 @@ export class ProfileView extends Component<ProfileState> {
             syncStatePromise,
             localHttpApiStatusPromise,
             // Report-card data is non-essential to the rest of the profile page, so a
-            // fetch failure just disables the card buttons rather than blanking the view.
+            // fetch failure just disables the report card rather than blanking the view.
             getLogs().catch((error: unknown) => {
                 Logger.error('[report-card] failed to load logs:', error);
-                return [] as ActivitySummary[];
+                return null;
             }),
             getAllMedia().catch((error: unknown) => {
                 Logger.error('[report-card] failed to load media:', error);
-                return [] as Media[];
+                return null;
             }),
         ]);
 
         const resolvedTheme = theme || DEFAULTS.THEME;
         const resolvedFont = font && isValidFontChoice(font) ? font : DEFAULTS.FONT;
         const resolvedProfileName = currentProfile || DEFAULTS.PROFILE;
+        const logs = loadedLogs ?? [];
+        const mediaList = loadedMediaList ?? [];
+
+        const report = calculateTypeReadingSpeeds(logs, mediaList, this.readingReportCutoffDate());
+        // An empty list from a failed fetch is indistinguishable from a genuinely empty library,
+        // and persisting it would erase the cached speeds MediaDetail falls back on.
+        if (loadedLogs !== null && loadedMediaList !== null) {
+            this.persistReadingReport(report).catch((error: unknown) => {
+                Logger.error('[report-card] failed to persist reading speeds:', error);
+            });
+        }
 
         localStorage.setItem(STORAGE_KEYS.THEME_CACHE, resolvedTheme);
         this.setState({
@@ -467,15 +459,7 @@ export class ProfileView extends Component<ProfileState> {
             contentTypeOrder: reconcileEnumOrder(contentTypeOrderStr, CONTENT_TYPES),
             trackingStatusOrder: reconcileEnumOrder(trackingStatusOrderStr, TRACKING_STATUSES),
             profilePicture,
-            report: {
-                novelSpeed: novelSpeed || '0',
-                novelCount: novelCount || '0',
-                mangaSpeed: mangaSpeed || '0',
-                mangaCount: mangaCount || '0',
-                vnSpeed: vnSpeed || '0',
-                vnCount: vnCount || '0',
-                timestamp: timestamp || '',
-            },
+            report,
             logs,
             mediaList,
             appVersion,
@@ -487,6 +471,29 @@ export class ProfileView extends Component<ProfileState> {
             showSyncConflicts: syncState.syncConflicts.length > 0 && this.state.showSyncConflicts,
             localHttpApiStatus,
         });
+    }
+
+    private readingReportCutoffDate(): string {
+        const cutoff = new Date();
+        cutoff.setFullYear(cutoff.getFullYear() - 1);
+        const month = `${cutoff.getMonth() + 1}`.padStart(2, '0');
+        const day = `${cutoff.getDate()}`.padStart(2, '0');
+        return `${cutoff.getFullYear()}-${month}-${day}`;
+    }
+
+    private async persistReadingReport(report: Record<ReadingContentType, TypeReadingSpeed>): Promise<void> {
+        const entries = READING_CONTENT_TYPES.map(contentType => ({
+            key: READING_SPEED_SETTING_KEY_BY_CONTENT_TYPE[contentType],
+            speedValue: Math.round(report[contentType].charactersPerHour).toString(),
+        }));
+
+        const previousValues = await Promise.all(entries.map(entry => getSetting(entry.key)));
+
+        await Promise.all(
+            entries
+                .filter((entry, index) => previousValues[index] !== entry.speedValue)
+                .map(entry => setSetting(entry.key, entry.speedValue)),
+        );
     }
 
     private async loadProfilePicture(): Promise<ProfilePicture | null> {
@@ -591,20 +598,17 @@ export class ProfileView extends Component<ProfileState> {
 
                 ${getServices().supportsReportCardExport() ? renderReportCardButtons(hasLoggedTime) : ''}
 
-                <div class="card" id="profile-report-card" style="display: flex; flex-direction: column; gap: 1rem;">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                ${this.hasReadingReportData() ? html`
+                    <div class="card" id="profile-report-card" style="display: flex; flex-direction: column; gap: 1rem;">
                         <h3 style="margin: 0;">Reading Report Card</h3>
-                        <div style="display: flex; gap: 0.5rem; align-items: center;">
-                            <button class="btn btn-primary" id="profile-btn-calculate-report" style="font-size: 0.8rem; padding: 0.3rem 0.6rem;">Calculate Report</button>
-                        </div>
-                    </div>
-                    <p style="color: var(--text-secondary); font-size: 0.9rem;">Aggregated reading speed for the last 12 months based on complete entries.</p>
+                        <p style="color: var(--text-secondary); font-size: 0.9rem;">Average reading speed by content type, pooled from your data.</p>
 
-                    <div id="profile-report-card-content" style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.5rem; font-size: 0.95rem;">
-                        ${this.renderReportContent()}
+                        <div id="profile-report-card-content">
+                            ${this.renderReportContent()}
+                        </div>
+                        ${this.renderReportWindowNote()}
                     </div>
-                    ${this.renderReportTimestamp()}
-                </div>
+                ` : ''}
 
                 <div class="card" style="display: flex; flex-direction: column; gap: 1rem;">
                     <h3>Appearance</h3>
@@ -765,28 +769,23 @@ export class ProfileView extends Component<ProfileState> {
         `;
     }
 
+    private hasReadingReportData(): boolean {
+        return READING_CONTENT_TYPES.some(contentType => this.state.report[contentType].charactersPerHour > 0);
+    }
+
     private renderReportContent() {
         const { report } = this.state;
-        if (!report.timestamp) {
-            return html`<div style="color: var(--text-secondary); text-align: center; padding: 1rem;">No report calculated yet.</div>`;
-        }
+        const rows = READING_CONTENT_TYPES
+            .filter(contentType => report[contentType].charactersPerHour > 0)
+            .map(contentType => html`
+                <div class="profile-report-row">
+                    <span>${contentType}</span>
+                    <strong class="profile-report-row-speed">${Math.round(report[contentType].charactersPerHour).toLocaleString()} char/hr</strong>
+                    <span class="profile-report-row-hours">${report[contentType].hours.toFixed(1)} hours</span>
+                </div>
+            `);
 
-        return html`
-            <div style="display: flex; flex-direction: column; gap: 0.75rem;">
-                <div style="display: flex; justify-content: space-between; border-bottom: 1px solid color-mix(in srgb, var(--tint-light) 5%, transparent); padding-bottom: 0.5rem;">
-                    <span>Average Novel Reading Speed: <strong>${Number.parseInt(report.novelSpeed, 10).toLocaleString()} char/hr</strong></span>
-                    <span style="color: var(--text-secondary); font-size: 0.85rem;">(out of ${report.novelCount} books)</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; border-bottom: 1px solid color-mix(in srgb, var(--tint-light) 5%, transparent); padding-bottom: 0.5rem;">
-                    <span>Average Manga Reading Speed: <strong>${Number.parseInt(report.mangaSpeed, 10).toLocaleString()} char/hr</strong></span>
-                    <span style="color: var(--text-secondary); font-size: 0.85rem;">(out of ${report.mangaCount} manga)</span>
-                </div>
-                <div style="display: flex; justify-content: space-between;">
-                    <span>Average Visual Novel Reading Speed: <strong>${Number.parseInt(report.vnSpeed, 10).toLocaleString()} char/hr</strong></span>
-                    <span style="color: var(--text-secondary); font-size: 0.85rem;">(out of ${report.vnCount} VNs)</span>
-                </div>
-            </div>
-        `;
+        return html`<div class="profile-report-row-list">${rows}</div>`;
     }
 
     private renderThemeOptions(currentValue: string) {
@@ -879,13 +878,18 @@ export class ProfileView extends Component<ProfileState> {
         globalThis.dispatchEvent(new CustomEvent(EVENTS.LIBRARY_PREFERENCES_CHANGED));
     }
 
-    private renderReportTimestamp() {
-        const { timestamp } = this.state.report;
-        if (!timestamp) return '';
+    private renderReportWindowNote() {
+        const { logs } = this.state;
+        if (logs.length === 0) return '';
+
+        const earliestLogDate = logs.reduce((earliest, log) => log.date < earliest ? log.date : earliest, logs[0].date);
+        const windowText = earliestLogDate >= this.readingReportCutoffDate()
+            ? `Since ${earliestLogDate}`
+            : 'Over the last year';
 
         return html`
-            <div id="profile-report-timestamp" style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.5rem; text-align: right;">
-                Since ${new Date(timestamp).toISOString().split('T')[0]}
+            <div id="profile-report-window-note" class="profile-report-window-note">
+                ${windowText}
             </div>
         `;
     }
@@ -1839,24 +1843,6 @@ export class ProfileView extends Component<ProfileState> {
             }
         });
 
-        root.querySelector('#profile-btn-calculate-report')?.addEventListener('click', async () => {
-            const btn = root.querySelector('#profile-btn-calculate-report') as HTMLButtonElement;
-            const originalText = btn.innerText;
-            btn.disabled = true;
-            btn.innerText = "Calculating...";
-            try {
-                await this.calculateReport();
-                await this.loadData();
-                this.render();
-                await customAlert("Success", "Reading report card calculated successfully!");
-            } catch {
-                await customAlert("Error", "Failed to calculate report card.");
-            } finally {
-                btn.disabled = false;
-                btn.innerText = originalText;
-            }
-        });
-
         wireReportCardButtons(root, () => ({
             profileName: this.state.currentProfile,
             profilePicture: this.state.profilePicture,
@@ -2490,48 +2476,4 @@ export class ProfileView extends Component<ProfileState> {
         await customAlert('Cloud Sync Error', `Failed to enable sync: ${message}`);
     }
 
-    private async calculateReport() {
-        const now = new Date();
-        const cutoffDate = new Date();
-        cutoffDate.setFullYear(now.getFullYear() - 1);
-        const cutoffStr = cutoffDate.toISOString().split('T')[0];
-
-        const mediaList = await getAllMedia();
-        const stats: Record<string, { totalSpeed: number, count: number }> = {
-            "Novel": { totalSpeed: 0, count: 0 },
-            "Manga": { totalSpeed: 0, count: 0 },
-            "Visual Novel": { totalSpeed: 0, count: 0 }
-        };
-        for (const media of mediaList) {
-            if (media.tracking_status !== 'Complete' || !stats[media.content_type ?? ""]) continue;
-
-            let extraData: Record<string, string>;
-            try { extraData = JSON.parse(media.extra_data || "{}"); } catch { continue; }
-
-            const charCount = getCharacterCountFromExtraData(extraData);
-            if (charCount === null) continue;
-
-            const logs = await getLogsForMedia(media.id!);
-            if (logs.length === 0 || logs[0].date < cutoffStr) continue;
-
-            const totalMinutes = logs.reduce((acc, log) => acc + log.duration_minutes, 0);
-            if (totalMinutes > 0) {
-                stats[media.content_type ?? ""].totalSpeed += charCount / (totalMinutes / 60);
-                stats[media.content_type ?? ""].count += 1;
-            }
-        }
-
-        await this.saveReportStats(stats, cutoffDate);
-    }
-
-    private async saveReportStats(stats: Record<string, { totalSpeed: number, count: number }>, cutoffDate: Date): Promise<void> {
-        await setSetting(SETTING_KEYS.STATS_REPORT_TIMESTAMP, cutoffDate.toISOString());
-        const prefixMap: Record<string, string> = { "Novel": "novel", "Manga": "manga", "Visual Novel": "vn" };
-        for (const key of ["Novel", "Manga", "Visual Novel"]) {
-            const s = stats[key];
-            const avgSpeed = s.count > 0 ? Math.round(s.totalSpeed / s.count) : 0;
-            await setSetting(`stats_${prefixMap[key]}_speed`, avgSpeed.toString());
-            await setSetting(`stats_${prefixMap[key]}_count`, s.count.toString());
-        }
-    }
 }
