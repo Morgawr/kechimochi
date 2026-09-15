@@ -540,6 +540,22 @@ describe('MediaDetail', () => {
         expect(normalizeLocalizedNumbers(container.querySelector('#est-remaining-time')?.textContent || '')).toContain('15min');
     });
 
+    it('should label an overridden reading speed without calling it an estimate', async () => {
+        vi.mocked(api.getMilestones).mockResolvedValue([]);
+        const media = { ...mockMedia, tracking_status: 'Ongoing', extra_data: '{"Reading speed":"7000"}' };
+        const mockLogs = [
+            { id: 1, duration_minutes: 60, characters: 2000, date: '2024-03-01', media_id: 1, title: 'T1', activity_type: 'Reading', language: 'Japanese' }
+        ] as unknown as api.ActivitySummary[];
+
+        const component = new MediaDetail(container, media as unknown as Media, mockLogs, [media as unknown as Media], 0, mockCallbacks);
+        component.triggerMount();
+
+        await vi.waitFor(() => expect(container.querySelector('#est-reading-speed')).not.toBeNull());
+        const speedText = normalizeLocalizedNumbers(container.querySelector('#est-reading-speed')?.textContent || '');
+        expect(speedText).toContain('7,000 char/hr');
+        expect(speedText).not.toContain('Est.');
+    });
+
     it('should compute reading speed estimates for WebNovel and NonFiction content types', async () => {
         vi.mocked(api.getMilestones).mockResolvedValue([]);
         const media = { ...mockMedia, content_type: 'WebNovel', tracking_status: 'Complete', extra_data: '{"Character count":"5000"}' };

@@ -116,4 +116,5 @@ export const FILTERS = {
 
 export const EXTRA_FIELD_LABELS = {
     CHARACTER_COUNT: 'Character count',
+    READING_SPEED: 'Reading speed',
 } as const;

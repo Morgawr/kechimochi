@@ -4,9 +4,11 @@ import {
     addMilestoneForMedia,
     canAddMilestone,
     canMarkComplete,
+    canSetReadingSpeedOverride,
     createMediaVariant,
     deleteMediaWithConfirmation,
     markMediaComplete,
+    setReadingSpeedOverride,
     toggleMediaArchived,
 } from '../../../src/media/media_actions';
 import type { ActivitySummary, Media } from '../../../src/api';
@@ -14,6 +16,7 @@ import * as api from '../../../src/api';
 import { showLogActivityModal } from '../../../src/activity_modal';
 import { showAddMilestoneModal } from '../../../src/milestone_modal';
 import { customAlert, customConfirm, customPrompt } from '../../../src/modal_base';
+import { showReadingSpeedOverrideModal } from '../../../src/media/reading_speed_modal';
 import { EVENTS } from '../../../src/constants';
 
 vi.mock('../../../src/api', () => ({
@@ -29,6 +32,10 @@ vi.mock('../../../src/activity_modal', () => ({
 
 vi.mock('../../../src/milestone_modal', () => ({
     showAddMilestoneModal: vi.fn(),
+}));
+
+vi.mock('../../../src/media/reading_speed_modal', () => ({
+    showReadingSpeedOverrideModal: vi.fn(),
 }));
 
 vi.mock('../../../src/modal_base', () => ({
@@ -93,6 +100,43 @@ describe('media actions', () => {
         it('is false only for an already Complete media', () => {
             expect(canMarkComplete(makeMedia({ tracking_status: 'Ongoing' }))).toBe(true);
             expect(canMarkComplete(makeMedia({ tracking_status: 'Complete' }))).toBe(false);
+        });
+    });
+
+    describe('canSetReadingSpeedOverride', () => {
+        it('is true only for content types the reading speed estimator covers', () => {
+            expect(canSetReadingSpeedOverride(makeMedia({ content_type: 'Visual Novel' }))).toBe(true);
+            expect(canSetReadingSpeedOverride(makeMedia({ content_type: 'Anime' }))).toBe(false);
+        });
+    });
+
+    describe('setReadingSpeedOverride', () => {
+        it('writes the entered speed into the Reading speed field, keeping other fields', async () => {
+            vi.mocked(showReadingSpeedOverrideModal).mockResolvedValue({ charactersPerHour: 7000 });
+
+            const outcome = await setReadingSpeedOverride(makeMedia({ extra_data: '{"Character count":"10000"}' }));
+
+            expect(outcome.committed).toBe(true);
+            expect(api.updateMedia).toHaveBeenCalledWith(expect.objectContaining({
+                extra_data: '{"Character count":"10000","Reading speed":"7000"}',
+            }));
+        });
+
+        it('removes the field when the modal returns an empty speed', async () => {
+            vi.mocked(showReadingSpeedOverrideModal).mockResolvedValue({ charactersPerHour: null });
+
+            await setReadingSpeedOverride(makeMedia({ extra_data: '{"Reading speed":"7000"}' }));
+
+            expect(api.updateMedia).toHaveBeenCalledWith(expect.objectContaining({ extra_data: '{}' }));
+        });
+
+        it('does not write when the modal is dismissed', async () => {
+            vi.mocked(showReadingSpeedOverrideModal).mockResolvedValue(null);
+
+            const outcome = await setReadingSpeedOverride(makeMedia());
+
+            expect(outcome.committed).toBe(false);
+            expect(api.updateMedia).not.toHaveBeenCalled();
         });
     });
 

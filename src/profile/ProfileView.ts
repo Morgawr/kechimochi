@@ -889,7 +889,7 @@ export class ProfileView extends Component<ProfileState> {
 
         return html`
             <div id="profile-report-window-note" class="profile-report-window-note">
-                ${windowText} · recalculated each time this page is opened
+                ${windowText}
             </div>
         `;
     }

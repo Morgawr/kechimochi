@@ -30,6 +30,12 @@ function characterCountExtraData(characters: number | string): string {
     return JSON.stringify({ 'Character count': characters });
 }
 
+function readingSpeedExtraData(readingSpeed: number | string, characters?: number): string {
+    const extraData: Record<string, number | string> = { 'Reading speed': readingSpeed };
+    if (characters !== undefined) extraData['Character count'] = characters;
+    return JSON.stringify(extraData);
+}
+
 let nextLogId = 1;
 function buildLog(overrides: Partial<ActivitySummary> = {}): ActivitySummary {
     return {
@@ -276,6 +282,32 @@ describe('reading_speed.ts', () => {
             });
         });
 
+        describe('manual override', () => {
+            it("outranks the completed anchor and the work's own dual sessions", () => {
+                const media = buildMedia({ tracking_status: 'Complete', extra_data: readingSpeedExtraData(7000, 100000) });
+                const logs = [buildLog({ duration_minutes: 60, characters: 5000 })];
+                const estimate = estimateMediaReadingSpeed(media, logs, 3000);
+                expect(estimate.source).toBe('manualOverride');
+                expect(estimate.charactersPerHour).toBe(7000);
+            });
+
+            it('drives completion and remaining time on an ongoing work', () => {
+                const media = buildMedia({ extra_data: readingSpeedExtraData(5000, 10000) });
+                const logs = [buildLog({ duration_minutes: 60, characters: 0 })];
+                const estimate = estimateMediaReadingSpeed(media, logs, null);
+                expect(estimate.completionPercent).toBe(50);
+                expect(estimate.remainingMinutes).toBe(60);
+            });
+
+            it('falls through to the computed sources when the override is not a positive number', () => {
+                const media = buildMedia({ extra_data: readingSpeedExtraData('nonsense') });
+                const logs = [buildLog({ duration_minutes: 60, characters: 4000 })];
+                const estimate = estimateMediaReadingSpeed(media, logs, null);
+                expect(estimate.source).toBe('workSessions');
+                expect(estimate.charactersPerHour).toBe(4000);
+            });
+        });
+
         describe('non-reading and mixed-activity handling', () => {
             it('treats a reading-type work with only Watching/Listening logs as having no immersion sessions', () => {
                 const media = buildMedia({ content_type: 'Novel', default_activity_type: 'Reading' });
@@ -376,6 +408,25 @@ describe('reading_speed.ts', () => {
             const result = calculateTypeReadingSpeeds(logs, [media], cutoffDate);
             expect(result.Manga.charactersPerHour).toBe(10000);
             expect(result.Manga.hours).toBe(1);
+        });
+
+        it('pools an overridden work at its in-window logged hours', () => {
+            const media = buildMedia({ id: 1, content_type: 'Novel', extra_data: readingSpeedExtraData(6000) });
+            const logs = [
+                buildLog({ media_id: 1, date: '2024-06-01', duration_minutes: 120, characters: 1000 }),
+                buildLog({ media_id: 1, date: '2023-01-01', duration_minutes: 600, characters: 0 }),
+            ];
+            const result = calculateTypeReadingSpeeds(logs, [media], cutoffDate);
+            expect(result.Novel.charactersPerHour).toBe(6000);
+            expect(result.Novel.hours).toBe(2);
+        });
+
+        it('weights an overridden work with untimed sessions by the hours the override implies', () => {
+            const media = buildMedia({ id: 1, content_type: 'Novel', extra_data: readingSpeedExtraData(6000) });
+            const logs = [buildLog({ media_id: 1, date: '2024-06-01', duration_minutes: 0, characters: 12000 })];
+            const result = calculateTypeReadingSpeeds(logs, [media], cutoffDate);
+            expect(result.Novel.charactersPerHour).toBe(6000);
+            expect(result.Novel.hours).toBe(2);
         });
 
         it('excludes a completedAnchor work whose newest immersion log falls outside the cutoff', () => {

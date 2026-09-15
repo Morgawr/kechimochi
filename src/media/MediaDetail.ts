@@ -21,17 +21,19 @@ import {fetchMetadataForUrl, isValidImporterUrl} from '../importers';
 import {getServices} from '../services';
 import {MediaCoverLoader} from './cover_loader';
 import {pushBackHandler} from '../back_stack';
-import {openPopupMenu, type PopupMenuHandle} from '../popup_menu';
-import {FORK, TRASH_CAN} from '../icons';
+import {openPopupMenu, type PopupMenuHandle, type PopupMenuItem} from '../popup_menu';
+import {FORK, GAUGE, TRASH_CAN} from '../icons';
 import {
     addLogForMedia,
     addMilestoneForMedia,
     canAddMilestone,
     canMarkComplete,
+    canSetReadingSpeedOverride,
     createMediaVariant,
     deleteMediaWithConfirmation,
     markMediaComplete,
     notifyLocalDataChanged,
+    setReadingSpeedOverride,
     toggleMediaArchived,
     type MediaActionOutcome
 } from './media_actions';
@@ -715,6 +717,16 @@ export class MediaDetail extends Component<MediaDetailState> {
     private openOverflowMenu() {
         if (!this.overflowMenuButton) return;
 
+        const readingSpeedItem: PopupMenuItem[] = canSetReadingSpeedOverride(this.state.media)
+            ? [{
+                actionId: 'set-reading-speed',
+                elementId: 'btn-set-reading-speed',
+                label: 'Set custom reading speed',
+                iconMarkup: GAUGE,
+                onSelect: () => { this.setReadingSpeedFromDetail().catch(e => Logger.error('Failed to set reading speed override', e)); },
+            }]
+            : [];
+
         this.overflowMenuHandle = openPopupMenu({
             label: `Actions for ${this.state.media.title}`,
             anchor: { kind: 'element', element: this.overflowMenuButton, align: 'end' },
@@ -727,6 +739,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                     iconMarkup: FORK,
                     onSelect: () => { this.createVariantFromDetail().catch(e => Logger.error('Failed to create media variant', e)); },
                 },
+                ...readingSpeedItem,
                 {
                     actionId: 'delete',
                     elementId: 'btn-delete-media-detail',
@@ -745,6 +758,10 @@ export class MediaDetail extends Component<MediaDetailState> {
         if (outcome.committed && outcome.createdMediaId !== undefined) {
             this.onVariantCreated(outcome.createdMediaId);
         }
+    }
+
+    private async setReadingSpeedFromDetail() {
+        this.applyMediaActionOutcome(await setReadingSpeedOverride(this.state.media));
     }
 
     private async deleteMediaFromDetail() {
@@ -879,9 +896,12 @@ export class MediaDetail extends Component<MediaDetailState> {
         const cachedTypeSpeed = readingSpeedSettings[READING_SPEED_SETTING_KEY_BY_CONTENT_TYPE[contentType]] || null;
         const estimate = estimateMediaReadingSpeed(media, logs, cachedTypeSpeed);
 
-        const isWorkDerivedSpeed = estimate.source === 'completedAnchor' || estimate.source === 'workSessions';
+        const isWorkDerivedSpeed = estimate.source === 'manualOverride'
+            || estimate.source === 'completedAnchor'
+            || estimate.source === 'workSessions';
+        const speedLabel = estimate.source === 'manualOverride' ? 'Reading Speed' : 'Est. Reading Speed';
         const speedHtml = isWorkDerivedSpeed && estimate.charactersPerHour !== null
-            ? `<span id="est-reading-speed" class="estimation-block">Est. Reading Speed: <strong class="estimation-value">${Math.round(estimate.charactersPerHour).toLocaleString()} char/hr</strong></span>`
+            ? `<span id="est-reading-speed" class="estimation-block">${speedLabel}: <strong class="estimation-value">${Math.round(estimate.charactersPerHour).toLocaleString()} char/hr</strong></span>`
             : "";
 
         if (media.tracking_status === 'Complete' || estimate.completionPercent === null) {

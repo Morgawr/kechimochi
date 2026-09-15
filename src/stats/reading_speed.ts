@@ -1,5 +1,5 @@
 import type { ActivitySummary, Media } from '../types';
-import { getCharacterCountFromExtraData } from '../extra_data';
+import { getCharacterCountFromExtraData, getReadingSpeedFromExtraData } from '../extra_data';
 import { SETTING_KEYS } from '../constants';
 
 export const READING_CONTENT_TYPES = ['Novel', 'WebNovel', 'NonFiction', 'Visual Novel', 'Manga'] as const;
@@ -20,7 +20,7 @@ export const READING_SPEED_SETTING_KEY_BY_CONTENT_TYPE: Record<ReadingContentTyp
     'Visual Novel': SETTING_KEYS.STATS_VN_SPEED,
 };
 
-export type ReadingSpeedSource = 'completedAnchor' | 'workSessions' | 'typeEstimate';
+export type ReadingSpeedSource = 'manualOverride' | 'completedAnchor' | 'workSessions' | 'typeEstimate';
 export type SessionEvidence = 'dual' | 'timeOnly' | 'charactersOnly' | 'empty';
 
 export interface MediaReadingSpeedEstimate {
@@ -50,6 +50,7 @@ interface MediaSpeedInputs {
     workSpeed: number | null;
     metadataTotal: number | null;
     anchorSpeed: number | null;
+    overrideSpeed: number | null;
 }
 
 export function isReadingContentType(contentType: string): contentType is ReadingContentType {
@@ -76,14 +77,17 @@ function collectImmersionSessions(media: Media, logs: ActivitySummary[]): Classi
         .map(log => ({ log, evidence: classifySessionEvidence(log) }));
 }
 
-function readMetadataTotal(media: Media): number | null {
+function parseExtraData(media: Media): Record<string, string> {
     try {
-        const extraData = JSON.parse(media.extra_data || '{}');
-        const parsedTotal = getCharacterCountFromExtraData(extraData);
-        return parsedTotal !== null && parsedTotal > 0 ? parsedTotal : null;
+        return JSON.parse(media.extra_data || '{}');
     } catch {
-        return null;
+        return {};
     }
+}
+
+function readMetadataTotal(extraData: Record<string, string>): number | null {
+    const parsedTotal = getCharacterCountFromExtraData(extraData);
+    return parsedTotal !== null && parsedTotal > 0 ? parsedTotal : null;
 }
 
 function computeMediaSpeedInputs(media: Media, sessions: ClassifiedSession[]): MediaSpeedInputs {
@@ -101,15 +105,24 @@ function computeMediaSpeedInputs(media: Media, sessions: ClassifiedSession[]): M
         }
     }
 
+    const extraData = parseExtraData(media);
     const workSpeed = dualHours > 0 ? dualCharacters / dualHours : null;
-    const metadataTotal = readMetadataTotal(media);
+    const metadataTotal = readMetadataTotal(extraData);
     const hasUntimedReading = sessions.some(session => session.evidence === 'charactersOnly');
     const anchorSpeed = media.tracking_status === 'Complete' && metadataTotal !== null
         && immersionMinutes > 0 && !hasUntimedReading
         ? metadataTotal / (immersionMinutes / 60)
         : null;
 
-    return { sessions, observedCharacters, immersionMinutes, workSpeed, metadataTotal, anchorSpeed };
+    return {
+        sessions,
+        observedCharacters,
+        immersionMinutes,
+        workSpeed,
+        metadataTotal,
+        anchorSpeed,
+        overrideSpeed: getReadingSpeedFromExtraData(extraData),
+    };
 }
 
 function selectReadingSpeedSource(
@@ -118,6 +131,7 @@ function selectReadingSpeedSource(
 ): { source: ReadingSpeedSource | null; charactersPerHour: number | null } {
     const hasImmersionEvidence = inputs.sessions.some(session => session.evidence !== 'empty');
     if (!hasImmersionEvidence) return { source: null, charactersPerHour: null };
+    if (inputs.overrideSpeed !== null) return { source: 'manualOverride', charactersPerHour: inputs.overrideSpeed };
     if (inputs.anchorSpeed !== null) return { source: 'completedAnchor', charactersPerHour: inputs.anchorSpeed };
     if (inputs.workSpeed !== null) return { source: 'workSessions', charactersPerHour: inputs.workSpeed };
     if (cachedTypeSpeed !== null && cachedTypeSpeed > 0) return { source: 'typeEstimate', charactersPerHour: cachedTypeSpeed };
@@ -194,8 +208,22 @@ function hasEvidenceSince(sessions: ClassifiedSession[], cutoffDate: string): bo
     return sessions.some(session => session.evidence !== 'empty' && session.log.date >= cutoffDate);
 }
 
+function overrideContribution(inputs: MediaSpeedInputs, cutoffDate: string): { characters: number; hours: number } {
+    const overrideSpeed = inputs.overrideSpeed!;
+    let hours = 0;
+    for (const session of inputs.sessions) {
+        if (session.log.date < cutoffDate) continue;
+        if (session.log.duration_minutes > 0) hours += session.log.duration_minutes / 60;
+        // A characters-only session has no time to weight by, so the override itself says how long it took.
+        else if (session.evidence === 'charactersOnly') hours += session.log.characters / overrideSpeed;
+    }
+    return { characters: overrideSpeed * hours, hours };
+}
+
 function poolContribution(inputs: MediaSpeedInputs, cutoffDate: string): { characters: number; hours: number } {
     const { source } = selectReadingSpeedSource(inputs, null);
+
+    if (source === 'manualOverride') return overrideContribution(inputs, cutoffDate);
 
     if (source === 'completedAnchor') {
         return hasEvidenceSince(inputs.sessions, cutoffDate)

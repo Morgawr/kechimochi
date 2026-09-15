@@ -12,6 +12,7 @@ The format is based on Keep a Changelog, with one section per released version.
  - Right-clicking empty space in the library opens a menu for New media
  - Added an E-Ink theme: black on white, borders instead of fill-tints, no motion or elevation, tuned for e-ink panels
  - Media details now have a Create variant action that carries over the same medatada into a new variant
+ - Media supporting reading speed estimates can now carry a custom override, set from the media detail menu
 
 ### Changed
  - Doughnut and stacked-bar chart segments now have a border separating them, across all themes
