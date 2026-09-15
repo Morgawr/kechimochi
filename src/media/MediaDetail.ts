@@ -180,7 +180,13 @@ export class MediaDetail extends Component<MediaDetailState> {
             return false;
         }
         this.state.logs = logs;
-        this.render();
+        const logsContainer = this.container.querySelector<HTMLElement>('#media-logs-container');
+        if (logsContainer) {
+            this.renderStats(this.container);
+            new MediaLog(logsContainer, logs).render();
+        } else {
+            this.render();
+        }
         return true;
     }
 
@@ -196,7 +202,8 @@ export class MediaDetail extends Component<MediaDetailState> {
         try {
             const milestones = await getMilestones(this.requireMediaUid());
             if (!this.isDestroyed) {
-                this.setState({ milestones });
+                this.state.milestones = milestones;
+                this.refreshMilestones();
             }
         } catch (e) {
             Logger.error("Failed to load milestones", e);
@@ -211,13 +218,13 @@ export class MediaDetail extends Component<MediaDetailState> {
                 getSetting(SETTING_KEYS.STATS_VN_SPEED),
             ]);
             if (!this.isDestroyed) {
-                this.setState({
-                    readingSpeedSettings: {
-                        [SETTING_KEYS.STATS_NOVEL_SPEED]: Number.parseInt(novelSpeed || "0", 10),
-                        [SETTING_KEYS.STATS_MANGA_SPEED]: Number.parseInt(mangaSpeed || "0", 10),
-                        [SETTING_KEYS.STATS_VN_SPEED]: Number.parseInt(vnSpeed || "0", 10),
-                    },
-                });
+                this.state.readingSpeedSettings = {
+                    [SETTING_KEYS.STATS_NOVEL_SPEED]: Number.parseInt(novelSpeed || "0", 10),
+                    [SETTING_KEYS.STATS_MANGA_SPEED]: Number.parseInt(mangaSpeed || "0", 10),
+                    [SETTING_KEYS.STATS_VN_SPEED]: Number.parseInt(vnSpeed || "0", 10),
+                };
+                if (this.container.querySelector('#media-first-last-stats')) this.renderStats(this.container);
+                else this.render();
             }
         } catch (e) {
             Logger.warn("Could not load reading speed settings", e);
@@ -478,7 +485,6 @@ export class MediaDetail extends Component<MediaDetailState> {
     }
 
     render() {
-        this.clear();
         const { media, imgSrc, logs, isDescriptionExpanded } = this.state;
         const mediaOptions = this.mediaList.map((entry, index) => {
             const label = entry.variant ? entry.title + ' — ' + entry.variant : entry.title;
@@ -547,11 +553,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                                 <div id="milestone-list-container" style="display: flex; flex-direction: column; gap: 0.3rem; flex: 1; min-height: 0; overflow-y: auto;">
                                     ${rawHtml(this.renderMilestones())}
                                 </div>
-                                ${this.state.milestones.length > 0 ? html`
-                                    <div style="display: flex; justify-content: flex-end; margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid color-mix(in srgb, var(--tint-light) 5%, transparent);">
-                                        <button class="btn btn-ghost" id="btn-clear-milestones" style="padding: 0.2rem 0.4rem; font-size: 0.6rem; border-radius: 4px; color: var(--accent-red); opacity: 0.6; font-weight: 500;">Delete all milestones</button>
-                                    </div>
-                                ` : ''}
+                                ${this.state.milestones.length > 0 ? this.createMilestoneClearAction() : ''}
                             </div>
                         </div>
                     </div>
@@ -599,22 +601,64 @@ export class MediaDetail extends Component<MediaDetailState> {
             </div>
         `;
 
-        this.container.appendChild(detailView);
-        this.syncOverflowMenuRefs();
+        const currentContent = this.container.querySelector('#media-content-area');
+        const currentSelect = this.container.querySelector<HTMLSelectElement>('#media-select');
+        let updatedRoot = detailView;
+        if (currentContent && currentSelect) {
+            // Keep the header connected: replacing a pressed button cancels its
+            // native click, and replacing a focused select dismisses its picker.
+            const nextContent = detailView.querySelector<HTMLElement>('#media-content-area')!;
+            const nextSelect = detailView.querySelector<HTMLSelectElement>('#media-select')!;
+            if (currentSelect.innerHTML !== nextSelect.innerHTML) {
+                currentSelect.innerHTML = nextSelect.innerHTML;
+            }
+            currentContent.replaceWith(nextContent);
+            updatedRoot = nextContent;
+        } else {
+            this.clear();
+            this.container.appendChild(detailView);
+            this.syncOverflowMenuRefs();
+        }
         this.syncViewportLayout();
-        this.setupListeners(detailView);
-        this.renderStats(detailView);
+        this.setupListeners(updatedRoot);
+        this.renderStats(updatedRoot);
 
-        const logsContainer = detailView.querySelector('#media-logs-container') as HTMLElement;
+        const logsContainer = updatedRoot.querySelector('#media-logs-container') as HTMLElement;
         new MediaLog(logsContainer, logs).render();
 
         logsContainer.addEventListener('activity-updated', async () => {
             if (this.state.media.id) {
                 const updatedLogs = await getLogsForMedia(this.state.media.id);
-                this.setState({ logs: updatedLogs });
-                notifyLocalDataChanged();
+                if (this.updateLogs(this.state.media.id, updatedLogs)) notifyLocalDataChanged();
             }
         });
+    }
+
+    private createMilestoneClearAction(): HTMLElement {
+        return html`
+            <div style="display: flex; justify-content: flex-end; margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid color-mix(in srgb, var(--tint-light) 5%, transparent);">
+                <button class="btn btn-ghost" id="btn-clear-milestones" style="padding: 0.2rem 0.4rem; font-size: 0.6rem; border-radius: 4px; color: var(--accent-red); opacity: 0.6; font-weight: 500;">Delete all milestones</button>
+            </div>
+        `;
+    }
+
+    private refreshMilestones() {
+        const list = this.container.querySelector<HTMLElement>('#milestone-list-container');
+        const card = this.container.querySelector('#media-milestones-card');
+        if (!list || !card) {
+            this.render();
+            return;
+        }
+        list.innerHTML = this.renderMilestones();
+        this.setupListeners(list);
+        const clearAction = card.querySelector('#btn-clear-milestones')?.parentElement;
+        if (this.state.milestones.length === 0) {
+            clearAction?.remove();
+        } else if (!clearAction) {
+            const action = this.createMilestoneClearAction();
+            card.appendChild(action);
+            this.setupListeners(action);
+        }
     }
 
     private placeMilestonesCard() {
@@ -638,8 +682,10 @@ export class MediaDetail extends Component<MediaDetailState> {
     }
 
     private syncOverflowMenuRefs() {
+        const wasOpen = this.overflowMenuHandle !== null;
         this.closeOverflowMenu();
         this.overflowMenuButton = this.container.querySelector<HTMLButtonElement>('#btn-media-overflow');
+        if (wasOpen) this.openOverflowMenu();
     }
 
     private closeOverflowMenu() {
@@ -652,6 +698,10 @@ export class MediaDetail extends Component<MediaDetailState> {
             this.closeOverflowMenu();
             return;
         }
+        this.openOverflowMenu();
+    }
+
+    private openOverflowMenu() {
         if (!this.overflowMenuButton) return;
 
         this.overflowMenuHandle = openPopupMenu({
@@ -854,7 +904,11 @@ export class MediaDetail extends Component<MediaDetailState> {
     private renderStats(root: HTMLElement) {
         const statsDiv = root.querySelector('#media-first-last-stats') as HTMLElement;
         const { logs, media, readingSpeedSettings } = this.state;
-        if (!statsDiv || logs.length === 0) return;
+        if (!statsDiv) return;
+        if (logs.length === 0) {
+            statsDiv.replaceChildren();
+            return;
+        }
 
         statsDiv.style.display = 'flex';
         statsDiv.style.alignItems = 'center';
@@ -1188,7 +1242,7 @@ export class MediaDetail extends Component<MediaDetailState> {
             const outcome = await addLogForMedia(this.state.media);
             if (outcome.committed) {
                 const logs = await getLogsForMedia(this.state.media.id!);
-                this.setState({ logs });
+                this.updateLogs(this.state.media.id!, logs);
             }
         });
     }

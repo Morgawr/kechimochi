@@ -4047,6 +4047,10 @@ input:checked + .slider:before {
     border-radius: var(--radius-md);
   }
 
+  body[data-runtime='desktop'] #media-cover-column {
+    top: calc(4.5rem + var(--view-padding-top));
+  }
+
   #media-cover-img {
     width: 100%;
     height: 100%;
@@ -4064,6 +4068,8 @@ input:checked + .slider:before {
   }
 
   #media-detail-header {
+    position: relative;
+    z-index: 1;
     flex-wrap: wrap;
     justify-content: center !important;
     overflow: visible;

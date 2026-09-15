@@ -17,6 +17,7 @@ import {
 } from '../../helpers/media-detail.js';
 import { uploadProfilePicture } from '../../helpers/profile.js';
 import { setSelect, setText } from '../../helpers/form-controls.js';
+import { withMediaMenuDiagnostics } from '../../helpers/media-menu-diagnostics.js';
 import {
   enableSyncByAttachingExistingProfile,
   enableSyncByCreatingNewProfile,
@@ -291,9 +292,11 @@ describe('CUJ: Cloud Sync', () => {
     expect((syncedSnapshot.settings.theme as Record<string, unknown>).value).toBe('molokai');
     expect((syncedSnapshot.profile_picture as Record<string, unknown>).base64_data).toEqual(expect.any(String));
 
-    await openMediaDetail(DELETION_TITLE);
-    await safeClick('#btn-media-overflow');
-    await clickMenuItem('#btn-delete-media-detail');
+    await withMediaMenuDiagnostics(async () => {
+      await openMediaDetail(DELETION_TITLE);
+      await safeClick('#btn-media-overflow');
+      await clickMenuItem('#btn-delete-media-detail');
+    });
     await confirmAction(true);
     await navigateTo('profile');
     await runSyncNow('Cloud Sync completed successfully');

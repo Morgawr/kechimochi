@@ -34,6 +34,7 @@ function menuButtons(): HTMLButtonElement[] {
 describe('openPopupMenu', () => {
     afterEach(() => {
         document.body.innerHTML = '';
+        vi.unstubAllGlobals();
     });
 
     it('renders one menuitem per item with its action id and label', () => {
@@ -152,11 +153,32 @@ describe('openPopupMenu', () => {
         expect(document.querySelector('.popup-menu')).toBeNull();
     });
 
-    it('closes on window resize and blur', () => {
-        openAtPoint();
+    it('ignores a queued resize for the viewport where the menu was opened', () => {
+        vi.stubGlobal('innerWidth', 760);
+        vi.stubGlobal('innerHeight', 1200);
+        const anchorElement = document.createElement('button');
+        document.body.appendChild(anchorElement);
+        openAnchored(anchorElement);
+
+        globalThis.dispatchEvent(new Event('resize'));
+
+        expect(document.querySelector('.popup-menu')).not.toBeNull();
+        expect(anchorElement.getAttribute('aria-expanded')).toBe('true');
+
+        vi.stubGlobal('innerWidth', 952);
         globalThis.dispatchEvent(new Event('resize'));
         expect(document.querySelector('.popup-menu')).toBeNull();
+        expect(anchorElement.getAttribute('aria-expanded')).toBe('false');
+    });
 
+    it.each(['innerWidth', 'innerHeight'] as const)('closes when %s changes after opening', (dimension) => {
+        openAtPoint();
+        vi.stubGlobal(dimension, globalThis[dimension] + 100);
+        globalThis.dispatchEvent(new Event('resize'));
+        expect(document.querySelector('.popup-menu')).toBeNull();
+    });
+
+    it('closes on window blur', () => {
         openAtPoint();
         globalThis.dispatchEvent(new Event('blur'));
         expect(document.querySelector('.popup-menu')).toBeNull();
@@ -169,6 +191,7 @@ describe('openPopupMenu', () => {
         globalThis.dispatchEvent(new Event('blur'));
         expect(document.querySelector('.popup-menu')).not.toBeNull();
 
+        vi.stubGlobal('innerWidth', globalThis.innerWidth + 100);
         globalThis.dispatchEvent(new Event('resize'));
         expect(document.querySelector('.popup-menu')).toBeNull();
         sessionStorage.removeItem('kechimochi_keep_popup_menus_on_blur');

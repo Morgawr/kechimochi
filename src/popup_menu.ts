@@ -76,6 +76,8 @@ function positionMenu(menuElement: HTMLElement, anchor: PopupMenuAnchor): void {
 export function openPopupMenu(options: PopupMenuOptions): PopupMenuHandle {
     const { label, anchor, items, onClose } = options;
     const anchorElement = anchor.kind === 'element' ? anchor.element : null;
+    const viewportWidth = globalThis.innerWidth;
+    const viewportHeight = globalThis.innerHeight;
 
     const menuElement = document.createElement('div');
     menuElement.className = 'popup-menu';
@@ -133,6 +135,14 @@ export function openPopupMenu(options: PopupMenuOptions): PopupMenuHandle {
         close();
     };
 
+    const handleResize = () => {
+        // WebKit can deliver a queued resize after the user has opened a menu
+        // in the new layout. Its position already uses those dimensions.
+        if (globalThis.innerWidth !== viewportWidth || globalThis.innerHeight !== viewportHeight) {
+            close();
+        }
+    };
+
     let isClosed = false;
     function close() {
         if (isClosed) return;
@@ -140,7 +150,7 @@ export function openPopupMenu(options: PopupMenuOptions): PopupMenuHandle {
         document.removeEventListener('pointerdown', handleOutsidePointerDown, true);
         document.removeEventListener('keydown', handleKeyDown, true);
         document.removeEventListener('scroll', close, true);
-        globalThis.removeEventListener('resize', close);
+        globalThis.removeEventListener('resize', handleResize);
         globalThis.removeEventListener('blur', close);
         menuElement.remove();
         anchorElement?.setAttribute('aria-expanded', 'false');
@@ -154,7 +164,7 @@ export function openPopupMenu(options: PopupMenuOptions): PopupMenuHandle {
     document.addEventListener('pointerdown', handleOutsidePointerDown, true);
     document.addEventListener('keydown', handleKeyDown, true);
     document.addEventListener('scroll', close, true);
-    globalThis.addEventListener('resize', close);
+    globalThis.addEventListener('resize', handleResize);
     if (shouldCloseOnWindowBlur()) globalThis.addEventListener('blur', close);
 
     return { close };

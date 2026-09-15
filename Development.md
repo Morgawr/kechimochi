@@ -157,6 +157,12 @@ npm run e2e           # shorthand — also aliases to desktop
 npm run e2e:desktop   # explicit
 ```
 
+On Linux, use a separate virtual display for each worker when running parallel
+native tests (as CI does). This requires `xvfb`, `openbox`, and `wmctrl`:
+```bash
+E2E_ISOLATE_DISPLAY=1 npm run e2e:desktop
+```
+
 Run a single spec:
 ```bash
 npm run e2e:test -- --spec e2e/specs/shared/dashboard.spec.ts

@@ -920,6 +920,33 @@ describe('MediaView', () => {
         expect(component.state.preferredLayout).toBe('grid');
     });
 
+    it.each([true, false])('preserves the active detail when grid support changes from %s', async (initialSupport) => {
+        matchMediaStub = stubMatchMedia(initialSupport);
+        vi.mocked(api.getAllMedia).mockResolvedValue([{ id: 1, title: 'Resizable' }] as unknown as Media[]);
+        vi.mocked(api.getLogsForMedia).mockResolvedValue([]);
+        const component = new MediaView(container);
+        await renderAndWaitForBrowser(component);
+        await component.loadData(1);
+        expect(MediaDetail).toHaveBeenCalledOnce();
+
+        const detail = vi.mocked(MediaDetail).mock.results[0].value;
+        expect(detail.destroy).not.toHaveBeenCalled();
+        const detailRoot = container.querySelector('#media-root');
+        const callbacks = lastMockCallArguments(vi.mocked(MediaDetail).mock.calls, 'MediaDetail')[5];
+        matchMediaStub.setMatches(!initialSupport);
+
+        expect(detail.destroy).not.toHaveBeenCalled();
+        expect(MediaDetail).toHaveBeenCalledOnce();
+        expect(container.querySelector('#media-root')).toBe(detailRoot);
+
+        callbacks.onBackToLibrary();
+        await vi.waitFor(() => expect(vi.mocked(MediaLibraryBrowser).mock.calls.at(-1)?.[1]).toEqual(
+            expect.objectContaining({ preferredLayout: 'grid', isGridSupported: !initialSupport }),
+        ));
+        expect(api.setSetting).not.toHaveBeenCalledWith(SETTING_KEYS.LIBRARY_LAYOUT_MODE, expect.anything());
+        component.destroy();
+    });
+
     it('auto-restores a saved grid preference after the window becomes large again', async () => {
         matchMediaStub = stubMatchMedia(false);
         vi.mocked(api.getAllMedia).mockResolvedValue([{ id: 1, title: 'Resizable' }] as unknown as Media[]);
