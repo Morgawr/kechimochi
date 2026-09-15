@@ -53,8 +53,8 @@ describe('CUJ: Activity Type Decoupling', () => {
         // (seed may have already added this via progress-analysis, so use editExtraField fallback)
         await addExtraField('Character count', '12000');
 
-        // Wait for the reading speed badge to appear (partial text match)
-        const speedBadge = $('span*=Est. Reading Speed:');
+        // Wait for the reading speed badge to appear
+        const speedBadge = $('#est-reading-speed');
         await speedBadge.waitForDisplayed({ timeout: 5000 });
         // Read the char/hr value from the nested <strong> element
         const speedStrong = speedBadge.$('strong');

@@ -107,21 +107,18 @@ function mockStandardProfileLoad(options?: {
     profileName?: string;
     theme?: string;
     font?: string;
-    statsReportTimestamp?: string;
 }) {
     const {
         appVersion = '1.0.0',
         profileName = 'test-user',
         theme = 'pastel-pink',
         font = 'inter',
-        statsReportTimestamp = '',
     } = options ?? {};
 
     vi.mocked(api.getSetting).mockImplementation(async (key) => {
         if (key === SETTING_KEYS.PROFILE_NAME) return profileName;
         if (key === SETTING_KEYS.THEME) return theme;
         if (key === SETTING_KEYS.FONT_FAMILY) return font;
-        if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return statsReportTimestamp;
         return '0';
     });
     vi.mocked(api.getAppVersion).mockResolvedValue(appVersion);
@@ -132,7 +129,6 @@ function mockLibraryOrderSettings(options?: { contentTypeOrder?: string[] | null
     vi.mocked(api.getSetting).mockImplementation(async (key) => {
         if (key === SETTING_KEYS.PROFILE_NAME) return 'test-user';
         if (key === SETTING_KEYS.THEME) return 'pastel-pink';
-        if (key === SETTING_KEYS.STATS_REPORT_TIMESTAMP) return '';
         if (key === SETTING_KEYS.CONTENT_TYPE_ORDER) return contentTypeOrder ? JSON.stringify(contentTypeOrder) : null;
         if (key === SETTING_KEYS.TRACKING_STATUS_ORDER) return trackingStatusOrder ? JSON.stringify(trackingStatusOrder) : null;
         return '0';
@@ -253,17 +249,13 @@ describe('ProfileView', () => {
     });
 
     it('should load settings and render profile name', async () => {
-        mockStandardProfileLoad({
-            appVersion: '1.2.3',
-            statsReportTimestamp: '2024-01-01T00:00:00Z',
-        });
+        mockStandardProfileLoad({ appVersion: '1.2.3' });
 
         const view = new ProfileView(container);
         view.render();
 
         await vi.waitFor(() => expect(container.textContent).toContain('test-user'));
         expect(container.textContent).toContain('Kechimochi BETA VERSION 1.2.3');
-        expect(container.textContent).toContain('Since 2024-01-01');
     });
 
     it('should render profile picture preview when one exists', async () => {
@@ -766,85 +758,74 @@ describe('ProfileView', () => {
         expect(container.querySelector('input[type="text"]')).not.toBeNull();
     });
 
-    it('should calculate report', async () => {
+    it('should compute the reading report automatically on load', async () => {
         vi.mocked(api.getSetting).mockResolvedValue('0');
         vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+        const today = new Date().toISOString().split('T')[0];
         vi.mocked(api.getAllMedia).mockResolvedValue([{
             id: 1, title: 'M1', tracking_status: 'Complete', content_type: 'Novel', extra_data: '{"Character count":"10,000"}'
         }] as unknown as Media[]);
-        vi.mocked(api.getLogsForMedia).mockResolvedValue([{ id: 1, media_id: 1, title: 'M1', activity_type: 'Reading', language: 'Japanese', date: new Date().toISOString().split('T')[0], duration_minutes: 60, characters: 0 }] as unknown as api.ActivitySummary[]);
-
-        const view = new ProfileView(container);
-        view.render();
-
-        await vi.waitFor(() => expect(container.querySelector('#profile-btn-calculate-report')).not.toBeNull());
-
-        const calcBtn = container.querySelector('#profile-btn-calculate-report') as HTMLButtonElement;
-        calcBtn.click();
-
-        await vi.waitFor(() => expect(api.setSetting).toHaveBeenCalledWith(SETTING_KEYS.STATS_NOVEL_SPEED, '10000'));
-        expect(modals.customAlert).toHaveBeenCalledWith("Success", expect.stringContaining("calculated"));
-    });
-
-    it('should calculate report with case-insensitive character count keys', async () => {
-        vi.mocked(api.getSetting).mockResolvedValue('0');
-        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
-        vi.mocked(api.getAllMedia).mockResolvedValue([{
-            id: 1, title: 'M1', tracking_status: 'Complete', content_type: 'Novel', extra_data: '{"CHARACTER COUNT":"10,000"}'
-        }] as unknown as Media[]);
-        vi.mocked(api.getLogsForMedia).mockResolvedValue([{
-            id: 1,
-            media_id: 1,
-            title: 'M1',
-            activity_type: 'Reading',
-            language: 'Japanese',
-            date: new Date().toISOString().split('T')[0],
-            duration_minutes: 60,
-            characters: 0
+        vi.mocked(api.getLogs).mockResolvedValue([{
+            id: 1, media_id: 1, title: 'M1', activity_type: 'Reading', language: 'Japanese', date: today, duration_minutes: 60, characters: 0
         }] as unknown as api.ActivitySummary[]);
 
         const view = new ProfileView(container);
         view.render();
 
-        await vi.waitFor(() => expect(container.querySelector('#profile-btn-calculate-report')).not.toBeNull());
-
-        (container.querySelector('#profile-btn-calculate-report') as HTMLButtonElement).click();
-
         await vi.waitFor(() => expect(api.setSetting).toHaveBeenCalledWith(SETTING_KEYS.STATS_NOVEL_SPEED, '10000'));
+        await vi.waitFor(() => expect(container.querySelector('#profile-report-card')).not.toBeNull());
+        expect(container.textContent).toContain('10,000 char/hr');
     });
 
-    it('should handle report calculation failure', async () => {
-        vi.mocked(api.getAllMedia).mockRejectedValue(new Error('API Error'));
-        const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    it('should not overwrite cached reading speeds when the report data fails to load', async () => {
+        vi.mocked(api.getSetting).mockImplementation(async (key: string) =>
+            key === SETTING_KEYS.STATS_NOVEL_SPEED ? '5000' : '0');
+        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+        vi.mocked(api.getLogs).mockRejectedValue(new Error('backend unavailable'));
+        vi.mocked(api.getAllMedia).mockResolvedValue([]);
+
         const view = new ProfileView(container);
         view.render();
 
-        await vi.waitFor(() => expect(container.querySelector('#profile-btn-calculate-report')).not.toBeNull());
-
-        const calcBtn = container.querySelector('#profile-btn-calculate-report') as HTMLButtonElement;
-        calcBtn.click();
-
-        await vi.waitFor(() => expect(modals.customAlert).toHaveBeenCalledWith("Error", expect.stringContaining("Failed")));
-        consoleSpy.mockRestore();
+        await vi.waitFor(() => expect(container.querySelector('#profile-name')).not.toBeNull());
+        expect(api.setSetting).not.toHaveBeenCalledWith(SETTING_KEYS.STATS_NOVEL_SPEED, expect.anything());
+        expect(api.setSetting).not.toHaveBeenCalledWith(SETTING_KEYS.STATS_MANGA_SPEED, expect.anything());
+        expect(api.setSetting).not.toHaveBeenCalledWith(SETTING_KEYS.STATS_VN_SPEED, expect.anything());
     });
 
-    it('should handle different content types in report calculation', async () => {
+    it('should hide the report card entirely when no reading speed can be computed', async () => {
+        vi.mocked(api.getSetting).mockResolvedValue('0');
+        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+        vi.mocked(api.getAllMedia).mockResolvedValue([]);
+        vi.mocked(api.getLogs).mockResolvedValue([]);
+
+        const view = new ProfileView(container);
+        view.render();
+
+        await vi.waitFor(() => expect(container.querySelector('#profile-name')).not.toBeNull());
+        expect(container.querySelector('#profile-report-card')).toBeNull();
+    });
+
+    it('should only show report rows for content types with a computed speed', async () => {
+        vi.mocked(api.getSetting).mockResolvedValue('0');
+        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
+        const today = new Date().toISOString().split('T')[0];
         vi.mocked(api.getAllMedia).mockResolvedValue([
             { id: 1, title: 'M1', tracking_status: 'Complete', content_type: 'Manga', extra_data: '{"Character count":"100"}' },
-            { id: 2, title: 'VN', tracking_status: 'Complete', content_type: 'Visual Novel', extra_data: '{"Character count":"5000"}' }
+            { id: 2, title: 'M2', tracking_status: 'Ongoing', content_type: 'Novel', extra_data: '{}' },
         ] as unknown as Media[]);
-        vi.mocked(api.getLogsForMedia).mockResolvedValue([{ id: 1, media_id: 1, title: 'M1', activity_type: 'Reading', language: 'Japanese', date: new Date().toISOString(), duration_minutes: 60, characters: 0 }] as unknown as api.ActivitySummary[]);
+        vi.mocked(api.getLogs).mockResolvedValue([
+            { id: 1, media_id: 1, title: 'M1', activity_type: 'Reading', language: 'Japanese', date: today, duration_minutes: 60, characters: 0 },
+            { id: 2, media_id: 2, title: 'M2', activity_type: 'Reading', language: 'Japanese', date: today, duration_minutes: 30, characters: 0 },
+        ] as unknown as api.ActivitySummary[]);
 
         const view = new ProfileView(container);
         view.render();
 
-        await vi.waitFor(() => expect(container.querySelector('#profile-btn-calculate-report')).not.toBeNull());
-
-        const calcBtn = container.querySelector('#profile-btn-calculate-report') as HTMLButtonElement;
-        calcBtn.click();
-
-        await vi.waitFor(() => expect(api.setSetting).toHaveBeenCalledWith(SETTING_KEYS.STATS_MANGA_SPEED, '100'));
-        expect(api.setSetting).toHaveBeenCalledWith(SETTING_KEYS.STATS_VN_SPEED, '5000');
+        await vi.waitFor(() => expect(container.querySelector('#profile-report-card')).not.toBeNull());
+        const rows = Array.from(container.querySelectorAll('.profile-report-row')).map(row => row.textContent);
+        expect(rows.some(text => text?.includes('Manga'))).toBe(true);
+        expect(rows.some(text => text?.includes('Novel'))).toBe(false);
     });
 
     it('should clear activities on confirm', async () => {

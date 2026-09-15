@@ -20,6 +20,7 @@ vi.mock('../../../src/api', () => ({
 }));
 
 import { Media, Milestone } from '../../../src/api';
+import { SETTING_KEYS } from '../../../src/constants';
 import * as importers from '../../../src/importers';
 import { ScrapedMetadata } from '../../../src/importers';
 vi.mock('../../../src/importers', () => ({
@@ -467,6 +468,106 @@ describe('MediaDetail', () => {
 
         await vi.waitFor(() => expect(container.textContent).toContain('Est. Reading Speed'));
         expect(normalizeLocalizedNumbers(container.textContent)).toContain('10,000 char/hr');
+    });
+
+    it('should derive a completed work\'s speed from the metadata total, not its logged characters', async () => {
+        vi.mocked(api.getMilestones).mockResolvedValue([]);
+        const completedMedia = {
+            ...mockMedia,
+            tracking_status: 'Complete',
+            extra_data: '{"Character count":"10000"}'
+        };
+        const mockLogs = [
+            { id: 1, duration_minutes: 60, characters: 1000, date: '2024-03-01', media_id: 1, title: 'T1', activity_type: 'Reading', language: 'Japanese' }
+        ] as unknown as api.ActivitySummary[];
+
+        const component = new MediaDetail(container, completedMedia as unknown as Media, mockLogs, [completedMedia as unknown as Media], 0, mockCallbacks);
+        component.triggerMount();
+
+        await vi.waitFor(() => expect(container.querySelector('#est-reading-speed')).not.toBeNull());
+        const speedText = normalizeLocalizedNumbers(container.querySelector('#est-reading-speed')?.textContent || '');
+        expect(speedText).toContain('10,000 char/hr');
+    });
+
+    it('should show the speed chip from the work\'s own sessions with no metadata total, and hide completion/remaining', async () => {
+        vi.mocked(api.getMilestones).mockResolvedValue([]);
+        const media = { ...mockMedia, tracking_status: 'Ongoing', extra_data: '{}' };
+        const mockLogs = [
+            { id: 1, duration_minutes: 60, characters: 2000, date: '2024-03-01', media_id: 1, title: 'T1', activity_type: 'Reading', language: 'Japanese' }
+        ] as unknown as api.ActivitySummary[];
+
+        const component = new MediaDetail(container, media as unknown as Media, mockLogs, [media as unknown as Media], 0, mockCallbacks);
+        component.triggerMount();
+
+        await vi.waitFor(() => expect(container.querySelector('#est-reading-speed')).not.toBeNull());
+        expect(normalizeLocalizedNumbers(container.querySelector('#est-reading-speed')?.textContent || '')).toContain('2,000 char/hr');
+        expect(container.querySelector('#est-completion-rate')).toBeNull();
+        expect(container.querySelector('#est-remaining-time')).toBeNull();
+    });
+
+    it('should hide completion and remaining when only time is logged and no cached type speed exists', async () => {
+        vi.mocked(api.getMilestones).mockResolvedValue([]);
+        vi.mocked(api.getSetting).mockResolvedValue('0');
+        const media = { ...mockMedia, tracking_status: 'Ongoing', extra_data: '{"Character count":"6000"}' };
+        const mockLogs = [
+            { id: 1, duration_minutes: 45, characters: 0, date: '2024-03-01', media_id: 1, title: 'T1', activity_type: 'Reading', language: 'Japanese' }
+        ] as unknown as api.ActivitySummary[];
+
+        const component = new MediaDetail(container, media as unknown as Media, mockLogs, [media as unknown as Media], 0, mockCallbacks);
+        component.triggerMount();
+        await vi.waitFor(() => expect(api.getSetting).toHaveBeenCalled());
+        component.render();
+
+        expect(container.querySelector('#est-reading-speed')).toBeNull();
+        expect(container.querySelector('#est-completion-rate')).toBeNull();
+        expect(container.querySelector('#est-remaining-time')).toBeNull();
+    });
+
+    it('should compute completion and remaining from a cached type speed when only time is logged', async () => {
+        vi.mocked(api.getMilestones).mockResolvedValue([]);
+        vi.mocked(api.getSetting).mockImplementation(async (key: string) => key === SETTING_KEYS.STATS_NOVEL_SPEED ? '6000' : '0');
+        const media = { ...mockMedia, tracking_status: 'Ongoing', extra_data: '{"Character count":"6000"}' };
+        const mockLogs = [
+            { id: 1, duration_minutes: 45, characters: 0, date: '2024-03-01', media_id: 1, title: 'T1', activity_type: 'Reading', language: 'Japanese' }
+        ] as unknown as api.ActivitySummary[];
+
+        const component = new MediaDetail(container, media as unknown as Media, mockLogs, [media as unknown as Media], 0, mockCallbacks);
+        component.triggerMount();
+
+        await vi.waitFor(() => expect(container.querySelector('#est-completion-rate')).not.toBeNull());
+        expect(container.querySelector('#est-reading-speed')).toBeNull();
+        expect(normalizeLocalizedNumbers(container.querySelector('#est-completion-rate')?.textContent || '')).toContain('75%');
+        expect(normalizeLocalizedNumbers(container.querySelector('#est-remaining-time')?.textContent || '')).toContain('15min');
+    });
+
+    it('should label an overridden reading speed without calling it an estimate', async () => {
+        vi.mocked(api.getMilestones).mockResolvedValue([]);
+        const media = { ...mockMedia, tracking_status: 'Ongoing', extra_data: '{"Reading speed":"7000"}' };
+        const mockLogs = [
+            { id: 1, duration_minutes: 60, characters: 2000, date: '2024-03-01', media_id: 1, title: 'T1', activity_type: 'Reading', language: 'Japanese' }
+        ] as unknown as api.ActivitySummary[];
+
+        const component = new MediaDetail(container, media as unknown as Media, mockLogs, [media as unknown as Media], 0, mockCallbacks);
+        component.triggerMount();
+
+        await vi.waitFor(() => expect(container.querySelector('#est-reading-speed')).not.toBeNull());
+        const speedText = normalizeLocalizedNumbers(container.querySelector('#est-reading-speed')?.textContent || '');
+        expect(speedText).toContain('7,000 char/hr');
+        expect(speedText).not.toContain('Est.');
+    });
+
+    it('should compute reading speed estimates for WebNovel and NonFiction content types', async () => {
+        vi.mocked(api.getMilestones).mockResolvedValue([]);
+        const media = { ...mockMedia, content_type: 'WebNovel', tracking_status: 'Complete', extra_data: '{"Character count":"5000"}' };
+        const mockLogs = [
+            { id: 1, duration_minutes: 60, characters: 0, date: '2024-03-01', media_id: 1, title: 'T1', activity_type: 'Reading', language: 'Japanese' }
+        ] as unknown as api.ActivitySummary[];
+
+        const component = new MediaDetail(container, media as unknown as Media, mockLogs, [media as unknown as Media], 0, mockCallbacks);
+        component.triggerMount();
+
+        await vi.waitFor(() => expect(container.querySelector('#est-reading-speed')).not.toBeNull());
+        expect(normalizeLocalizedNumbers(container.querySelector('#est-reading-speed')?.textContent || '')).toContain('5,000 char/hr');
     });
 
     it('should handle extra field deletion', async () => {

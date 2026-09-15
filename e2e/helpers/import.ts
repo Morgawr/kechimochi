@@ -1,7 +1,7 @@
 /**
  * Import and conflict resolution helpers.
  */
-import { dismissAlert, getTopmostVisibleOverlay, waitForOverlayToDisappear } from './common.js';
+import { dismissAlert, getTopmostVisibleOverlay, safeClick, waitForOverlayToDisappear } from './common.js';
 import { setText } from './form-controls.js';
 
 /**
@@ -74,15 +74,9 @@ export async function confirmMerge(): Promise<void> {
 
     const overlay = btn.$('./ancestor::div[contains(@class, "modal-overlay")]');
 
-    await btn.click();
+    await safeClick(btn);
 
-    await browser.waitUntil(async () => {
-        const className = await overlay.getAttribute('class').catch(() => '');
-        return !(className ?? '').split(/\s+/).includes('active');
-    }, {
-        timeout: 10000,
-        timeoutMsg: 'Import merge modal did not disappear in time'
-    });
+    await waitForOverlayToDisappear(overlay, 10000);
 }
 
 /**

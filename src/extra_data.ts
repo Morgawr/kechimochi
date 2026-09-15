@@ -112,3 +112,11 @@ export function getCharacterCountFromExtraData(extraData: Record<string, string>
     const parsedValue = Number.parseInt(rawValue.replaceAll(/[^\d-]/g, ''), 10);
     return Number.isNaN(parsedValue) ? null : parsedValue;
 }
+
+export function getReadingSpeedFromExtraData(extraData: Record<string, string>): number | null {
+    const rawValue = getExtraDataValue(extraData, EXTRA_FIELD_LABELS.READING_SPEED);
+    if (!rawValue) return null;
+
+    const parsedValue = Number.parseInt(rawValue.replaceAll(/[^\d-]/g, ''), 10);
+    return Number.isNaN(parsedValue) || parsedValue <= 0 ? null : parsedValue;
+}
