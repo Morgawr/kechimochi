@@ -20,6 +20,7 @@ vi.mock('../../src/media/MediaLibraryBrowser', () => ({
         render: vi.fn(),
         destroy: vi.fn(),
         reconcileCoverUrls: vi.fn().mockResolvedValue(undefined),
+        applyLibraryMutation: vi.fn(),
     })),
 }));
 
@@ -287,7 +288,7 @@ describe('MediaView', () => {
         await renderAndWaitForBrowser(component);
 
         const onFilterChange = requireDefined(
-            vi.mocked(MediaLibraryBrowser).mock.calls[0][4],
+            vi.mocked(MediaLibraryBrowser).mock.calls[0][4]?.onFilterChange,
             'MediaLibraryBrowser onFilterChange callback',
         );
         onFilterChange({
@@ -617,6 +618,28 @@ describe('MediaView', () => {
         await vi.waitFor(() => expect(component.state.viewMode).toBe('grid'));
     });
 
+    it('refreshes the library and opens a newly created variant', async () => {
+        const source = { id: 10, title: 'Shared Title', variant: 'Anime' };
+        const created = { id: 20, title: 'Shared Title', variant: 'Manga' };
+        vi.mocked(api.getAllMedia).mockResolvedValue([source] as unknown as Media[]);
+        vi.mocked(api.getLogsForMedia).mockResolvedValue([]);
+
+        const component = new MediaViewTestHarness(container);
+        await renderAndWaitForBrowser(component);
+        vi.mocked(MediaLibraryBrowser).mock.calls[0][2]({ mediaId: 10, navigationIds: [10] });
+        await vi.waitFor(() => expect(MediaDetail).toHaveBeenCalled());
+
+        vi.mocked(api.getAllMedia).mockResolvedValue([source, created] as unknown as Media[]);
+        const detailCallbacks = lastMockCallArguments(vi.mocked(MediaDetail).mock.calls, 'MediaDetail')[5];
+        detailCallbacks.onVariantCreated?.(20);
+
+        await vi.waitFor(() => {
+            expect(api.getLogsForMedia).toHaveBeenCalledWith(20);
+            expect(component.state.viewMode).toBe('detail');
+            expect(component.state.detailMediaList[component.state.currentIndex]?.id).toBe(20);
+        });
+    });
+
     it('reloads detail logs when navigating between media', async () => {
         const mockMedia = [{ id: 10, title: 'Old' }, { id: 20, title: 'New' }];
         const oldLogs = [{
@@ -720,7 +743,7 @@ describe('MediaView', () => {
         await renderAndWaitForBrowser(component);
 
         const onFilterChange = requireDefined(
-            vi.mocked(MediaLibraryBrowser).mock.calls[0][4],
+            vi.mocked(MediaLibraryBrowser).mock.calls[0][4]?.onFilterChange,
             'MediaLibraryBrowser onFilterChange callback',
         );
         onFilterChange({
@@ -749,7 +772,7 @@ describe('MediaView', () => {
         await renderAndWaitForBrowser(component);
 
         const onFilterChange = requireDefined(
-            vi.mocked(MediaLibraryBrowser).mock.calls[0][4],
+            vi.mocked(MediaLibraryBrowser).mock.calls[0][4]?.onFilterChange,
             'MediaLibraryBrowser onFilterChange callback',
         );
         onFilterChange({ groupByType: true });
@@ -765,7 +788,7 @@ describe('MediaView', () => {
         await renderAndWaitForBrowser(component);
 
         const onLayoutChange = requireDefined(
-            vi.mocked(MediaLibraryBrowser).mock.calls[0][5],
+            vi.mocked(MediaLibraryBrowser).mock.calls[0][4]?.onLayoutChange,
             'MediaLibraryBrowser onLayoutChange callback',
         );
         onLayoutChange('list');
@@ -812,7 +835,7 @@ describe('MediaView', () => {
         await renderAndWaitForBrowser(component);
 
         const onGridZoomChange = requireDefined(
-            vi.mocked(MediaLibraryBrowser).mock.calls[0][6],
+            vi.mocked(MediaLibraryBrowser).mock.calls[0][4]?.onGridZoomChange,
             'MediaLibraryBrowser onGridZoomChange callback',
         );
         onGridZoomChange(70);
@@ -895,6 +918,33 @@ describe('MediaView', () => {
         }));
         expect(api.setSetting).not.toHaveBeenCalledWith(SETTING_KEYS.LIBRARY_LAYOUT_MODE, expect.anything());
         expect(component.state.preferredLayout).toBe('grid');
+    });
+
+    it.each([true, false])('preserves the active detail when grid support changes from %s', async (initialSupport) => {
+        matchMediaStub = stubMatchMedia(initialSupport);
+        vi.mocked(api.getAllMedia).mockResolvedValue([{ id: 1, title: 'Resizable' }] as unknown as Media[]);
+        vi.mocked(api.getLogsForMedia).mockResolvedValue([]);
+        const component = new MediaView(container);
+        await renderAndWaitForBrowser(component);
+        await component.loadData(1);
+        expect(MediaDetail).toHaveBeenCalledOnce();
+
+        const detail = vi.mocked(MediaDetail).mock.results[0].value;
+        expect(detail.destroy).not.toHaveBeenCalled();
+        const detailRoot = container.querySelector('#media-root');
+        const callbacks = lastMockCallArguments(vi.mocked(MediaDetail).mock.calls, 'MediaDetail')[5];
+        matchMediaStub.setMatches(!initialSupport);
+
+        expect(detail.destroy).not.toHaveBeenCalled();
+        expect(MediaDetail).toHaveBeenCalledOnce();
+        expect(container.querySelector('#media-root')).toBe(detailRoot);
+
+        callbacks.onBackToLibrary();
+        await vi.waitFor(() => expect(vi.mocked(MediaLibraryBrowser).mock.calls.at(-1)?.[1]).toEqual(
+            expect.objectContaining({ preferredLayout: 'grid', isGridSupported: !initialSupport }),
+        ));
+        expect(api.setSetting).not.toHaveBeenCalledWith(SETTING_KEYS.LIBRARY_LAYOUT_MODE, expect.anything());
+        component.destroy();
     });
 
     it('auto-restores a saved grid preference after the window becomes large again', async () => {
@@ -986,6 +1036,131 @@ describe('MediaView', () => {
 
         expect(component.state.isLoading).toBe(false);
         errorSpy.mockRestore();
+    });
+
+    describe('library action refetch and diff', () => {
+        function browserInstance() {
+            return vi.mocked(MediaLibraryBrowser).mock.results.at(-1)?.value as {
+                applyLibraryMutation: ReturnType<typeof vi.fn>;
+            };
+        }
+
+        function getOnActionCommitted(): () => Promise<void> {
+            return requireDefined(
+                vi.mocked(MediaLibraryBrowser).mock.calls.at(-1)?.[4]?.onActionCommitted,
+                'MediaLibraryBrowser onActionCommitted callback',
+            );
+        }
+
+        it('drives the update from the snapshot diff, not from the media that was right-clicked', async () => {
+            const mediaA = { id: 1, title: 'Right-clicked', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' };
+            const mediaB = { id: 2, title: 'Actually changed', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' };
+            vi.mocked(api.getAllMedia).mockResolvedValue([mediaA, mediaB] as unknown as Media[]);
+
+            const component = new MediaView(container);
+            await renderAndWaitForBrowser(component);
+            const onActionCommitted = getOnActionCommitted();
+
+            vi.mocked(api.getAllMedia).mockResolvedValue([
+                mediaA,
+                { ...mediaB, tracking_status: 'Complete' },
+            ] as unknown as Media[]);
+            await onActionCommitted();
+
+            expect(browserInstance().applyLibraryMutation).toHaveBeenCalledWith(
+                { kind: 'updated', mediaId: 2, media: expect.objectContaining({ tracking_status: 'Complete' }) },
+                expect.anything(),
+                expect.anything(),
+            );
+        });
+
+        it('reports the reactivation of an archived media that a submitted log silently reactivated', async () => {
+            const archived = { id: 1, title: 'Archived Media', status: 'Archived', content_type: 'Anime', tracking_status: 'Paused' };
+            vi.mocked(api.getAllMedia).mockResolvedValue([archived] as unknown as Media[]);
+
+            const component = new MediaView(container);
+            await renderAndWaitForBrowser(component);
+            const onActionCommitted = getOnActionCommitted();
+
+            vi.mocked(api.getAllMedia).mockResolvedValue([
+                { ...archived, status: 'Active' },
+            ] as unknown as Media[]);
+            await onActionCommitted();
+
+            expect(browserInstance().applyLibraryMutation).toHaveBeenCalledWith(
+                { kind: 'updated', mediaId: 1, media: expect.objectContaining({ status: 'Active' }) },
+                expect.anything(),
+                expect.anything(),
+            );
+        });
+
+        it('falls back to a full library rebuild when more than one media changed', async () => {
+            const mediaA = { id: 1, title: 'A', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' };
+            const mediaB = { id: 2, title: 'B', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' };
+            vi.mocked(api.getAllMedia).mockResolvedValue([mediaA, mediaB] as unknown as Media[]);
+
+            const component = new MediaView(container);
+            await renderAndWaitForBrowser(component);
+            const onActionCommitted = getOnActionCommitted();
+            const callsBefore = vi.mocked(MediaLibraryBrowser).mock.calls.length;
+
+            vi.mocked(api.getAllMedia).mockResolvedValue([
+                { ...mediaA, tracking_status: 'Complete' },
+                { ...mediaB, tracking_status: 'Complete' },
+            ] as unknown as Media[]);
+            await onActionCommitted();
+
+            expect(vi.mocked(MediaLibraryBrowser).mock.calls.length).toBeGreaterThan(callsBefore);
+        });
+
+        it('adopts the fresh state without touching the browser when nothing actually changed (e.g. Add milestone)', async () => {
+            const media = { id: 1, title: 'Unchanged', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' };
+            vi.mocked(api.getAllMedia).mockResolvedValue([media] as unknown as Media[]);
+
+            const component = new MediaView(container);
+            await renderAndWaitForBrowser(component);
+            const onActionCommitted = getOnActionCommitted();
+            const callsBefore = vi.mocked(MediaLibraryBrowser).mock.calls.length;
+            vi.mocked(api.getAllMedia).mockClear();
+
+            await onActionCommitted();
+
+            expect(api.getAllMedia).toHaveBeenCalledOnce();
+            expect(browserInstance().applyLibraryMutation).not.toHaveBeenCalled();
+            expect(vi.mocked(MediaLibraryBrowser).mock.calls).toHaveLength(callsBefore);
+        });
+
+        it('applies nothing when the mutation refetch resolves after a newer load has already committed', async () => {
+            const media = { id: 1, title: 'Stale target', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' };
+            vi.mocked(api.getAllMedia).mockResolvedValue([media] as unknown as Media[]);
+
+            const component = new MediaViewTestHarness(container);
+            await renderAndWaitForBrowser(component);
+            const onActionCommitted = getOnActionCommitted();
+
+            let resolveMutationSnapshot!: (value: Awaited<ReturnType<typeof api.getLibrarySnapshot>>) => void;
+            vi.mocked(api.getLibrarySnapshot).mockImplementationOnce((request) => new Promise((resolve) => {
+                resolveMutationSnapshot = (value) => resolve({ ...value, request_id: request.request_id });
+            }));
+            const mutationPromise = onActionCommitted();
+            await vi.waitFor(() => expect(api.getLibrarySnapshot).toHaveBeenCalledTimes(2));
+            const staleRequest = vi.mocked(api.getLibrarySnapshot).mock.calls[1][0];
+
+            vi.mocked(api.getAllMedia).mockResolvedValue([
+                { ...media, title: 'Refreshed by a newer load' },
+            ] as unknown as Media[]);
+            await component.loadData();
+
+            resolveMutationSnapshot({
+                request_id: staleRequest.request_id,
+                media: [{ ...media, title: 'Should never apply' }] as unknown as Media[],
+                metrics: [],
+                settings: librarySettings(),
+            });
+            await mutationPromise;
+
+            expect(component.state.libraryMediaList.map((m: Media) => m.title)).toEqual(['Refreshed by a newer load']);
+        });
     });
 
     it('falls back to browser view if detail rendering has no media', () => {

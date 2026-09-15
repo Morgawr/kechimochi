@@ -119,9 +119,13 @@ export const desktopDriver: PlatformDriver = {
       driverEnv.LOCALAPPDATA = path.join(testDirectory, 'local-appdata');
     }
 
+    const isolateDisplay = process.platform === 'linux' && process.env.E2E_ISOLATE_DISPLAY === '1';
+    const driverCommand = resolveTauriDriverCommand();
     tauriDriverProcess = spawn(
-      resolveTauriDriverCommand(),
-      tauriDriverArgs,
+      isolateDisplay ? 'bash' : driverCommand,
+      isolateDisplay
+        ? [path.join(__dirname, 'isolated-desktop.sh'), driverCommand, ...tauriDriverArgs]
+        : tauriDriverArgs,
       {
         stdio: [null, 'pipe', 'pipe'],
         // POSIX: make tauri-driver a process-group leader so stop() can kill the whole tree
@@ -135,7 +139,8 @@ export const desktopDriver: PlatformDriver = {
     tauriDriverProcess.stderr?.on('data', log);
 
     Logger.info(`[e2e] [${specName}] Waiting for tauri-driver on port ${tauriDriverPort}...`);
-    await waitForPort(tauriDriverPort, { timeoutMs: 3000, socketTimeoutMs: 250, pollMs: 100, labelForError: 'tauri-driver' });
+    // Isolated sessions also start Xvfb and a window manager before the driver.
+    await waitForPort(tauriDriverPort, { timeoutMs: isolateDisplay ? 10000 : 3000, socketTimeoutMs: 250, pollMs: 100, labelForError: 'tauri-driver' });
 
     tauriDriverProcess.on('error', (error: Error) => {
       Logger.error(`[e2e] [${specName}] tauri-driver error:`, error);

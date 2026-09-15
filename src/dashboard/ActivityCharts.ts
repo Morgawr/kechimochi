@@ -270,6 +270,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         delete pieCanvas.dataset.dashboardRequestId;
 
         const colors = this.getChartColors();
+        const borderColor = getComputedStyle(document.body).getPropertyValue('--border-color').trim();
         const rangeLogs = this.state.logs ?? this.state.rangeData?.bucket_totals.map((bucket, index) => ({
             id: index,
             media_id: 0,
@@ -312,7 +313,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         const datasets: BarChartDataset[] = barChartEmpty ? [] : measureSynchronous(
             'aggregation',
             'dashboard_bar_data',
-            () => this.prepareBarChartDatasets(timeRange, colors),
+            () => this.prepareBarChartDatasets(timeRange, colors, borderColor),
             { points: this.state.rangeData?.series.length ?? this.state.logs?.length ?? 0 },
         );
         barCanvas.dataset.chartType = this.state.chartType;
@@ -426,6 +427,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
 
     private createPieChart(Chart: ChartConstructor, canvas: HTMLCanvasElement, colors: string[], data: PieChartData) {
         const style = getComputedStyle(document.body);
+        const borderColor = style.getPropertyValue('--border-color').trim();
 
         this.pieChartInstance = measureSynchronous('chart_construction', 'dashboard_pie_chart', () => new Chart(canvas, {
             type: 'doughnut',
@@ -434,7 +436,8 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                 datasets: [{
                     data: data.values,
                     backgroundColor: colors,
-                    borderWidth: 0
+                    borderColor,
+                    borderWidth: 1
                 }]
             },
             options: {
@@ -513,7 +516,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         return DAILY_LABEL_FORMATTER.format(new Date(year, month - 1, day));
     }
 
-    private prepareBarChartDatasets(timeRange: ActivityRange, colors: string[]) {
+    private prepareBarChartDatasets(timeRange: ActivityRange, colors: string[], borderColor: string) {
         const { groupByMode, chartType } = this.state;
         const logs = this.state.logs ?? [];
         const { labels, getBucketIndex } = timeRange;
@@ -533,13 +536,13 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                 const value = this.state.metric === 'minutes' ? point.total_minutes : point.total_characters;
                 datasetsMap.get(point.group_key)![index] += value;
             }
-            return this.toDatasets(datasetsMap, activeGroups, colors, chartType);
+            return this.toDatasets(datasetsMap, activeGroups, colors, chartType, borderColor);
         }
 
         const activeGroups = this.getActiveGroups(logs, log => getBucketIndex(log.date) !== -1, groupByMode);
         const datasetsMap = this.aggregateDailyData(logs, activeGroups, getBucketIndex, labels.length, groupByMode);
 
-        return this.toDatasets(datasetsMap, activeGroups, colors, chartType);
+        return this.toDatasets(datasetsMap, activeGroups, colors, chartType, borderColor);
     }
 
     private toDatasets(
@@ -547,6 +550,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         activeGroups: Map<string, string>,
         colors: string[],
         chartType: 'bar' | 'line',
+        borderColor: string,
     ) {
         return Array.from(datasetsMap.entries())
             .sort((a, b) => b[1].reduce((s, v) => s + v, 0) - a[1].reduce((s, v) => s + v, 0))
@@ -554,7 +558,11 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                 label: activeGroups.get(key) ?? key,
                 data: data,
                 backgroundColor: colors[i % colors.length],
-                borderColor: colors[i % colors.length],
+                borderColor: chartType === 'bar' ? borderColor : colors[i % colors.length],
+                borderWidth: chartType === 'bar'
+                    ? { top: 0, right: 0, bottom: i === 0 ? 0 : 2, left: 0 }
+                    : undefined,
+                borderSkipped: chartType === 'bar' ? false : undefined,
                 fill: chartType === 'line' ? false : undefined,
                 tension: 0.3
             }));

@@ -12,6 +12,7 @@ import {
   logActivityFromDetail,
 } from '../../helpers/media-detail.js';
 import {
+  clickMenuItem,
   closeModal,
   confirmAction,
   dismissAlert,
@@ -319,7 +320,7 @@ describe('CUJ: Exact CSV Round Trips', () => {
     await navigateTo('media');
     await clickMediaItem(mediaTitle);
     await safeClick('#btn-media-overflow');
-    await safeClick('#btn-delete-media-detail');
+    await clickMenuItem('#btn-delete-media-detail');
     await confirmAction(true);
     await navigateTo('media');
     expect(await isMediaNotVisible(mediaTitle)).toBe(true);

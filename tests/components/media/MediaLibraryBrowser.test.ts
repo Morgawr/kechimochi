@@ -334,8 +334,7 @@ describe('MediaLibraryBrowser', () => {
             }),
             vi.fn(),
             vi.fn(),
-            vi.fn(),
-            onLayoutChange,
+            { onLayoutChange },
         );
 
         component.render();
@@ -365,8 +364,7 @@ describe('MediaLibraryBrowser', () => {
             }),
             vi.fn(),
             vi.fn(),
-            vi.fn(),
-            onLayoutChange,
+            { onLayoutChange },
         );
 
         component.render();
@@ -391,9 +389,7 @@ describe('MediaLibraryBrowser', () => {
             }),
             vi.fn(),
             vi.fn(),
-            vi.fn(),
-            vi.fn(),
-            onGridZoomChange,
+            { onGridZoomChange },
         );
 
         component.render();
@@ -464,7 +460,7 @@ describe('MediaLibraryBrowser', () => {
             }),
             vi.fn(),
             vi.fn(),
-            onFilterChange,
+            { onFilterChange },
         );
 
         component.render();
@@ -572,7 +568,7 @@ describe('MediaLibraryBrowser', () => {
             createState({ mediaList }),
             vi.fn(),
             vi.fn(),
-            onFilterChange,
+            { onFilterChange },
         );
 
         component.render();
@@ -688,7 +684,7 @@ describe('MediaLibraryBrowser', () => {
             }),
             vi.fn(),
             vi.fn(),
-            onFilterChange,
+            { onFilterChange },
         );
 
         component.render();
@@ -772,7 +768,7 @@ describe('MediaLibraryBrowser', () => {
                 }),
                 vi.fn(),
                 vi.fn(),
-                onFilterChange,
+                { onFilterChange },
             );
             component.render();
             return { component, onFilterChange };

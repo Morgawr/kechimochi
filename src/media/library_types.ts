@@ -1,3 +1,5 @@
+import type { Media } from '../types';
+
 export type LibraryLayoutMode = 'grid' | 'list';
 
 export const LIBRARY_GRID_ZOOM = {
@@ -29,3 +31,11 @@ export interface LibraryActivityMetrics {
 }
 
 export const GRID_LAYOUT_MEDIA_QUERY = '(min-width: 769px)';
+
+export type LibraryMutationKind = 'updated' | 'deleted';
+
+export interface LibraryMutation {
+    kind: LibraryMutationKind;
+    mediaId: number;
+    media?: Media;
+}

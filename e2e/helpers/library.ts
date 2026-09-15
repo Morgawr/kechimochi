@@ -57,6 +57,11 @@ export async function isLayoutToggleAvailable(): Promise<boolean> {
     return await shell.isDisplayed().catch(() => false);
 }
 
+/** Selector for the library container of whichever layout is active. */
+export async function getActiveLibraryContainerSelector(): Promise<string> {
+    return getLibraryContainerSelector(await getActiveLibraryLayout());
+}
+
 /** Selector for media items in the active layout, optionally narrowed to a title. */
 export async function getActiveMediaItemSelector(title?: string, variant?: string): Promise<string> {
     const itemSelector = getLibraryItemsSelector(await getActiveLibraryLayout());
@@ -503,6 +508,15 @@ export async function clickMediaItem(title: string, variant?: string): Promise<v
     // Re-fetch each poll (see waitForSelectorDisplayed) so an async re-render on
     // web can't leave us waiting on a stale node.
     await waitForSelectorDisplayed('#media-detail-header', 8000);
+}
+
+export async function requireFinePointer(): Promise<void> {
+    const matches = await browser.execute(
+        () => globalThis.matchMedia('(hover: hover) and (pointer: fine)').matches,
+    );
+    if (!matches) {
+        throw new Error('[E2E] (hover: hover) and (pointer: fine) does not match; this platform cannot exercise the hover/context-menu features.');
+    }
 }
 
 export async function getMediaItemText(title: string): Promise<string> {
