@@ -50,7 +50,7 @@ describe('Dashboard CUJ', () => {
     await takeAndCompareScreenshot('dashboard-initial');
   });
 
-  it('should jump the activity chart to the clicked heatmap week', async () => {
+  it('should move the activity chart to the clicked heatmap day\'s period while keeping the selected time range', async () => {
     await navigateTo('dashboard');
 
     await selectActivityChartTimeRange('30');
@@ -100,6 +100,26 @@ describe('Dashboard CUJ', () => {
     expect(monthlyStats.containsWeekBucket).toBe(false);
     expect(monthlyStats.selectorLabels).toEqual(['Week', 'Month', 'Year', 'All Time']);
 
+    await clickHeatmapCell('2024-02-18');
+
+    await browser.waitUntil(async () => {
+      const metadata = await getActivityChartRangeMetadata();
+      return metadata.timeRangeDays === '30'
+        && metadata.rangeStart === '2024-02-01'
+        && metadata.rangeEnd === '2024-02-29';
+    }, {
+      timeout: 5000,
+      interval: 100,
+      timeoutMsg: 'Expected heatmap click to move the month view to the clicked day\'s month without changing the selected time range'
+    });
+
+    const differentMonthRange = await getActivityChartRangeMetadata();
+    expect(differentMonthRange.timeRangeDays).toBe('30');
+    expect(differentMonthRange.rangeStart).toBe('2024-02-01');
+    expect(differentMonthRange.rangeEnd).toBe('2024-02-29');
+    expect(await getSelectValue('#select-time-range')).toBe('30');
+
+    await selectActivityChartTimeRange('7');
     await clickHeatmapCell('2024-03-07');
 
     await browser.waitUntil(async () => {
@@ -110,7 +130,7 @@ describe('Dashboard CUJ', () => {
     }, {
       timeout: 5000,
       interval: 100,
-      timeoutMsg: 'Expected heatmap click to switch the dashboard chart to the selected week'
+      timeoutMsg: 'Expected heatmap click to move the week view to the clicked day\'s week'
     });
 
     const weeklyRange = await getActivityChartRangeMetadata();

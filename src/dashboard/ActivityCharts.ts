@@ -3,7 +3,7 @@ import { html } from '../html';
 import { ActivitySummary, DashboardRangeResponse, Media } from '../api';
 import type { Chart as ChartInstance } from 'chart.js';
 import { formatStatsDuration } from '../time';
-import { ACTIVITY_TIME_RANGES, getActivityRange, type ActivityRange } from './activity_ranges';
+import { ACTIVITY_TIME_RANGES, getActivityRange, getLocalISODate, type ActivityRange } from './activity_ranges';
 import { Logger } from '../logger';
 import { logPerformance, measureSynchronous, performanceNow } from '../performance';
 import { loadChartConstructor, type ChartConstructor } from '../chart_loader';
@@ -34,6 +34,15 @@ interface ChartGroup {
 interface PieChartData {
     labels: string[];
     values: number[];
+}
+
+interface BarChartDataset {
+    label: string;
+    data: number[];
+    backgroundColor: string;
+    borderColor: string;
+    fill: boolean | undefined;
+    tension: number;
 }
 
 export class ActivityCharts extends Component<ActivityChartsState> {
@@ -84,6 +93,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                     <h3 class="dashboard-module-title" style="text-align: center; margin-bottom: 1rem;">Activity Breakdown</h3>
                     <div class="chart-container-wrapper" style="flex: 1; min-height: 0;">
                         <canvas id="pieChart"></canvas>
+                        <div id="pie-chart-empty-message" class="chart-empty-message"></div>
                     </div>
                 </div>
                 <div class="card" style="display: flex; flex-direction: column; min-width: 0;">
@@ -151,6 +161,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                     </div>
                     <div class="chart-container-wrapper" style="flex: 1; min-height: 0;">
                         <canvas id="barChart"></canvas>
+                        <div id="bar-chart-empty-message" class="chart-empty-message"></div>
                     </div>
                 </div>
             </div>
@@ -235,7 +246,14 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         const layout = this.container.querySelector<HTMLElement>('#activity-charts-grid');
         if (!layout) return;
         delete layout.dataset.dashboardRequestId;
-        delete layout.querySelector<HTMLCanvasElement>('#pieChart')?.dataset.dashboardRequestId;
+        delete layout.dataset.chartEmpty;
+        layout.querySelectorAll<HTMLElement>('.chart-empty-message').forEach(message => {
+            message.classList.remove('is-visible');
+        });
+        const pieCanvas = layout.querySelector<HTMLCanvasElement>('#pieChart');
+        delete pieCanvas?.dataset.dashboardRequestId;
+        delete pieCanvas?.dataset.chartEmpty;
+        delete layout.querySelector<HTMLCanvasElement>('#barChart')?.dataset.chartEmpty;
         this.syncControlState(layout);
     }
 
@@ -252,6 +270,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         delete pieCanvas.dataset.dashboardRequestId;
 
         const colors = this.getChartColors();
+        const borderColor = getComputedStyle(document.body).getPropertyValue('--border-color').trim();
         const rangeLogs = this.state.logs ?? this.state.rangeData?.bucket_totals.map((bucket, index) => ({
             id: index,
             media_id: 0,
@@ -282,16 +301,83 @@ export class ActivityCharts extends Component<ActivityChartsState> {
             pieCanvas.dataset.dashboardRequestId = snapshotRequestId.toString();
         }
 
+        // The pie sums every point in the range while the bar can only draw the
+        // ones that fall in a bucket, so the two can disagree.
+        const pieChartEmpty = this.isPieChartEmpty(pieData);
+        const barChartEmpty = this.isBarChartEmpty(rangeLogs, timeRange);
+        pieCanvas.dataset.chartEmpty = pieChartEmpty ? 'true' : 'false';
+        barCanvas.dataset.chartEmpty = barChartEmpty ? 'true' : 'false';
+        layout.dataset.chartEmpty = pieChartEmpty && barChartEmpty ? 'true' : 'false';
+        this.syncEmptyStateMessages(layout, pieChartEmpty, barChartEmpty, timeRange);
+
+        const datasets: BarChartDataset[] = barChartEmpty ? [] : measureSynchronous(
+            'aggregation',
+            'dashboard_bar_data',
+            () => this.prepareBarChartDatasets(timeRange, colors, borderColor),
+            { points: this.state.rangeData?.series.length ?? this.state.logs?.length ?? 0 },
+        );
+        barCanvas.dataset.chartType = this.state.chartType;
+        barCanvas.dataset.groupBy = this.state.groupByMode;
+        barCanvas.dataset.metric = this.state.metric;
+        barCanvas.dataset.seriesLabels = JSON.stringify(datasets.map(dataset => dataset.label));
+        barCanvas.dataset.seriesTotals = JSON.stringify(
+            datasets.map(dataset => dataset.data.reduce((sum, value) => sum + value, 0)),
+        );
+
+        if (pieChartEmpty && barChartEmpty) {
+            this.destroyChartInstances();
+            if (snapshotRequestId !== undefined) {
+                layout.dataset.dashboardRequestId = snapshotRequestId.toString();
+            }
+            return;
+        }
+
         const importStarted = performanceNow();
         const Chart = await loadChartConstructor();
         logPerformance('chart_import', 'chart_js', performanceNow() - importStarted);
         if (generation !== this.renderGeneration || !this.container.contains(layout)) return;
 
         this.destroyChartInstances();
-        this.createPieChart(Chart, pieCanvas, colors, pieData);
-        this.createBarChart(Chart, barCanvas, colors, timeRange);
+        if (!pieChartEmpty) this.createPieChart(Chart, pieCanvas, colors, pieData);
+        if (!barChartEmpty) this.createBarChart(Chart, barCanvas, timeRange, datasets);
         if (snapshotRequestId !== undefined) {
             layout.dataset.dashboardRequestId = snapshotRequestId.toString();
+        }
+    }
+
+    private isPieChartEmpty(pieData: PieChartData): boolean {
+        return pieData.values.every(value => value === 0);
+    }
+
+    private isBarChartEmpty(logs: ActivitySummary[], timeRange: ActivityRange): boolean {
+        const { validStart, validEnd } = timeRange;
+        return !logs.some(log => {
+            if (log.date < validStart || log.date > validEnd) return false;
+            const value = this.state.metric === 'minutes' ? log.duration_minutes : (log.characters || 0);
+            return value > 0;
+        });
+    }
+
+    private syncEmptyStateMessages(
+        layout: HTMLElement,
+        pieChartEmpty: boolean,
+        barChartEmpty: boolean,
+        timeRange: ActivityRange,
+    ): void {
+        const today = getLocalISODate(new Date());
+        const todayInRange = today >= timeRange.validStart && today <= timeRange.validEnd;
+        const markup = todayInRange
+            ? 'No data in this period. <span class="chart-empty-prompt">Go immerse!</span>'
+            : 'No data in this period.';
+        const targets: ReadonlyArray<{ id: string; isEmpty: boolean }> = [
+            { id: 'pie-chart-empty-message', isEmpty: pieChartEmpty },
+            { id: 'bar-chart-empty-message', isEmpty: barChartEmpty },
+        ];
+        for (const { id, isEmpty } of targets) {
+            const message = layout.querySelector<HTMLElement>(`#${id}`);
+            if (!message) continue;
+            if (isEmpty) message.innerHTML = markup;
+            message.classList.toggle('is-visible', isEmpty);
         }
     }
 
@@ -375,27 +461,12 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         }));
     }
 
-    private createBarChart(Chart: ChartConstructor, canvas: HTMLCanvasElement, colors: string[], timeRange: ActivityRange) {
+    private createBarChart(Chart: ChartConstructor, canvas: HTMLCanvasElement, timeRange: ActivityRange, datasets: BarChartDataset[]) {
         const { chartType } = this.state;
         const { labels } = timeRange;
         const style = getComputedStyle(document.body);
         const secondaryColor = style.getPropertyValue('--text-secondary').trim()
         const gridColor = `color-mix(in srgb, ${secondaryColor} 30%, transparent)`;
-        const borderColor = style.getPropertyValue('--border-color').trim();
-        const datasets = measureSynchronous(
-            'aggregation',
-            'dashboard_bar_data',
-            () => this.prepareBarChartDatasets(timeRange, colors, borderColor),
-            { points: this.state.rangeData?.series.length ?? this.state.logs?.length ?? 0 },
-        );
-
-        canvas.dataset.chartType = chartType;
-        canvas.dataset.groupBy = this.state.groupByMode;
-        canvas.dataset.metric = this.state.metric;
-        canvas.dataset.seriesLabels = JSON.stringify(datasets.map(dataset => dataset.label));
-        canvas.dataset.seriesTotals = JSON.stringify(
-            datasets.map(dataset => dataset.data.reduce((sum, value) => sum + value, 0)),
-        );
 
         this.barChartInstance = measureSynchronous('chart_construction', 'dashboard_activity_chart', () => new Chart(canvas, {
             type: chartType,

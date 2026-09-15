@@ -153,6 +153,30 @@ describe('openPopupMenu', () => {
         expect(document.querySelector('.popup-menu')).toBeNull();
     });
 
+    it('ignores a queued scroll that leaves the anchor where the menu was positioned', () => {
+        const scroller = document.createElement('div');
+        document.body.appendChild(scroller);
+        const anchorElement = document.createElement('button');
+        document.body.appendChild(anchorElement);
+        let anchorTop = 133;
+        anchorElement.getBoundingClientRect = () => ({
+            top: anchorTop, bottom: anchorTop + 38, left: 40, right: 78,
+            x: 40, y: anchorTop, width: 38, height: 38, toJSON: () => ({}),
+        });
+        openAnchored(anchorElement);
+
+        scroller.dispatchEvent(new Event('scroll'));
+
+        expect(document.querySelector('.popup-menu')).not.toBeNull();
+        expect(anchorElement.getAttribute('aria-expanded')).toBe('true');
+
+        anchorTop = 42;
+        scroller.dispatchEvent(new Event('scroll'));
+
+        expect(document.querySelector('.popup-menu')).toBeNull();
+        expect(anchorElement.getAttribute('aria-expanded')).toBe('false');
+    });
+
     it('ignores a queued resize for the viewport where the menu was opened', () => {
         vi.stubGlobal('innerWidth', 760);
         vi.stubGlobal('innerHeight', 1200);

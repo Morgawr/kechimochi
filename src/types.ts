@@ -279,6 +279,8 @@ export interface DashboardSettings {
     group_by: DashboardGroupBy;
     week_start_day: number;
     migrate_legacy_group_by: boolean;
+    time_range_days: number;
+    metric: 'minutes' | 'characters';
 }
 
 export interface DashboardSnapshot {
@@ -288,7 +290,6 @@ export interface DashboardSnapshot {
     quick_log_media: DashboardMedia[];
     recent_logs: DashboardRecentPage;
     heatmap: DashboardHeatmapYearResponse;
-    range: DashboardRangeResponse;
     weekday_distribution: DashboardWeekdayDistribution;
 }
 
