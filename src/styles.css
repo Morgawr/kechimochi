@@ -3102,6 +3102,55 @@ input:focus, select:focus {
   opacity: 0.4;
 }
 
+.profile-report-row-list {
+  --profile-report-column-gap: 2.5rem;
+  display: grid;
+  grid-template-columns: max-content max-content 1fr;
+  column-gap: var(--profile-report-column-gap);
+  row-gap: 0.75rem;
+}
+
+.profile-report-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  align-items: baseline;
+  border-bottom: 1px solid color-mix(in srgb, var(--tint-light) 5%, transparent);
+  padding-bottom: 0.5rem;
+}
+
+/* Without subgrid each row would collapse to a single stacked column. */
+@supports not (grid-template-columns: subgrid) {
+  .profile-report-row {
+    grid-template-columns: max-content max-content 1fr;
+    column-gap: var(--profile-report-column-gap);
+  }
+}
+
+.profile-report-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.profile-report-row-speed {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.profile-report-row-hours {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.profile-report-window-note {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-top: 0.5rem;
+  text-align: right;
+}
+
 .media-list-item {
   display: grid;
   grid-template-areas:
@@ -3735,6 +3784,9 @@ input:focus, select:focus {
   border: 1px solid var(--accent-yellow);
   padding: 0.2rem 0.6rem;
   border-radius: 4px;
+}
+.estimation-value {
+  color: var(--text-primary);
 }
 .switch input {
   opacity: 0;

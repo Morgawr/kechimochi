@@ -2,8 +2,11 @@ import { ActivitySummary, Media, addMedia, addMilestone, deleteMedia, updateMedi
 import { showLogActivityModal } from '../activity_modal';
 import { showAddMilestoneModal } from '../milestone_modal';
 import { customAlert, customConfirm, customPrompt } from '../modal_base';
-import { EVENTS, MEDIA_STATUS } from '../constants';
+import { EVENTS, EXTRA_FIELD_LABELS, MEDIA_STATUS } from '../constants';
+import { getReadingSpeedFromExtraData, normalizeExtraData, removeExtraDataKey, upsertExtraDataValue } from '../extra_data';
+import { isReadingContentType } from '../stats/reading_speed';
 import { Logger } from '../logger';
+import { showReadingSpeedOverrideModal } from './reading_speed_modal';
 
 const COMPLETE_TRACKING_STATUS = 'Complete';
 
@@ -23,6 +26,18 @@ export function canAddMilestone(media: Media): boolean {
 
 export function canMarkComplete(media: Media): boolean {
     return media.tracking_status !== COMPLETE_TRACKING_STATUS;
+}
+
+export function canSetReadingSpeedOverride(media: Media): boolean {
+    return isReadingContentType(media.content_type || '');
+}
+
+function readExtraData(media: Media): Record<string, string> {
+    try {
+        return normalizeExtraData(JSON.parse(media.extra_data || '{}'));
+    } catch {
+        return {};
+    }
 }
 
 function buildMediaVariant(source: Media, variant: string): Media {
@@ -121,6 +136,20 @@ export async function createMediaVariant(media: Media, mediaList: Media[]): Prom
 
     notifyLocalDataChanged();
     return { committed: true, createdMediaId };
+}
+
+export async function setReadingSpeedOverride(media: Media): Promise<MediaActionOutcome> {
+    if (!canSetReadingSpeedOverride(media)) return { committed: false };
+
+    const extraData = readExtraData(media);
+    const choice = await showReadingSpeedOverrideModal(media.title, getReadingSpeedFromExtraData(extraData));
+    if (choice === null) return { committed: false };
+
+    const nextExtraData = choice.charactersPerHour === null
+        ? removeExtraDataKey(extraData, EXTRA_FIELD_LABELS.READING_SPEED)
+        : upsertExtraDataValue(extraData, EXTRA_FIELD_LABELS.READING_SPEED, String(choice.charactersPerHour));
+
+    return persistMediaUpdate({ ...media, extra_data: JSON.stringify(nextExtraData) });
 }
 
 export async function markMediaComplete(media: Media): Promise<MediaActionOutcome> {

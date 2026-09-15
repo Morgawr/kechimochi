@@ -13,6 +13,7 @@ The format is based on Keep a Changelog, with one section per released version.
  - Added an E-Ink theme: black on white, borders instead of fill-tints, no motion or elevation, tuned for e-ink panels
  - Media details now have a Create variant action that carries over the same medatada into a new variant
  - The Activity Visualization and Activity Breakdown cards now show a message instead of an empty chart when the selected period has no data.
+ - Media supporting reading speed estimates can now carry a custom override, set from the media detail menu
 
 ### Changed
  - Doughnut and stacked-bar chart segments now have a border separating them, across all themes
@@ -20,6 +21,12 @@ The format is based on Keep a Changelog, with one section per released version.
  - Fonts are now bundled with the app instead of fetched from Google Fonts
  - The dashboard's chart time period and metric selections are now remembered across reloads, alongside the existing chart type and grouping.
  - Clicking a heatmap day now jumps to the containing period without resetting the currently selected time range back to Week.
+ - Reading speed and completion estimates are now computed from a work's own logged sessions (or, for
+   completed works, from the metadata character total) before falling back to your average speed for
+   that content type
+ - Visual Novel sessions logged as "Playing" now count toward reading speed and completion estimates,
+   same as "Reading"
+ - The Reading Report Card on the Profile page now recomputes automatically whenever you open it
 
 ### Fixed
  - The startup error and database recovery screens now show their intended background gradient
@@ -31,6 +38,8 @@ The format is based on Keep a Changelog, with one section per released version.
  - Media detail navigation and overflow actions are now clickable over the cover banner at narrow window and phone widths
  - Applied consistent spacing and padding below the compact desktop top bar
  - Right-click and overflow menus no longer close themselves right after opening when a scroll from just before the menu opened arrives late
+ - Ongoing works with a logged character count no longer ignore it in favor of a stale, less accurate
+   average speed when estimating remaining time and completion
 
 ## [0.3.2] - 2026-08-25
 
