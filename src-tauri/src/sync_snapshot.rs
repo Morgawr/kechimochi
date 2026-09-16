@@ -29,6 +29,8 @@ const SYNCABLE_SETTING_KEYS: &[&str] = &[
     "library_layout_mode",
     "dashboard_chart_type",
     "dashboard_group_by",
+    "dashboard_time_range_days",
+    "dashboard_metric",
 ];
 #[derive(Debug, Clone)]
 pub struct SnapshotBuildOptions<'a> {
@@ -1082,6 +1084,18 @@ mod tests {
             "false",
             "2026-04-01T08:00:00Z",
         );
+        set_setting_value(
+            &conn,
+            "dashboard_time_range_days",
+            "30",
+            "2026-04-01T10:00:00Z",
+        );
+        set_setting_value(
+            &conn,
+            "dashboard_metric",
+            "characters",
+            "2026-04-01T10:00:00Z",
+        );
         db::upsert_profile_picture(
             &conn,
             &ProfilePicture {
@@ -1103,6 +1117,8 @@ mod tests {
         assert!(!snapshot.settings.contains_key("profile_name"));
         assert!(snapshot.settings.contains_key("theme"));
         assert!(!snapshot.settings.contains_key("updates_auto_check_enabled"));
+        assert!(snapshot.settings.contains_key("dashboard_time_range_days"));
+        assert!(snapshot.settings.contains_key("dashboard_metric"));
         assert_eq!(snapshot.tombstones.len(), 1);
 
         let media = snapshot.library.values().next().unwrap();
@@ -1179,6 +1195,18 @@ mod tests {
             "false",
             "2026-04-01T08:00:00Z",
         );
+        set_setting_value(
+            &conn,
+            "dashboard_time_range_days",
+            "30",
+            "2026-04-01T10:00:00Z",
+        );
+        set_setting_value(
+            &conn,
+            "dashboard_metric",
+            "characters",
+            "2026-04-01T10:00:00Z",
+        );
         db::upsert_profile_picture(
             &conn,
             &ProfilePicture {
@@ -1217,6 +1245,24 @@ mod tests {
             )
             .unwrap(),
             "false"
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT value FROM main.settings WHERE key = 'dashboard_time_range_days'",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+            "30"
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT value FROM main.settings WHERE key = 'dashboard_metric'",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+            "characters"
         );
 
         let rebuilt = build_snapshot(

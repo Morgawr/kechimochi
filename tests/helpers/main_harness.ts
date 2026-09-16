@@ -45,6 +45,8 @@ function defaultDashboardSnapshot(request: DashboardSnapshotRequest) {
             group_by: 'activity_type' as const,
             week_start_day: 1,
             migrate_legacy_group_by: false,
+            time_range_days: 7,
+            metric: 'minutes' as const,
         },
         summary: {
             total_logs: 1,
@@ -67,17 +69,6 @@ function defaultDashboardSnapshot(request: DashboardSnapshotRequest) {
             items: [],
         },
         heatmap: { request_id: request.request_id, year: request.heatmap_year, days: [] },
-        range: {
-            request_id: request.request_id,
-            start_date: request.today,
-            end_date: request.today,
-            bucket: 'day' as const,
-            group_by: 'activity_type' as const,
-            series: [],
-            bucket_totals: [],
-            category_totals: [],
-            highlights: [],
-        },
         weekday_distribution: {
             start_date: request.today,
             end_date: request.today,

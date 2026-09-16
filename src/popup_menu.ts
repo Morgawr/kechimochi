@@ -78,6 +78,7 @@ export function openPopupMenu(options: PopupMenuOptions): PopupMenuHandle {
     const anchorElement = anchor.kind === 'element' ? anchor.element : null;
     const viewportWidth = globalThis.innerWidth;
     const viewportHeight = globalThis.innerHeight;
+    const anchorRectAtOpen = anchorElement?.getBoundingClientRect();
 
     const menuElement = document.createElement('div');
     menuElement.className = 'popup-menu';
@@ -143,13 +144,24 @@ export function openPopupMenu(options: PopupMenuOptions): PopupMenuHandle {
         }
     };
 
+    const handleScroll = () => {
+        if (!anchorElement || !anchorRectAtOpen) {
+            close();
+            return;
+        }
+        const anchorRect = anchorElement.getBoundingClientRect();
+        if (anchorRect.top !== anchorRectAtOpen.top || anchorRect.left !== anchorRectAtOpen.left) {
+            close();
+        }
+    };
+
     let isClosed = false;
     function close() {
         if (isClosed) return;
         isClosed = true;
         document.removeEventListener('pointerdown', handleOutsidePointerDown, true);
         document.removeEventListener('keydown', handleKeyDown, true);
-        document.removeEventListener('scroll', close, true);
+        document.removeEventListener('scroll', handleScroll, true);
         globalThis.removeEventListener('resize', handleResize);
         globalThis.removeEventListener('blur', close);
         menuElement.remove();
@@ -163,7 +175,7 @@ export function openPopupMenu(options: PopupMenuOptions): PopupMenuHandle {
 
     document.addEventListener('pointerdown', handleOutsidePointerDown, true);
     document.addEventListener('keydown', handleKeyDown, true);
-    document.addEventListener('scroll', close, true);
+    document.addEventListener('scroll', handleScroll, true);
     globalThis.addEventListener('resize', handleResize);
     if (shouldCloseOnWindowBlur()) globalThis.addEventListener('blur', close);
 

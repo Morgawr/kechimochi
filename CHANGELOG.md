@@ -12,12 +12,15 @@ The format is based on Keep a Changelog, with one section per released version.
  - Right-clicking empty space in the library opens a menu for New media
  - Added an E-Ink theme: black on white, borders instead of fill-tints, no motion or elevation, tuned for e-ink panels
  - Media details now have a Create variant action that carries over the same medatada into a new variant
+ - The Activity Visualization and Activity Breakdown cards now show a message instead of an empty chart when the selected period has no data.
  - Media supporting reading speed estimates can now carry a custom override, set from the media detail menu
 
 ### Changed
  - Doughnut and stacked-bar chart segments now have a border separating them, across all themes
  - Added a Font choice to the Appearance settings
  - Fonts are now bundled with the app instead of fetched from Google Fonts
+ - The dashboard's chart time period and metric selections are now remembered across reloads, alongside the existing chart type and grouping.
+ - Clicking a heatmap day now jumps to the containing period without resetting the currently selected time range back to Week.
  - Reading speed and completion estimates are now computed from a work's own logged sessions (or, for
    completed works, from the metadata character total) before falling back to your average speed for
    that content type
@@ -34,6 +37,7 @@ The format is based on Keep a Changelog, with one section per released version.
  - Selected toggle buttons, filter chips and sort direction options are now readable on themes with a dark accent colour
  - Media detail navigation and overflow actions are now clickable over the cover banner at narrow window and phone widths
  - Applied consistent spacing and padding below the compact desktop top bar
+ - Right-click and overflow menus no longer close themselves right after opening when a scroll from just before the menu opened arrives late
  - Ongoing works with a logged character count no longer ignore it in favor of a stale, less accurate
    average speed when estimating remaining time and completion
 

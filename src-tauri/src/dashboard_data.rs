@@ -121,22 +121,6 @@ pub fn get_dashboard_snapshot(
 
     let today = NaiveDate::parse_from_str(&request.today, "%Y-%m-%d")
         .expect("validated dashboard snapshot date");
-    let weekday = i64::from(today.weekday().num_days_from_sunday());
-    let days_from_start = (weekday - settings.week_start_day).rem_euclid(7) as u64;
-    let range_start = today
-        .checked_sub_days(Days::new(days_from_start))
-        .expect("valid weekly range start");
-    let range_end = range_start
-        .checked_add_days(Days::new(6))
-        .expect("valid weekly range end");
-    let initial_range_request = DashboardRangeRequest {
-        request_id: request.request_id,
-        start_date: range_start.format("%Y-%m-%d").to_string(),
-        end_date: range_end.format("%Y-%m-%d").to_string(),
-        bucket: DashboardBucket::Day,
-        group_by: settings.group_by,
-    };
-    let range = query_range(&transaction, &initial_range_request, &mut timings)?;
     let weekday_distribution = query_weekday_distribution(&transaction, today, &mut timings)?;
 
     timings.query(|| transaction.commit())?;
@@ -147,7 +131,6 @@ pub fn get_dashboard_snapshot(
         quick_log_media,
         recent_logs,
         heatmap,
-        range,
         weekday_distribution,
     }))
 }
@@ -276,7 +259,8 @@ fn query_dashboard_settings(conn: &Connection, timings: &mut Timings) -> Result<
         let mut statement = conn.prepare(
             "SELECT key, value
              FROM main.settings
-             WHERE key IN ('dashboard_chart_type', 'dashboard_group_by', 'week_start_day')",
+             WHERE key IN ('dashboard_chart_type', 'dashboard_group_by', 'week_start_day',
+                           'dashboard_time_range_days', 'dashboard_metric')",
         )?;
         let rows = statement.query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -305,12 +289,24 @@ fn query_dashboard_settings(conn: &Connection, timings: &mut Timings) -> Result<
             .and_then(|value| value.parse::<i64>().ok())
             .filter(|value| (0..=6).contains(value))
             .unwrap_or(1);
+        let time_range_days = values
+            .get("dashboard_time_range_days")
+            .and_then(|value| value.parse::<i64>().ok())
+            .filter(|value| [0, 7, 30, 365].contains(value))
+            .unwrap_or(7);
+        let metric = match values.get("dashboard_metric").map(String::as_str) {
+            Some("characters") => "characters",
+            _ => "minutes",
+        }
+        .to_string();
 
         DashboardSettings {
             chart_type,
             group_by,
             week_start_day,
             migrate_legacy_group_by,
+            time_range_days,
+            metric,
         }
     }))
 }
@@ -1098,7 +1094,6 @@ mod tests {
         assert_eq!(snapshot.summary.total_logs, 60);
         assert_eq!(snapshot.recent_logs.items.len(), 15);
         assert!(snapshot.heatmap.days.len() <= 366);
-        assert!(snapshot.range.series.len() <= 7 * (TOP_GROUPS_PER_METRIC * 2 + 1));
         let json = serde_json::to_string(&snapshot).unwrap();
         assert!(!json.contains("large description"));
         assert!(!json.contains("private"));
@@ -1241,5 +1236,39 @@ mod tests {
 
         assert_eq!(range.series[0].group_label, "Watching");
         assert_eq!(range.category_totals[0].label, "Game");
+    }
+
+    #[test]
+    fn dashboard_settings_fall_back_to_defaults_for_missing_keys() {
+        let (_directory, conn) = test_connection();
+        let mut timings = Timings::default();
+        let settings = query_dashboard_settings(&conn, &mut timings).unwrap();
+
+        assert_eq!(settings.time_range_days, 7);
+        assert_eq!(settings.metric, "minutes");
+    }
+
+    #[test]
+    fn dashboard_settings_fall_back_for_an_out_of_set_time_range_and_a_garbage_metric() {
+        let (_directory, conn) = test_connection();
+        db::set_setting(&conn, "dashboard_time_range_days", "14").unwrap();
+        db::set_setting(&conn, "dashboard_metric", "duration").unwrap();
+        let mut timings = Timings::default();
+        let settings = query_dashboard_settings(&conn, &mut timings).unwrap();
+
+        assert_eq!(settings.time_range_days, 7);
+        assert_eq!(settings.metric, "minutes");
+    }
+
+    #[test]
+    fn dashboard_settings_return_a_validly_stored_time_range_and_metric() {
+        let (_directory, conn) = test_connection();
+        db::set_setting(&conn, "dashboard_time_range_days", "30").unwrap();
+        db::set_setting(&conn, "dashboard_metric", "characters").unwrap();
+        let mut timings = Timings::default();
+        let settings = query_dashboard_settings(&conn, &mut timings).unwrap();
+
+        assert_eq!(settings.time_range_days, 30);
+        assert_eq!(settings.metric, "characters");
     }
 }

@@ -13,6 +13,7 @@ import { HeatmapView } from '../../src/dashboard/HeatmapView';
 import { ActivityCharts } from '../../src/dashboard/ActivityCharts';
 import { StatsCard } from '../../src/dashboard/StatsCard';
 import { Logger } from '../../src/logger';
+import { getActivityRange } from '../../src/dashboard/activity_ranges';
 
 vi.mock('../../src/api', () => ({
     getDashboardSnapshot: vi.fn(),
@@ -93,17 +94,6 @@ function rangeResponse(request: DashboardRangeRequest, marker = 0): DashboardRan
 }
 
 function snapshot(request: DashboardSnapshotRequest, overrides: Partial<DashboardSnapshot> = {}): DashboardSnapshot {
-    const range: DashboardRangeResponse = {
-        request_id: request.request_id,
-        start_date: request.today,
-        end_date: request.today,
-        bucket: 'day',
-        group_by: 'activity_type',
-        series: [],
-        bucket_totals: [],
-        category_totals: [],
-        highlights: [],
-    };
     return {
         request_id: request.request_id,
         settings: {
@@ -111,6 +101,8 @@ function snapshot(request: DashboardSnapshotRequest, overrides: Partial<Dashboar
             group_by: 'activity_type',
             week_start_day: 1,
             migrate_legacy_group_by: false,
+            time_range_days: 7,
+            metric: 'minutes',
         },
         summary: {
             total_logs: 0,
@@ -133,7 +125,6 @@ function snapshot(request: DashboardSnapshotRequest, overrides: Partial<Dashboar
             items: [],
         },
         heatmap: { request_id: request.request_id, year: request.heatmap_year, days: [] },
-        range,
         weekday_distribution: {
             start_date: request.today,
             end_date: request.today,
@@ -158,6 +149,7 @@ describe('Dashboard', () => {
 
     beforeEach(() => {
         container = document.createElement('div');
+        vi.useRealTimers();
         vi.clearAllMocks();
         vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => {
             callback(0);
@@ -194,6 +186,7 @@ describe('Dashboard', () => {
         const dashboard = new DashboardTestHarness(container);
         dashboard.render();
         await dashboard.loadData();
+        await vi.waitFor(() => expect(ActivityCharts).toHaveBeenCalled());
         return dashboard;
     }
 
@@ -217,11 +210,11 @@ describe('Dashboard', () => {
         expect(root?.dataset.dashboardRequestId).toBe(request.request_id.toString());
         expect(root?.dataset.dashboardPrimaryRequestId).toBe(request.request_id.toString());
         expect(root?.dataset.dashboardHeatmapRequestId).toBe(request.request_id.toString());
-        expect(ActivityCharts).toHaveBeenCalledWith(
+        await vi.waitFor(() => expect(ActivityCharts).toHaveBeenCalledWith(
             expect.any(HTMLElement),
             expect.objectContaining({ snapshotRequestId: request.request_id }),
             expect.any(Function),
-        );
+        ));
         expect(dashboard.state.isInitialized).toBe(true);
         expect(ActivityCharts).toHaveBeenCalledTimes(1);
     });
@@ -234,12 +227,12 @@ describe('Dashboard', () => {
         expect(charts.render).toHaveBeenCalledTimes(1);
 
         await dashboard.loadData();
+        await vi.waitFor(() => expect(charts.setState).toHaveBeenCalledTimes(1));
 
         expect(StatsCard).toHaveBeenCalledTimes(1);
         expect(ActivityCharts).toHaveBeenCalledTimes(1);
         expect(stats.setState).toHaveBeenCalledTimes(1);
         expect(stats.render).toHaveBeenCalledTimes(1);
-        expect(charts.setState).toHaveBeenCalledTimes(1);
         expect(charts.render).toHaveBeenCalledTimes(1);
     });
 
@@ -312,6 +305,8 @@ describe('Dashboard', () => {
                 group_by: 'activity_type',
                 week_start_day: 0,
                 migrate_legacy_group_by: true,
+                time_range_days: 7,
+                metric: 'minutes',
             },
         }));
         const dashboard = await loadDashboard();
@@ -324,6 +319,111 @@ describe('Dashboard', () => {
         expect(api.setSetting).toHaveBeenCalledWith('dashboard_group_by', 'activity_type');
     });
 
+    it('applies a persisted non-Week period on load and requests its range', async () => {
+        vi.mocked(api.getDashboardSnapshot).mockImplementation(async request => snapshot(request, {
+            settings: {
+                chart_type: 'bar',
+                group_by: 'activity_type',
+                week_start_day: 1,
+                migrate_legacy_group_by: false,
+                time_range_days: 30,
+                metric: 'minutes',
+            },
+        }));
+        const dashboard = await loadDashboard();
+        const expectedRange = getActivityRange(30, 0, [], 1);
+
+        expect(dashboard.state.chartParams).toMatchObject({ timeRangeDays: 30, timeRangeOffset: 0 });
+        expect(vi.mocked(api.getDashboardRange).mock.calls[0][0]).toEqual(expect.objectContaining({
+            start_date: expectedRange.validStart,
+            end_date: expectedRange.validEnd,
+        }));
+    });
+
+    it('persists All Time as "0" when selected', async () => {
+        await loadDashboard();
+        const chartCallback = vi.mocked(ActivityCharts).mock.calls[0][2] as (params: Record<string, unknown>) => void;
+
+        chartCallback({ timeRangeDays: 0, timeRangeOffset: 0 });
+
+        expect(api.setSetting).toHaveBeenCalledWith('dashboard_time_range_days', '0');
+    });
+
+    it('does not snap a live period change back to a stale persisted value on a later load', async () => {
+        const dashboard = await loadDashboard();
+        const chartCallback = vi.mocked(ActivityCharts).mock.calls[0][2] as (params: Record<string, unknown>) => void;
+        const { promise: pendingWrite } = deferred<void>();
+        vi.mocked(api.setSetting).mockReturnValueOnce(pendingWrite);
+
+        chartCallback({ timeRangeDays: 30, timeRangeOffset: 0 });
+        expect(dashboard.state.chartParams).toMatchObject({ timeRangeDays: 30 });
+
+        // The snapshot returned by a later load (e.g. after logging) still reflects the
+        // not-yet-persisted week setting; the live period must win while its own write
+        // to persist it is still in flight.
+        await dashboard.loadData();
+        await vi.waitFor(() => expect(api.getDashboardRange).toHaveBeenCalledTimes(3));
+
+        const expectedRange = getActivityRange(30, 0, [], 1);
+        expect(dashboard.state.chartParams).toMatchObject({ timeRangeDays: 30 });
+        expect(vi.mocked(api.getDashboardRange).mock.calls[2][0]).toEqual(expect.objectContaining({
+            start_date: expectedRange.validStart,
+            end_date: expectedRange.validEnd,
+        }));
+    });
+
+    it('keeps a live period pinned while an earlier overlapping setting write settles first', async () => {
+        const dashboard = await loadDashboard();
+        const chartCallback = vi.mocked(ActivityCharts).mock.calls[0][2] as (params: Record<string, unknown>) => void;
+        const monthWrite = deferred<void>();
+        const yearWrite = deferred<void>();
+        vi.mocked(api.setSetting)
+            .mockReturnValueOnce(monthWrite.promise)
+            .mockReturnValueOnce(yearWrite.promise);
+
+        chartCallback({ timeRangeDays: 30, timeRangeOffset: 0 });
+        chartCallback({ timeRangeDays: 365, timeRangeOffset: 0 });
+        expect(dashboard.state.chartParams).toMatchObject({ timeRangeDays: 365 });
+
+        monthWrite.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        await dashboard.loadData();
+        await vi.waitFor(() => expect(api.getDashboardRange).toHaveBeenCalledTimes(4));
+
+        expect(dashboard.state.chartParams).toMatchObject({ timeRangeDays: 365 });
+
+        yearWrite.resolve();
+        await Promise.resolve();
+    });
+
+    it('adopts the snapshot\'s period and metric on a later load when no write is pending', async () => {
+        const dashboard = await loadDashboard();
+        expect(dashboard.state.chartParams).toMatchObject({ timeRangeDays: 7, metric: 'minutes' });
+
+        vi.mocked(api.getDashboardSnapshot).mockImplementation(async request => snapshot(request, {
+            settings: {
+                chart_type: 'bar',
+                group_by: 'activity_type',
+                week_start_day: 1,
+                migrate_legacy_group_by: false,
+                time_range_days: 30,
+                metric: 'characters',
+            },
+        }));
+
+        await dashboard.loadData();
+        await vi.waitFor(() => expect(api.getDashboardRange).toHaveBeenCalledTimes(2));
+
+        const expectedRange = getActivityRange(30, 0, [], 1);
+        expect(dashboard.state.chartParams).toMatchObject({ timeRangeDays: 30, metric: 'characters' });
+        expect(vi.mocked(api.getDashboardRange).mock.calls[1][0]).toEqual(expect.objectContaining({
+            start_date: expectedRange.validStart,
+            end_date: expectedRange.validEnd,
+        }));
+    });
+
     it('keeps loading when persisting legacy group-by migration fails', async () => {
         const migrationError = new Error('settings unavailable');
         const loggerSpy = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
@@ -334,6 +434,8 @@ describe('Dashboard', () => {
                 group_by: 'activity_type',
                 week_start_day: 1,
                 migrate_legacy_group_by: true,
+                time_range_days: 7,
+                metric: 'minutes',
             },
         }));
         const dashboard = await loadDashboard();
@@ -352,11 +454,80 @@ describe('Dashboard', () => {
         onDateSelect(clickedDate);
 
         const expectedOffset = getWeeklyOffset(clickedDate);
-        await vi.waitFor(() => expect(api.getDashboardRange).toHaveBeenCalledWith(expect.objectContaining({
+        await vi.waitFor(() => expect(api.getDashboardRange).toHaveBeenCalledTimes(2));
+        expect(vi.mocked(api.getDashboardRange).mock.calls[1][0]).toEqual(expect.objectContaining({
             bucket: 'day',
             group_by: 'activity_type',
-        })));
+        }));
         expect(dashboard.state.chartParams).toMatchObject({ timeRangeDays: 7, timeRangeOffset: expectedOffset });
+        expect(api.setSetting).not.toHaveBeenCalledWith('dashboard_time_range_days', expect.anything());
+    });
+
+    it('moves only the offset, crossing a year boundary, when a heatmap day is selected in Month view', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-01-15T12:00:00'));
+        vi.mocked(api.getDashboardSnapshot).mockImplementation(async request => snapshot(request, {
+            settings: {
+                chart_type: 'bar',
+                group_by: 'activity_type',
+                week_start_day: 1,
+                migrate_legacy_group_by: false,
+                time_range_days: 30,
+                metric: 'minutes',
+            },
+        }));
+        const dashboard = await loadDashboard();
+        const onDateSelect = vi.mocked(HeatmapView).mock.calls[0]?.[3] as ((date: string) => void);
+
+        onDateSelect('2025-12-10');
+        await vi.waitFor(() => expect(api.getDashboardRange).toHaveBeenCalledTimes(2));
+
+        expect(dashboard.state.chartParams).toMatchObject({ timeRangeDays: 30, timeRangeOffset: 1 });
+        expect(api.setSetting).not.toHaveBeenCalledWith('dashboard_time_range_days', expect.anything());
+    });
+
+    it('moves only the offset, crossing a year boundary, when a heatmap day is selected in Year view', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-01-15T12:00:00'));
+        vi.mocked(api.getDashboardSnapshot).mockImplementation(async request => snapshot(request, {
+            settings: {
+                chart_type: 'bar',
+                group_by: 'activity_type',
+                week_start_day: 1,
+                migrate_legacy_group_by: false,
+                time_range_days: 365,
+                metric: 'minutes',
+            },
+        }));
+        const dashboard = await loadDashboard();
+        const onDateSelect = vi.mocked(HeatmapView).mock.calls[0]?.[3] as ((date: string) => void);
+
+        onDateSelect('2025-06-01');
+        await vi.waitFor(() => expect(api.getDashboardRange).toHaveBeenCalledTimes(2));
+
+        expect(dashboard.state.chartParams).toMatchObject({ timeRangeDays: 365, timeRangeOffset: 1 });
+        expect(api.setSetting).not.toHaveBeenCalledWith('dashboard_time_range_days', expect.anything());
+    });
+
+    it('does nothing when a heatmap day is selected in All Time view', async () => {
+        vi.mocked(api.getDashboardSnapshot).mockImplementation(async request => snapshot(request, {
+            settings: {
+                chart_type: 'bar',
+                group_by: 'activity_type',
+                week_start_day: 1,
+                migrate_legacy_group_by: false,
+                time_range_days: 0,
+                metric: 'minutes',
+            },
+        }));
+        const dashboard = await loadDashboard();
+        const onDateSelect = vi.mocked(HeatmapView).mock.calls[0]?.[3] as ((date: string) => void);
+
+        onDateSelect('2020-01-01');
+        await Promise.resolve();
+
+        expect(api.getDashboardRange).toHaveBeenCalledTimes(1);
+        expect(dashboard.state.chartParams).toMatchObject({ timeRangeDays: 0, timeRangeOffset: 0 });
     });
 
     it('rejects an older snapshot so profile data cannot blend after a refresh', async () => {
@@ -393,9 +564,9 @@ describe('Dashboard', () => {
             .mockReturnValueOnce(newer.promise);
 
         chartCallback({ timeRangeOffset: 1 });
-        const olderRequest = vi.mocked(api.getDashboardRange).mock.calls[0][0];
+        const olderRequest = vi.mocked(api.getDashboardRange).mock.calls[1][0];
         chartCallback({ timeRangeOffset: 2 });
-        const newerRequest = vi.mocked(api.getDashboardRange).mock.calls[1][0];
+        const newerRequest = vi.mocked(api.getDashboardRange).mock.calls[2][0];
         newer.resolve(rangeResponse(newerRequest, 22));
         await vi.waitFor(() => {
             expect(dashboard.state.rangeData!.series[0]?.group_label).toBe('Marker 22');
@@ -405,6 +576,19 @@ describe('Dashboard', () => {
         await Promise.resolve();
 
         expect(dashboard.state.rangeData!.series[0]?.group_label).toBe('Marker 22');
+    });
+
+    it('surfaces a failure state on the chart and totals cards when the first range request fails', async () => {
+        vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
+        vi.mocked(api.getDashboardRange).mockRejectedValueOnce(new Error('range unavailable'));
+        const dashboard = new DashboardTestHarness(container);
+        dashboard.render();
+        await dashboard.loadData();
+
+        await vi.waitFor(() => {
+            expect(container.querySelector('#charts-container')?.textContent).toContain('Unable to load chart data.');
+        });
+        expect(container.querySelector('#dashboard-totals-container')?.textContent).toContain('Unable to load chart data.');
     });
 
     it('rejects an out-of-order heatmap-year response', async () => {

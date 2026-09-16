@@ -1920,6 +1920,28 @@ input:focus, select:focus {
   height: 300px;
 }
 
+.chart-empty-message {
+  display: none;
+  position: absolute;
+  inset: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 1.5rem;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.chart-empty-message.is-visible {
+  display: flex;
+}
+
+.chart-empty-prompt {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
 /* Editable elements styling */
  #media-desc, .editable-extra, .editable-extra-key, #media-cover-img {
   transition: all var(--transition-fast);

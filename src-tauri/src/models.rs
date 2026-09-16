@@ -362,6 +362,8 @@ pub struct DashboardSettings {
     pub group_by: DashboardGroupBy,
     pub week_start_day: i64,
     pub migrate_legacy_group_by: bool,
+    pub time_range_days: i64,
+    pub metric: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -372,7 +374,6 @@ pub struct DashboardSnapshot {
     pub quick_log_media: Vec<DashboardMedia>,
     pub recent_logs: DashboardRecentPage,
     pub heatmap: DashboardHeatmapYearResponse,
-    pub range: DashboardRangeResponse,
     pub weekday_distribution: DashboardWeekdayDistribution,
 }
 
