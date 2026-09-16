@@ -83,7 +83,7 @@ export class StatsCard extends Component<StatsCardState> {
                         </div>
                         ` : ''}
                         <div class="study-stats-metric study-stats-metric-total-hours" style="background: var(--bg-dark); padding: 0.4rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color); ${totalChars > 0 ? '' : 'grid-column: span 2;'}">
-                            <div id="stat-total-hours" style="font-size: 1.1rem; font-weight: bold; color: var(--text-primary);">${formatStatsDuration(totalMins, true)}</div>
+                            <div id="stat-total-hours" style="font-size: 1.1rem; font-weight: bold; color: var(--text-primary);">${formatStatsDuration(totalMins)}</div>
                             <div style="font-size: 0.65rem; color: var(--text-secondary);">total hours</div>
                         </div>
                         </div>
@@ -177,7 +177,7 @@ export class StatsCard extends Component<StatsCardState> {
     private renderBreakdown(mediaBreakdown: Map<string, { mins: number, chars: number, dayScopedMins: number }>, loggedDaysCount: number): string {
         const sortedBreakdown = Array.from(mediaBreakdown.entries()).sort((a, b) => b[1].mins - a[1].mins);
         return sortedBreakdown.map(([mtype, data]) => {
-            const totalFormat = formatStatsDuration(data.mins, true);
+            const totalFormat = formatStatsDuration(data.mins);
             const avgFormat = formatStatsDuration(data.dayScopedMins / loggedDaysCount);
             const charStr = data.chars > 0 ? `<div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--text-secondary); opacity: 0.8;">
                         <span>Total Characters:</span>

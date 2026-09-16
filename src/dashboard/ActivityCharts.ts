@@ -440,7 +440,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                             label: (context) => {
                                 const val = context.parsed;
                                 if (this.state.metric === 'minutes') {
-                                    return formatStatsDuration(val, true);
+                                    return formatStatsDuration(val);
                                 }
                                 return `${val.toLocaleString()} chars`;
                             }
@@ -476,7 +476,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                             color: secondaryColor,
                             callback: (value) => {
                                 if (this.state.metric === 'minutes') {
-                                    return formatStatsDuration(value as number, true);
+                                    return formatStatsDuration(value as number);
                                 }
                                 return value.toLocaleString();
                             }
@@ -490,7 +490,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
                             label: (context) => {
                                 const val = context.parsed.y ?? 0;
                                 if (this.state.metric === 'minutes') {
-                                    return `${context.dataset.label}: ${formatStatsDuration(val, true)}`;
+                                    return `${context.dataset.label}: ${formatStatsDuration(val)}`;
                                 }
                                 return `${context.dataset.label}: ${val.toLocaleString()} chars`;
                             }
