@@ -42,6 +42,7 @@ The format is based on Keep a Changelog, with one section per released version.
  - Media detail navigation and overflow actions are now clickable over the cover banner at narrow window and phone widths
  - Applied consistent spacing and padding below the compact desktop top bar
  - Right-click and overflow menus no longer close themselves right after opening when a scroll from just before the menu opened arrives late
+ - The first bucket of a Weekly/Monthly/Yearly Stats card in the Dashboard now compares against the last bucket of the prior period instead of showing zero
  - Ongoing works with a logged character count no longer ignore it in favor of a stale, less accurate
    average speed when estimating remaining time and completion
  - The calendar's first column now follows the week start day preference instead of always beginning on Sunday.

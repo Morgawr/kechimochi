@@ -3,7 +3,7 @@ import { ActivitySummary, DashboardMedia, DashboardRangeResponse, DashboardWeekd
 import { escapeHTML, html, rawHtml } from '../html';
 import { formatCount, formatOptionalCount } from '../count_formatting';
 import { formatOptionalStatsDuration, formatStatsDuration } from '../time';
-import { getActivityRange, getLocalISODate, normalizeWeekStartDay, resolveRangeLogs, type ActivityPeriod, type ActivityRange } from './activity_ranges';
+import { getActivityRange, getLocalISODate, getPreviousBucketKey, normalizeWeekStartDay, resolveRangeLogs, type ActivityPeriod, type ActivityRange } from './activity_ranges';
 import { MediaCoverLoader } from '../media/cover_loader';
 import { Logger } from '../logger';
 
@@ -223,6 +223,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
                 </div>
                 ${this.renderTotalsTable(this.getUnitHeader(range.unit), rows, columns, range.unit === 'day')}
                 ${this.renderSelectedSummary(
+            range,
             bucketTotals,
             selectedIndex,
             range.unit,
@@ -678,6 +679,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
     }
 
     private renderSelectedSummary(
+        range: ActivityRange,
         totals: Totals[],
         selectedIndex: number,
         unit: string,
@@ -686,7 +688,9 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
         columns: TotalsColumns,
     ): string {
         const selected = totals[selectedIndex] || { minutes: 0, characters: 0 };
-        const previous = totals[selectedIndex - 1] || { minutes: 0, characters: 0 };
+        const previous = selectedIndex === 0
+            ? this.getPrecedingPeriodTotals(range)
+            : totals[selectedIndex - 1] || { minutes: 0, characters: 0 };
         const subject = isCurrentSelection ? this.getCurrentSubjectLabel(unit) : selectedSubject;
         const comparisonLabel = isCurrentSelection ? this.getCurrentComparisonLabel(unit) : `previous ${this.getComparisonUnitLabel(unit)}`;
         const metrics = [
@@ -702,6 +706,15 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
                 </div>
             </div>
         `;
+    }
+
+    private getPrecedingPeriodTotals(range: ActivityRange): Totals {
+        const previousBucketTotals = this.state.rangeData?.previous_bucket_totals;
+        if (previousBucketTotals?.bucket === getPreviousBucketKey(range)) {
+            return { minutes: previousBucketTotals.total_minutes, characters: previousBucketTotals.total_characters };
+        }
+
+        return { minutes: 0, characters: 0 };
     }
 
     private renderSelectedMetric(label: string, value: string, diff: string): string {

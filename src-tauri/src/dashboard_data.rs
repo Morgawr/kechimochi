@@ -663,6 +663,32 @@ struct RawChartPoint {
     total_characters: i64,
 }
 
+fn previous_bucket_span(
+    start_date: &str,
+    bucket: DashboardBucket,
+) -> Option<(NaiveDate, NaiveDate)> {
+    let start = NaiveDate::parse_from_str(start_date, "%Y-%m-%d").ok()?;
+    match bucket {
+        DashboardBucket::Day => {
+            let previous_day = start.checked_sub_days(Days::new(1))?;
+            Some((previous_day, previous_day))
+        }
+        DashboardBucket::Month => {
+            let first_of_start_month = NaiveDate::from_ymd_opt(start.year(), start.month(), 1)?;
+            let last_day_previous = first_of_start_month.checked_sub_days(Days::new(1))?;
+            let first_day_previous =
+                NaiveDate::from_ymd_opt(last_day_previous.year(), last_day_previous.month(), 1)?;
+            Some((first_day_previous, last_day_previous))
+        }
+        DashboardBucket::Year => {
+            let previous_year = start.year() - 1;
+            let first_day = NaiveDate::from_ymd_opt(previous_year, 1, 1)?;
+            let last_day = NaiveDate::from_ymd_opt(previous_year, 12, 31)?;
+            Some((first_day, last_day))
+        }
+    }
+}
+
 fn query_range(
     conn: &Connection,
     request: &DashboardRangeRequest,
@@ -739,6 +765,37 @@ fn query_range(
     let raw_highlight_rows =
         query_highlight_rows(conn, &request.start_date, &request.end_date, timings)?;
 
+    let previous_bucket_totals = match previous_bucket_span(&request.start_date, request.bucket) {
+        Some((span_start, span_end)) => {
+            let bucket_key = span_start.format("%Y-%m-%d").to_string();
+            let span_end_key = span_end.format("%Y-%m-%d").to_string();
+            let previous_bucket_sql = format!(
+                "SELECT COALESCE(SUM(a.duration_minutes), 0), COALESCE(SUM(a.characters), 0)
+                 FROM main.activity_logs a
+                 JOIN shared.media m ON m.id = a.media_id
+                 WHERE a.date >= ?1 AND a.date <= ?2 AND date(a.date) IS NOT NULL
+                   AND a.precision_key_length >= {bucket_length}"
+            );
+            let (total_minutes, total_characters) = timings.query(|| {
+                conn.query_row(
+                    &previous_bucket_sql,
+                    params![bucket_key, span_end_key],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+            })?;
+            DashboardBucketTotals {
+                bucket: Some(bucket_key),
+                total_minutes,
+                total_characters,
+            }
+        }
+        None => DashboardBucketTotals {
+            bucket: None,
+            total_minutes: 0,
+            total_characters: 0,
+        },
+    };
+
     Ok(timings.aggregate(|| {
         let (series, bucket_totals) = aggregate_chart_series(raw_series, request.group_by);
         DashboardRangeResponse {
@@ -749,6 +806,7 @@ fn query_range(
             group_by: request.group_by,
             series,
             bucket_totals,
+            previous_bucket_totals,
             category_totals: fold_named_totals(
                 raw_categories,
                 TOP_GROUPS_PER_METRIC,
@@ -1401,6 +1459,136 @@ mod tests {
 
         assert_eq!(range.series[0].group_label, "Watching");
         assert_eq!(range.category_totals[0].label, "Game");
+    }
+
+    #[test]
+    fn previous_bucket_span_covers_the_whole_preceding_bucket() {
+        let day = |year, month, day| NaiveDate::from_ymd_opt(year, month, day).unwrap();
+
+        assert_eq!(
+            previous_bucket_span("2026-06-08", DashboardBucket::Day),
+            Some((day(2026, 6, 7), day(2026, 6, 7)))
+        );
+        assert_eq!(
+            previous_bucket_span("2026-01-01", DashboardBucket::Month),
+            Some((day(2025, 12, 1), day(2025, 12, 31)))
+        );
+        assert_eq!(
+            previous_bucket_span("2028-03-01", DashboardBucket::Month),
+            Some((day(2028, 2, 1), day(2028, 2, 29)))
+        );
+        assert_eq!(
+            previous_bucket_span("2026-03-15", DashboardBucket::Month),
+            Some((day(2026, 2, 1), day(2026, 2, 28)))
+        );
+        assert_eq!(
+            previous_bucket_span("2026-01-01", DashboardBucket::Year),
+            Some((day(2025, 1, 1), day(2025, 12, 31)))
+        );
+        assert_eq!(previous_bucket_span("not-a-date", DashboardBucket::Day), None);
+    }
+
+    #[test]
+    fn range_totals_the_bucket_before_the_requested_start() {
+        let (_directory, conn) = test_connection();
+        let media_id = db::add_media_with_id(&conn, &media("A", "")).unwrap();
+        for (date, minutes, characters) in [
+            ("2026-06-06", 15, 200),
+            ("2026-06-07", 45, 500),
+            ("2026-06-08", 30, 100),
+        ] {
+            db::add_log(
+                &conn,
+                &ActivityLog {
+                    id: None,
+                    media_id,
+                    duration_minutes: minutes,
+                    characters,
+                    date: date.to_string(),
+                    date_precision: DatePrecision::Day,
+                    activity_type: "Reading".to_string(),
+                    notes: String::new(),
+                },
+            )
+            .unwrap();
+        }
+
+        let range = get_dashboard_range(
+            &conn,
+            &DashboardRangeRequest {
+                request_id: 11,
+                start_date: "2026-06-08".to_string(),
+                end_date: "2026-06-14".to_string(),
+                bucket: DashboardBucket::Day,
+                group_by: DashboardGroupBy::ActivityType,
+            },
+        )
+        .unwrap()
+        .value;
+
+        assert_eq!(
+            range.previous_bucket_totals.bucket.as_deref(),
+            Some("2026-06-07")
+        );
+        assert_eq!(range.previous_bucket_totals.total_minutes, 45);
+        assert_eq!(range.previous_bucket_totals.total_characters, 500);
+    }
+
+    #[test]
+    fn previous_bucket_total_only_counts_logs_as_fine_as_the_bucket() {
+        let (_directory, conn) = test_connection();
+        let media_id = db::add_media_with_id(&conn, &media("A", "")).unwrap();
+        for (date, date_precision, minutes, characters) in [
+            ("2026-06-01", DatePrecision::Day, 20, 300),
+            ("2026-06-01", DatePrecision::Month, 90, 5000),
+            ("2026-01-01", DatePrecision::Year, 500, 9000),
+        ] {
+            db::add_log(
+                &conn,
+                &ActivityLog {
+                    id: None,
+                    media_id,
+                    duration_minutes: minutes,
+                    characters,
+                    date: date.to_string(),
+                    date_precision,
+                    activity_type: "Reading".to_string(),
+                    notes: String::new(),
+                },
+            )
+            .unwrap();
+        }
+
+        let previous_totals = |start_date: &str, end_date: &str, bucket| {
+            get_dashboard_range(
+                &conn,
+                &DashboardRangeRequest {
+                    request_id: 12,
+                    start_date: start_date.to_string(),
+                    end_date: end_date.to_string(),
+                    bucket,
+                    group_by: DashboardGroupBy::ActivityType,
+                },
+            )
+            .unwrap()
+            .value
+            .previous_bucket_totals
+        };
+
+        let day_bucket = previous_totals("2026-06-02", "2026-06-08", DashboardBucket::Day);
+        assert_eq!(day_bucket.bucket.as_deref(), Some("2026-06-01"));
+        assert_eq!(day_bucket.total_minutes, 20);
+        assert_eq!(day_bucket.total_characters, 300);
+
+        let month_bucket = previous_totals("2026-07-01", "2026-12-31", DashboardBucket::Month);
+        assert_eq!(month_bucket.bucket.as_deref(), Some("2026-06-01"));
+        assert_eq!(month_bucket.total_minutes, 110);
+        assert_eq!(month_bucket.total_characters, 5300);
+
+        let january_bucket = previous_totals("2026-02-01", "2026-12-31", DashboardBucket::Month);
+        assert_eq!(january_bucket.bucket.as_deref(), Some("2026-01-01"));
+        assert_eq!(january_bucket.total_minutes, 0);
+        assert_eq!(january_bucket.total_characters, 0);
     }
 
     #[test]

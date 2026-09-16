@@ -139,6 +139,7 @@ export function createMainApiMock() {
             group_by: request.group_by,
             series: [],
             bucket_totals: [],
+            previous_bucket_totals: { bucket: null, total_minutes: 0, total_characters: 0 },
             category_totals: [],
             highlights: [],
         })),
@@ -282,6 +283,7 @@ export function resetMainApiMocks(mockedApi: ApiModule) {
         group_by: request.group_by,
         series: [],
         bucket_totals: [],
+        previous_bucket_totals: { bucket: null, total_minutes: 0, total_characters: 0 },
         category_totals: [],
         highlights: [],
     }));
