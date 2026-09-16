@@ -46,6 +46,7 @@ The format is based on Keep a Changelog, with one section per released version.
  - Ongoing works with a logged character count no longer ignore it in favor of a stale, less accurate
    average speed when estimating remaining time and completion
  - The calendar's first column now follows the week start day preference instead of always beginning on Sunday.
+ - The dashboard Study Stats card "daily averages" no longer renders zero-minutes (`6h` instead of `6h 0m`)
 
 ## [0.3.2] - 2026-08-25
 

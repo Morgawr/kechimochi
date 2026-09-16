@@ -53,24 +53,23 @@ export function formatHhMm(totalMinutes: number): string {
 }
 
 /**
- * Formats duration as "Hh Mm" or "Mm".
+ * Formats duration as "Hh Mm", "Hh" or "Mm" — a zero minutes part is omitted.
  * Used in Stats Card.
  */
-export function formatStatsDuration(totalMinutes: number, skipZeroMinutes: boolean = false): string {
+export function formatStatsDuration(totalMinutes: number): string {
     const { hours, minutes } = toTimeParts(totalMinutes);
     if (hours > 0) {
-        if (skipZeroMinutes && minutes === 0) return `${hours}h`;
-        return `${hours}h ${minutes}m`;
+        return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
     }
     return `${minutes}m`;
 }
 
 /**
- * Same as {@link formatStatsDuration} with `skipZeroMinutes`, but renders nothing at zero so
- * callers can drop the label entirely.
+ * Same as {@link formatStatsDuration}, but renders nothing at zero so callers can drop the label
+ * entirely.
  */
 export function formatOptionalStatsDuration(totalMinutes: number): string {
-    return totalMinutes > 0 ? formatStatsDuration(totalMinutes, true) : '';
+    return totalMinutes > 0 ? formatStatsDuration(totalMinutes) : '';
 }
 
 /**

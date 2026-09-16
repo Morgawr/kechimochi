@@ -388,7 +388,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
     private formatRadarValue(value: number, metric: 'minutes' | 'characters'): string {
         if (metric === 'characters') return `${Math.round(value).toLocaleString()} characters`;
         if (value <= 0) return '0m';
-        return formatStatsDuration(Math.round(value), true);
+        return formatStatsDuration(Math.round(value));
     }
 
     private getTotalsColumns(rows: Array<{ totals: Totals }>): TotalsColumns {
@@ -541,7 +541,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
                 key: 'most-time',
                 title: 'Most Time Spent',
                 label: mostTime.media.title,
-                value: formatStatsDuration(mostTime.totals.minutes, true),
+                value: formatStatsDuration(mostTime.totals.minutes),
                 detail: formatOptionalCount(mostTime.totals.characters, 'char'),
                 media: mostTime.media,
                 tone: 'time' as const,
@@ -568,7 +568,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
                 key: 'biggest-day',
                 title: 'Biggest Day',
                 label: this.formatFullDate(biggestDay[0]),
-                value: formatStatsDuration(biggestDay[1].minutes, true),
+                value: formatStatsDuration(biggestDay[1].minutes),
                 detail: formatOptionalCount(biggestDay[1].characters, 'char'),
                 tone: 'day' as const,
             } : undefined,
@@ -611,7 +611,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
         if (!media || highlight.total_minutes <= 0) return null;
         return {
             key: 'most-time', title: 'Most Time Spent', label: media.title,
-            value: formatStatsDuration(highlight.total_minutes, true),
+            value: formatStatsDuration(highlight.total_minutes),
             detail: formatOptionalCount(highlight.total_characters, 'char'),
             media, tone: 'time',
         };
@@ -649,7 +649,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
         if (!highlight.date || highlight.total_minutes <= 0) return null;
         return {
             key: 'biggest-day', title: 'Biggest Day', label: this.formatFullDate(highlight.date),
-            value: formatStatsDuration(highlight.total_minutes, true),
+            value: formatStatsDuration(highlight.total_minutes),
             detail: formatOptionalCount(highlight.total_characters, 'char'),
             tone: 'day',
         };
@@ -694,7 +694,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
         const subject = isCurrentSelection ? this.getCurrentSubjectLabel(unit) : selectedSubject;
         const comparisonLabel = isCurrentSelection ? this.getCurrentComparisonLabel(unit) : `previous ${this.getComparisonUnitLabel(unit)}`;
         const metrics = [
-            columns.showHours ? this.renderSelectedMetric('Time', formatStatsDuration(selected.minutes, true), this.renderDiff(selected.minutes - previous.minutes, comparisonLabel, 'minutes')) : '',
+            columns.showHours ? this.renderSelectedMetric('Time', formatStatsDuration(selected.minutes), this.renderDiff(selected.minutes - previous.minutes, comparisonLabel, 'minutes')) : '',
             columns.showCharacters ? this.renderSelectedMetric('Chars', selected.characters.toLocaleString(), this.renderDiff(selected.characters - previous.characters, comparisonLabel, 'characters')) : '',
         ].filter(Boolean);
 
@@ -731,7 +731,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
 
     private renderDiff(diff: number, comparisonLabel: string, metric: 'minutes' | 'characters'): string {
         const abs = Math.abs(diff);
-        const value = metric === 'minutes' ? formatStatsDuration(abs, true) : abs.toLocaleString();
+        const value = metric === 'minutes' ? formatStatsDuration(abs) : abs.toLocaleString();
         const direction = diff >= 0 ? 'more' : 'less';
         const tone = diff >= 0 ? 'positive' : 'negative';
 
@@ -793,7 +793,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
                    <span class="dashboard-stats-row-label dashboard-stats-row-weekday">${escapeHTML(row.weekday ?? '')}</span>`
                 : `<span class="dashboard-stats-row-label${spanningLabelClass}">${escapeHTML(row.label)}</span>`}
             ${columns.showCharacters ? `<span class="dashboard-stats-row-value">${escapeHTML(row.totals.characters.toLocaleString())}</span>` : ''}
-            ${columns.showHours ? `<span class="dashboard-stats-row-value">${escapeHTML(this.formatHours(row.totals.minutes))}</span>` : ''}
+            ${columns.showHours ? `<span class="dashboard-stats-row-value">${escapeHTML(formatStatsDuration(row.totals.minutes))}</span>` : ''}
         `;
 
         if (index === null) {
@@ -824,11 +824,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
             characters: acc.characters + row.totals.characters,
         }), { minutes: 0, characters: 0 });
 
-        return metric === 'characters' ? totals.characters.toLocaleString() : this.formatHours(totals.minutes);
-    }
-
-    private formatHours(minutes: number): string {
-        return formatStatsDuration(minutes, true);
+        return metric === 'characters' ? totals.characters.toLocaleString() : formatStatsDuration(totals.minutes);
     }
 
     private getTitle(period: ActivityPeriod): string {

@@ -1235,7 +1235,7 @@ export class TimelineView extends Component<TimelineState> {
         const items: TimelineSummaryItem[] = [
             {
                 label: 'Total time',
-                value: formatStatsDuration(this.state.summary.total_minutes, true),
+                value: formatStatsDuration(this.state.summary.total_minutes),
             },
             secondItem,
         ];

@@ -35,8 +35,8 @@ describe('formatting.ts', () => {
     describe('formatStatsDuration', () => {
         it('should format stats duration correctly', () => {
             expect(formatting.formatStatsDuration(45)).toBe('45m');
-            expect(formatting.formatStatsDuration(60)).toBe('1h 0m');
-            expect(formatting.formatStatsDuration(120, true)).toBe('2h');
+            expect(formatting.formatStatsDuration(60)).toBe('1h');
+            expect(formatting.formatStatsDuration(120)).toBe('2h');
             expect(formatting.formatStatsDuration(125)).toBe('2h 5m');
         });
     });
