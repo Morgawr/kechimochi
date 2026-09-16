@@ -3,7 +3,7 @@ import { ActivitySummary, DashboardMedia, DashboardRangeResponse, DashboardWeekd
 import { escapeHTML, html, rawHtml } from '../html';
 import { formatCount, formatOptionalCount } from '../count_formatting';
 import { formatOptionalStatsDuration, formatStatsDuration } from '../time';
-import { getActivityRange, getLocalISODate, normalizeWeekStartDay, type ActivityPeriod, type ActivityRange } from './activity_ranges';
+import { getActivityRange, getLocalISODate, normalizeWeekStartDay, resolveRangeLogs, type ActivityPeriod, type ActivityRange } from './activity_ranges';
 import { MediaCoverLoader } from '../media/cover_loader';
 import { Logger } from '../logger';
 
@@ -106,20 +106,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
     render() {
         this.clear();
 
-        const rangeLogs = this.state.logs ?? this.state.rangeData?.bucket_totals
-            .filter((bucket): bucket is typeof bucket & { bucket: string } => bucket.bucket !== null)
-            .map((bucket, index) => ({
-                id: index,
-                media_id: 0,
-                title: '',
-                activity_type: '',
-                duration_minutes: bucket.total_minutes,
-                characters: bucket.total_characters,
-                date: bucket.bucket,
-                date_precision: 'day' as const,
-                language: '',
-                notes: '',
-            })) ?? [];
+        const rangeLogs = resolveRangeLogs(this.state.logs, this.state.rangeData);
         const range = getActivityRange(this.state.timeRangeDays, this.state.timeRangeOffset, rangeLogs, this.state.weekStartDay);
         const unbucketedRowLabel = this.getUnbucketedRowLabel(range.period);
         const { totals: bucketTotals, unbucketedTotals } = this.getBucketTotals(

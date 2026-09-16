@@ -1,4 +1,4 @@
-import { ActivitySummary } from '../api';
+import { ActivitySummary, DashboardRangeResponse } from '../api';
 
 const MONTH_ABBREVIATIONS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -12,6 +12,12 @@ export const ACTIVITY_TIME_RANGES = {
 export type ActivityTimeRangeDays = typeof ACTIVITY_TIME_RANGES[keyof typeof ACTIVITY_TIME_RANGES];
 export type ActivityPeriod = 'week' | 'month' | 'year' | 'all-time';
 
+export interface DatedActivityTotals {
+    date: string;
+    duration_minutes: number;
+    characters: number;
+}
+
 export interface ActivityRange {
     labels: string[];
     getBucketIndex: (dateStr: string) => number;
@@ -21,7 +27,20 @@ export interface ActivityRange {
     period: ActivityPeriod;
 }
 
-export function getActivityRange(timeRangeDays: number, timeRangeOffset: number, logs: ActivitySummary[] = [], weekStartDay = 1): ActivityRange {
+export function resolveRangeLogs(
+    logs: ActivitySummary[] | undefined,
+    rangeData: DashboardRangeResponse | undefined,
+): DatedActivityTotals[] {
+    return logs ?? rangeData?.bucket_totals.flatMap(bucket => (
+        bucket.bucket === null ? [] : [{
+            date: bucket.bucket,
+            duration_minutes: bucket.total_minutes,
+            characters: bucket.total_characters,
+        }]
+    )) ?? [];
+}
+
+export function getActivityRange(timeRangeDays: number, timeRangeOffset: number, logs: DatedActivityTotals[] = [], weekStartDay = 1): ActivityRange {
     switch (timeRangeDays) {
         case ACTIVITY_TIME_RANGES.ALL_TIME: return getAllTimeRange(logs);
         case ACTIVITY_TIME_RANGES.WEEKLY: return getWeeklyRange(timeRangeOffset, weekStartDay);
@@ -103,7 +122,7 @@ function getYearlyRange(timeRangeOffset: number): ActivityRange {
     return { labels, getBucketIndex, validStart, validEnd, unit: 'month', period: 'year' };
 }
 
-function getAllTimeRange(logs: ActivitySummary[]): ActivityRange {
+function getAllTimeRange(logs: DatedActivityTotals[]): ActivityRange {
     const years = Array.from(new Set(logs.map(log => log.date.slice(0, 4))))
         .sort((left, right) => left.localeCompare(right));
     const labels = years.length > 0 ? years : [String(new Date().getFullYear())];

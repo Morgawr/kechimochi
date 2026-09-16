@@ -3,7 +3,7 @@ import { html } from '../html';
 import { ActivitySummary, DashboardRangeResponse, Media } from '../api';
 import type { Chart as ChartInstance } from 'chart.js';
 import { formatStatsDuration } from '../time';
-import { ACTIVITY_TIME_RANGES, getActivityRange, getLocalISODate, type ActivityRange } from './activity_ranges';
+import { ACTIVITY_TIME_RANGES, getActivityRange, getLocalISODate, resolveRangeLogs, type ActivityRange, type DatedActivityTotals } from './activity_ranges';
 import { Logger } from '../logger';
 import { logPerformance, measureSynchronous, performanceNow } from '../performance';
 import { loadChartConstructor, type ChartConstructor } from '../chart_loader';
@@ -271,20 +271,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
 
         const colors = this.getChartColors();
         const borderColor = getComputedStyle(document.body).getPropertyValue('--border-color').trim();
-        const rangeLogs = this.state.logs ?? this.state.rangeData?.bucket_totals
-            .filter((bucket): bucket is typeof bucket & { bucket: string } => bucket.bucket !== null)
-            .map((bucket, index) => ({
-                id: index,
-                media_id: 0,
-                title: '',
-                activity_type: '',
-                duration_minutes: bucket.total_minutes,
-                characters: bucket.total_characters,
-                date: bucket.bucket,
-                date_precision: 'day' as const,
-                language: '',
-                notes: '',
-            })) ?? [];
+        const rangeLogs = resolveRangeLogs(this.state.logs, this.state.rangeData);
         const timeRange = getActivityRange(this.state.timeRangeDays, this.state.timeRangeOffset, rangeLogs, this.state.weekStartDay ?? 1);
         layout.dataset.rangeStart = timeRange.validStart;
         layout.dataset.rangeEnd = timeRange.validEnd;
@@ -352,7 +339,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         return pieData.values.every(value => value === 0);
     }
 
-    private isBarChartEmpty(logs: ActivitySummary[], timeRange: ActivityRange): boolean {
+    private isBarChartEmpty(logs: DatedActivityTotals[], timeRange: ActivityRange): boolean {
         const { validStart, validEnd } = timeRange;
         return !logs.some(log => {
             if (log.date < validStart || log.date > validEnd) return false;
