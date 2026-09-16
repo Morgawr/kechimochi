@@ -345,6 +345,7 @@ pub struct DashboardRangeResponse {
     pub group_by: DashboardGroupBy,
     pub series: Vec<DashboardChartPoint>,
     pub bucket_totals: Vec<DashboardBucketTotals>,
+    pub previous_bucket_totals: DashboardBucketTotals,
     pub category_totals: Vec<DashboardNamedTotals>,
     pub highlights: Vec<DashboardHighlight>,
 }

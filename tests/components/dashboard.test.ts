@@ -88,6 +88,7 @@ function rangeResponse(request: DashboardRangeRequest, marker = 0): DashboardRan
             total_minutes: marker,
             total_characters: 0,
         }],
+        previous_bucket_totals: { bucket: '', total_minutes: 0, total_characters: 0 },
         category_totals: [],
         highlights: [],
     };
