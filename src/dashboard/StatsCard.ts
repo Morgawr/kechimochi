@@ -1,7 +1,7 @@
 import { Component } from '../component';
 import { html, rawHtml } from '../html';
 import { ActivitySummary, DashboardSummary, Media } from '../api';
-import { formatStatsDuration } from '../time';
+import { formatReducedDate, formatStatsDuration } from '../time';
 
 interface StatsCardState {
     summary?: DashboardSummary;
@@ -25,7 +25,8 @@ export class StatsCard extends Component<StatsCardState> {
         const uniqueDates = summary
             ? []
             : Array.from(new Set(logs.map(l => l.date))).sort((a, b) => a.localeCompare(b));
-        const sinceDate = summary?.first_activity_date ?? uniqueDates[0] ?? 'N/A';
+        const sinceKey = summary?.first_activity_date ?? uniqueDates[0] ?? null;
+        const sinceDate = sinceKey ? formatReducedDate(sinceKey) : 'N/A';
         const loggedDaysCount = Math.max(1, summary?.logged_days ?? uniqueDates.length);
 
         const legacyStreaks = summary ? null : this.calculateStreaks(uniqueDates);
@@ -36,15 +37,17 @@ export class StatsCard extends Component<StatsCardState> {
             ? new Map(summary.activity_totals.map(total => [total.label, {
                 mins: total.total_minutes,
                 chars: total.total_characters,
+                dayScopedMins: total.day_scoped_total_minutes,
             }]))
             : legacyBreakdown!.mediaBreakdown;
         const totalMins = summary?.total_minutes ?? legacyBreakdown!.totalMins;
         const totalChars = summary?.total_characters ?? legacyBreakdown!.totalChars;
+        // Coarse-scoped time counts toward every Total tile and toward no daily average.
         const totalAvgFormat = summary
-            ? formatStatsDuration(totalMins / loggedDaysCount)
+            ? formatStatsDuration(summary.day_scoped_total_minutes / loggedDaysCount)
             : legacyBreakdown!.totalAvgFormat;
         const avgCharsFormat = summary
-            ? `${Math.round(totalChars / loggedDaysCount).toLocaleString()} chars`
+            ? `${Math.round(summary.day_scoped_total_characters / loggedDaysCount).toLocaleString()} chars`
             : legacyBreakdown!.avgCharsFormat;
         const breakdownHtml = this.renderBreakdown(mediaBreakdown, loggedDaysCount);
 
@@ -143,12 +146,13 @@ export class StatsCard extends Component<StatsCardState> {
     }
 
     private calculateBreakdown(logs: ActivitySummary[], loggedDaysCount: number) {
-        const mediaBreakdown = new Map<string, { mins: number, chars: number }>();
+        const mediaBreakdown = new Map<string, { mins: number, chars: number, dayScopedMins: number }>();
         for (const log of logs) {
-            const current = mediaBreakdown.get(log.activity_type) || { mins: 0, chars: 0 };
+            const current = mediaBreakdown.get(log.activity_type) || { mins: 0, chars: 0, dayScopedMins: 0 };
             mediaBreakdown.set(log.activity_type, {
                 mins: current.mins + log.duration_minutes,
-                chars: current.chars + (log.characters || 0)
+                chars: current.chars + (log.characters || 0),
+                dayScopedMins: current.dayScopedMins + log.duration_minutes,
             });
         }
         
@@ -170,11 +174,11 @@ export class StatsCard extends Component<StatsCardState> {
         };
     }
 
-    private renderBreakdown(mediaBreakdown: Map<string, { mins: number, chars: number }>, loggedDaysCount: number): string {
+    private renderBreakdown(mediaBreakdown: Map<string, { mins: number, chars: number, dayScopedMins: number }>, loggedDaysCount: number): string {
         const sortedBreakdown = Array.from(mediaBreakdown.entries()).sort((a, b) => b[1].mins - a[1].mins);
         return sortedBreakdown.map(([mtype, data]) => {
             const totalFormat = formatStatsDuration(data.mins, true);
-            const avgFormat = formatStatsDuration(data.mins / loggedDaysCount);
+            const avgFormat = formatStatsDuration(data.dayScopedMins / loggedDaysCount);
             const charStr = data.chars > 0 ? `<div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--text-secondary); opacity: 0.8;">
                         <span>Total Characters:</span>
                         <span>${data.chars.toLocaleString()}</span>

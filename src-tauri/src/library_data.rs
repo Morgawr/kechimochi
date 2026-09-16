@@ -10,6 +10,13 @@ use crate::models::{
 };
 use crate::read_performance::{Measured, Timings};
 
+fn reduced_activity_date(anchor: &str, precision_key_length: i64) -> String {
+    let length = usize::try_from(precision_key_length)
+        .unwrap_or(0)
+        .min(anchor.len());
+    anchor[0..length].to_string()
+}
+
 const GRID_ZOOM_MIN: i64 = 70;
 const GRID_ZOOM_MAX: i64 = 130;
 const GRID_ZOOM_STEP: i64 = 10;
@@ -82,30 +89,75 @@ fn query_library_media(
     conn: &Connection,
     timings: &mut Timings,
 ) -> Result<(Vec<Media>, Vec<LibraryActivityMetrics>)> {
+    let query =
+        "WITH activity_totals AS (
+             SELECT media_id,
+                    COALESCE(SUM(duration_minutes), 0) AS total_minutes,
+                    COALESCE(SUM(characters), 0) AS total_characters
+             FROM main.activity_logs
+             GROUP BY media_id
+         )
+         SELECT m.id, m.uid, m.title, m.default_activity_type, m.status,
+                m.language, m.description, m.cover_image, m.extra_data,
+                m.content_type, m.tracking_status, m.variant,
+                (
+                    SELECT earliest.date
+                    FROM main.activity_logs earliest
+                    WHERE earliest.media_id = m.id
+                    ORDER BY earliest.date ASC, earliest.precision_key_length ASC, earliest.id ASC
+                    LIMIT 1
+                ) AS first_anchor,
+                (
+                    SELECT earliest.precision_key_length
+                    FROM main.activity_logs earliest
+                    WHERE earliest.media_id = m.id
+                    ORDER BY earliest.date ASC, earliest.precision_key_length ASC, earliest.id ASC
+                    LIMIT 1
+                ) AS first_precision_key_length,
+                (
+                    SELECT latest.date
+                    FROM main.activity_logs latest
+                    WHERE latest.media_id = m.id
+                    ORDER BY latest.effective_end DESC, latest.precision_key_length ASC, latest.id DESC
+                    LIMIT 1
+                ) AS last_anchor,
+                (
+                    SELECT latest.precision_key_length
+                    FROM main.activity_logs latest
+                    WHERE latest.media_id = m.id
+                    ORDER BY latest.effective_end DESC, latest.precision_key_length ASC, latest.id DESC
+                    LIMIT 1
+                ) AS last_precision_key_length,
+                (
+                    SELECT latest.effective_end
+                    FROM main.activity_logs latest
+                    WHERE latest.media_id = m.id
+                    ORDER BY latest.effective_end DESC, latest.precision_key_length ASC, latest.id DESC
+                    LIMIT 1
+                ) AS last_effective_end,
+                activity_totals.total_minutes, activity_totals.total_characters
+         FROM shared.media m
+         LEFT JOIN activity_totals ON activity_totals.media_id = m.id
+         ORDER BY
+            last_effective_end DESC,
+            m.id DESC";
     let rows = timings.query(|| {
-        let mut statement = conn.prepare(
-            "WITH activity_totals AS (
-                 SELECT media_id,
-                        MIN(date) AS first_activity_date,
-                        MAX(date) AS last_activity_date,
-                        COALESCE(SUM(duration_minutes), 0) AS total_minutes,
-                        COALESCE(SUM(characters), 0) AS total_characters
-                 FROM main.activity_logs
-                 GROUP BY media_id
-             )
-             SELECT m.id, m.uid, m.title, m.default_activity_type, m.status,
-                    m.language, m.description, m.cover_image, m.extra_data,
-                    m.content_type, m.tracking_status, m.variant,
-                    totals.first_activity_date, totals.last_activity_date,
-                    totals.total_minutes, totals.total_characters
-             FROM shared.media m
-             LEFT JOIN activity_totals totals ON totals.media_id = m.id
-             ORDER BY
-                totals.last_activity_date DESC,
-                m.id DESC",
-        )?;
+        let mut statement = conn.prepare(query)?;
         let mapped = statement.query_map([], |row| {
             let media_id = row.get::<_, i64>(0)?;
+            let first_anchor = row.get::<_, Option<String>>(12)?;
+            let first_precision_key_length = row.get::<_, Option<i64>>(13)?;
+            let last_anchor = row.get::<_, Option<String>>(14)?;
+            let last_precision_key_length = row.get::<_, Option<i64>>(15)?;
+            let last_effective_end = row.get::<_, Option<String>>(16)?;
+            let first_activity_date = first_anchor
+                .as_deref()
+                .zip(first_precision_key_length)
+                .map(|(anchor, length)| reduced_activity_date(anchor, length));
+            let last_activity_date = last_anchor
+                .as_deref()
+                .zip(last_precision_key_length)
+                .map(|(anchor, length)| reduced_activity_date(anchor, length));
             Ok((
                 Media {
                     id: Some(media_id),
@@ -129,10 +181,12 @@ fn query_library_media(
                 },
                 LibraryActivityMetrics {
                     media_id,
-                    first_activity_date: row.get(12)?,
-                    last_activity_date: row.get(13)?,
-                    total_minutes: row.get(14)?,
-                    total_characters: row.get(15)?,
+                    first_activity_date,
+                    last_activity_date,
+                    first_activity_sort_key: first_anchor,
+                    last_activity_sort_key: last_effective_end,
+                    total_minutes: row.get(17)?,
+                    total_characters: row.get(18)?,
                 },
             ))
         })?;
@@ -181,6 +235,7 @@ mod tests {
                     duration_minutes: minutes,
                     characters,
                     date: date.to_string(),
+                    date_precision: db::DatePrecision::Day,
                     activity_type: "Reading".to_string(),
                     notes: "large notes must not enter library metrics".to_string(),
                 },
@@ -230,6 +285,7 @@ mod tests {
                 duration_minutes: minutes,
                 characters,
                 date: date.to_string(),
+                date_precision: db::DatePrecision::Day,
                 activity_type: "Reading".to_string(),
                 notes: String::new(),
             },

@@ -3,7 +3,7 @@ import { html } from '../html';
 import { ActivitySummary, DashboardRangeResponse, Media } from '../api';
 import type { Chart as ChartInstance } from 'chart.js';
 import { formatStatsDuration } from '../time';
-import { ACTIVITY_TIME_RANGES, getActivityRange, getLocalISODate, type ActivityRange } from './activity_ranges';
+import { ACTIVITY_TIME_RANGES, getActivityRange, getLocalISODate, resolveRangeLogs, type ActivityRange, type DatedActivityTotals } from './activity_ranges';
 import { Logger } from '../logger';
 import { logPerformance, measureSynchronous, performanceNow } from '../performance';
 import { loadChartConstructor, type ChartConstructor } from '../chart_loader';
@@ -271,17 +271,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
 
         const colors = this.getChartColors();
         const borderColor = getComputedStyle(document.body).getPropertyValue('--border-color').trim();
-        const rangeLogs = this.state.logs ?? this.state.rangeData?.bucket_totals.map((bucket, index) => ({
-            id: index,
-            media_id: 0,
-            title: '',
-            activity_type: '',
-            duration_minutes: bucket.total_minutes,
-            characters: bucket.total_characters,
-            date: bucket.bucket,
-            language: '',
-            notes: '',
-        })) ?? [];
+        const rangeLogs = resolveRangeLogs(this.state.logs, this.state.rangeData);
         const timeRange = getActivityRange(this.state.timeRangeDays, this.state.timeRangeOffset, rangeLogs, this.state.weekStartDay ?? 1);
         layout.dataset.rangeStart = timeRange.validStart;
         layout.dataset.rangeEnd = timeRange.validEnd;
@@ -349,7 +339,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         return pieData.values.every(value => value === 0);
     }
 
-    private isBarChartEmpty(logs: ActivitySummary[], timeRange: ActivityRange): boolean {
+    private isBarChartEmpty(logs: DatedActivityTotals[], timeRange: ActivityRange): boolean {
         const { validStart, validEnd } = timeRange;
         return !logs.some(log => {
             if (log.date < validStart || log.date > validEnd) return false;
@@ -522,15 +512,17 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         const { labels, getBucketIndex } = timeRange;
 
         if (this.state.rangeData) {
+            const bucketedSeries = this.state.rangeData.series
+                .filter((point): point is typeof point & { bucket: string } => point.bucket !== null);
             const activeGroups = new Map<string, string>();
-            for (const point of this.state.rangeData.series) {
+            for (const point of bucketedSeries) {
                 activeGroups.set(point.group_key, point.group_label);
             }
             const datasetsMap = new Map<string, number[]>();
             for (const key of activeGroups.keys()) {
                 datasetsMap.set(key, Array.from({ length: labels.length }, () => 0));
             }
-            for (const point of this.state.rangeData.series) {
+            for (const point of bucketedSeries) {
                 const index = getBucketIndex(point.bucket);
                 if (index === -1) continue;
                 const value = this.state.metric === 'minutes' ? point.total_minutes : point.total_characters;

@@ -355,7 +355,7 @@ async function populateMilestoneForm(overlay: ChainablePromiseElement, values: M
             timeoutMsg: 'Milestone date checkbox did not become selected'
         });
 
-        const firstDay = overlay.$('.cal-day');
+        const firstDay = overlay.$('.cal-day:not(.cal-day-outside)');
         await firstDay.waitForDisplayed({ timeout: 5000 });
         selectedDate = await firstDay.getAttribute('data-date');
         await safeClick(firstDay);

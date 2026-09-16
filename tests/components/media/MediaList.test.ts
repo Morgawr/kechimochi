@@ -41,6 +41,8 @@ describe('MediaList', () => {
             1: {
                 firstActivityDate: '2026-03-01',
                 lastActivityDate: '2026-03-10',
+                firstActivitySortKey: '2026-03-01',
+                lastActivitySortKey: '2026-03-10',
                 totalMinutes: 150,
                 totalCharacters: 3000,
             },
@@ -166,7 +168,16 @@ describe('MediaList', () => {
 
     it('updates only the target card in place via setState, passing refreshed metrics', async () => {
         const mediaList = createCollectionMediaList(2);
-        const metrics = { 1: { firstActivityDate: '2026-01-01', lastActivityDate: '2026-01-02', totalMinutes: 30, totalCharacters: 500 } };
+        const metrics = {
+            1: {
+                firstActivityDate: '2026-01-01',
+                lastActivityDate: '2026-01-02',
+                firstActivitySortKey: '2026-01-01',
+                lastActivitySortKey: '2026-01-02',
+                totalMinutes: 30,
+                totalCharacters: 500,
+            },
+        };
         const component = new MediaList(
             env.container,
             { rows: toLibraryItemRows(mediaList), metricsByMediaId: metrics, isMetricsLoading: false },

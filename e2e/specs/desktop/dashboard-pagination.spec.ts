@@ -4,6 +4,8 @@ import os from "node:os";
 import { randomUUID } from 'node:crypto';
 import { waitForAppReady } from '../../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../../helpers/navigation.js';
+import { safeClick } from '../../helpers/common.js';
+import { waitForDashboardSettled } from '../../helpers/dashboard.js';
 import { MOCK_DATE } from '../../config/test-constants.js';
 
 async function seedLogsViaCsv(count: number) {
@@ -26,6 +28,7 @@ async function seedLogsViaCsv(count: number) {
 
     await browser.refresh();
     await waitForAppReady();
+    await waitForDashboardSettled();
 
     try {
         fs.unlinkSync(csvPath);
@@ -52,6 +55,7 @@ describe('Dashboard Pagination E2E', () => {
         await waitForAppReady();
         await navigateTo('dashboard');
         expect(await verifyActiveView('dashboard')).toBe(true);
+        await waitForDashboardSettled();
     });
 
     it('should NOT show pagination with 15 or fewer activities', async () => {
@@ -90,28 +94,27 @@ describe('Dashboard Pagination E2E', () => {
             return (await $$('.dashboard-activity-item').length) > 0;
         }, { timeout: 5000 });
 
-        const nextBtn = await $('#next-page');
-        await nextBtn.click();
+        await safeClick('#next-page');
 
         await browser.waitUntil(async () => {
             const el = await $('#current-page-display');
             return (await el.getText()) === '2';
-        }, { timeout: 2000, timeoutMsg: 'Failed to navigate to page 2' });
+        }, { timeout: 5000, timeoutMsg: 'Failed to navigate to page 2' });
 
         const prevBtn = await $('#prev-page');
         expect(await prevBtn.isDisplayed()).toBe(true);
-        expect(await nextBtn.isDisplayed()).toBe(true);
+        expect(await $('#next-page').isDisplayed()).toBe(true);
     });
 
     it('should navigate to Page 3 and hide >> arrow', async () => {
-        const nextBtn = await $('#next-page');
-        await nextBtn.scrollIntoView();
-        await nextBtn.click();
+        await safeClick('#next-page');
 
         await browser.waitUntil(async () => {
             const el = await $('#current-page-display');
             return (await el.getText()) === '3';
-        }, { timeout: 2000, timeoutMsg: 'Failed to navigate to page 3' });
+        }, { timeout: 5000, timeoutMsg: 'Failed to navigate to page 3' });
+
+        const nextBtn = await $('#next-page');
 
         expect(await nextBtn.isEnabled()).toBe(false);
         const prevBtn = await $('#prev-page');

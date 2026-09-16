@@ -475,6 +475,8 @@ private async handleBack() {
                 metrics[value.media_id] = {
                     firstActivityDate: value.first_activity_date,
                     lastActivityDate: value.last_activity_date,
+                    firstActivitySortKey: value.first_activity_sort_key,
+                    lastActivitySortKey: value.last_activity_sort_key,
                     totalMinutes: value.total_minutes,
                     totalCharacters: value.total_characters,
                 };
@@ -631,6 +633,8 @@ private async handleBack() {
         if (!left || !right) return left === right;
         return left.firstActivityDate === right.firstActivityDate
             && left.lastActivityDate === right.lastActivityDate
+            && left.firstActivitySortKey === right.firstActivitySortKey
+            && left.lastActivitySortKey === right.lastActivitySortKey
             && left.totalMinutes === right.totalMinutes
             && left.totalCharacters === right.totalCharacters;
     }

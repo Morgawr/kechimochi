@@ -97,6 +97,7 @@ import {
     applyFont,
     type FontChoice,
 } from "../fonts.ts";
+import { normalizeWeekStartDay as normalizeWeekStartDayValue } from '../calendar';
 
 const THEME_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
     { value: 'pastel-pink', label: 'Pastel Pink (Default)' },
@@ -813,7 +814,7 @@ export class ProfileView extends Component<ProfileState> {
     }
 
     private normalizeWeekStartDay(value: string | null): string {
-        return value && WEEK_START_OPTIONS.some(option => option.value === value) ? value : '1';
+        return String(normalizeWeekStartDayValue(value));
     }
 
     private renderLibraryOrderingCard() {

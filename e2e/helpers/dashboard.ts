@@ -355,6 +355,25 @@ export async function clickRecentActivityMediaLink(title: string, timeout = 1000
     });
 }
 
+export async function waitForDashboardSettled(timeout = 20000): Promise<void> {
+    await browser.waitUntil(async () => {
+        return browser.execute(() => {
+            const root = document.querySelector<HTMLElement>('.dashboard-root');
+            const currentRequestId = root?.dataset.dashboardRequestId;
+            if (!currentRequestId
+                || root.dataset.dashboardPrimaryRequestId !== currentRequestId
+                || root.dataset.dashboardHeatmapRequestId !== currentRequestId) return false;
+
+            const charts = root.querySelector<HTMLElement>('#activity-charts-grid');
+            return charts?.dataset.dashboardRequestId === currentRequestId;
+        }).catch(() => false);
+    }, {
+        timeout,
+        interval: 100,
+        timeoutMsg: 'Expected the dashboard to finish its staged render',
+    });
+}
+
 export async function waitForHeatmapReady(timeout = 10000): Promise<void> {
     await browser.waitUntil(async () => {
         return browser.execute(() => {

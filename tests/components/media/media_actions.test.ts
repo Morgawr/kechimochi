@@ -70,6 +70,7 @@ function makeLog(durationMinutes: number, characters: number): ActivitySummary {
         duration_minutes: durationMinutes,
         characters,
         date: '2026-01-01',
+        date_precision: 'day',
         language: 'Japanese',
         notes: '',
     };

@@ -1267,6 +1267,7 @@ mod tests {
         SnapshotActivity {
             uid: format!("activity:{date}:{kind}:{minutes}:{chars}"),
             date: date.to_string(),
+            date_precision: db::DatePrecision::Day,
             activity_type: kind.to_string(),
             duration_minutes: minutes,
             characters: chars,

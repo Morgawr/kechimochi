@@ -46,6 +46,7 @@ function buildLog(overrides: Partial<ActivitySummary> = {}): ActivitySummary {
         duration_minutes: 0,
         characters: 0,
         date: '2024-01-01',
+        date_precision: 'day',
         language: 'Japanese',
         notes: '',
         ...overrides,

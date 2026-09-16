@@ -14,6 +14,7 @@ The format is based on Keep a Changelog, with one section per released version.
  - Media details now have a Create variant action that carries over the same medatada into a new variant
  - The Activity Visualization and Activity Breakdown cards now show a message instead of an empty chart when the selected period has no data.
  - Media supporting reading speed estimates can now carry a custom override, set from the media detail menu
+ - Activity logs can now be scoped to a whole month or year instead of a single day, for recording time you know you spent without inventing a date for it. Dashboard graphs gained according visualization.
 
 ### Changed
  - Doughnut and stacked-bar chart segments now have a border separating them, across all themes
@@ -27,6 +28,9 @@ The format is based on Keep a Changelog, with one section per released version.
  - Visual Novel sessions logged as "Playing" now count toward reading speed and completion estimates,
    same as "Reading"
  - The Reading Report Card on the Profile page now recomputes automatically whenever you open it
+ - The Log Activity date picker now switches between day, month and year views, shows the date you have selected above it, and keeps a constant height so the dialog no longer resizes as you page through months.
+ - Days from the neighbouring months are now shown in the day picker and can be selected directly.
+ - Dates in a few places are now written out in full, as `August 3, 2026` rather than `Aug 3, 2026`.
 
 ### Fixed
  - The startup error and database recovery screens now show their intended background gradient
@@ -41,6 +45,7 @@ The format is based on Keep a Changelog, with one section per released version.
  - The first bucket of a Weekly/Monthly/Yearly Stats card in the Dashboard now compares against the last bucket of the prior period instead of showing zero
  - Ongoing works with a logged character count no longer ignore it in favor of a stale, less accurate
    average speed when estimating remaining time and completion
+ - The calendar's first column now follows the week start day preference instead of always beginning on Sunday.
 
 ## [0.3.2] - 2026-08-25
 

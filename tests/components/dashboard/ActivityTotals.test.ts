@@ -35,6 +35,7 @@ function makeLog(overrides: Partial<ActivitySummary> & { id: number; media_id: n
         duration_minutes: overrides.duration_minutes ?? 0,
         characters: overrides.characters ?? 0,
         date: overrides.date,
+        date_precision: overrides.date_precision ?? 'day',
         language: overrides.language ?? 'Japanese',
         notes: overrides.notes ?? '',
     };
@@ -146,7 +147,7 @@ describe('ActivityTotals', () => {
                 group_by: 'activity_type',
                 series: [],
                 bucket_totals: [{ bucket: '2026-06-10', total_minutes: 90, total_characters: 2500 }],
-                previous_bucket_totals: { bucket: '', total_minutes: 0, total_characters: 0 },
+                previous_bucket_totals: { bucket: null, total_minutes: 0, total_characters: 0 },
                 category_totals: [{ key: 'category:Novel', label: 'Novel', total_minutes: 90, total_characters: 2500 }],
                 highlights: [{
                     kind: 'most_time',

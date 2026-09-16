@@ -30,7 +30,9 @@ describe('StatsCard', () => {
                 current_streak: 7,
                 total_minutes: 6000,
                 total_characters: 1_500_000,
-                activity_totals: [{ key: 'activity:Reading', label: 'Reading', total_minutes: 6000, total_characters: 1_500_000 }],
+                day_scoped_total_minutes: 6000,
+                day_scoped_total_characters: 1_500_000,
+                activity_totals: [{ key: 'activity:Reading', label: 'Reading', total_minutes: 6000, total_characters: 1_500_000, day_scoped_total_minutes: 6000, day_scoped_total_characters: 1_500_000 }],
             },
         });
         component.render();
@@ -44,9 +46,9 @@ describe('StatsCard', () => {
 
     it('should calculate and render streaks and averages correctly', () => {
         const logs: ActivitySummary[] = [
-            { id: 1, media_id: 1, title: 'T1', activity_type: 'Reading', duration_minutes: 60, characters: 0, date: '2024-01-01', language: 'Japanese', notes: '' },
-            { id: 2, media_id: 1, title: 'T1', activity_type: 'Reading', duration_minutes: 60, characters: 0, date: '2024-01-02', language: 'Japanese', notes: '' },
-            { id: 3, media_id: 2, title: 'T2', activity_type: 'Watching', duration_minutes: 30, characters: 0, date: '2024-01-04', language: 'Japanese', notes: '' },
+            { id: 1, media_id: 1, title: 'T1', activity_type: 'Reading', duration_minutes: 60, characters: 0, date: '2024-01-01', date_precision: 'day', language: 'Japanese', notes: '' },
+            { id: 2, media_id: 1, title: 'T1', activity_type: 'Reading', duration_minutes: 60, characters: 0, date: '2024-01-02', date_precision: 'day', language: 'Japanese', notes: '' },
+            { id: 3, media_id: 2, title: 'T2', activity_type: 'Watching', duration_minutes: 30, characters: 0, date: '2024-01-04', date_precision: 'day', language: 'Japanese', notes: '' },
         ];
         
         const component = new StatsCard(container, { logs, mediaList: [{} as unknown as Media, {} as unknown as Media] });
@@ -63,8 +65,8 @@ describe('StatsCard', () => {
 
     it('should calculate and render character stats correctly', () => {
         const logs: ActivitySummary[] = [
-            { id: 1, media_id: 1, title: 'T1', activity_type: 'Reading', duration_minutes: 60, characters: 1000, date: '2024-03-01', language: 'Japanese', notes: '' },
-            { id: 2, media_id: 1, title: 'T1', activity_type: 'Reading', duration_minutes: 60, characters: 2000, date: '2024-03-02', language: 'Japanese', notes: '' },
+            { id: 1, media_id: 1, title: 'T1', activity_type: 'Reading', duration_minutes: 60, characters: 1000, date: '2024-03-01', date_precision: 'day', language: 'Japanese', notes: '' },
+            { id: 2, media_id: 1, title: 'T1', activity_type: 'Reading', duration_minutes: 60, characters: 2000, date: '2024-03-02', date_precision: 'day', language: 'Japanese', notes: '' },
         ];
         
         const component = new StatsCard(container, { logs, mediaList: [] });
@@ -78,7 +80,7 @@ describe('StatsCard', () => {
 
     it('should hide character stats if total characters is 0', () => {
         const logs: ActivitySummary[] = [
-            { id: 1, media_id: 1, title: 'T1', activity_type: 'Reading', duration_minutes: 60, characters: 0, date: '2024-03-01', language: 'Japanese', notes: '' },
+            { id: 1, media_id: 1, title: 'T1', activity_type: 'Reading', duration_minutes: 60, characters: 0, date: '2024-03-01', date_precision: 'day', language: 'Japanese', notes: '' },
         ];
         
         const component = new StatsCard(container, { logs, mediaList: [] });
@@ -97,8 +99,8 @@ describe('StatsCard', () => {
         const formatDate = (d: Date) => d.toISOString().split('T')[0];
         
         const logs: ActivitySummary[] = [
-            { id: 1, media_id: 1, title: 'T', activity_type: 'Reading', duration_minutes: 10, characters: 0, date: formatDate(yesterday), language: 'Japanese', notes: '' },
-            { id: 2, media_id: 1, title: 'T', activity_type: 'Reading', duration_minutes: 10, characters: 0, date: formatDate(today), language: 'Japanese', notes: '' },
+            { id: 1, media_id: 1, title: 'T', activity_type: 'Reading', duration_minutes: 10, characters: 0, date: formatDate(yesterday), date_precision: 'day', language: 'Japanese', notes: '' },
+            { id: 2, media_id: 1, title: 'T', activity_type: 'Reading', duration_minutes: 10, characters: 0, date: formatDate(today), date_precision: 'day', language: 'Japanese', notes: '' },
         ];
 
         const component = new StatsCard(container, { logs, mediaList: [] });

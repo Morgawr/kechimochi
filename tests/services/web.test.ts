@@ -84,6 +84,7 @@ describe('WebServices', () => {
         duration_minutes: 30,
         characters: 1200,
         date: '2026-03-23',
+        date_precision: 'day',
     };
 
     const sampleMilestone: Milestone = {
