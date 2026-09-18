@@ -1,7 +1,9 @@
 import { escapeHTML } from './html';
 import { STORAGE_KEYS } from './constants';
+import { pushBackHandler } from './back_stack';
 
 const ANCHOR_GAP_PX = 8;
+const SHEET_LAYOUT_MEDIA_QUERY = '(max-width: 768px)';
 
 // E2E only: parallel test windows steal focus at random, so the harness opts out of blur dismissal to keep specs deterministic without giving up suite parallelism.
 function shouldCloseOnWindowBlur(): boolean {
@@ -47,10 +49,16 @@ export function openMultiSelect<Value extends string>(
     const viewportHeight = globalThis.innerHeight;
     const anchorRectAtOpen = anchor.getBoundingClientRect();
 
+    const sheetLayoutQuery = globalThis.matchMedia?.(SHEET_LAYOUT_MEDIA_QUERY) ?? null;
+    const isSheet = sheetLayoutQuery?.matches ?? false;
+
     const panelElement = document.createElement('div');
-    panelElement.className = 'multi-select-panel';
+    panelElement.className = isSheet ? 'multi-select-panel is-sheet' : 'multi-select-panel';
     panelElement.setAttribute('role', 'group');
     panelElement.setAttribute('aria-label', label);
+
+    const scrimElement = isSheet ? document.createElement('div') : null;
+    if (scrimElement) scrimElement.className = 'multi-select-scrim';
 
     const optionListElement = document.createElement('div');
     optionListElement.className = 'multi-select-options';
@@ -108,6 +116,9 @@ export function openMultiSelect<Value extends string>(
         }
     };
 
+    const handleLayoutChange = () => close();
+
+    let removeBackHandler: (() => void) | null = null;
     let isClosed = false;
     function close(shouldRestoreFocus = false) {
         if (isClosed) return;
@@ -117,6 +128,9 @@ export function openMultiSelect<Value extends string>(
         document.removeEventListener('scroll', handleScroll, true);
         globalThis.removeEventListener('resize', handleResize);
         globalThis.removeEventListener('blur', handleWindowBlur);
+        sheetLayoutQuery?.removeEventListener('change', handleLayoutChange);
+        removeBackHandler?.();
+        scrimElement?.remove();
         panelElement.remove();
         anchor.setAttribute('aria-expanded', 'false');
         if (shouldRestoreFocus) anchor.focus();
@@ -127,17 +141,22 @@ export function openMultiSelect<Value extends string>(
         close();
     }
 
-    panelElement.style.minWidth = `${anchorRectAtOpen.width}px`;
+    if (scrimElement) document.body.appendChild(scrimElement);
+    if (!isSheet) panelElement.style.minWidth = `${anchorRectAtOpen.width}px`;
     document.body.appendChild(panelElement);
-    positionPanel(panelElement, anchor);
+    if (!isSheet) positionPanel(panelElement, anchor);
     anchor.setAttribute('aria-expanded', 'true');
     checkboxes[0]?.focus();
 
     document.addEventListener('pointerdown', handleOutsidePointerDown, true);
     document.addEventListener('keydown', handleKeyDown, true);
-    document.addEventListener('scroll', handleScroll, true);
-    globalThis.addEventListener('resize', handleResize);
+    if (!isSheet) {
+        document.addEventListener('scroll', handleScroll, true);
+        globalThis.addEventListener('resize', handleResize);
+    }
+    sheetLayoutQuery?.addEventListener('change', handleLayoutChange);
     if (shouldCloseOnWindowBlur()) globalThis.addEventListener('blur', handleWindowBlur);
+    if (isSheet) removeBackHandler = pushBackHandler(() => { close(true); return true; });
 
     return { close };
 }

@@ -2931,6 +2931,30 @@ input:focus, select:focus {
   z-index: 900;
 }
 
+.multi-select-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 899;
+  background: var(--scrim);
+}
+
+.multi-select-panel.is-sheet {
+  right: 0;
+  bottom: 0;
+  left: 0;
+  border-bottom: 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding: 0.5rem 0.75rem calc(0.5rem + env(safe-area-inset-bottom));
+}
+
+.multi-select-panel.is-sheet .multi-select-options {
+  max-height: 60vh;
+}
+
+.multi-select-panel.is-sheet .multi-select-option {
+  padding: 0.85rem 0.75rem;
+}
+
 .multi-select-options {
   display: flex;
   flex-direction: column;
