@@ -9,6 +9,9 @@
   --library-card-height: 320px;
   --library-overlay-top-reserve: 1.6rem;
   --library-overlay-bottom-reserve: 2.5rem;
+  /* Default multiselect trigger width; a consumer needing another size overrides this on
+     the trigger or any ancestor. */
+  --multi-select-trigger-width: 18rem;
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 12px;
@@ -2870,12 +2873,56 @@ input:focus, select:focus {
   background: var(--border-color);
 }
 
+.multi-select-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+  width: var(--multi-select-trigger-width);
+  max-width: 100%;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-dark) 88%, transparent);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.multi-select-trigger:hover {
+  border-color: color-mix(in srgb, var(--accent-green) 34%, var(--border-color) 66%);
+}
+
+.multi-select-trigger:focus-visible,
+.multi-select-trigger[aria-expanded='true'] {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent-green) 42%, var(--border-color) 58%);
+  background: color-mix(in srgb, var(--bg-card-hover) 82%, transparent);
+}
+
+.multi-select-trigger-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.multi-select-trigger-chevron {
+  flex: 0 0 auto;
+  width: 0.36rem;
+  height: 0.36rem;
+  margin-right: 0.2rem;
+  border-right: 0.1rem solid var(--text-secondary);
+  border-bottom: 0.1rem solid var(--text-secondary);
+  transform: translateY(-25%) rotate(45deg);
+}
+
 .multi-select-panel {
   position: fixed;
   display: flex;
   flex-direction: column;
-  min-width: 14rem;
-  max-width: 20rem;
   padding: 0.5rem;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
@@ -2887,7 +2934,7 @@ input:focus, select:focus {
 .multi-select-options {
   display: flex;
   flex-direction: column;
-  max-height: 16rem;
+  max-height: 22rem;
   overflow-y: auto;
 }
 
@@ -2909,19 +2956,6 @@ input:focus, select:focus {
 
 .multi-select-option input {
   accent-color: var(--accent-blue);
-}
-
-.multi-select-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
-  padding-top: 0.5rem;
-  border-top: 1px solid var(--border-color);
-}
-
-.multi-select-done-button {
-  margin-left: auto;
 }
 
 .media-library-section-header {

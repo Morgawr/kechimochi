@@ -68,47 +68,7 @@ export function openMultiSelect<Value extends string>(
     }
     panelElement.appendChild(optionListElement);
 
-    const actionsElement = document.createElement('div');
-    actionsElement.className = 'multi-select-actions';
-
-    const showAllButton = document.createElement('button');
-    showAllButton.type = 'button';
-    showAllButton.className = 'btn btn-ghost multi-select-bulk-button';
-    showAllButton.textContent = 'Show all';
-    showAllButton.addEventListener('click', () => {
-        items.forEach((item, index) => {
-            const checkbox = checkboxes[index];
-            if (!checkbox.checked) {
-                checkbox.checked = true;
-                onToggle(item.value, true);
-            }
-        });
-    });
-
-    const hideAllButton = document.createElement('button');
-    hideAllButton.type = 'button';
-    hideAllButton.className = 'btn btn-ghost multi-select-bulk-button';
-    hideAllButton.textContent = 'Hide all';
-    hideAllButton.addEventListener('click', () => {
-        items.forEach((item, index) => {
-            const checkbox = checkboxes[index];
-            if (checkbox.checked) {
-                checkbox.checked = false;
-                onToggle(item.value, false);
-            }
-        });
-    });
-
-    const doneButton = document.createElement('button');
-    doneButton.type = 'button';
-    doneButton.className = 'btn btn-primary multi-select-done-button';
-    doneButton.textContent = 'Done';
-    doneButton.addEventListener('click', () => close(true));
-
-    actionsElement.append(showAllButton, hideAllButton, doneButton);
-    panelElement.appendChild(actionsElement);
-
-    const focusableElements: HTMLElement[] = [...checkboxes, showAllButton, hideAllButton, doneButton];
+    const focusableElements: HTMLElement[] = checkboxes;
 
     const handleKeyDown = (event: KeyboardEvent) => {
         if (event.key === 'Escape') {
@@ -167,6 +127,7 @@ export function openMultiSelect<Value extends string>(
         close();
     }
 
+    panelElement.style.minWidth = `${anchorRectAtOpen.width}px`;
     document.body.appendChild(panelElement);
     positionPanel(panelElement, anchor);
     anchor.setAttribute('aria-expanded', 'true');

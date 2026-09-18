@@ -139,7 +139,11 @@ export class DashboardControls extends Component<DashboardControlsState> {
                         </div>
                     </div>
                     ${this.createSidePanelToggle()}
-                    <button type="button" class="btn btn-ghost dashboard-cards-menu-button" id="dashboard-cards-menu-button">Cards</button>
+                    <button type="button" class="multi-select-trigger" id="dashboard-cards-menu-button"
+                        aria-haspopup="true" aria-expanded="false" aria-label="Cards">
+                        <span class="multi-select-trigger-value" id="dashboard-cards-menu-value"></span>
+                        <span class="multi-select-trigger-chevron" aria-hidden="true"></span>
+                    </button>
                     <p class="dashboard-controls-hint" id="dashboard-controls-hint" hidden>Every card is hidden. Use Cards to bring one back.</p>
                 </div>
             </div>
@@ -175,12 +179,11 @@ export class DashboardControls extends Component<DashboardControlsState> {
     public refreshCardsSummary(): void {
         if (!this.cardElement) return;
         const hiddenCards = this.getHiddenCards();
-        const total = this.cards.length;
-        const visibleCount = this.cards.filter(card => !hiddenCards.has(card.id)).length;
-        const button = this.cardElement.querySelector<HTMLButtonElement>('#dashboard-cards-menu-button');
-        if (button) button.textContent = `Cards (${visibleCount} of ${total})`;
+        const visibleLabels = this.cards.filter(card => !hiddenCards.has(card.id)).map(card => card.label);
+        const value = this.cardElement.querySelector<HTMLElement>('#dashboard-cards-menu-value');
+        if (value) value.textContent = visibleLabels.length > 0 ? visibleLabels.join(', ') : 'No cards shown';
         const hint = this.cardElement.querySelector<HTMLElement>('#dashboard-controls-hint');
-        if (hint) hint.hidden = visibleCount > 0;
+        if (hint) hint.hidden = visibleLabels.length > 0;
     }
 
     public closeCardsPanel(): void {
