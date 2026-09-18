@@ -20,7 +20,7 @@ export const ACTIVITY_BREAKDOWN_CARD = {
 export const ACTIVITY_VISUALIZATION_CARD = {
     id: 'activity_visualization',
     label: 'Activity Visualization',
-    spans: { wide: 8, medium: 6 },
+    spans: { wide: 8, medium: 12 },
     dataSources: ['range'],
 } as const satisfies DashboardCardDescriptor;
 

@@ -10,7 +10,7 @@ import { renderDashboardCardEmptyState, renderDashboardCardShell } from '../card
 export const HEATMAP_CARD = {
     id: 'heatmap',
     label: 'Tracking Heatmap',
-    spans: { wide: 12, medium: 6 },
+    spans: { wide: 12, medium: 12 },
     dataSources: ['heatmap'],
 } as const satisfies DashboardCardDescriptor;
 

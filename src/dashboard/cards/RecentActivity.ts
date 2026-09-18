@@ -20,7 +20,7 @@ import { renderDashboardCardEmptyState, renderDashboardCardShell } from '../card
 export const RECENT_ACTIVITY_CARD = {
     id: 'recent_activity',
     label: 'Recent Activity',
-    spans: { wide: 12, medium: 6 },
+    spans: { wide: 12, medium: 12 },
     dataSources: ['recentLogs'],
 } as const satisfies DashboardCardDescriptor;
 

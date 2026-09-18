@@ -19,21 +19,21 @@ export const WEEKDAY_DISTRIBUTION_CARD = {
 export const PERIOD_STATS_CARD = {
     id: 'period_stats',
     label: 'Period Stats',
-    spans: { wide: 4, medium: 3 },
+    spans: { wide: 4, medium: 6 },
     dataSources: ['range'],
 } as const satisfies DashboardCardDescriptor;
 
 export const CATEGORIES_CARD = {
     id: 'categories',
     label: 'Categories',
-    spans: { wide: 4, medium: 3 },
+    spans: { wide: 4, medium: 6 },
     dataSources: ['range'],
 } as const satisfies DashboardCardDescriptor;
 
 export const HIGHLIGHTS_CARD = {
     id: 'highlights',
     label: 'Highlights',
-    spans: { wide: 8, medium: 6 },
+    spans: { wide: 8, medium: 12 },
     dataSources: ['range'],
 } as const satisfies DashboardCardDescriptor;
 

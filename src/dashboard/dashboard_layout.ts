@@ -1,11 +1,7 @@
-export const DASHBOARD_GRID_TIERS = {
-    // >1024px. 12 divides by 2, 3, 4 and 6, so halves, thirds and quarters are all whole columns.
-    wide: 12,
-    // 769-1024px. 6 keeps halves and thirds whole at the width where thirds stop fitting.
-    medium: 6,
-    // <=768px. Single column; CSS overrides spans entirely.
-    narrow: 1,
-} as const;
+// 12 divides by 2, 3, 4 and 6, so halves, thirds and quarters are all whole columns. Every
+// tier uses the same twelve; a tier is a set of spans, not a column count. The narrowest
+// tier is CSS-only, since every card is full width there.
+export const DASHBOARD_GRID_COLUMNS = 12;
 
 export const DASHBOARD_DATA_SOURCES = ['heatmap', 'weekdayDistribution', 'recentLogs', 'range'] as const;
 export type DashboardDataSource = typeof DASHBOARD_DATA_SOURCES[number];
@@ -91,17 +87,16 @@ export function reconcileDashboardCards(
     }
 
     for (const tier of ['wide', 'medium'] as const) {
-        const columns = DASHBOARD_GRID_TIERS[tier];
         const property = tier === 'wide' ? '--dashboard-card-span-wide' : '--dashboard-card-span-medium';
 
         const cards = visibleHosts.map(({ id }) => {
             const descriptor = descriptorsById.get(id);
-            return { id, span: descriptor ? descriptor.spans[tier] : columns };
+            return { id, span: descriptor ? descriptor.spans[tier] : DASHBOARD_GRID_COLUMNS };
         });
-        const spans = packCards(cards, columns);
+        const spans = packCards(cards, DASHBOARD_GRID_COLUMNS);
 
         for (const { host, id } of visibleHosts) {
-            host.style.setProperty(property, `span ${spans.get(id) ?? columns}`);
+            host.style.setProperty(property, `span ${spans.get(id) ?? DASHBOARD_GRID_COLUMNS}`);
         }
     }
 }

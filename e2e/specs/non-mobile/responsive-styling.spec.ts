@@ -231,7 +231,9 @@ describe('Responsive Styling CUJ', () => {
       };
     });
 
-    await browser.setWindowSize(1280, 1200);
+    // The card grid is the window less the side panel and padding, and the three-abreast
+    // tier needs 960px of grid, so this has to clear roughly 1336.
+    await browser.setWindowSize(1400, 1200);
     await browser.waitUntil(async () => (await readTotalsLayout())?.rowCount === 1, {
       timeout: 5000,
       timeoutMsg: 'Dashboard totals did not form one desktop row',
