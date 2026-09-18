@@ -25,6 +25,10 @@ export const ACTIVITY_VISUALIZATION_CARD = {
 
 export type ActivityChartsHostId = 'activity_breakdown' | 'activity_visualization';
 
+const DISPLAY_FRAME_MS = 1000 / 60;
+const FRAMES_PER_CHART_RESIZE = 2;
+const CHART_RESIZE_DEBOUNCE_MS = Math.round(DISPLAY_FRAME_MS * FRAMES_PER_CHART_RESIZE);
+
 const DAILY_LABEL_FORMATTER = new Intl.DateTimeFormat('en-US', {
     month: 'short',
     day: '2-digit',
@@ -104,6 +108,17 @@ export class ActivityCharts extends Component<ActivityChartsState> {
 
     private shouldMount(hostId: ActivityChartsHostId): boolean {
         return this.hosts.has(hostId) && !this.state.hiddenCards?.has(hostId);
+    }
+
+    private getMountIntent(): string {
+        return `${this.shouldMount('activity_breakdown')}|${this.shouldMount('activity_visualization')}`;
+    }
+
+    public updateHiddenCards(hiddenCards: ReadonlySet<string>): void {
+        const previousIntent = this.getMountIntent();
+        this.state = { ...this.state, hiddenCards };
+        if (this.getMountIntent() === previousIntent) return;
+        this.setState({});
     }
 
     private hasMountMismatch(mounted: MountedActivityChartsCards): boolean {
@@ -377,6 +392,8 @@ export class ActivityCharts extends Component<ActivityChartsState> {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                animation: false,
+                resizeDelay: CHART_RESIZE_DEBOUNCE_MS,
                 plugins: {
                     legend: { display: data.labels.length <= 6, position: 'bottom', labels: { color: style.getPropertyValue('--text-secondary').trim() } },
                     tooltip: {
@@ -411,6 +428,8 @@ export class ActivityCharts extends Component<ActivityChartsState> {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                animation: false,
+                resizeDelay: CHART_RESIZE_DEBOUNCE_MS,
                 scales: {
                     x: { stacked: chartType === 'bar', grid: { color: gridColor }, ticks: { color: secondaryColor } },
                     y: {

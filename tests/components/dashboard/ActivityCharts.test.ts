@@ -704,4 +704,46 @@ describe('ActivityCharts', () => {
         expect(container.querySelector('#pie-chart-empty-message')?.classList.contains('is-visible')).toBe(true);
         expect(pieChartInstance.destroy).toHaveBeenCalled();
     });
+
+    async function mountBothCharts(): Promise<ActivityCharts> {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-06-10T12:00:00'));
+        const component = new ActivityCharts(container, hosts, {
+            logs: [{ date: '2026-06-10', duration_minutes: 10, characters: 0, title: 'T', media_id: 1, activity_type: 'Reading', language: 'Japanese' } as unknown as ActivitySummary],
+            timeRangeDays: 7,
+            timeRangeOffset: 0,
+            groupByMode: 'activity_type',
+            chartType: 'bar',
+            metric: 'minutes',
+            hiddenCards: new Set<string>(),
+        });
+        component.render();
+        await waitForChartConstruction();
+        return component;
+    }
+
+    it('should not rebuild either chart when an unrelated card is toggled', async () => {
+        const component = await mountBothCharts();
+        vi.clearAllMocks();
+
+        component.updateHiddenCards(new Set(['categories']));
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(Chart).not.toHaveBeenCalled();
+        expect(breakdownHost.querySelector('#pieChart')).not.toBeNull();
+        expect(visualizationHost.querySelector('#barChart')).not.toBeNull();
+    });
+
+    it('should bring a chart card back after it is hidden and shown again', async () => {
+        const component = await mountBothCharts();
+
+        component.updateHiddenCards(new Set(['activity_visualization']));
+        await vi.waitFor(() => expect(visualizationHost.querySelector('#barChart')).toBeNull());
+        expect(breakdownHost.querySelector('#pieChart')).not.toBeNull();
+
+        component.updateHiddenCards(new Set());
+        await vi.waitFor(() => expect(visualizationHost.querySelector('#barChart')).not.toBeNull());
+        expect(breakdownHost.querySelector('#pieChart')).not.toBeNull();
+    });
 });

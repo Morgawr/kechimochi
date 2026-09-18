@@ -38,6 +38,8 @@ export const HIGHLIGHTS_CARD = {
 
 export type ActivityTotalsHostId = 'weekday_distribution' | 'period_stats' | 'categories' | 'highlights';
 
+const MOBILE_HIGHLIGHT_LAYOUT_QUERY = '(max-width: 1024px)';
+
 interface ActivityTotalsState {
     logs?: ActivitySummary[];
     mediaList?: Media[];
@@ -94,7 +96,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
     private readonly coverUrls: Record<number, string> = {};
     private highlightPage = 0;
     private highlightsPerPage = 2;
-    private resizeObserver: ResizeObserver | null = null;
+    private mobileLayoutQuery: MediaQueryList | null = null;
     private lastIsMobile: boolean = false;
     private readonly hosts: ReadonlyMap<ActivityTotalsHostId, HTMLElement>;
     private readonly onCardsRendered: () => void;
@@ -118,20 +120,20 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
 
     protected override onMount() {
         this.lastIsMobile = this.isMobileHighlightLayout();
-        this.resizeObserver = new ResizeObserver(() => {
-            const isMobile = this.isMobileHighlightLayout();
-            if (isMobile !== this.lastIsMobile) {
-                this.lastIsMobile = isMobile;
-                // Reset pagination when layout mode changes
-                this.highlightPage = 0;
-                this.render();
-            }
-        });
-        this.resizeObserver.observe(this.container);
+        this.mobileLayoutQuery = globalThis.matchMedia?.(MOBILE_HIGHLIGHT_LAYOUT_QUERY) ?? null;
+        this.mobileLayoutQuery?.addEventListener('change', this.handleMobileLayoutChange);
     }
 
+    private readonly handleMobileLayoutChange = (event: MediaQueryListEvent): void => {
+        if (event.matches === this.lastIsMobile) return;
+        this.lastIsMobile = event.matches;
+        // Reset pagination when layout mode changes
+        this.highlightPage = 0;
+        this.render();
+    };
+
     public override destroy(): void {
-        this.resizeObserver?.disconnect();
+        this.mobileLayoutQuery?.removeEventListener('change', this.handleMobileLayoutChange);
         super.destroy();
     }
 
@@ -993,7 +995,7 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
     }
 
     private isMobileHighlightLayout(): boolean {
-        return globalThis.window !== undefined && globalThis.matchMedia?.('(max-width: 1024px)').matches;
+        return globalThis.window !== undefined && globalThis.matchMedia?.(MOBILE_HIGHLIGHT_LAYOUT_QUERY).matches;
     }
 
     private renderHighlights(highlights: HighlightCard[]): string {

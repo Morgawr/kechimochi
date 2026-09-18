@@ -324,7 +324,7 @@ export class Dashboard extends Component<DashboardState> {
         this.visibilityRevision++;
         this.reconcileCards();
         this.controlsComponent?.refreshCardsSummary();
-        this.activeChartsComponent?.setState({ hiddenCards: new Set(this.hiddenCards) });
+        this.activeChartsComponent?.updateHiddenCards(new Set(this.hiddenCards));
         if (!this.state.rangeData && this.isRangeRequired()) {
             this.requestRange().catch(error => Logger.error('Unexpected dashboard range failure', error));
         }

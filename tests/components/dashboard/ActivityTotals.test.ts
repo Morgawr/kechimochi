@@ -80,9 +80,14 @@ describe('ActivityTotals', () => {
     let container: HTMLElement;
     let hosts: Map<ActivityTotalsHostId, HTMLElement>;
     let isMobileLayout: boolean;
-    let resizeCallback: (() => void) | undefined;
-    let observeSpy: ReturnType<typeof vi.fn>;
-    let disconnectSpy: ReturnType<typeof vi.fn>;
+    let mobileLayoutListener: ((event: MediaQueryListEvent) => void) | undefined;
+    let addQueryListenerSpy: ReturnType<typeof vi.fn>;
+    let removeQueryListenerSpy: ReturnType<typeof vi.fn>;
+
+    function setMobileLayout(matches: boolean): void {
+        isMobileLayout = matches;
+        mobileLayoutListener?.({ matches } as MediaQueryListEvent);
+    }
 
     beforeEach(() => {
         container = document.createElement('div');
@@ -93,9 +98,11 @@ describe('ActivityTotals', () => {
             ['highlights', container],
         ]);
         isMobileLayout = false;
-        resizeCallback = undefined;
-        observeSpy = vi.fn();
-        disconnectSpy = vi.fn();
+        mobileLayoutListener = undefined;
+        addQueryListenerSpy = vi.fn((_type: string, listener: (event: MediaQueryListEvent) => void) => {
+            mobileLayoutListener = listener;
+        });
+        removeQueryListenerSpy = vi.fn(() => { mobileLayoutListener = undefined; });
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-06-10T12:00:00'));
         vi.mocked(MediaCoverLoader.load).mockResolvedValue('blob:loaded-cover');
@@ -105,19 +112,10 @@ describe('ActivityTotals', () => {
             onchange: null,
             addListener: vi.fn(),
             removeListener: vi.fn(),
-            addEventListener: vi.fn(),
-            removeEventListener: vi.fn(),
+            addEventListener: addQueryListenerSpy,
+            removeEventListener: removeQueryListenerSpy,
             dispatchEvent: vi.fn(),
         })));
-        vi.stubGlobal('ResizeObserver', class {
-            constructor(callback: ResizeObserverCallback) {
-                resizeCallback = () => callback([], this as unknown as ResizeObserver);
-            }
-
-            observe = observeSpy;
-            disconnect = disconnectSpy;
-            unobserve = vi.fn();
-        });
     });
 
     afterEach(() => {
@@ -472,7 +470,7 @@ describe('ActivityTotals', () => {
         expect(statsTable?.textContent).not.toMatch(/\b\d+\.\d+\b/);
     });
 
-    it('renders mobile highlights without pagination and responds to resize observer changes', async () => {
+    it('renders mobile highlights without pagination and responds to viewport breakpoint changes', async () => {
         const component = new ActivityTotals(container, hosts, {
             logs: weeklyLogs(),
             mediaList: weeklyMedia(),
@@ -486,15 +484,14 @@ describe('ActivityTotals', () => {
         await flushPromises();
         await flushPromises();
 
-        expect(observeSpy).toHaveBeenCalledWith(container);
+        expect(addQueryListenerSpy).toHaveBeenCalledWith('change', expect.any(Function));
         container.querySelector<HTMLButtonElement>('[data-highlights-dir="next"]')?.click();
         expect(textContent(container)).toContain('2/2');
 
-        resizeCallback?.();
+        setMobileLayout(false);
         expect(textContent(container)).toContain('2/2');
 
-        isMobileLayout = true;
-        resizeCallback?.();
+        setMobileLayout(true);
         const resizedText = textContent(container);
         expect(renderSpy).toHaveBeenCalled();
         expect(container.querySelector('[data-highlights-dir="next"]')).toBeNull();
@@ -503,7 +500,7 @@ describe('ActivityTotals', () => {
         expect(resizedText).toContain('Biggest Streak');
 
         component.destroy();
-        expect(disconnectSpy).toHaveBeenCalled();
+        expect(removeQueryListenerSpy).toHaveBeenCalledWith('change', expect.any(Function));
     });
 
     it('logs cover loading failures without breaking highlight rendering', async () => {
