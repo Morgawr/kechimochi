@@ -79,7 +79,11 @@
     min-width: 0;
     width: var(--dashboard-side-panel-width);
     overflow: hidden;
-    transition: width 260ms cubic-bezier(0.2, 0.9, 0.2, 1);
+    transition: width 260ms cubic-bezier(0.2, 0.9, 0.2, 1), opacity 130ms ease;
+}
+
+#dashboard-columns.is-side-panel-swapping #dashboard-left-column {
+    opacity: 0;
 }
 
 #dashboard-card-grid {
@@ -170,6 +174,16 @@
 
 @media (min-width: 1025px) {
 
+  #stats-box-container,
+  #quick-log-container {
+    flex: 0 0 auto;
+    width: var(--dashboard-side-panel-width);
+  }
+
+  #dashboard-columns.is-side-panel-rail #quick-log-container {
+    width: var(--dashboard-rail-width);
+  }
+
   .dashboard-side-panel-toggle {
     flex: 0 0 auto;
     width: var(--dashboard-rail-width);
@@ -200,15 +214,15 @@
     transform: rotate(180deg);
   }
 
-  #dashboard-columns.is-side-panel-collapsed #dashboard-left-column {
+  #dashboard-columns.is-side-panel-rail #dashboard-left-column {
     width: var(--dashboard-rail-width);
   }
 
-  #dashboard-columns.is-side-panel-collapsed #stats-box-container {
+  #dashboard-columns.is-side-panel-rail #stats-box-container {
     display: none;
   }
 
-  #dashboard-columns.is-side-panel-collapsed .quick-log-card {
+  #dashboard-columns.is-side-panel-rail .quick-log-card {
     padding: 0;
     gap: 0 !important;
     background: transparent;
@@ -216,39 +230,39 @@
     box-shadow: none;
   }
 
-  #dashboard-columns.is-side-panel-collapsed .quick-log-card h3 {
+  #dashboard-columns.is-side-panel-rail .quick-log-card h3 {
     display: none;
   }
 
-  #dashboard-columns.is-side-panel-collapsed #quick-log-list {
+  #dashboard-columns.is-side-panel-rail #quick-log-list {
     gap: 0.5rem !important;
   }
 
-  #dashboard-columns.is-side-panel-collapsed .quick-log-item {
+  #dashboard-columns.is-side-panel-rail .quick-log-item {
     display: block !important;
     width: var(--dashboard-rail-width) !important;
     padding: 0 !important;
     transform: none !important;
   }
 
-  #dashboard-columns.is-side-panel-collapsed .quick-log-copy {
+  #dashboard-columns.is-side-panel-rail .quick-log-copy {
     display: none !important;
   }
 
-  #dashboard-columns.is-side-panel-collapsed .quick-log-cover {
+  #dashboard-columns.is-side-panel-rail .quick-log-cover {
     width: var(--dashboard-rail-width) !important;
     border-radius: var(--radius-sm);
     transition: transform var(--transition-fast), box-shadow var(--transition-fast);
   }
 
-  #dashboard-columns.is-side-panel-collapsed .quick-log-item:hover .quick-log-cover,
-  #dashboard-columns.is-side-panel-collapsed .quick-log-item:focus-visible .quick-log-cover {
+  #dashboard-columns.is-side-panel-rail .quick-log-item:hover .quick-log-cover,
+  #dashboard-columns.is-side-panel-rail .quick-log-item:focus-visible .quick-log-cover {
     transform: translateY(-2px);
     box-shadow: 0 10px 20px color-mix(in srgb, var(--accent-red) 16%, transparent);
   }
 
-  #dashboard-columns.is-side-panel-collapsed .quick-log-item:hover,
-  #dashboard-columns.is-side-panel-collapsed .quick-log-item:focus-visible {
+  #dashboard-columns.is-side-panel-rail .quick-log-item:hover,
+  #dashboard-columns.is-side-panel-rail .quick-log-item:focus-visible {
     background: transparent !important;
     transform: none !important;
   }

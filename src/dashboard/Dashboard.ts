@@ -42,6 +42,8 @@ import { reconcileDashboardCards, type DashboardCardDescriptor } from './dashboa
 const RECENT_LOGS_PER_PAGE = 15;
 const SIDE_PANEL_HIDE_LABEL = 'Hide side panel';
 const SIDE_PANEL_SHOW_LABEL = 'Show side panel';
+const SIDE_PANEL_RAIL_CLASS = 'is-side-panel-rail';
+const SIDE_PANEL_SWAPPING_CLASS = 'is-side-panel-swapping';
 
 interface ChartParams {
     timeRangeDays: number;
@@ -78,6 +80,7 @@ export class Dashboard extends Component<DashboardState> {
     private activeSnapshotRequest = 0;
     private activeRangeRequest = 0;
     private sidePanelCollapsed = false;
+    private sidePanelTimers: ReturnType<typeof setTimeout>[] = [];
     private readonly pendingSettingWriteCounts = new Map<string, number>();
     private readonly cardHosts = new Map<DashboardCardId, HTMLElement>();
     private readonly cardDescriptorsById = new Map<DashboardCardId, DashboardCardDescriptor>(
@@ -285,6 +288,43 @@ export class Dashboard extends Component<DashboardState> {
         toggle.setAttribute('aria-expanded', (!this.sidePanelCollapsed).toString());
         toggle.setAttribute('aria-label', label);
         toggle.setAttribute('title', label);
+
+        this.applySidePanelLayout(dashboardColumns);
+    }
+
+    private applySidePanelLayout(dashboardColumns: HTMLElement): void {
+        for (const timer of this.sidePanelTimers) clearTimeout(timer);
+        this.sidePanelTimers = [];
+
+        const { fadeMs, widthMs } = this.getSidePanelTimings();
+        if (fadeMs <= 0 || widthMs <= 0) {
+            dashboardColumns.classList.remove(SIDE_PANEL_SWAPPING_CLASS);
+            dashboardColumns.classList.toggle(SIDE_PANEL_RAIL_CLASS, this.sidePanelCollapsed);
+            return;
+        }
+
+        dashboardColumns.classList.add(SIDE_PANEL_SWAPPING_CLASS);
+        this.sidePanelTimers.push(setTimeout(() => {
+            dashboardColumns.classList.toggle(SIDE_PANEL_RAIL_CLASS, this.sidePanelCollapsed);
+            this.sidePanelTimers.push(setTimeout(() => {
+                dashboardColumns.classList.remove(SIDE_PANEL_SWAPPING_CLASS);
+            }, Math.max(0, widthMs - fadeMs)));
+        }, fadeMs));
+    }
+
+    private getSidePanelTimings(): { fadeMs: number; widthMs: number } {
+        const leftColumn = this.containers.leftColumn;
+        if (!leftColumn) return { fadeMs: 0, widthMs: 0 };
+
+        const style = globalThis.getComputedStyle(leftColumn);
+        const properties = style.transitionProperty.split(',').map(property => property.trim());
+        const durations = style.transitionDuration.split(',').map(duration => Number.parseFloat(duration) * 1000);
+        const durationOf = (property: string): number => {
+            const duration = durations[properties.indexOf(property)];
+            return Number.isFinite(duration) ? duration : 0;
+        };
+
+        return { fadeMs: durationOf('opacity'), widthMs: durationOf('width') };
     }
 
     private stageVisualizations(generation: number, snapshotRequestId: number): void {
