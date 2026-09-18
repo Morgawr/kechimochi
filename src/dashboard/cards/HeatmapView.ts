@@ -1,6 +1,17 @@
-import { Component } from '../component';
-import { html } from '../html';
-import { DailyHeatmap } from '../api';
+import { Component } from '../../component';
+import { html } from '../../html';
+import { DailyHeatmap, getDashboardHeatmapYear } from '../../api';
+import { Logger } from '../../logger';
+import { measureSynchronous } from '../../performance';
+import { getLocalISODate } from '../activity_ranges';
+import type { DashboardCardDescriptor } from '../dashboard_layout';
+
+export const HEATMAP_CARD = {
+    id: 'heatmap',
+    label: 'Tracking Heatmap',
+    spans: { wide: 12, medium: 6 },
+    dataSources: ['heatmap'],
+} as const satisfies DashboardCardDescriptor;
 
 // A day reaches full heatmap intensity at 6 hours of time, or 60,000 characters.
 // This assumes an average-ish learner reading at ~10,000 characters/hour.
@@ -17,19 +28,47 @@ interface HeatmapViewState {
     year: number;
 }
 
+export interface HeatmapViewHost {
+    nextRequestId(): number;
+    currentGeneration(): number;
+    isCurrent(generation: number, requestId: number, responseId: number): boolean;
+}
+
 export class HeatmapView extends Component<HeatmapViewState> {
-    private readonly onYearChange: (direction: number) => void;
+    private readonly host: HeatmapViewHost;
     private readonly onDateSelect?: (dateStr: string) => void;
+    private activeYearRequest = 0;
 
     constructor(
         container: HTMLElement,
         initialState: HeatmapViewState,
-        onYearChange: (direction: number) => void,
+        host: HeatmapViewHost,
         onDateSelect?: (dateStr: string) => void
     ) {
         super(container, initialState);
-        this.onYearChange = onYearChange;
+        this.host = host;
         this.onDateSelect = onDateSelect;
+    }
+
+    private changeYear(direction: number): void {
+        const year = this.state.year + direction;
+        const generation = this.host.currentGeneration();
+        const requestId = this.host.nextRequestId();
+        this.activeYearRequest = requestId;
+        this.setState({ year, heatmapData: [] });
+
+        getDashboardHeatmapYear({ request_id: requestId, year }).then(response => {
+            if (requestId !== this.activeYearRequest
+                || !this.host.isCurrent(generation, requestId, response.request_id)
+                || response.year !== year) return;
+            measureSynchronous('render', 'dashboard_heatmap_response', () => {
+                this.setState({ year: response.year, heatmapData: response.days });
+            });
+        }).catch(error => {
+            if (requestId === this.activeYearRequest && this.host.isCurrent(generation, requestId, requestId)) {
+                Logger.error('Failed to load dashboard heatmap year', error);
+            }
+        });
     }
 
     render() {
@@ -68,8 +107,8 @@ export class HeatmapView extends Component<HeatmapViewState> {
         this.container.appendChild(card);
         this.renderHeatmap(card.querySelector<HTMLElement>('#heatmap-inner-container')!);
         
-        card.querySelector('#btn-heatmap-prev')?.addEventListener('click', () => this.onYearChange(-1));
-        card.querySelector('#btn-heatmap-next')?.addEventListener('click', () => this.onYearChange(1));
+        card.querySelector('#btn-heatmap-prev')?.addEventListener('click', () => this.changeYear(-1));
+        card.querySelector('#btn-heatmap-next')?.addEventListener('click', () => this.changeYear(1));
     }
 
     private renderHeatmap(container: HTMLElement) {
@@ -102,10 +141,10 @@ export class HeatmapView extends Component<HeatmapViewState> {
         const lightBase = getThemeNum('--heatmap-light-base');
         const lightRange = getThemeNum('--heatmap-light-range');
 
-        const todayStr = this.getLocalISODate(new Date());
+        const todayStr = getLocalISODate(new Date());
 
         for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-            const dateStr = this.getLocalISODate(d);
+            const dateStr = getLocalISODate(d);
             const data = dateMap.get(dateStr) || { mins: 0, chars: 0 };
             cells.push(this.buildHeatmapCell(dateStr, data.mins, data.chars, {
                 heatmapHue,
@@ -128,11 +167,6 @@ export class HeatmapView extends Component<HeatmapViewState> {
         htmlContent += '</div>';
         container.innerHTML = htmlContent;
         this.attachDateSelection(container);
-    }
-
-    private getLocalISODate(date: Date): string {
-        const pad = (value: number) => value.toString().padStart(2, '0');
-        return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
     }
 
     private buildHeatmapCell(

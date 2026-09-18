@@ -71,7 +71,7 @@ describe('Responsive Styling CUJ', () => {
       return await browser.execute(() => {
         const stats = document.getElementById('stats-box-container');
         const heatmap = document.getElementById('heatmap-container');
-        const charts = document.querySelectorAll('#activity-charts-grid .card');
+        const charts = document.querySelectorAll('[data-dashboard-card="activity_breakdown"] .card, [data-dashboard-card="activity_visualization"] .card');
         return stats && heatmap && charts.length >= 2
           && heatmap.getBoundingClientRect().top > (stats.getBoundingClientRect().top + 40)
           && charts[1].getBoundingClientRect().top > (charts[0].getBoundingClientRect().top + 40);
@@ -81,7 +81,7 @@ describe('Responsive Styling CUJ', () => {
     const stacked = await browser.execute(() => {
       const stats = document.getElementById('stats-box-container');
       const heatmap = document.getElementById('heatmap-container');
-      const charts = document.querySelectorAll('#activity-charts-grid .card');
+      const charts = document.querySelectorAll('[data-dashboard-card="activity_breakdown"] .card, [data-dashboard-card="activity_visualization"] .card');
       if (!stats || !heatmap || charts.length < 2) {
         return {
           hasRequiredNodes: false,
@@ -199,7 +199,7 @@ describe('Responsive Styling CUJ', () => {
     });
 
     const readTotalsLayout = async () => browser.execute(() => {
-      const grid = document.querySelector<HTMLElement>('.dashboard-totals-grid');
+      const grid = document.querySelector<HTMLElement>('#dashboard-card-grid');
       const primaryCards = [
         document.querySelector<HTMLElement>('.dashboard-weekday-card'),
         Array.from(document.querySelectorAll<HTMLElement>('.dashboard-totals-card')).find(card => card.textContent?.includes('Weekly Stats')),
@@ -297,7 +297,7 @@ describe('Responsive Styling CUJ', () => {
     const alignment = await browser.execute(() => {
       const heatmapCard = document.querySelector('#heatmap-container .card') as HTMLElement | null;
       const heatmapTitleControls = document.querySelector('.heatmap-title-controls') as HTMLElement | null;
-      const chartCard = document.querySelector('#activity-charts-grid .card:last-child') as HTMLElement | null;
+      const chartCard = document.querySelector('[data-dashboard-card="controls"] .card') as HTMLElement | null;
       const chartTitleControls = document.querySelector('.activity-charts-title-controls') as HTMLElement | null;
       const chartToolbar = document.querySelector('.chart-toolbar') as HTMLElement | null;
 
@@ -350,14 +350,14 @@ describe('Responsive Styling CUJ', () => {
     await browser.setWindowSize(650, 1200);
     await browser.waitUntil(async () => {
       return await browser.execute(() => {
-        const chartCard = document.querySelector('#activity-charts-grid .card:last-child') as HTMLElement | null;
+        const chartCard = document.querySelector('[data-dashboard-card="controls"] .card') as HTMLElement | null;
         const chartToolbar = document.querySelector('.chart-toolbar') as HTMLElement | null;
         return chartCard && chartToolbar && (chartToolbar.getBoundingClientRect().width / chartCard.getBoundingClientRect().width > 0.9);
       });
     }, { timeout: 3000 });
 
     const compactLayout = await browser.execute(() => {
-      const chartCard = document.querySelector('#activity-charts-grid .card:last-child') as HTMLElement | null;
+      const chartCard = document.querySelector('[data-dashboard-card="controls"] .card') as HTMLElement | null;
       const chartToolbar = document.querySelector('.chart-toolbar') as HTMLElement | null;
 
       if (!chartCard || !chartToolbar) {
@@ -408,15 +408,15 @@ describe('Responsive Styling CUJ', () => {
     const overflow = await browser.execute(() => {
       const heatmapCard = document.querySelector('#heatmap-container .card') as HTMLElement | null;
       const heatmapTitleControls = document.querySelector('.heatmap-title-controls') as HTMLElement | null;
-      const chartCard = document.querySelector('#activity-charts-grid .card:last-child') as HTMLElement | null;
-      const chartHeader = document.querySelector('.activity-charts-header') as HTMLElement | null;
+      const chartCard = document.querySelector('[data-dashboard-card="controls"] .card') as HTMLElement | null;
+      const controlsRow = document.querySelector('.dashboard-controls-row') as HTMLElement | null;
       const chartToolbar = document.querySelector('.chart-toolbar') as HTMLElement | null;
 
-      if (!heatmapCard || !heatmapTitleControls || !chartCard || !chartHeader || !chartToolbar) {
+      if (!heatmapCard || !heatmapTitleControls || !chartCard || !controlsRow || !chartToolbar) {
         return {
           hasRequiredNodes: false,
           heatmapTitleOverflow: true,
-          chartHeaderOverflow: true,
+          controlsRowOverflow: true,
           chartToolbarOverflow: true,
           chartToolbarColumnCount: 0,
         };
@@ -431,7 +431,7 @@ describe('Responsive Styling CUJ', () => {
       return {
         hasRequiredNodes: true,
         heatmapTitleOverflow: exceedsParent(heatmapTitleControls, heatmapCard) || heatmapTitleControls.scrollWidth > (heatmapTitleControls.clientWidth + 1),
-        chartHeaderOverflow: exceedsParent(chartHeader, chartCard) || chartHeader.scrollWidth > (chartHeader.clientWidth + 1),
+        controlsRowOverflow: exceedsParent(controlsRow, chartCard) || controlsRow.scrollWidth > (controlsRow.clientWidth + 1),
         chartToolbarOverflow: exceedsParent(chartToolbar, chartCard) || chartToolbar.scrollWidth > (chartToolbar.clientWidth + 1),
         chartToolbarColumnCount: getComputedStyle(chartToolbar).gridTemplateColumns.split(' ').length,
       };
@@ -439,7 +439,7 @@ describe('Responsive Styling CUJ', () => {
 
     expect(overflow.hasRequiredNodes).toBe(true);
     expect(overflow.heatmapTitleOverflow).toBe(false);
-    expect(overflow.chartHeaderOverflow).toBe(false);
+    expect(overflow.controlsRowOverflow).toBe(false);
     expect(overflow.chartToolbarOverflow).toBe(false);
     expect(overflow.chartToolbarColumnCount).toBe(2);
   });

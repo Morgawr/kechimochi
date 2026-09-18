@@ -1,4 +1,5 @@
 import { ActivitySummary, DashboardRangeResponse } from '../api';
+import type { DashboardBucket } from '../types';
 
 const MONTH_ABBREVIATIONS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -161,4 +162,66 @@ function getAllTimeRange(logs: DatedActivityTotals[]): ActivityRange {
         unit: 'year',
         period: 'all-time',
     };
+}
+
+export function getUtcWeekStart(dateString: string, weekStartDay: number): number {
+    const [year, month, day] = dateString.split('-').map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    const diff = (date.getUTCDay() - normalizeWeekStartDay(weekStartDay) + 7) % 7;
+    date.setUTCDate(date.getUTCDate() - diff);
+    return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+}
+
+function getMonthlyOffsetForDate(date: string): number {
+    const [year, month] = date.split('-').map(Number);
+    const today = new Date();
+    return Math.max(0, (today.getFullYear() * 12 + today.getMonth()) - (year * 12 + (month - 1)));
+}
+
+function getYearlyOffsetForDate(date: string): number {
+    return Math.max(0, new Date().getFullYear() - Number.parseInt(date.slice(0, 4), 10));
+}
+
+function getWeeklyOffsetForDate(date: string, weekStartDay: number): number {
+    const MILLISECONDS_PER_WEEK = 7 * 24 * 60 * 60 * 1000;
+    const currentWeekStart = getUtcWeekStart(getLocalISODate(new Date()), weekStartDay);
+    const selectedWeekStart = getUtcWeekStart(date, weekStartDay);
+    return Math.max(0, Math.round((currentWeekStart - selectedWeekStart) / MILLISECONDS_PER_WEEK));
+}
+
+/** How many periods back from today the given date sits, for the active time range. */
+export function getOffsetForDate(date: string, timeRangeDays: number, weekStartDay: number): number {
+    switch (timeRangeDays) {
+        case ACTIVITY_TIME_RANGES.MONTHLY: return getMonthlyOffsetForDate(date);
+        case ACTIVITY_TIME_RANGES.YEARLY: return getYearlyOffsetForDate(date);
+        default: return getWeeklyOffsetForDate(date, weekStartDay);
+    }
+}
+
+/**
+ * All Time has no backend series to derive its year labels from, so it is seeded with
+ * one dated entry per year the profile covers.
+ */
+export function buildAllTimeRangeSeeds(
+    firstActivityDate: string | null,
+    lastActivityDate: string | null,
+): DatedActivityTotals[] {
+    if (!firstActivityDate || !lastActivityDate) return [];
+    const firstYear = Number.parseInt(firstActivityDate.slice(0, 4), 10);
+    const lastYear = Number.parseInt(lastActivityDate.slice(0, 4), 10);
+    const seeds: DatedActivityTotals[] = [];
+    for (let year = firstYear; year <= lastYear; year++) {
+        seeds.push({
+            date: `${year.toString().padStart(4, '0')}-01-01`,
+            duration_minutes: 0,
+            characters: 0,
+        });
+    }
+    return seeds;
+}
+
+export function getDashboardBucket(unit: ActivityRange['unit']): DashboardBucket {
+    if (unit === 'day') return 'day';
+    if (unit === 'month') return 'month';
+    return 'year';
 }

@@ -1,7 +1,7 @@
 import { waitForAppReady } from '../../helpers/setup.js';
 import { navigateTo } from '../../helpers/navigation.js';
 import { setSelect } from '../../helpers/form-controls.js';
-import { getActivityChartRangeMetadata } from '../../helpers/dashboard.js';
+import { getActivityChartRangeMetadata, ACTIVITY_VISUALIZATION_SELECTOR, DASHBOARD_CONTROLS_SELECTOR } from '../../helpers/dashboard.js';
 
 interface ChartSnapshot {
   chartType: string | null;
@@ -20,12 +20,12 @@ async function getChartSnapshot(): Promise<ChartSnapshot> {
   await browser.waitUntil(async () => {
     snapshot = await browser.execute(() => {
       const root = document.querySelector<HTMLElement>('.dashboard-root');
-      const layout = root?.querySelector<HTMLElement>('#activity-charts-grid');
-      const chart = layout?.querySelector<HTMLCanvasElement>('#barChart');
+      const controls = root?.querySelector<HTMLElement>('[data-dashboard-card="controls"]');
+      const chart = root?.querySelector<HTMLCanvasElement>('[data-dashboard-card="activity_visualization"] #barChart');
       const requestId = root?.dataset.dashboardRequestId;
       // Controls update before the range response and lazy Chart.js render.
       // Read one coherent snapshot only after the current render completes.
-      if (!requestId || layout?.dataset.dashboardRequestId !== requestId
+      if (!requestId || controls?.dataset.dashboardRequestId !== requestId
           || !chart?.dataset.seriesLabels || !chart.dataset.seriesTotals) return null;
       return {
         chartType: chart.dataset.chartType ?? null,
@@ -33,8 +33,8 @@ async function getChartSnapshot(): Promise<ChartSnapshot> {
         metric: chart.dataset.metric ?? null,
         labels: JSON.parse(chart.dataset.seriesLabels) as string[],
         totals: JSON.parse(chart.dataset.seriesTotals) as number[],
-        rangeStart: layout.dataset.rangeStart ?? '',
-        rangeEnd: layout.dataset.rangeEnd ?? '',
+        rangeStart: controls.dataset.rangeStart ?? '',
+        rangeEnd: controls.dataset.rangeEnd ?? '',
       };
     });
     return snapshot !== null;
@@ -96,21 +96,21 @@ describe('CUJ: Dashboard Analytics Controls', () => {
 
     await setSelect('#select-time-range', { value: '7' });
     await getActivityChartRangeMetadata();
-    expect(await $('#activity-charts-grid').getAttribute('data-chart-empty')).toBe('true');
+    expect(await $(ACTIVITY_VISUALIZATION_SELECTOR).getAttribute('data-chart-empty')).toBe('true');
 
     await setSelect('#select-time-range', { value: '30' });
     await getActivityChartRangeMetadata();
-    expect(await $('#activity-charts-grid').getAttribute('data-chart-empty')).toBe('false');
+    expect(await $(ACTIVITY_VISUALIZATION_SELECTOR).getAttribute('data-chart-empty')).toBe('false');
 
     await clickChartToggle('#toggle-metric');
     await browser.waitUntil(async () => (await getChartSnapshot()).metric === 'characters');
     const characters = await getChartSnapshot();
     expect(characters.totals).toEqual([]);
-    expect(await $('#activity-charts-grid').getAttribute('data-chart-empty')).toBe('true');
+    expect(await $(ACTIVITY_VISUALIZATION_SELECTOR).getAttribute('data-chart-empty')).toBe('true');
 
-    expect(await $('#activity-charts-grid').getAttribute('data-time-range-days')).toBe('30');
+    expect(await $(DASHBOARD_CONTROLS_SELECTOR).getAttribute('data-time-range-days')).toBe('30');
     await $('#btn-chart-prev').click();
-    expect(await $('#activity-charts-grid').getAttribute('data-time-range-offset')).toBe('1');
+    expect(await $(DASHBOARD_CONTROLS_SELECTOR).getAttribute('data-time-range-offset')).toBe('1');
     expect(await $('#btn-chart-next').isEnabled()).toBe(true);
 
     await setSelect('#select-time-range', { value: '0' });
@@ -124,6 +124,6 @@ describe('CUJ: Dashboard Analytics Controls', () => {
     expect(afterReload.chartType).toBe('line');
     expect(afterReload.groupBy).toBe('log_name');
     expect(afterReload.metric).toBe('characters');
-    expect(await $('#activity-charts-grid').getAttribute('data-time-range-days')).toBe('0');
+    expect(await $(DASHBOARD_CONTROLS_SELECTOR).getAttribute('data-time-range-days')).toBe('0');
   });
 });

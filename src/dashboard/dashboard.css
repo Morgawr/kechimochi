@@ -78,6 +78,88 @@
     transition: width 260ms cubic-bezier(0.2, 0.9, 0.2, 1);
 }
 
+#dashboard-card-grid {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 2rem;
+    min-width: 0;
+}
+
+.dashboard-card-host {
+    display: flex;
+    min-width: 0;
+    grid-column: var(--dashboard-card-span-wide, span 12);
+}
+
+.dashboard-card-host > .card {
+    flex: 1;
+    min-width: 0;
+}
+
+.dashboard-card-host[hidden] {
+    display: none;
+}
+
+@media (max-width: 1024px) {
+    #dashboard-card-grid {
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+    }
+
+    .dashboard-card-host {
+        grid-column: var(--dashboard-card-span-medium, span 6);
+    }
+}
+
+@media (max-width: 768px) {
+    #dashboard-card-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .dashboard-card-host {
+        grid-column: 1 / -1;
+    }
+}
+
+.dashboard-controls-card {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.dashboard-controls-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1rem;
+}
+
+.dashboard-controls-row .activity-charts-title-controls {
+    width: 19rem;
+    flex: 0 0 auto;
+    justify-content: space-between;
+}
+
+.dashboard-controls-row .chart-nav-button {
+    flex: 0 0 auto;
+}
+
+.dashboard-range-label {
+    flex: 1 1 0;
+    min-width: 0;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.dashboard-controls-hint {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
 .dashboard-side-panel-toggle {
     display: none;
 }
@@ -173,32 +255,6 @@
 
 }
 
-#dashboard-totals-container {
-    container-type: inline-size;
-}
-
-.dashboard-totals-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 2rem;
-}
-
-@container (max-width: 760px) {
-    .dashboard-totals-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .dashboard-weekday-card {
-        grid-column: 1 / -1;
-    }
-}
-
-@container (max-width: 520px) {
-    .dashboard-totals-grid {
-        grid-template-columns: minmax(0, 1fr);
-    }
-}
-
 .dashboard-totals-card {
     display: flex;
     flex-direction: column;
@@ -211,7 +267,6 @@
     display: flex;
     flex-direction: column;
     width: 100%;
-    grid-column: 1 / -1;
 }
 
 .dashboard-weekday-card {

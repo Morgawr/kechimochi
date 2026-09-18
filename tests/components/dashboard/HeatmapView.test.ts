@@ -1,41 +1,98 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { HeatmapView } from '../../../src/dashboard';
+import { HeatmapView, type HeatmapViewHost } from '../../../src/dashboard/cards/HeatmapView';
+import { getDashboardHeatmapYear } from '../../../src/api';
 import { applyThemePalette } from '../../helpers/theme_palette';
+
+vi.mock('../../../src/api', () => ({
+    getDashboardHeatmapYear: vi.fn(),
+}));
 
 describe('HeatmapView', () => {
     let container: HTMLElement;
-    let onYearChange: (offset: number) => void;
+    let host: HeatmapViewHost;
     let onDateSelect: (dateStr: string) => void;
+    let requestSequence: number;
 
     beforeEach(() => {
         applyThemePalette();
+        vi.clearAllMocks();
         container = document.createElement('div');
-        onYearChange = vi.fn();
+        requestSequence = 0;
+        host = {
+            nextRequestId: vi.fn(() => ++requestSequence),
+            currentGeneration: vi.fn(() => 1),
+            isCurrent: vi.fn((generation: number) => generation === 1),
+        };
         onDateSelect = vi.fn();
+        vi.mocked(getDashboardHeatmapYear).mockImplementation(async request => ({
+            request_id: request.request_id,
+            year: request.year,
+            days: [],
+        }));
     });
 
     it('should render correct year label', () => {
-        const component = new HeatmapView(container, { heatmapData: [], year: 2024 }, onYearChange);
+        const component = new HeatmapView(container, { heatmapData: [], year: 2024 }, host);
         component.render();
         expect(container.querySelector('#heatmap-year-label')?.textContent).toBe('2024');
     });
 
-    it('should handle year navigation', () => {
-        const component = new HeatmapView(container, { heatmapData: [], year: 2024 }, onYearChange);
+    it('should fetch the neighbouring year and relabel on year navigation', async () => {
+        const component = new HeatmapView(container, { heatmapData: [], year: 2024 }, host);
         component.render();
-        
+
         container.querySelector('#btn-heatmap-prev')?.dispatchEvent(new Event('click'));
-        expect(onYearChange).toHaveBeenCalledWith(-1);
-        
+        expect(getDashboardHeatmapYear).toHaveBeenCalledWith(expect.objectContaining({ year: 2023 }));
+        await vi.waitFor(() => expect(container.querySelector('#heatmap-year-label')?.textContent).toBe('2023'));
+
         container.querySelector('#btn-heatmap-next')?.dispatchEvent(new Event('click'));
-        expect(onYearChange).toHaveBeenCalledWith(1);
+        expect(getDashboardHeatmapYear).toHaveBeenCalledWith(expect.objectContaining({ year: 2024 }));
+        await vi.waitFor(() => expect(container.querySelector('#heatmap-year-label')?.textContent).toBe('2024'));
+    });
+
+    it('should ignore a year response that arrives after a newer one', async () => {
+        const component = new HeatmapView(container, { heatmapData: [], year: 2024 }, host);
+        component.render();
+
+        let resolveOlder!: (value: Awaited<ReturnType<typeof getDashboardHeatmapYear>>) => void;
+        const older = new Promise<Awaited<ReturnType<typeof getDashboardHeatmapYear>>>(resolve => { resolveOlder = resolve; });
+        vi.mocked(getDashboardHeatmapYear).mockReturnValueOnce(older);
+
+        container.querySelector('#btn-heatmap-prev')?.dispatchEvent(new Event('click'));
+        const olderRequest = vi.mocked(getDashboardHeatmapYear).mock.calls[0][0];
+        container.querySelector('#btn-heatmap-prev')?.dispatchEvent(new Event('click'));
+        await vi.waitFor(() => expect(container.querySelector('#heatmap-year-label')?.textContent).toBe('2022'));
+
+        resolveOlder({
+            request_id: olderRequest.request_id,
+            year: olderRequest.year,
+            days: [{ date: '2023-01-01', total_minutes: 1, total_characters: 0 }],
+        });
+        await older;
+        await Promise.resolve();
+
+        expect(container.querySelector('#heatmap-year-label')?.textContent).toBe('2022');
+        expect(container.querySelector('.heatmap-cell[title^="2023-01-01"]')).toBeNull();
+    });
+
+    it('should drop a year response from a superseded dashboard generation', async () => {
+        const component = new HeatmapView(container, { heatmapData: [], year: 2024 }, host);
+        component.render();
+
+        vi.mocked(host.isCurrent).mockReturnValue(false);
+        container.querySelector('#btn-heatmap-prev')?.dispatchEvent(new Event('click'));
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(container.querySelector('#heatmap-year-label')?.textContent).toBe('2023');
+        expect(container.querySelectorAll('.heatmap-cell[title]')).toHaveLength(365);
     });
 
     it('should render heatmap cells with correct titles', () => {
         const heatmapData = [
             { date: '2024-01-01', total_minutes: 60, total_characters: 5000 }
         ];
-        const component = new HeatmapView(container, { heatmapData, year: 2024 }, onYearChange);
+        const component = new HeatmapView(container, { heatmapData, year: 2024 }, host);
         component.render();
         
         const cell = container.querySelector('.heatmap-cell[title*="2024-01-01"]');
@@ -48,7 +105,7 @@ describe('HeatmapView', () => {
         const heatmapData = [
             { date: '2024-01-02', total_minutes: 30, total_characters: 1200 }
         ];
-        const component = new HeatmapView(container, { heatmapData, year: 2024 }, onYearChange, onDateSelect);
+        const component = new HeatmapView(container, { heatmapData, year: 2024 }, host, onDateSelect);
         component.render();
 
         const cell = container.querySelector('.heatmap-cell[data-date="2024-01-02"]') as HTMLElement;
@@ -60,7 +117,7 @@ describe('HeatmapView', () => {
     });
 
     it('should handle no data recorded', () => {
-        const component = new HeatmapView(container, { heatmapData: [], year: Number.NaN }, onYearChange);
+        const component = new HeatmapView(container, { heatmapData: [], year: Number.NaN }, host);
         component.render();
         expect(container.textContent).toContain('No data recorded yet');
     });
@@ -69,7 +126,7 @@ describe('HeatmapView', () => {
         const heatmapData = [
             { date: '2024-01-01', total_minutes: 0, total_characters: 5000 }
         ];
-        const component = new HeatmapView(container, { heatmapData, year: 2024 }, onYearChange);
+        const component = new HeatmapView(container, { heatmapData, year: 2024 }, host);
         component.render();
 
         const cell = container.querySelector('.heatmap-cell[title*="2024-01-01"]') as HTMLElement;
@@ -82,7 +139,7 @@ describe('HeatmapView', () => {
         const heatmapData = [
             { date: '2024-01-01', total_minutes: 60, total_characters: 0 }
         ];
-        const component = new HeatmapView(container, { heatmapData, year: 2024 }, onYearChange);
+        const component = new HeatmapView(container, { heatmapData, year: 2024 }, host);
         component.render();
 
         const cell = container.querySelector('.heatmap-cell[title*="2024-01-01"]') as HTMLElement;
@@ -99,7 +156,7 @@ describe('HeatmapView', () => {
             { date: '2024-01-01', total_minutes: 10, total_characters: 30000 }
         ];
         const highCharacterComponent = new HeatmapView(
-            container, { heatmapData: highCharacterData, year: 2024 }, onYearChange
+            container, { heatmapData: highCharacterData, year: 2024 }, host
         );
         highCharacterComponent.render();
         const highCharacterCell = container.querySelector('.heatmap-cell[title*="2024-01-01"]') as HTMLElement;
@@ -112,7 +169,7 @@ describe('HeatmapView', () => {
             { date: '2024-01-01', total_minutes: 10, total_characters: 0 }
         ];
         const timeOnlyComponent = new HeatmapView(
-            container, { heatmapData: timeOnlyData, year: 2024 }, onYearChange
+            container, { heatmapData: timeOnlyData, year: 2024 }, host
         );
         timeOnlyComponent.render();
         const timeOnlyCell = container.querySelector('.heatmap-cell[title*="2024-01-01"]') as HTMLElement;
@@ -128,7 +185,7 @@ describe('HeatmapView', () => {
             { date: '2024-01-01', total_minutes: 10, total_characters: 30000 }
         ];
         const bothTrackedComponent = new HeatmapView(
-            container, { heatmapData: bothTrackedData, year: 2024 }, onYearChange
+            container, { heatmapData: bothTrackedData, year: 2024 }, host
         );
         bothTrackedComponent.render();
         const bothTrackedCell = container.querySelector('.heatmap-cell[title*="2024-01-01"]') as HTMLElement;
@@ -145,7 +202,7 @@ describe('HeatmapView', () => {
             { date: '2024-01-01', total_minutes: 0, total_characters: 5000 }
         ];
         const lowCharacterComponent = new HeatmapView(
-            container, { heatmapData: lowCharacterData, year: 2024 }, onYearChange
+            container, { heatmapData: lowCharacterData, year: 2024 }, host
         );
         lowCharacterComponent.render();
         const lowCharacterCell = container.querySelector('.heatmap-cell[title*="2024-01-01"]') as HTMLElement;
@@ -158,7 +215,7 @@ describe('HeatmapView', () => {
             { date: '2024-01-01', total_minutes: 0, total_characters: 60000 }
         ];
         const highCharacterComponent = new HeatmapView(
-            container, { heatmapData: highCharacterData, year: 2024 }, onYearChange
+            container, { heatmapData: highCharacterData, year: 2024 }, host
         );
         highCharacterComponent.render();
         const highCharacterCell = container.querySelector('.heatmap-cell[title*="2024-01-01"]') as HTMLElement;

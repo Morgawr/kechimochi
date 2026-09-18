@@ -1918,7 +1918,17 @@ input:focus, select:focus {
 .chart-container-wrapper {
   position: relative;
   width: 100%;
-  height: 300px;
+  flex: 1;
+  min-height: 300px;
+}
+
+.chart-container-wrapper > canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.chart-container-wrapper > canvas[data-chart-empty="true"] {
+  display: none;
 }
 
 .chart-empty-message {
@@ -2872,6 +2882,60 @@ input:focus, select:focus {
   background: var(--border-color);
 }
 
+.multi-select-panel {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  min-width: 14rem;
+  max-width: 20rem;
+  padding: 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-md);
+  z-index: 900;
+}
+
+.multi-select-options {
+  display: flex;
+  flex-direction: column;
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.multi-select-option {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.multi-select-option:hover,
+.multi-select-option:has(input:focus-visible) {
+  background: var(--bg-card-hover);
+}
+
+.multi-select-option input {
+  accent-color: var(--accent-blue);
+}
+
+.multi-select-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.multi-select-done-button {
+  margin-left: auto;
+}
+
 .media-library-section-header {
   display: flex;
   align-items: center;
@@ -3613,14 +3677,6 @@ input:focus, select:focus {
     margin-bottom: 2rem;
 }
 
-.activity-charts-header {
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.75rem;
-    margin-bottom: 1rem;
-}
-
 .activity-charts-title-controls,
 .heatmap-title-controls {
     display: grid;
@@ -4066,9 +4122,9 @@ input:checked + .slider:before {
   }
 
   #dashboard-left-column,
-  #dashboard-right-column,
+  #dashboard-card-grid,
   #heatmap-container,
-  #charts-container {
+  .dashboard-card-host {
     width: 100%;
     min-width: 0;
   }
@@ -4086,18 +4142,6 @@ input:checked + .slider:before {
 
   #heatmap-container #heatmap-inner-container {
     justify-content: stretch !important;
-  }
-
-  #activity-charts-grid {
-    grid-template-columns: 1fr !important;
-    gap: 2rem !important;
-  }
-
-  /* flex: 1 on chart wrappers overrides height: 300px via flex-basis: 0.
-     With no constrained parent height in a stacked layout, Chart.js inflates the card.
-     Fix: constrain the card height so flex: 1 resolves correctly. */
-  #activity-charts-grid .card {
-    height: 380px;
   }
 
   #media-content-area {
@@ -4727,10 +4771,6 @@ input:checked + .slider:before {
     display: flex;
     flex-wrap: wrap;
     
-  }
-
-  .activity-charts-header {
-    gap: 0.75rem;
   }
 
   .chart-toolbar {

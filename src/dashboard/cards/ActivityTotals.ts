@@ -1,11 +1,42 @@
-import { Component } from '../component';
-import { ActivitySummary, DashboardMedia, DashboardRangeResponse, DashboardWeekdayDistribution, DashboardWeekdayStats, Media } from '../api';
-import { escapeHTML, html, rawHtml } from '../html';
-import { formatCount, formatOptionalCount } from '../count_formatting';
-import { formatOptionalStatsDuration, formatStatsDuration } from '../time';
-import { getActivityRange, getLocalISODate, getPreviousBucketKey, normalizeWeekStartDay, resolveRangeLogs, type ActivityPeriod, type ActivityRange } from './activity_ranges';
-import { MediaCoverLoader } from '../media/cover_loader';
-import { Logger } from '../logger';
+import { Component } from '../../component';
+import { ActivitySummary, DashboardMedia, DashboardRangeResponse, DashboardWeekdayDistribution, DashboardWeekdayStats, Media } from '../../api';
+import { escapeHTML } from '../../html';
+import { formatCount, formatOptionalCount } from '../../count_formatting';
+import { formatOptionalStatsDuration, formatStatsDuration } from '../../time';
+import { getActivityRange, getLocalISODate, getPreviousBucketKey, normalizeWeekStartDay, resolveRangeLogs, type ActivityPeriod, type ActivityRange } from '../activity_ranges';
+import { MediaCoverLoader } from '../../media/cover_loader';
+import { Logger } from '../../logger';
+import type { DashboardCardDescriptor } from '../dashboard_layout';
+
+export const WEEKDAY_DISTRIBUTION_CARD = {
+    id: 'weekday_distribution',
+    label: 'Weekday Distribution',
+    spans: { wide: 4, medium: 6 },
+    dataSources: ['weekdayDistribution'],
+} as const satisfies DashboardCardDescriptor;
+
+export const PERIOD_STATS_CARD = {
+    id: 'period_stats',
+    label: 'Period Stats',
+    spans: { wide: 4, medium: 3 },
+    dataSources: ['range'],
+} as const satisfies DashboardCardDescriptor;
+
+export const CATEGORIES_CARD = {
+    id: 'categories',
+    label: 'Categories',
+    spans: { wide: 4, medium: 3 },
+    dataSources: ['range'],
+} as const satisfies DashboardCardDescriptor;
+
+export const HIGHLIGHTS_CARD = {
+    id: 'highlights',
+    label: 'Highlights',
+    spans: { wide: 12, medium: 6 },
+    dataSources: ['range'],
+} as const satisfies DashboardCardDescriptor;
+
+export type ActivityTotalsHostId = 'weekday_distribution' | 'period_stats' | 'categories' | 'highlights';
 
 interface ActivityTotalsState {
     logs?: ActivitySummary[];
@@ -65,9 +96,24 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
     private highlightsPerPage = 2;
     private resizeObserver: ResizeObserver | null = null;
     private lastIsMobile: boolean = false;
+    private readonly hosts: ReadonlyMap<ActivityTotalsHostId, HTMLElement>;
+    private readonly onCardsRendered: () => void;
 
-    constructor(container: HTMLElement, initialState: ActivityTotalsState) {
+    constructor(
+        container: HTMLElement,
+        hosts: ReadonlyMap<ActivityTotalsHostId, HTMLElement>,
+        initialState: ActivityTotalsState,
+        onCardsRendered: () => void = () => {},
+    ) {
         super(container, initialState);
+        this.hosts = hosts;
+        this.onCardsRendered = onCardsRendered;
+    }
+
+    protected override clear(): void {
+        for (const host of this.hosts.values()) {
+            host.replaceChildren();
+        }
     }
 
     protected override onMount() {
@@ -105,6 +151,11 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
 
     render() {
         this.clear();
+        this.renderSectionInto('weekday_distribution', this.renderWeekdayDistributionPanel());
+        if (this.state.rangeData === undefined && this.state.logs === undefined) {
+            this.onCardsRendered();
+            return;
+        }
 
         const rangeLogs = resolveRangeLogs(this.state.logs, this.state.rangeData);
         const range = getActivityRange(this.state.timeRangeDays, this.state.timeRangeOffset, rangeLogs, this.state.weekStartDay);
@@ -156,22 +207,20 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
         }));
         const selectedSubject = bucketRows[selectedIndex]?.subject || this.getCurrentSubjectLabel(range.unit);
         const highlights = this.getHighlights(range.validStart, range.validEnd);
-        const sections = [
-            this.renderWeekdayDistributionPanel(),
-            this.renderStatsPanel(range, bucketTotals, statsTableRows, selectedIndex, currentIndex, selectedSubject),
-            this.renderCategoriesPanel(range, categoryRows),
-            this.renderHighlightsPanel(highlights),
-        ].filter(Boolean).join('');
 
-        const content = html`
-            <div class="dashboard-totals-grid">
-                ${rawHtml(sections)}
-            </div>
-        `;
+        this.renderSectionInto('period_stats', this.renderStatsPanel(range, bucketTotals, statsTableRows, selectedIndex, currentIndex, selectedSubject));
+        this.renderSectionInto('categories', this.renderCategoriesPanel(range, categoryRows));
+        this.renderSectionInto('highlights', this.renderHighlightsPanel(highlights));
 
-        this.container.appendChild(content);
-        this.setupListeners(content);
-        this.setupHighlights(content, highlights);
+        this.setupListeners(this.container);
+        this.setupHighlights(this.container, highlights);
+        this.onCardsRendered();
+    }
+
+    private renderSectionInto(hostId: ActivityTotalsHostId, sectionHtml: string): void {
+        const host = this.hosts.get(hostId);
+        if (!host || !sectionHtml) return;
+        host.insertAdjacentHTML('beforeend', sectionHtml);
     }
 
     private setupListeners(root: HTMLElement) {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ActivityCharts } from '../../../src/dashboard/ActivityCharts';
+import { ActivityCharts } from '../../../src/dashboard/cards/ActivityCharts';
 import { ActivitySummary, Media } from '../../../src/api';
 import type { ChartConfiguration, ChartType } from 'chart.js';
 import Chart from 'chart.js/auto';
@@ -35,18 +35,30 @@ const THEME_BORDER_COLOR = '#314159';
 
 describe('ActivityCharts', () => {
     let container: HTMLElement;
-    let onParamChange: (params: Record<string, unknown>) => void;
+    let breakdownHost: HTMLElement;
+    let visualizationHost: HTMLElement;
+    let hosts: Map<'activity_breakdown' | 'activity_visualization', HTMLElement>;
+    let onRenderComplete: ReturnType<typeof vi.fn>;
 
     beforeEach(() => {
         applyThemePalette();
         container = document.createElement('div');
-        onParamChange = vi.fn();
+        breakdownHost = document.createElement('div');
+        visualizationHost = document.createElement('div');
+        container.append(breakdownHost, visualizationHost);
+        document.body.appendChild(container);
+        hosts = new Map<'activity_breakdown' | 'activity_visualization', HTMLElement>([
+            ['activity_breakdown', breakdownHost],
+            ['activity_visualization', visualizationHost],
+        ]);
+        onRenderComplete = vi.fn();
         document.body.style.setProperty('--border-color', THEME_BORDER_COLOR);
         vi.useRealTimers();
         vi.clearAllMocks();
     });
 
     afterEach(() => {
+        container.remove();
         document.body.style.removeProperty('--border-color');
     });
 
@@ -54,12 +66,13 @@ describe('ActivityCharts', () => {
         await vi.waitFor(() => expect(Chart).toHaveBeenCalledTimes(2));
     }
 
-    it('should render chart canvases and UI controls', async () => {
+    it('should render one chart canvas into each of its own hosts', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-06-10T12:00:00'));
 
         const component = new ActivityCharts(
             container,
+            hosts,
             {
                 logs: [{ date: '2026-06-10', duration_minutes: 10, title: 'T', media_id: 1, activity_type: 'Reading', language: 'Japanese' } as unknown as ActivitySummary],
                 timeRangeDays: 7,
@@ -68,32 +81,25 @@ describe('ActivityCharts', () => {
                 chartType: 'bar',
                 metric: 'minutes',
             },
-            onParamChange
         );
         component.render();
         expect(Chart).not.toHaveBeenCalled();
         await waitForChartConstruction();
 
-        expect(container.querySelector('#pieChart')).toBeDefined();
-        expect(container.querySelector('#barChart')).toBeDefined();
-        expect(container.querySelector('#toggle-chart-type')).toBeDefined();
-        expect(container.querySelector('#toggle-group-by')).toBeDefined();
-        expect(Array.from(container.querySelectorAll<HTMLOptionElement>('#select-time-range option')).map(option => option.textContent)).toEqual([
-            'Week',
-            'Month',
-            'Year',
-            'All Time',
-        ]);
-        expect((container.querySelector('#activity-charts-grid') as HTMLElement | null)?.dataset.timeRangeDays).toBe('7');
+        expect(breakdownHost.querySelector('#pieChart')).not.toBeNull();
+        expect(visualizationHost.querySelector('#barChart')).not.toBeNull();
+        expect(breakdownHost.querySelector('#barChart')).toBeNull();
+        expect(visualizationHost.querySelector('#pieChart')).toBeNull();
         expect(Chart).toHaveBeenCalledTimes(2);
     });
 
-    it('updates charts and controls without replacing the mounted layout or canvases', async () => {
+    it('updates charts without replacing the mounted cards or canvases', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-06-10T12:00:00'));
 
         const component = new ActivityCharts(
             container,
+            hosts,
             {
                 logs: [
                     { date: '2026-06-10', duration_minutes: 10, characters: 0, title: 'T', media_id: 1, activity_type: 'Reading', language: 'Japanese' } as unknown as ActivitySummary,
@@ -105,12 +111,12 @@ describe('ActivityCharts', () => {
                 chartType: 'bar',
                 metric: 'minutes',
             },
-            onParamChange,
         );
         component.render();
         await waitForChartConstruction();
 
-        const layout = container.querySelector('#activity-charts-grid');
+        const breakdownCard = breakdownHost.querySelector('.card');
+        const visualizationCard = visualizationHost.querySelector('.card');
         const pieCanvas = container.querySelector('#pieChart');
         const barCanvas = container.querySelector('#barChart');
         vi.clearAllMocks();
@@ -124,14 +130,10 @@ describe('ActivityCharts', () => {
         });
         await waitForChartConstruction();
 
-        expect(container.querySelector('#activity-charts-grid')).toBe(layout);
+        expect(breakdownHost.querySelector('.card')).toBe(breakdownCard);
+        expect(visualizationHost.querySelector('.card')).toBe(visualizationCard);
         expect(container.querySelector('#pieChart')).toBe(pieCanvas);
         expect(container.querySelector('#barChart')).toBe(barCanvas);
-        expect((container.querySelector('#select-time-range') as HTMLSelectElement).value).toBe('30');
-        expect((container.querySelector('#toggle-chart-type') as HTMLInputElement).checked).toBe(true);
-        expect((container.querySelector('#toggle-group-by') as HTMLInputElement).checked).toBe(true);
-        expect((container.querySelector('#toggle-metric') as HTMLInputElement).checked).toBe(true);
-        expect((container.querySelector('#btn-chart-next') as HTMLButtonElement).disabled).toBe(false);
     });
 
     it('marks aggregate data before chart construction and visualizations after', async () => {
@@ -140,6 +142,7 @@ describe('ActivityCharts', () => {
 
         const component = new ActivityCharts(
             container,
+            hosts,
             {
                 logs: [{ date: '2026-06-10', duration_minutes: 10, title: 'T', media_id: 1, activity_type: 'Reading', language: 'Japanese' } as unknown as ActivitySummary],
                 timeRangeDays: 7,
@@ -149,53 +152,25 @@ describe('ActivityCharts', () => {
                 metric: 'minutes',
                 snapshotRequestId: 41,
             },
-            onParamChange,
+            () => {},
+            onRenderComplete,
         );
 
         component.render();
-        const layout = container.querySelector<HTMLElement>('#activity-charts-grid');
         const pieCanvas = container.querySelector<HTMLCanvasElement>('#pieChart');
-        expect(layout?.dataset.dashboardRequestId).toBeUndefined();
+        expect(onRenderComplete).not.toHaveBeenCalled();
         expect(pieCanvas?.dataset.dashboardRequestId).toBe('41');
         await waitForChartConstruction();
-        expect(layout?.dataset.dashboardRequestId).toBe('41');
+        expect(onRenderComplete).toHaveBeenCalledWith(41);
 
         component.updatePendingParams({ timeRangeDays: 30 });
-        expect(layout?.dataset.dashboardRequestId).toBeUndefined();
         expect(pieCanvas?.dataset.dashboardRequestId).toBeUndefined();
 
         vi.clearAllMocks();
         component.setState({ snapshotRequestId: 42 });
         expect(pieCanvas?.dataset.dashboardRequestId).toBe('42');
         await waitForChartConstruction();
-        expect(layout?.dataset.dashboardRequestId).toBe('42');
-    });
-
-    it('should trigger param change on UI interaction', () => {
-        const component = new ActivityCharts(
-            container,
-            { logs: [], timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'activity_type', chartType: 'bar', metric: 'minutes' },
-            onParamChange
-        );
-        component.render();
-
-        const selectRange = container.querySelector('#select-time-range') as HTMLSelectElement;
-        selectRange.value = '30';
-        selectRange.dispatchEvent(new Event('change'));
-
-        expect(onParamChange).toHaveBeenCalledWith(expect.objectContaining({ timeRangeDays: 30 }));
-    });
-
-    it('should handle navigation buttons', () => {
-        const component = new ActivityCharts(
-            container,
-            { logs: [], timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'activity_type', chartType: 'bar', metric: 'minutes' },
-            onParamChange
-        );
-        component.render();
-
-        container.querySelector('#btn-chart-prev')?.dispatchEvent(new Event('click'));
-        expect(onParamChange).toHaveBeenCalledWith({ timeRangeOffset: 1 });
+        expect(onRenderComplete).toHaveBeenCalledWith(42);
     });
 
     it('should destroy chart instances on destroy', async () => {
@@ -204,6 +179,7 @@ describe('ActivityCharts', () => {
 
         const component = new ActivityCharts(
             container,
+            hosts,
             {
                 logs: [{ date: '2026-06-10', duration_minutes: 10, title: 'T', media_id: 1, activity_type: 'Reading', language: 'Japanese' } as unknown as ActivitySummary],
                 timeRangeDays: 7,
@@ -212,11 +188,10 @@ describe('ActivityCharts', () => {
                 chartType: 'bar',
                 metric: 'minutes',
             },
-            onParamChange
         );
         component.render();
         await waitForChartConstruction();
-        
+
         const instances = vi.mocked(Chart).mock.results.map(r => r.value);
         component.destroy();
         
@@ -230,8 +205,8 @@ describe('ActivityCharts', () => {
         // 30 days
         let component = new ActivityCharts(
             container,
+            hosts,
             { logs: [{ date: '2024-01-01', duration_minutes: 10, title: 'T', media_id: 1, activity_type: 'M', language: 'Japanese' } as unknown as ActivitySummary], timeRangeDays: 30, timeRangeOffset: 0, groupByMode: 'activity_type', chartType: 'bar', metric: 'minutes' },
-            onParamChange
         );
         component.render();
         await waitForChartConstruction();
@@ -241,8 +216,8 @@ describe('ActivityCharts', () => {
         vi.clearAllMocks();
         component = new ActivityCharts(
             container,
+            hosts,
             { logs: [{ date: '2024-01-01', duration_minutes: 10, title: 'T', media_id: 1, activity_type: 'M', language: 'Japanese' } as unknown as ActivitySummary], timeRangeDays: 365, timeRangeOffset: 0, groupByMode: 'activity_type', chartType: 'bar', metric: 'minutes' },
-            onParamChange
         );
         component.render();
         await waitForChartConstruction();
@@ -255,6 +230,7 @@ describe('ActivityCharts', () => {
 
         const component = new ActivityCharts(
             container,
+            hosts,
             {
                 logs: [{ date: '2026-06-10', duration_minutes: 10, title: 'T', media_id: 1, activity_type: 'Reading', language: 'Japanese' } as unknown as ActivitySummary],
                 timeRangeDays: 7,
@@ -263,7 +239,6 @@ describe('ActivityCharts', () => {
                 chartType: 'bar',
                 metric: 'minutes',
             },
-            onParamChange
         );
         component.render();
         await waitForChartConstruction();
@@ -287,6 +262,7 @@ describe('ActivityCharts', () => {
 
         const component = new ActivityCharts(
             container,
+            hosts,
             {
                 logs: [
                     { date: '2026-06-01', duration_minutes: 15, title: 'Novel', media_id: 1, activity_type: 'Reading', language: 'Japanese' } as unknown as ActivitySummary,
@@ -299,7 +275,6 @@ describe('ActivityCharts', () => {
                 chartType: 'bar',
                 metric: 'minutes',
             },
-            onParamChange,
         );
         component.render();
         await waitForChartConstruction();
@@ -322,6 +297,7 @@ describe('ActivityCharts', () => {
 
         const component = new ActivityCharts(
             container,
+            hosts,
             {
                 logs: [
                     { date: '2026-04-28', duration_minutes: 1200, title: 'Week 1', media_id: 1, activity_type: 'Reading', language: 'Japanese' } as unknown as ActivitySummary,
@@ -333,16 +309,12 @@ describe('ActivityCharts', () => {
                 chartType: 'bar',
                 metric: 'minutes'
             },
-            onParamChange
         );
         component.render();
         await waitForChartConstruction();
 
-        const chartGrid = container.querySelector('#activity-charts-grid') as HTMLElement;
         const pieChartConfig = captureChartConfiguration(0);
 
-        expect(chartGrid.dataset.rangeStart).toBe('2026-04-27');
-        expect(chartGrid.dataset.rangeEnd).toBe('2026-05-03');
         expect(pieChartConfig.data.datasets[0].data).toEqual([1200]);
     });
 
@@ -352,8 +324,8 @@ describe('ActivityCharts', () => {
 
         const component = new ActivityCharts(
             container,
+            hosts,
             { logs: [{ date: '2024-01-01', duration_minutes: 10, title: 'T', media_id: 1, activity_type: 'M', language: 'Japanese' } as unknown as ActivitySummary], timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'log_name', chartType: 'line', metric: 'minutes' },
-            onParamChange
         );
         component.render();
         await waitForChartConstruction();
@@ -363,7 +335,7 @@ describe('ActivityCharts', () => {
     it('charts bounded backend series without raw activity logs', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-06-10T12:00:00'));
-        const component = new ActivityCharts(container, {
+        const component = new ActivityCharts(container, hosts, {
             rangeData: {
                 request_id: 1,
                 start_date: '2026-06-08',
@@ -387,7 +359,7 @@ describe('ActivityCharts', () => {
             groupByMode: 'activity_type',
             chartType: 'bar',
             metric: 'minutes',
-        }, onParamChange);
+        });
 
         component.render();
         await waitForChartConstruction();
@@ -414,8 +386,8 @@ describe('ActivityCharts', () => {
         ] as Media[];
         const component = new ActivityCharts(
             container,
+            hosts,
             { logs, mediaList, timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'log_name', chartType: 'bar', metric: 'minutes' },
-            onParamChange,
         );
 
         component.render();
@@ -443,8 +415,8 @@ describe('ActivityCharts', () => {
 
         const component = new ActivityCharts(
             container,
+            hosts,
             { logs: [{ date: '2026-06-10', duration_minutes: 10, title: 'T', media_id: 1, activity_type: 'M', language: 'Japanese' } as unknown as ActivitySummary], timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'activity_type', chartType: 'bar', metric: 'minutes' },
-            onParamChange
         );
         component.render();
         await waitForChartConstruction();
@@ -467,8 +439,8 @@ describe('ActivityCharts', () => {
 
         const component = new ActivityCharts(
             container,
+            hosts,
             { logs, timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'activity_type', chartType: 'bar', metric: 'minutes' },
-            onParamChange
         );
         component.render();
         await waitForChartConstruction();
@@ -488,8 +460,8 @@ describe('ActivityCharts', () => {
 
         const component = new ActivityCharts(
             container,
+            hosts,
             { logs: [{ date: '2026-06-10', duration_minutes: 10, title: 'T', media_id: 1, activity_type: 'M', language: 'Japanese' } as unknown as ActivitySummary], timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'activity_type', chartType: 'line', metric: 'minutes' },
-            onParamChange
         );
         component.render();
         await waitForChartConstruction();
@@ -501,35 +473,21 @@ describe('ActivityCharts', () => {
         expect(dataset.borderColor).not.toBe(THEME_BORDER_COLOR);
     });
 
-    it('should trigger param change on metric toggle', () => {
-        const component = new ActivityCharts(
-            container,
-            { logs: [], timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'activity_type', chartType: 'bar', metric: 'minutes' },
-            onParamChange
-        );
-        component.render();
-
-        const toggleMetric = container.querySelector('#toggle-metric') as HTMLInputElement;
-        toggleMetric.checked = true;
-        toggleMetric.dispatchEvent(new Event('change'));
-
-        expect(onParamChange).toHaveBeenCalledWith(expect.objectContaining({ metric: 'characters' }));
-    });
-
     it('should render the empty state, skip chart construction, and still set completion markers', () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-06-10T12:00:00'));
 
         const component = new ActivityCharts(
             container,
+            hosts,
             { logs: [], timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'activity_type', chartType: 'bar', metric: 'minutes', snapshotRequestId: 9 },
-            onParamChange,
+            () => {},
+            onRenderComplete,
         );
         component.render();
 
-        const layout = container.querySelector<HTMLElement>('#activity-charts-grid');
-        expect(layout?.dataset.chartEmpty).toBe('true');
-        expect(layout?.dataset.dashboardRequestId).toBe('9');
+        expect(visualizationHost.dataset.chartEmpty).toBe('true');
+        expect(onRenderComplete).toHaveBeenCalledWith(9);
         expect(container.querySelectorAll('.chart-empty-message.is-visible')).toHaveLength(2);
         expect(Chart).not.toHaveBeenCalled();
     });
@@ -538,7 +496,7 @@ describe('ActivityCharts', () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-06-10T12:00:00'));
 
-        const component = new ActivityCharts(container, {
+        const component = new ActivityCharts(container, hosts, {
             rangeData: {
                 request_id: 1,
                 start_date: '2026-06-08',
@@ -558,15 +516,14 @@ describe('ActivityCharts', () => {
             groupByMode: 'activity_type',
             chartType: 'bar',
             metric: 'minutes',
-        }, onParamChange);
+        });
 
         component.render();
         await vi.waitFor(() => expect(Chart).toHaveBeenCalledTimes(1));
 
-        const layout = container.querySelector<HTMLElement>('#activity-charts-grid');
         expect(container.querySelector<HTMLCanvasElement>('#pieChart')?.dataset.chartEmpty).toBe('false');
         expect(container.querySelector<HTMLCanvasElement>('#barChart')?.dataset.chartEmpty).toBe('true');
-        expect(layout?.dataset.chartEmpty).toBe('false');
+        expect(visualizationHost.dataset.chartEmpty).toBe('false');
         expect(container.querySelector('#pie-chart-empty-message')?.classList.contains('is-visible')).toBe(false);
         expect(container.querySelector('#bar-chart-empty-message')?.classList.contains('is-visible')).toBe(true);
         expect(Chart).toHaveBeenCalledTimes(1);
@@ -579,8 +536,8 @@ describe('ActivityCharts', () => {
 
         const component = new ActivityCharts(
             container,
+            hosts,
             { logs: [], timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'activity_type', chartType: 'bar', metric: 'minutes' },
-            onParamChange,
         );
         component.render();
 
@@ -595,8 +552,8 @@ describe('ActivityCharts', () => {
 
         const component = new ActivityCharts(
             container,
+            hosts,
             { logs: [], timeRangeDays: 7, timeRangeOffset: 1, groupByMode: 'activity_type', chartType: 'bar', metric: 'minutes' },
-            onParamChange,
         );
         component.render();
 
@@ -610,6 +567,7 @@ describe('ActivityCharts', () => {
 
         const component = new ActivityCharts(
             container,
+            hosts,
             {
                 logs: [{ date: '2026-06-10', duration_minutes: 30, characters: 0, title: 'T', media_id: 1, activity_type: 'Reading', language: 'Japanese' } as unknown as ActivitySummary],
                 timeRangeDays: 7,
@@ -618,11 +576,10 @@ describe('ActivityCharts', () => {
                 chartType: 'bar',
                 metric: 'characters',
             },
-            onParamChange,
         );
         component.render();
 
-        expect(container.querySelector<HTMLElement>('#activity-charts-grid')?.dataset.chartEmpty).toBe('true');
+        expect(visualizationHost.dataset.chartEmpty).toBe('true');
         expect(Chart).not.toHaveBeenCalled();
     });
 
@@ -632,6 +589,7 @@ describe('ActivityCharts', () => {
 
         const component = new ActivityCharts(
             container,
+            hosts,
             {
                 logs: [{ date: '2026-06-01', duration_minutes: 20, title: 'T', media_id: 1, activity_type: 'Reading', language: 'Japanese' } as unknown as ActivitySummary],
                 timeRangeDays: 7,
@@ -641,20 +599,20 @@ describe('ActivityCharts', () => {
                 metric: 'minutes',
                 snapshotRequestId: 9,
             },
-            onParamChange,
+            () => {},
+            onRenderComplete,
         );
         component.render();
 
-        const layout = container.querySelector<HTMLElement>('#activity-charts-grid');
-        expect(layout?.dataset.chartEmpty).toBe('true');
+        expect(visualizationHost.dataset.chartEmpty).toBe('true');
         expect(Chart).not.toHaveBeenCalled();
 
         component.setState({ timeRangeDays: 30 });
         await waitForChartConstruction();
 
-        expect(layout?.dataset.chartEmpty).toBe('false');
+        expect(visualizationHost.dataset.chartEmpty).toBe('false');
         expect(container.querySelectorAll('.chart-empty-message.is-visible')).toHaveLength(0);
-        expect(layout?.dataset.dashboardRequestId).toBe('9');
+        expect(onRenderComplete).toHaveBeenCalledWith(9);
     });
 
     it('clears the stale empty overlay while a new range request is pending', () => {
@@ -663,18 +621,17 @@ describe('ActivityCharts', () => {
 
         const component = new ActivityCharts(
             container,
+            hosts,
             { logs: [], timeRangeDays: 7, timeRangeOffset: 0, groupByMode: 'activity_type', chartType: 'bar', metric: 'minutes', snapshotRequestId: 9 },
-            onParamChange,
         );
         component.render();
 
-        const layout = container.querySelector<HTMLElement>('#activity-charts-grid');
-        expect(layout?.dataset.chartEmpty).toBe('true');
+        expect(visualizationHost.dataset.chartEmpty).toBe('true');
         expect(container.querySelectorAll('.chart-empty-message.is-visible')).toHaveLength(2);
 
         component.updatePendingParams({ timeRangeDays: 30 });
 
-        expect(layout?.dataset.chartEmpty).toBeUndefined();
+        expect(visualizationHost.dataset.chartEmpty).toBeUndefined();
         expect(container.querySelectorAll('.chart-empty-message.is-visible')).toHaveLength(0);
     });
 
@@ -688,6 +645,7 @@ describe('ActivityCharts', () => {
 
         const component = new ActivityCharts(
             container,
+            hosts,
             {
                 logs: [{ date: '2026-06-10', duration_minutes: 10, title: 'T', media_id: 1, activity_type: 'Reading', language: 'Japanese' } as unknown as ActivitySummary],
                 timeRangeDays: 7,
@@ -697,7 +655,8 @@ describe('ActivityCharts', () => {
                 metric: 'minutes',
                 snapshotRequestId: 1,
             },
-            onParamChange,
+            () => {},
+            onRenderComplete,
         );
         component.render();
 
@@ -707,6 +666,42 @@ describe('ActivityCharts', () => {
         await Promise.resolve();
 
         expect(Chart).not.toHaveBeenCalled();
-        expect(container.querySelector<HTMLElement>('#activity-charts-grid')?.dataset.dashboardRequestId).toBeUndefined();
+        expect(onRenderComplete).not.toHaveBeenCalled();
+        expect(container.querySelector<HTMLCanvasElement>('#pieChart')?.dataset.dashboardRequestId).toBeUndefined();
+    });
+
+    it('tears down a chart in the same tick its empty overlay goes up', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-06-10T12:00:00'));
+
+        const component = new ActivityCharts(container, hosts, {
+            logs: [{ date: '2026-06-10', duration_minutes: 10, characters: 0, title: 'T', media_id: 1, activity_type: 'Reading', language: 'Japanese' } as unknown as ActivitySummary],
+            timeRangeDays: 7,
+            timeRangeOffset: 0,
+            groupByMode: 'activity_type',
+            chartType: 'bar',
+            metric: 'minutes',
+        });
+        component.render();
+        await waitForChartConstruction();
+        const pieChartInstance = vi.mocked(Chart).mock.results[0].value;
+
+        component.setState({
+            logs: undefined,
+            rangeData: {
+                request_id: 2,
+                start_date: '2026-06-08',
+                end_date: '2026-06-14',
+                bucket: 'day',
+                group_by: 'activity_type',
+                series: [],
+                bucket_totals: [{ bucket: '2026-06-09', total_minutes: 50, total_characters: 0 }],
+                previous_bucket_totals: { bucket: null, total_minutes: 0, total_characters: 0 },
+                category_totals: [],
+                highlights: [],
+            },
+        });
+        expect(container.querySelector('#pie-chart-empty-message')?.classList.contains('is-visible')).toBe(true);
+        expect(pieChartInstance.destroy).toHaveBeenCalled();
     });
 });

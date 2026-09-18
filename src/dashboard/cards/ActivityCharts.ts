@@ -1,12 +1,29 @@
-import { Component } from '../component';
-import { html } from '../html';
-import { ActivitySummary, DashboardRangeResponse, Media } from '../api';
+import { Component } from '../../component';
+import { html } from '../../html';
+import { ActivitySummary, DashboardRangeResponse, Media } from '../../api';
 import type { Chart as ChartInstance } from 'chart.js';
-import { formatStatsDuration } from '../time';
-import { ACTIVITY_TIME_RANGES, getActivityRange, getLocalISODate, resolveRangeLogs, type ActivityRange, type DatedActivityTotals } from './activity_ranges';
-import { Logger } from '../logger';
-import { logPerformance, measureSynchronous, performanceNow } from '../performance';
-import { loadChartConstructor, type ChartConstructor } from '../chart_loader';
+import { formatStatsDuration } from '../../time';
+import { getActivityRange, getLocalISODate, resolveRangeLogs, type ActivityRange, type DatedActivityTotals } from '../activity_ranges';
+import { Logger } from '../../logger';
+import { logPerformance, measureSynchronous, performanceNow } from '../../performance';
+import { loadChartConstructor, type ChartConstructor } from '../../chart_loader';
+import type { DashboardCardDescriptor } from '../dashboard_layout';
+
+export const ACTIVITY_BREAKDOWN_CARD = {
+    id: 'activity_breakdown',
+    label: 'Activity Breakdown',
+    spans: { wide: 4, medium: 6 },
+    dataSources: ['range'],
+} as const satisfies DashboardCardDescriptor;
+
+export const ACTIVITY_VISUALIZATION_CARD = {
+    id: 'activity_visualization',
+    label: 'Activity Visualization',
+    spans: { wide: 8, medium: 6 },
+    dataSources: ['range'],
+} as const satisfies DashboardCardDescriptor;
+
+export type ActivityChartsHostId = 'activity_breakdown' | 'activity_visualization';
 
 const DAILY_LABEL_FORMATTER = new Intl.DateTimeFormat('en-US', {
     month: 'short',
@@ -24,6 +41,7 @@ interface ActivityChartsState {
     metric: 'minutes' | 'characters';
     weekStartDay?: number;
     snapshotRequestId?: number;
+    hiddenCards?: ReadonlySet<string>;
 }
 
 interface ChartGroup {
@@ -45,195 +63,119 @@ interface BarChartDataset {
     tension: number;
 }
 
+interface MountedActivityChartsCards {
+    breakdownCard: HTMLElement | null;
+    visualizationCard: HTMLElement | null;
+}
+
 export class ActivityCharts extends Component<ActivityChartsState> {
     private pieChartInstance: ChartInstance | null = null;
     private barChartInstance: ChartInstance | null = null;
     private renderGeneration = 0;
-    private readonly onChartParamChange: (params: Partial<ActivityChartsState>) => void;
+    private readonly hosts: ReadonlyMap<ActivityChartsHostId, HTMLElement>;
+    private readonly onCardsRendered: () => void;
+    private readonly onRenderComplete: (requestId: number) => void;
 
-    constructor(container: HTMLElement, initialState: ActivityChartsState, onChartParamChange: (params: Partial<ActivityChartsState>) => void) {
+    constructor(
+        container: HTMLElement,
+        hosts: ReadonlyMap<ActivityChartsHostId, HTMLElement>,
+        initialState: ActivityChartsState,
+        onCardsRendered: () => void = () => {},
+        onRenderComplete: (requestId: number) => void = () => {},
+    ) {
         super(container, initialState);
-        this.onChartParamChange = onChartParamChange;
+        this.hosts = hosts;
+        this.onCardsRendered = onCardsRendered;
+        this.onRenderComplete = onRenderComplete;
+    }
+
+    protected override clear(): void {
+        this.hosts.get('activity_breakdown')?.replaceChildren();
+        this.hosts.get('activity_visualization')?.replaceChildren();
+    }
+
+    private getMountedCards(): MountedActivityChartsCards {
+        const breakdownHost = this.hosts.get('activity_breakdown');
+        const visualizationHost = this.hosts.get('activity_visualization');
+        const breakdownCard = breakdownHost?.querySelector<HTMLElement>('#pieChart')?.closest<HTMLElement>('.card') ?? null;
+        const visualizationCard = visualizationHost?.querySelector<HTMLElement>('#barChart')?.closest<HTMLElement>('.card') ?? null;
+        return { breakdownCard, visualizationCard };
+    }
+
+    private shouldMount(hostId: ActivityChartsHostId): boolean {
+        return this.hosts.has(hostId) && !this.state.hiddenCards?.has(hostId);
+    }
+
+    private hasMountMismatch(mounted: MountedActivityChartsCards): boolean {
+        return this.shouldMount('activity_breakdown') !== Boolean(mounted.breakdownCard)
+            || this.shouldMount('activity_visualization') !== Boolean(mounted.visualizationCard);
     }
 
     /**
      * Chart.js owns mutable state on its canvas elements. Keep the mounted
-     * layout stable across data/control updates so browser references, focus,
+     * cards stable across data/control updates so browser references, focus,
      * and event listeners do not get replaced for every range response.
      */
     public setState(newState: Partial<ActivityChartsState>): void {
         this.state = { ...this.state, ...newState };
-        const chartsLayout = this.container.querySelector<HTMLElement>('#activity-charts-grid');
-        if (!chartsLayout) {
+        const mounted = this.getMountedCards();
+        if (this.hasMountMismatch(mounted)) {
+            this.destroy();
+            this.clear();
+            this.render();
+            return;
+        }
+        if (!mounted.breakdownCard && !mounted.visualizationCard) {
             this.render();
             return;
         }
 
-        this.syncControlState(chartsLayout);
-        this.renderCharts(chartsLayout).catch(error => {
+        this.renderCharts(mounted).catch(error => {
             Logger.error('Failed to render dashboard charts', error);
         });
     }
 
     render() {
-        const existingLayout = this.container.querySelector<HTMLElement>('#activity-charts-grid');
-        if (existingLayout) {
-            this.syncControlState(existingLayout);
-            this.renderCharts(existingLayout).catch(error => {
+        const mounted = this.getMountedCards();
+        if (mounted.breakdownCard || mounted.visualizationCard) {
+            this.renderCharts(mounted).catch(error => {
                 Logger.error('Failed to render dashboard charts', error);
             });
             return;
         }
 
+        const breakdownHost = this.hosts.get('activity_breakdown');
+        const visualizationHost = this.hosts.get('activity_visualization');
+        if (!breakdownHost || !visualizationHost) return;
+
         this.clear();
 
-        const chartsLayout = html`
-            <div id="activity-charts-grid" style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 2rem;">
-                <div class="card" style="display: flex; flex-direction: column; min-width: 0;">
-                    <h3 class="dashboard-module-title" style="text-align: center; margin-bottom: 1rem;">Activity Breakdown</h3>
-                    <div class="chart-container-wrapper" style="flex: 1; min-height: 0;">
-                        <canvas id="pieChart"></canvas>
-                        <div id="pie-chart-empty-message" class="chart-empty-message"></div>
-                    </div>
-                </div>
-                <div class="card" style="display: flex; flex-direction: column; min-width: 0;">
-                    <div class="activity-charts-header">
-                        <div class="activity-charts-title-controls">
-                            <button class="btn btn-ghost chart-nav-button" id="btn-chart-prev">
-                                <svg class="nav-svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                    <path d="M10 4l-4 4 4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                </svg>
-                            </button>
-                            <h3 class="activity-charts-title dashboard-module-title">Activity Visualization</h3>
-                            <button class="btn btn-ghost chart-nav-button" id="btn-chart-next">
-                                <svg class="nav-svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                    <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                </svg>
-                            </button>
-                        </div>
-                        <div class="chart-toolbar">
-                            <!-- Chart Type Toggle -->
-                            <div class="chart-toolbar-group">
-                                <span class="toggle-label ${this.state.chartType === 'bar' ? 'active' : ''}">Bar</span>
-                                <label class="switch">
-                                    <input type="checkbox" id="toggle-chart-type" ${this.state.chartType === 'line' ? 'checked' : ''}>
-                                    <span class="slider"></span>
-                                </label>
-                                <span class="toggle-label ${this.state.chartType === 'line' ? 'active' : ''}">Line</span>
-                            </div>
-
-                            <div class="chart-toolbar-divider" aria-hidden="true"></div>
-
-                            <!-- Time Range Select -->
-                            <div class="chart-toolbar-select-shell">
-                                <select id="select-time-range" class="chart-toolbar-select">
-                                    <option value="7" ${this.state.timeRangeDays === ACTIVITY_TIME_RANGES.WEEKLY ? 'selected' : ''}>Week</option>
-                                    <option value="30" ${this.state.timeRangeDays === ACTIVITY_TIME_RANGES.MONTHLY ? 'selected' : ''}>Month</option>
-                                    <option value="365" ${this.state.timeRangeDays === ACTIVITY_TIME_RANGES.YEARLY ? 'selected' : ''}>Year</option>
-                                    <option value="0" ${this.state.timeRangeDays === ACTIVITY_TIME_RANGES.ALL_TIME ? 'selected' : ''}>All Time</option>
-                                </select>
-                            </div>
-
-                            <div class="chart-toolbar-divider" aria-hidden="true"></div>
-
-                            <!-- Group By Toggle -->
-                            <div class="chart-toolbar-group">
-                                <span class="toggle-label ${this.state.groupByMode === 'activity_type' ? 'active' : ''}">Type</span>
-                                <label class="switch">
-                                    <input type="checkbox" id="toggle-group-by" ${this.state.groupByMode === 'log_name' ? 'checked' : ''}>
-                                    <span class="slider"></span>
-                                </label>
-                                <span class="toggle-label ${this.state.groupByMode === 'log_name' ? 'active' : ''}">Name</span>
-                            </div>
-
-                            <div class="chart-toolbar-divider" aria-hidden="true"></div>
-
-                            <!-- Metric Toggle -->
-                            <div class="chart-toolbar-group">
-                                <span class="toggle-label ${this.state.metric === 'minutes' ? 'active' : ''}">Time</span>
-                                <label class="switch">
-                                    <input type="checkbox" id="toggle-metric" ${this.state.metric === 'characters' ? 'checked' : ''}>
-                                    <span class="slider"></span>
-                                </label>
-                                <span class="toggle-label ${this.state.metric === 'characters' ? 'active' : ''}">Chars</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="chart-container-wrapper" style="flex: 1; min-height: 0;">
-                        <canvas id="barChart"></canvas>
-                        <div id="bar-chart-empty-message" class="chart-empty-message"></div>
-                    </div>
+        const breakdownCard = this.shouldMount('activity_breakdown') ? html`
+            <div class="card" style="display: flex; flex-direction: column; min-width: 0;">
+                <h3 class="dashboard-module-title" style="text-align: center; margin-bottom: 1rem;">Activity Breakdown</h3>
+                <div class="chart-container-wrapper">
+                    <canvas id="pieChart"></canvas>
+                    <div id="pie-chart-empty-message" class="chart-empty-message"></div>
                 </div>
             </div>
-        `;
+        ` : null;
+        const visualizationCard = this.shouldMount('activity_visualization') ? html`
+            <div class="card" style="display: flex; flex-direction: column; min-width: 0;">
+                <h3 class="activity-charts-title dashboard-module-title">Activity Visualization</h3>
+                <div class="chart-container-wrapper">
+                    <canvas id="barChart"></canvas>
+                    <div id="bar-chart-empty-message" class="chart-empty-message"></div>
+                </div>
+            </div>
+        ` : null;
 
-        this.container.appendChild(chartsLayout);
-        this.setupListeners(chartsLayout);
-        this.syncControlState(chartsLayout);
-        this.renderCharts(chartsLayout).catch(error => {
+        if (breakdownCard) breakdownHost.appendChild(breakdownCard);
+        if (visualizationCard) visualizationHost.appendChild(visualizationCard);
+        if (!breakdownCard && !visualizationCard) return;
+
+        this.renderCharts({ breakdownCard, visualizationCard }).catch(error => {
             Logger.error('Failed to render dashboard charts', error);
         });
-    }
-
-    private setupListeners(layout: HTMLElement) {
-        layout.querySelector('#btn-chart-prev')?.addEventListener('click', () => {
-            if (this.state.timeRangeDays === ACTIVITY_TIME_RANGES.ALL_TIME) return;
-            this.onChartParamChange({ timeRangeOffset: this.state.timeRangeOffset + 1 });
-        });
-        layout.querySelector('#btn-chart-next')?.addEventListener('click', () => {
-            if (this.state.timeRangeDays !== ACTIVITY_TIME_RANGES.ALL_TIME && this.state.timeRangeOffset > 0) {
-                this.onChartParamChange({ timeRangeOffset: this.state.timeRangeOffset - 1 });
-            }
-        });
-        const toggleChartType = layout.querySelector<HTMLInputElement>('#toggle-chart-type');
-        toggleChartType?.addEventListener('change', () => {
-            this.onChartParamChange({ chartType: toggleChartType.checked ? 'line' : 'bar' });
-        });
-        const selectTimeRange = layout.querySelector<HTMLSelectElement>('#select-time-range');
-        selectTimeRange?.addEventListener('change', () => {
-            const days = Number.parseInt(selectTimeRange.value);
-            this.onChartParamChange({ timeRangeDays: days, timeRangeOffset: 0 });
-        });
-        const toggleGroupBy = layout.querySelector<HTMLInputElement>('#toggle-group-by');
-        toggleGroupBy?.addEventListener('change', () => {
-            this.onChartParamChange({ groupByMode: toggleGroupBy.checked ? 'log_name' : 'activity_type' });
-        });
-        const toggleMetric = layout.querySelector<HTMLInputElement>('#toggle-metric');
-        toggleMetric?.addEventListener('change', () => {
-            this.onChartParamChange({ metric: toggleMetric.checked ? 'characters' : 'minutes' });
-        });
-    }
-
-    private updateNavigationState(layout: HTMLElement) {
-        const isAllTime = this.state.timeRangeDays === ACTIVITY_TIME_RANGES.ALL_TIME;
-        const prevButton = layout.querySelector<HTMLButtonElement>('#btn-chart-prev');
-        const nextButton = layout.querySelector<HTMLButtonElement>('#btn-chart-next');
-
-        if (prevButton) prevButton.disabled = isAllTime;
-        if (nextButton) nextButton.disabled = isAllTime || this.state.timeRangeOffset === 0;
-    }
-
-    private syncControlState(layout: HTMLElement): void {
-        layout.dataset.timeRangeDays = String(this.state.timeRangeDays);
-        layout.dataset.timeRangeOffset = String(this.state.timeRangeOffset);
-
-        const rangeSelect = layout.querySelector<HTMLSelectElement>('#select-time-range');
-        if (rangeSelect) rangeSelect.value = String(this.state.timeRangeDays);
-
-        this.syncToggle(layout, '#toggle-chart-type', this.state.chartType === 'line');
-        this.syncToggle(layout, '#toggle-group-by', this.state.groupByMode === 'log_name');
-        this.syncToggle(layout, '#toggle-metric', this.state.metric === 'characters');
-        this.updateNavigationState(layout);
-    }
-
-    private syncToggle(layout: HTMLElement, selector: string, checked: boolean): void {
-        const input = layout.querySelector<HTMLInputElement>(selector);
-        if (!input) return;
-
-        input.checked = checked;
-        const labels = input.closest('.chart-toolbar-group')?.querySelectorAll<HTMLElement>('.toggle-label');
-        labels?.item(0).classList.toggle('active', !checked);
-        labels?.item(1).classList.toggle('active', checked);
     }
 
     /** Updates interaction state while a new backend range is in flight,
@@ -243,96 +185,97 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         // Prevent an older asynchronous Chart.js import/render from applying
         // data for the range that has just been superseded.
         this.renderGeneration++;
-        const layout = this.container.querySelector<HTMLElement>('#activity-charts-grid');
-        if (!layout) return;
-        delete layout.dataset.dashboardRequestId;
-        delete layout.dataset.chartEmpty;
-        layout.querySelectorAll<HTMLElement>('.chart-empty-message').forEach(message => {
-            message.classList.remove('is-visible');
-        });
-        const pieCanvas = layout.querySelector<HTMLCanvasElement>('#pieChart');
+        const { breakdownCard, visualizationCard } = this.getMountedCards();
+        const visualizationHost = this.hosts.get('activity_visualization');
+        delete visualizationHost?.dataset.chartEmpty;
+        for (const card of [breakdownCard, visualizationCard]) {
+            card?.querySelectorAll<HTMLElement>('.chart-empty-message').forEach(message => {
+                message.classList.remove('is-visible');
+            });
+        }
+        const pieCanvas = breakdownCard?.querySelector<HTMLCanvasElement>('#pieChart');
         delete pieCanvas?.dataset.dashboardRequestId;
         delete pieCanvas?.dataset.chartEmpty;
-        delete layout.querySelector<HTMLCanvasElement>('#barChart')?.dataset.chartEmpty;
-        this.syncControlState(layout);
+        delete visualizationCard?.querySelector<HTMLCanvasElement>('#barChart')?.dataset.chartEmpty;
     }
 
-    private async renderCharts(layout: HTMLElement): Promise<void> {
+    private async renderCharts(mounted: MountedActivityChartsCards): Promise<void> {
+        const { breakdownCard, visualizationCard } = mounted;
         const generation = ++this.renderGeneration;
         const snapshotRequestId = this.state.snapshotRequestId;
-        // The mounted canvases can still contain data from an earlier snapshot
+        const visualizationHost = this.hosts.get('activity_visualization');
+        const pieCanvas = breakdownCard?.querySelector<HTMLCanvasElement>('#pieChart') ?? null;
+        const barCanvas = visualizationCard?.querySelector<HTMLCanvasElement>('#barChart') ?? null;
+        // The mounted canvas can still contain data from an earlier snapshot
         // while Chart.js is being imported. Clear the completion marker until
-        // both charts have been constructed for this render generation.
-        delete layout.dataset.dashboardRequestId;
-        const pieCanvas = layout.querySelector<HTMLCanvasElement>('#pieChart')!;
-        const barCanvas = layout.querySelector<HTMLCanvasElement>('#barChart')!;
-        if (!pieCanvas || !barCanvas) return;
-        delete pieCanvas.dataset.dashboardRequestId;
+        // the chart has been constructed for this render generation.
+        delete pieCanvas?.dataset.dashboardRequestId;
 
         const colors = this.getChartColors();
         const borderColor = getComputedStyle(document.body).getPropertyValue('--border-color').trim();
         const rangeLogs = resolveRangeLogs(this.state.logs, this.state.rangeData);
         const timeRange = getActivityRange(this.state.timeRangeDays, this.state.timeRangeOffset, rangeLogs, this.state.weekStartDay ?? 1);
-        layout.dataset.rangeStart = timeRange.validStart;
-        layout.dataset.rangeEnd = timeRange.validEnd;
-        layout.dataset.timeRangeDays = String(this.state.timeRangeDays);
-        layout.dataset.timeRangeOffset = String(this.state.timeRangeOffset);
 
         // Publish the current aggregate data independently of Chart.js. Tests
         // and other DOM consumers that inspect the data should not have to wait
         // for the lazy chart module or the sibling activity chart to finish
         // constructing.
         const pieData = this.preparePieChartData(timeRange);
-        pieCanvas.dataset.groupBy = this.state.groupByMode;
-        pieCanvas.dataset.metric = this.state.metric;
-        pieCanvas.dataset.labels = JSON.stringify(pieData.labels);
-        pieCanvas.dataset.values = JSON.stringify(pieData.values);
-        if (snapshotRequestId !== undefined) {
-            pieCanvas.dataset.dashboardRequestId = snapshotRequestId.toString();
+        if (pieCanvas) {
+            pieCanvas.dataset.groupBy = this.state.groupByMode;
+            pieCanvas.dataset.metric = this.state.metric;
+            pieCanvas.dataset.labels = JSON.stringify(pieData.labels);
+            pieCanvas.dataset.values = JSON.stringify(pieData.values);
+            if (snapshotRequestId !== undefined) {
+                pieCanvas.dataset.dashboardRequestId = snapshotRequestId.toString();
+            }
         }
 
         // The pie sums every point in the range while the bar can only draw the
         // ones that fall in a bucket, so the two can disagree.
         const pieChartEmpty = this.isPieChartEmpty(pieData);
         const barChartEmpty = this.isBarChartEmpty(rangeLogs, timeRange);
-        pieCanvas.dataset.chartEmpty = pieChartEmpty ? 'true' : 'false';
-        barCanvas.dataset.chartEmpty = barChartEmpty ? 'true' : 'false';
-        layout.dataset.chartEmpty = pieChartEmpty && barChartEmpty ? 'true' : 'false';
-        this.syncEmptyStateMessages(layout, pieChartEmpty, barChartEmpty, timeRange);
+        if (pieCanvas) pieCanvas.dataset.chartEmpty = pieChartEmpty ? 'true' : 'false';
+        if (barCanvas) barCanvas.dataset.chartEmpty = barChartEmpty ? 'true' : 'false';
+        if (visualizationHost) visualizationHost.dataset.chartEmpty = pieChartEmpty && barChartEmpty ? 'true' : 'false';
+        this.syncEmptyStateMessages(breakdownCard, visualizationCard, pieChartEmpty, barChartEmpty, timeRange);
+        this.destroyEmptyChartInstances(pieChartEmpty, barChartEmpty);
 
-        const datasets: BarChartDataset[] = barChartEmpty ? [] : measureSynchronous(
+        const datasets: BarChartDataset[] = (!barCanvas || barChartEmpty) ? [] : measureSynchronous(
             'aggregation',
             'dashboard_bar_data',
             () => this.prepareBarChartDatasets(timeRange, colors, borderColor),
             { points: this.state.rangeData?.series.length ?? this.state.logs?.length ?? 0 },
         );
-        barCanvas.dataset.chartType = this.state.chartType;
-        barCanvas.dataset.groupBy = this.state.groupByMode;
-        barCanvas.dataset.metric = this.state.metric;
-        barCanvas.dataset.seriesLabels = JSON.stringify(datasets.map(dataset => dataset.label));
-        barCanvas.dataset.seriesTotals = JSON.stringify(
-            datasets.map(dataset => dataset.data.reduce((sum, value) => sum + value, 0)),
-        );
+        if (barCanvas) {
+            barCanvas.dataset.chartType = this.state.chartType;
+            barCanvas.dataset.groupBy = this.state.groupByMode;
+            barCanvas.dataset.metric = this.state.metric;
+            barCanvas.dataset.seriesLabels = JSON.stringify(datasets.map(dataset => dataset.label));
+            barCanvas.dataset.seriesTotals = JSON.stringify(
+                datasets.map(dataset => dataset.data.reduce((sum, value) => sum + value, 0)),
+            );
+        }
 
         if (pieChartEmpty && barChartEmpty) {
             this.destroyChartInstances();
-            if (snapshotRequestId !== undefined) {
-                layout.dataset.dashboardRequestId = snapshotRequestId.toString();
-            }
+            if (snapshotRequestId !== undefined) this.onRenderComplete(snapshotRequestId);
+            this.onCardsRendered();
             return;
         }
 
         const importStarted = performanceNow();
         const Chart = await loadChartConstructor();
         logPerformance('chart_import', 'chart_js', performanceNow() - importStarted);
-        if (generation !== this.renderGeneration || !this.container.contains(layout)) return;
+        if (generation !== this.renderGeneration) return;
+        if (breakdownCard && !breakdownCard.isConnected) return;
+        if (visualizationCard && !visualizationCard.isConnected) return;
 
         this.destroyChartInstances();
-        if (!pieChartEmpty) this.createPieChart(Chart, pieCanvas, colors, pieData);
-        if (!barChartEmpty) this.createBarChart(Chart, barCanvas, timeRange, datasets);
-        if (snapshotRequestId !== undefined) {
-            layout.dataset.dashboardRequestId = snapshotRequestId.toString();
-        }
+        if (pieCanvas && !pieChartEmpty) this.createPieChart(Chart, pieCanvas, colors, pieData);
+        if (barCanvas && !barChartEmpty) this.createBarChart(Chart, barCanvas, timeRange, datasets);
+        if (snapshotRequestId !== undefined) this.onRenderComplete(snapshotRequestId);
+        this.onCardsRendered();
     }
 
     private isPieChartEmpty(pieData: PieChartData): boolean {
@@ -349,7 +292,8 @@ export class ActivityCharts extends Component<ActivityChartsState> {
     }
 
     private syncEmptyStateMessages(
-        layout: HTMLElement,
+        breakdownCard: HTMLElement | null,
+        visualizationCard: HTMLElement | null,
         pieChartEmpty: boolean,
         barChartEmpty: boolean,
         timeRange: ActivityRange,
@@ -359,12 +303,12 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         const markup = todayInRange
             ? 'No data in this period. <span class="chart-empty-prompt">Go immerse!</span>'
             : 'No data in this period.';
-        const targets: ReadonlyArray<{ id: string; isEmpty: boolean }> = [
-            { id: 'pie-chart-empty-message', isEmpty: pieChartEmpty },
-            { id: 'bar-chart-empty-message', isEmpty: barChartEmpty },
-        ];
-        for (const { id, isEmpty } of targets) {
-            const message = layout.querySelector<HTMLElement>(`#${id}`);
+        const targets: ReadonlyArray<{ root: HTMLElement; id: string; isEmpty: boolean }> = [
+            breakdownCard ? { root: breakdownCard, id: 'pie-chart-empty-message', isEmpty: pieChartEmpty } : null,
+            visualizationCard ? { root: visualizationCard, id: 'bar-chart-empty-message', isEmpty: barChartEmpty } : null,
+        ].filter((target): target is { root: HTMLElement; id: string; isEmpty: boolean } => target !== null);
+        for (const { root, id, isEmpty } of targets) {
+            const message = root.querySelector<HTMLElement>(`#${id}`);
             if (!message) continue;
             if (isEmpty) message.innerHTML = markup;
             message.classList.toggle('is-visible', isEmpty);
@@ -652,9 +596,17 @@ export class ActivityCharts extends Component<ActivityChartsState> {
     }
 
     private destroyChartInstances(): void {
-        this.pieChartInstance?.destroy();
-        this.barChartInstance?.destroy();
-        this.pieChartInstance = null;
-        this.barChartInstance = null;
+        this.destroyEmptyChartInstances(true, true);
+    }
+
+    private destroyEmptyChartInstances(pieChartEmpty: boolean, barChartEmpty: boolean): void {
+        if (pieChartEmpty) {
+            this.pieChartInstance?.destroy();
+            this.pieChartInstance = null;
+        }
+        if (barChartEmpty) {
+            this.barChartInstance?.destroy();
+            this.barChartInstance = null;
+        }
     }
 }

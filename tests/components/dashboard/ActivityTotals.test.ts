@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ActivityTotals } from '../../../src/dashboard/ActivityTotals';
+import { ActivityTotals } from '../../../src/dashboard/cards/ActivityTotals';
 import { ActivitySummary, Media } from '../../../src/api';
 import { MediaCoverLoader } from '../../../src/media/cover_loader';
 import { Logger } from '../../../src/logger';
@@ -74,8 +74,11 @@ function weeklyLogs(): ActivitySummary[] {
     ];
 }
 
+type ActivityTotalsHostId = 'weekday_distribution' | 'period_stats' | 'categories' | 'highlights';
+
 describe('ActivityTotals', () => {
     let container: HTMLElement;
+    let hosts: Map<ActivityTotalsHostId, HTMLElement>;
     let isMobileLayout: boolean;
     let resizeCallback: (() => void) | undefined;
     let observeSpy: ReturnType<typeof vi.fn>;
@@ -83,6 +86,12 @@ describe('ActivityTotals', () => {
 
     beforeEach(() => {
         container = document.createElement('div');
+        hosts = new Map<ActivityTotalsHostId, HTMLElement>([
+            ['weekday_distribution', container],
+            ['period_stats', container],
+            ['categories', container],
+            ['highlights', container],
+        ]);
         isMobileLayout = false;
         resizeCallback = undefined;
         observeSpy = vi.fn();
@@ -118,7 +127,7 @@ describe('ActivityTotals', () => {
     });
 
     it('renders no totals cards when there are no visible totals', () => {
-        const component = new ActivityTotals(container, {
+        const component = new ActivityTotals(container, hosts, {
             logs: [],
             mediaList: [],
             timeRangeDays: 7,
@@ -128,7 +137,6 @@ describe('ActivityTotals', () => {
 
         component.render();
 
-        expect(container.querySelector('.dashboard-totals-grid')).not.toBeNull();
         expect(container.querySelector('.dashboard-totals-card')).toBeNull();
 
         const internals = component as unknown as {
@@ -138,7 +146,7 @@ describe('ActivityTotals', () => {
     });
 
     it('renders bounded backend totals and highlights without raw logs or a media library', () => {
-        const component = new ActivityTotals(container, {
+        const component = new ActivityTotals(container, hosts, {
             rangeData: {
                 request_id: 1,
                 start_date: '2026-06-08',
@@ -190,7 +198,7 @@ describe('ActivityTotals', () => {
     });
 
     it('renders a six-month weekday radar in configured week order with accessible statistics', () => {
-        const component = new ActivityTotals(container, {
+        const component = new ActivityTotals(container, hosts, {
             logs: weeklyLogs(),
             mediaList: weeklyMedia(),
             weekdayDistribution: {
@@ -245,7 +253,7 @@ describe('ActivityTotals', () => {
     });
 
     it('renders a compact empty state when the weekday window has no timed activity', () => {
-        const component = new ActivityTotals(container, {
+        const component = new ActivityTotals(container, hosts, {
             logs: [],
             mediaList: [],
             weekdayDistribution: {
@@ -266,7 +274,7 @@ describe('ActivityTotals', () => {
     });
 
     it('renders weekly totals, category totals, highlights, cover images, and selected day diffs', async () => {
-        const component = new ActivityTotals(container, {
+        const component = new ActivityTotals(container, hosts, {
             logs: weeklyLogs(),
             mediaList: weeklyMedia(),
             timeRangeDays: 7,
@@ -323,7 +331,7 @@ describe('ActivityTotals', () => {
 
     it('renders every day in monthly stats and resets the selected bucket when the timeframe changes', () => {
         const logs = weeklyLogs();
-        const component = new ActivityTotals(container, {
+        const component = new ActivityTotals(container, hosts, {
             logs: [
                 ...logs,
                 makeLog({ id: 9, media_id: 2, title: 'Anime B', activity_type: 'Watching', date: '2026-06-30', duration_minutes: 45, characters: 0 }),
@@ -368,7 +376,7 @@ describe('ActivityTotals', () => {
     });
 
     it('renders yearly month buckets and all-time year buckets', () => {
-        const component = new ActivityTotals(container, {
+        const component = new ActivityTotals(container, hosts, {
             logs: [
                 makeLog({ id: 1, media_id: 1, title: 'Novel A', date: '2025-12-31', duration_minutes: 30, characters: 0 }),
                 makeLog({ id: 2, media_id: 1, title: 'Novel A', date: '2026-01-02', duration_minutes: 60, characters: 1000 }),
@@ -414,7 +422,7 @@ describe('ActivityTotals', () => {
     });
 
     it('renders characters-only totals without hour columns', () => {
-        const component = new ActivityTotals(container, {
+        const component = new ActivityTotals(container, hosts, {
             logs: [
                 makeLog({ id: 1, media_id: 1, title: 'Visual Novel', date: '2026-06-08', duration_minutes: 0, characters: 1 }),
                 makeLog({ id: 2, media_id: 1, title: 'Visual Novel', date: '2026-06-09', duration_minutes: 0, characters: 2500 }),
@@ -437,7 +445,7 @@ describe('ActivityTotals', () => {
     });
 
     it('renders table durations as hours and minutes instead of decimal hours', () => {
-        const component = new ActivityTotals(container, {
+        const component = new ActivityTotals(container, hosts, {
             logs: [
                 makeLog({ id: 1, media_id: 1, date: '2026-06-08', duration_minutes: 30 }),
                 makeLog({ id: 2, media_id: 1, date: '2026-06-09', duration_minutes: 90 }),
@@ -465,7 +473,7 @@ describe('ActivityTotals', () => {
     });
 
     it('renders mobile highlights without pagination and responds to resize observer changes', async () => {
-        const component = new ActivityTotals(container, {
+        const component = new ActivityTotals(container, hosts, {
             logs: weeklyLogs(),
             mediaList: weeklyMedia(),
             timeRangeDays: 7,
@@ -501,7 +509,7 @@ describe('ActivityTotals', () => {
     it('logs cover loading failures without breaking highlight rendering', async () => {
         const errorSpy = vi.spyOn(Logger, 'error').mockImplementation(() => {});
         vi.mocked(MediaCoverLoader.load).mockRejectedValueOnce(new Error('cover failed'));
-        const component = new ActivityTotals(container, {
+        const component = new ActivityTotals(container, hosts, {
             logs: weeklyLogs(),
             mediaList: weeklyMedia(),
             timeRangeDays: 7,

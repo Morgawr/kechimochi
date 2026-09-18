@@ -4,6 +4,15 @@
 import { clickTopmostOverlayChild, confirmAction, performActivityEdit, safeClick, getTopmostVisibleOverlay, waitForNoActiveOverlays, selectActivityDate } from './common.js';
 import { setText, setSelect } from './form-controls.js';
 
+export function dashboardCardSelector(id: string): string {
+    return `[data-dashboard-card="${id}"]`;
+}
+
+export const DASHBOARD_CONTROLS_SELECTOR = dashboardCardSelector('controls');
+export const ACTIVITY_BREAKDOWN_SELECTOR = dashboardCardSelector('activity_breakdown');
+export const ACTIVITY_VISUALIZATION_SELECTOR = dashboardCardSelector('activity_visualization');
+export const WEEKDAY_DISTRIBUTION_SELECTOR = dashboardCardSelector('weekday_distribution');
+
 async function waitForActivitySubmissionResult(timeout = 5000): Promise<void> {
     await browser.waitUntil(async () => {
         return browser.execute(() => {
@@ -364,8 +373,8 @@ export async function waitForDashboardSettled(timeout = 20000): Promise<void> {
                 || root.dataset.dashboardPrimaryRequestId !== currentRequestId
                 || root.dataset.dashboardHeatmapRequestId !== currentRequestId) return false;
 
-            const charts = root.querySelector<HTMLElement>('#activity-charts-grid');
-            return charts?.dataset.dashboardRequestId === currentRequestId;
+            const controls = root.querySelector<HTMLElement>('[data-dashboard-card="controls"]');
+            return controls?.dataset.dashboardRequestId === currentRequestId;
         }).catch(() => false);
     }, {
         timeout,
@@ -415,17 +424,16 @@ export async function getActivityChartRangeMetadata(): Promise<{
     timeRangeDays: string;
     timeRangeOffset: string;
 }> {
-    const getGrid = () => $('#activity-charts-grid');
-    await getGrid().waitForDisplayed({ timeout: 5000 });
+    await $(DASHBOARD_CONTROLS_SELECTOR).waitForDisplayed({ timeout: 5000 });
 
     await browser.waitUntil(async () => {
         return browser.execute(() => {
             const root = document.querySelector<HTMLElement>('.dashboard-root');
-            const layout = document.querySelector<HTMLElement>('#activity-charts-grid');
+            const controls = document.querySelector<HTMLElement>('[data-dashboard-card="controls"]');
             const currentRequestId = root?.dataset.dashboardRequestId;
-            if (!currentRequestId || layout?.dataset.dashboardRequestId !== currentRequestId) return false;
+            if (!currentRequestId || controls?.dataset.dashboardRequestId !== currentRequestId) return false;
 
-            return Boolean(layout.dataset.rangeStart);
+            return Boolean(controls.dataset.rangeStart);
         }).catch(() => false);
     }, {
         timeout: 10000,
@@ -434,12 +442,12 @@ export async function getActivityChartRangeMetadata(): Promise<{
     });
 
     return browser.execute(() => {
-        const layout = document.querySelector<HTMLElement>('#activity-charts-grid');
+        const controls = document.querySelector<HTMLElement>('[data-dashboard-card="controls"]');
         return {
-            rangeStart: layout?.dataset.rangeStart ?? '',
-            rangeEnd: layout?.dataset.rangeEnd ?? '',
-            timeRangeDays: layout?.dataset.timeRangeDays ?? '',
-            timeRangeOffset: layout?.dataset.timeRangeOffset ?? ''
+            rangeStart: controls?.dataset.rangeStart ?? '',
+            rangeEnd: controls?.dataset.rangeEnd ?? '',
+            timeRangeDays: controls?.dataset.timeRangeDays ?? '',
+            timeRangeOffset: controls?.dataset.timeRangeOffset ?? ''
         };
     });
 }
