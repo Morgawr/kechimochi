@@ -16,6 +16,7 @@ The format is based on Keep a Changelog, with one section per released version.
  - Media supporting reading speed estimates can now carry a custom override, set from the media detail menu
  - Activity logs can now be scoped to a whole month or year instead of a single day, for recording time you know you spent without inventing a date for it. Dashboard graphs gained according visualization.
  - The dashboard now has an always-visible controls card and a Cards menu to show or hide individual dashboard cards, with the layout reflowing to avoid empty gaps. The choice persists across reloads.
+ - The dashboard Highlights card gained a Top Category highlight, showing which content type took the most time in the selected period
 
 ### Changed
  - Doughnut and stacked-bar chart segments now have a border separating them, across all themes

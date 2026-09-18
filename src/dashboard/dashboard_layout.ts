@@ -57,13 +57,8 @@ export function packCards(
         const row: PackedCard[] = [seed];
         let used = seed.span;
 
-        while (used < columns) {
-            const gap = columns - used;
-            const exactFitIndex = remaining.findIndex(card => card.span === gap);
-            const pickIndex = exactFitIndex !== -1 ? exactFitIndex : remaining.findIndex(card => card.span < gap);
-            if (pickIndex === -1) break;
-
-            const [picked] = remaining.splice(pickIndex, 1);
+        while (used < columns && remaining.length > 0 && remaining[0].span <= columns - used) {
+            const picked = remaining.shift()!;
             row.push(picked);
             used += picked.span;
         }

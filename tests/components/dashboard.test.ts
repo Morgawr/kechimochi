@@ -655,10 +655,10 @@ describe('Dashboard', () => {
         expect(container.querySelector('#dashboard-columns')?.classList.contains('is-side-panel-collapsed')).toBe(false);
     });
 
-    it('should anchor the side panel toggle inside the collapsible column', async () => {
+    it('should place the side panel toggle inside the controls card', async () => {
         await loadDashboard();
 
-        expect(container.querySelector('#dashboard-left-column > #dashboard-side-panel-toggle')).not.toBeNull();
+        expect(container.querySelector('.dashboard-controls-card #dashboard-side-panel-toggle')).not.toBeNull();
     });
 
     it('should collapse the side panel when the toggle is clicked', async () => {

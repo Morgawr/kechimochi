@@ -1,10 +1,11 @@
 import { Component } from '../../component';
-import { html } from '../../html';
+import { html, rawHtml } from '../../html';
 import { DailyHeatmap, getDashboardHeatmapYear } from '../../api';
 import { Logger } from '../../logger';
 import { measureSynchronous } from '../../performance';
 import { getLocalISODate } from '../activity_ranges';
 import type { DashboardCardDescriptor } from '../dashboard_layout';
+import { renderDashboardCardEmptyState, renderDashboardCardShell } from '../card_shell';
 
 export const HEATMAP_CARD = {
     id: 'heatmap',
@@ -75,7 +76,10 @@ export class HeatmapView extends Component<HeatmapViewState> {
         this.clear();
         
         if (Number.isNaN(this.state.year)) {
-            this.container.innerHTML = '<div style="text-align: center; color: var(--text-secondary); padding: 2rem;">No data recorded yet.</div>';
+            this.container.appendChild(html`${rawHtml(renderDashboardCardShell({
+                title: HEATMAP_CARD.label,
+                body: renderDashboardCardEmptyState('No data recorded yet.'),
+            }))}`);
             return;
         }
 

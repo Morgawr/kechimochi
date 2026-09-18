@@ -46,6 +46,7 @@ export class DashboardControls extends Component<DashboardControlsState> {
     private readonly cards: readonly DashboardCardsMenuEntry[];
     private readonly getHiddenCards: () => ReadonlySet<DashboardCardId>;
     private readonly onToggleCard: (id: DashboardCardId, isVisible: boolean) => void;
+    private readonly createSidePanelToggle: () => HTMLElement;
     private cardElement: HTMLElement | null = null;
     private closeCardsMenu: (() => void) | null = null;
 
@@ -56,12 +57,14 @@ export class DashboardControls extends Component<DashboardControlsState> {
         cards: readonly DashboardCardsMenuEntry[],
         getHiddenCards: () => ReadonlySet<DashboardCardId>,
         onToggleCard: (id: DashboardCardId, isVisible: boolean) => void,
+        createSidePanelToggle: () => HTMLElement,
     ) {
         super(container, initialState);
         this.onChartParamChange = onChartParamChange;
         this.cards = cards;
         this.getHiddenCards = getHiddenCards;
         this.onToggleCard = onToggleCard;
+        this.createSidePanelToggle = createSidePanelToggle;
     }
 
     public setState(newState: Partial<DashboardControlsState>): void {
@@ -77,7 +80,7 @@ export class DashboardControls extends Component<DashboardControlsState> {
         this.clear();
         const card = html`
             <div class="card dashboard-controls-card">
-                <h3 class="dashboard-module-title">Dashboard Controls</h3>
+                <h3 class="dashboard-card-title">Dashboard Controls</h3>
                 <div class="dashboard-controls-row">
                     <div class="activity-charts-title-controls dashboard-range-nav">
                         <button class="btn btn-ghost chart-nav-button" id="btn-chart-prev">
@@ -135,6 +138,7 @@ export class DashboardControls extends Component<DashboardControlsState> {
                             <span class="toggle-label ${this.state.metric === 'characters' ? 'active' : ''}">Chars</span>
                         </div>
                     </div>
+                    ${this.createSidePanelToggle()}
                     <button type="button" class="btn btn-ghost dashboard-cards-menu-button" id="dashboard-cards-menu-button">Cards</button>
                     <p class="dashboard-controls-hint" id="dashboard-controls-hint" hidden>Every card is hidden. Use Cards to bring one back.</p>
                 </div>

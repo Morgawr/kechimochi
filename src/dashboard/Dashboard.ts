@@ -209,7 +209,6 @@ export class Dashboard extends Component<DashboardState> {
 
             this.containers.leftColumn = html`<div id="dashboard-left-column"></div>`;
             dashboardColumns.appendChild(this.containers.leftColumn);
-            this.containers.leftColumn.appendChild(this.createSidePanelToggle());
             this.containers.stats = this.createStageContainer('stats-box-container', 'Loading study stats…');
             this.containers.leftColumn.appendChild(this.containers.stats);
             this.containers.quickLog = this.createStageContainer('quick-log-container', 'Loading quick log…');
@@ -228,6 +227,7 @@ export class Dashboard extends Component<DashboardState> {
                 DASHBOARD_CARD_ORDER,
                 () => this.hiddenCards,
                 (id, isVisible) => this.toggleCardVisibility(id, isVisible),
+                () => this.createSidePanelToggle(),
             );
             this.controlsComponent.render();
 
@@ -257,13 +257,14 @@ export class Dashboard extends Component<DashboardState> {
     }
 
     private createSidePanelToggle(): HTMLElement {
+        const label = this.sidePanelCollapsed ? SIDE_PANEL_SHOW_LABEL : SIDE_PANEL_HIDE_LABEL;
         const toggle = html`
             <button type="button" id="dashboard-side-panel-toggle"
                 class="dashboard-side-panel-toggle"
                 aria-controls="dashboard-left-column"
-                aria-expanded="true"
-                aria-label="${SIDE_PANEL_HIDE_LABEL}"
-                title="${SIDE_PANEL_HIDE_LABEL}">
+                aria-expanded="${(!this.sidePanelCollapsed).toString()}"
+                aria-label="${label}"
+                title="${label}">
                 <svg class="dashboard-side-panel-chevron" width="14" height="14" viewBox="0 0 12 12" fill="none" aria-hidden="true">
                     <path d="M7.5 2.5L4 6l3.5 3.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>

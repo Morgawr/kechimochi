@@ -1,5 +1,5 @@
 import { Component } from '../../component';
-import { html, escapeHTML } from '../../html';
+import { escapeHTML } from '../../html';
 import {
     deleteLog,
     getDashboardRecentLogs,
@@ -15,6 +15,7 @@ import { Logger } from '../../logger';
 import { VIEW_NAMES, EVENTS } from '../../constants';
 import { measureSynchronous } from '../../performance';
 import type { DashboardCardDescriptor } from '../dashboard_layout';
+import { renderDashboardCardEmptyState, renderDashboardCardShell } from '../card_shell';
 
 export const RECENT_ACTIVITY_CARD = {
     id: 'recent_activity',
@@ -57,20 +58,18 @@ export class RecentActivity extends Component<RecentActivityState> {
     render(): void {
         if (!this.paginationContainer || !this.logsListContainer) {
             this.clear();
-            const card = html`
-                <div class="card">
-                    <div id="logs-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap:wrap;">
-                        <h3 class="dashboard-module-title" style="margin: 0;">Recent Activity</h3>
-                        <div id="pagination-container" style="margin: 0 auto;"></div>
-                    </div>
-                    <div id="recent-logs-list" style="display: flex; flex-direction: column; gap: 0.5rem;">
+            this.container.insertAdjacentHTML('beforeend', renderDashboardCardShell({
+                title: 'Recent Activity',
+                cardClasses: ['dashboard-recent-activity-card'],
+                headerExtras: '<div id="pagination-container"></div>',
+                body: `
+                    <div id="recent-logs-list" style="display: flex; flex-direction: column; flex: 1; gap: 0.5rem;">
                         <p class="dashboard-stage-placeholder" style="color: var(--text-secondary);">Loading recent activity…</p>
                     </div>
-                </div>
-            `;
-            this.container.appendChild(card);
-            this.paginationContainer = card.querySelector<HTMLElement>('#pagination-container')!;
-            this.logsListContainer = card.querySelector<HTMLElement>('#recent-logs-list')!;
+                `,
+            }));
+            this.paginationContainer = this.container.querySelector<HTMLElement>('#pagination-container')!;
+            this.logsListContainer = this.container.querySelector<HTMLElement>('#recent-logs-list')!;
         }
 
         this.updateRecentLogs();
@@ -169,7 +168,7 @@ export class RecentActivity extends Component<RecentActivityState> {
 
     private renderLogsList(list: HTMLElement, logs: DashboardRecentLog[]): void {
         if (logs.length === 0) {
-            list.innerHTML = '<p style="color: var(--text-secondary);">No activity logged yet.</p>';
+            list.innerHTML = renderDashboardCardEmptyState('No activity logged yet.');
             return;
         }
         const currentProfile = localStorage.getItem('kechimochi_profile') || 'default';

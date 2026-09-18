@@ -135,7 +135,7 @@ describe('ActivityTotals', () => {
 
         component.render();
 
-        expect(container.querySelector('.dashboard-totals-card')).toBeNull();
+        expect(container.querySelector('.dashboard-card')).toBeNull();
 
         const internals = component as unknown as {
             renderHighlights: (highlights: unknown[]) => string;
@@ -219,7 +219,7 @@ describe('ActivityTotals', () => {
 
         component.render();
 
-        const cards = Array.from(container.querySelectorAll<HTMLElement>('.dashboard-totals-card'));
+        const cards = Array.from(container.querySelectorAll<HTMLElement>('.dashboard-card'));
         const radar = container.querySelector<SVGElement>('.dashboard-weekday-radar');
         const labels = Array.from(container.querySelectorAll('.dashboard-weekday-label')).map(label => label.textContent);
         const mondayPoint = container.querySelector<SVGCircleElement>('[data-weekday="1"]');

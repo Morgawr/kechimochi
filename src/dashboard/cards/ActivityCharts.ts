@@ -1,5 +1,5 @@
 import { Component } from '../../component';
-import { html } from '../../html';
+import { html, rawHtml } from '../../html';
 import { ActivitySummary, DashboardRangeResponse, Media } from '../../api';
 import type { Chart as ChartInstance } from 'chart.js';
 import { formatStatsDuration } from '../../time';
@@ -8,6 +8,7 @@ import { Logger } from '../../logger';
 import { logPerformance, measureSynchronous, performanceNow } from '../../performance';
 import { loadChartConstructor, type ChartConstructor } from '../../chart_loader';
 import type { DashboardCardDescriptor } from '../dashboard_layout';
+import { renderDashboardCardShell, renderNoPeriodDataMessage } from '../card_shell';
 
 export const ACTIVITY_BREAKDOWN_CARD = {
     id: 'activity_breakdown',
@@ -165,24 +166,24 @@ export class ActivityCharts extends Component<ActivityChartsState> {
 
         this.clear();
 
-        const breakdownCard = this.shouldMount('activity_breakdown') ? html`
-            <div class="card" style="display: flex; flex-direction: column; min-width: 0;">
-                <h3 class="dashboard-module-title" style="text-align: center; margin-bottom: 1rem;">Activity Breakdown</h3>
+        const breakdownCard = this.shouldMount('activity_breakdown') ? html`${rawHtml(renderDashboardCardShell({
+            title: 'Activity Breakdown',
+            body: `
                 <div class="chart-container-wrapper">
                     <canvas id="pieChart"></canvas>
                     <div id="pie-chart-empty-message" class="chart-empty-message"></div>
                 </div>
-            </div>
-        ` : null;
-        const visualizationCard = this.shouldMount('activity_visualization') ? html`
-            <div class="card" style="display: flex; flex-direction: column; min-width: 0;">
-                <h3 class="activity-charts-title dashboard-module-title">Activity Visualization</h3>
+            `,
+        }))}` : null;
+        const visualizationCard = this.shouldMount('activity_visualization') ? html`${rawHtml(renderDashboardCardShell({
+            title: 'Activity Visualization',
+            body: `
                 <div class="chart-container-wrapper">
                     <canvas id="barChart"></canvas>
                     <div id="bar-chart-empty-message" class="chart-empty-message"></div>
                 </div>
-            </div>
-        ` : null;
+            `,
+        }))}` : null;
 
         if (breakdownCard) breakdownHost.appendChild(breakdownCard);
         if (visualizationCard) visualizationHost.appendChild(visualizationCard);
@@ -314,10 +315,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         timeRange: ActivityRange,
     ): void {
         const today = getLocalISODate(new Date());
-        const todayInRange = today >= timeRange.validStart && today <= timeRange.validEnd;
-        const markup = todayInRange
-            ? 'No data in this period. <span class="chart-empty-prompt">Go immerse!</span>'
-            : 'No data in this period.';
+        const markup = renderNoPeriodDataMessage(today >= timeRange.validStart && today <= timeRange.validEnd);
         const targets: ReadonlyArray<{ root: HTMLElement; id: string; isEmpty: boolean }> = [
             breakdownCard ? { root: breakdownCard, id: 'pie-chart-empty-message', isEmpty: pieChartEmpty } : null,
             visualizationCard ? { root: visualizationCard, id: 'bar-chart-empty-message', isEmpty: barChartEmpty } : null,

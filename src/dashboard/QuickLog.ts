@@ -37,7 +37,7 @@ export class QuickLog extends Component<QuickLogState> {
         this.discardEvictedCoverUrls(items);
         const content = html`
             <div class="card quick-log-card" style="display: flex; flex-direction: column; gap: 0.9rem; min-height: 0;">
-                <h3 class="dashboard-module-title">Quick Log</h3>
+                <h3 class="dashboard-card-title">Quick Log</h3>
                 <div id="quick-log-list" style="display: flex; flex-direction: column; gap: 0.2rem;"></div>
             </div>
         `;

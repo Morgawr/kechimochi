@@ -28,6 +28,7 @@ describe('DashboardControls', () => {
             CARDS,
             () => hiddenCards,
             onToggleCard,
+            () => document.createElement('button'),
         );
         controls.render();
         return controls;

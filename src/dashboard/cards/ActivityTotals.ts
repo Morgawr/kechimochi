@@ -7,6 +7,7 @@ import { getActivityRange, getLocalISODate, getPreviousBucketKey, normalizeWeekS
 import { MediaCoverLoader } from '../../media/cover_loader';
 import { Logger } from '../../logger';
 import type { DashboardCardDescriptor } from '../dashboard_layout';
+import { renderDashboardCardShell, renderNoPeriodDataEmptyState } from '../card_shell';
 
 export const WEEKDAY_DISTRIBUTION_CARD = {
     id: 'weekday_distribution',
@@ -32,13 +33,14 @@ export const CATEGORIES_CARD = {
 export const HIGHLIGHTS_CARD = {
     id: 'highlights',
     label: 'Highlights',
-    spans: { wide: 12, medium: 6 },
+    spans: { wide: 8, medium: 6 },
     dataSources: ['range'],
 } as const satisfies DashboardCardDescriptor;
 
 export type ActivityTotalsHostId = 'weekday_distribution' | 'period_stats' | 'categories' | 'highlights';
 
 const MOBILE_HIGHLIGHT_LAYOUT_QUERY = '(max-width: 1024px)';
+const DESKTOP_HIGHLIGHTS_PER_PAGE = 3;
 
 interface ActivityTotalsState {
     logs?: ActivitySummary[];
@@ -88,7 +90,7 @@ interface HighlightCard {
     value: string;
     detail: string;
     media?: Media | DashboardMedia;
-    tone: 'time' | 'chars' | 'sessions' | 'day' | 'streak';
+    tone: 'time' | 'chars' | 'sessions' | 'day' | 'streak' | 'category';
 }
 
 export class ActivityTotals extends Component<ActivityTotalsState> {
@@ -208,11 +210,13 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
             selectable: false,
         }));
         const selectedSubject = bucketRows[selectedIndex]?.subject || this.getCurrentSubjectLabel(range.unit);
-        const highlights = this.getHighlights(range.validStart, range.validEnd);
+        const highlights = this.getHighlights(range.validStart, range.validEnd, categoryTotals);
+        const today = getLocalISODate(new Date());
+        const isTodayInRange = today >= range.validStart && today <= range.validEnd;
 
-        this.renderSectionInto('period_stats', this.renderStatsPanel(range, bucketTotals, statsTableRows, selectedIndex, currentIndex, selectedSubject));
-        this.renderSectionInto('categories', this.renderCategoriesPanel(range, categoryRows));
-        this.renderSectionInto('highlights', this.renderHighlightsPanel(highlights));
+        this.renderSectionInto('period_stats', this.renderStatsPanel(range, bucketTotals, statsTableRows, selectedIndex, currentIndex, selectedSubject, isTodayInRange));
+        this.renderSectionInto('categories', this.renderCategoriesPanel(categoryRows, isTodayInRange));
+        this.renderSectionInto('highlights', this.renderHighlightsPanel(highlights, isTodayInRange));
 
         this.setupListeners(this.container);
         this.setupHighlights(this.container, highlights);
@@ -262,18 +266,12 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
         selectedIndex: number,
         currentIndex: number,
         selectedSubject: string,
+        isTodayInRange: boolean,
     ): string {
         const columns = this.getTotalsColumns(rows);
-        if (!this.hasVisibleTotals(columns)) return '';
-
-        return `
-            <section class="card dashboard-totals-card">
-                <div class="dashboard-stats-header">
-                    <h3 class="dashboard-module-title dashboard-totals-title">${this.getTitle(range.period)} Stats</h3>
-                    <span class="dashboard-stats-range-label">${this.getRangeLabel(range.validStart, range.validEnd, range.period)}</span>
-                </div>
-                ${this.renderTotalsTable(this.getUnitHeader(range.unit), rows, columns, range.unit === 'day')}
-                ${this.renderSelectedSummary(
+        const body = this.hasVisibleTotals(columns) ? `
+            ${this.renderTotalsTable(this.getUnitHeader(range.unit), rows, columns, range.unit === 'day')}
+            ${this.renderSelectedSummary(
             range,
             bucketTotals,
             selectedIndex,
@@ -282,39 +280,97 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
             selectedSubject,
             columns,
         )}
-            </section>
-        `;
+        ` : renderNoPeriodDataEmptyState(isTodayInRange);
+
+        return renderDashboardCardShell({ title: `${this.getTitle(range.period)} Stats`, body });
     }
 
-    private renderCategoriesPanel(range: ActivityRange, categoryRows: BucketRow[]): string {
+    private renderCategoriesPanel(categoryRows: BucketRow[], isTodayInRange: boolean): string {
         const columns = this.getTotalsColumns(categoryRows);
-        if (!this.hasVisibleTotals(columns)) return '';
+        const body = this.hasVisibleTotals(columns)
+            ? this.renderTotalsTable('Title', categoryRows, columns)
+            : renderNoPeriodDataEmptyState(isTodayInRange);
 
-        return `
-            <section class="card dashboard-totals-card">
-                <div class="dashboard-stats-header">
-                    <h3 class="dashboard-module-title dashboard-totals-title">Categories</h3>
-                    <span class="dashboard-stats-range-label">${this.getRangeLabel(range.validStart, range.validEnd, range.period)}</span>
-                </div>
-                ${this.renderTotalsTable('Title', categoryRows, columns)}
-            </section>
-        `;
+        return renderDashboardCardShell({ title: CATEGORIES_CARD.label, body });
     }
 
-    private renderHighlightsPanel(highlights: HighlightCard[]): string {
-        if (highlights.length === 0) return '';
+    private renderHighlightsPanel(highlights: HighlightCard[], isTodayInRange: boolean): string {
+        if (highlights.length === 0) {
+            return renderDashboardCardShell({
+                title: HIGHLIGHTS_CARD.label,
+                body: renderNoPeriodDataEmptyState(isTodayInRange),
+                cardClasses: ['dashboard-highlights-card'],
+            });
+        }
 
+        const isMobile = this.isMobileHighlightLayout();
+        const pageSize = isMobile ? highlights.length : DESKTOP_HIGHLIGHTS_PER_PAGE;
+        this.highlightsPerPage = pageSize;
+        const maxPage = this.getHighlightMaxPage(highlights.length);
+        this.highlightPage = Math.min(this.highlightPage, maxPage);
+        const start = this.highlightPage * pageSize;
+        const visibleHighlights = highlights.slice(start, start + pageSize);
+        const needsPagination = !isMobile && highlights.length > pageSize;
+        const headerExtras = needsPagination
+            ? `<span class="dashboard-highlights-page-count">${this.highlightPage + 1}/${maxPage + 1}</span>`
+            : '';
+
+        return renderDashboardCardShell({
+            title: HIGHLIGHTS_CARD.label,
+            body: this.renderHighlightsBody(visibleHighlights, needsPagination, maxPage),
+            headerExtras,
+            cardClasses: ['dashboard-highlights-card'],
+        });
+    }
+
+    private renderHighlightsBody(visibleHighlights: HighlightCard[], needsPagination: boolean, maxPage: number): string {
+        const grid = `
+            <div class="dashboard-highlights-viewport">
+                <div class="dashboard-highlights-grid">
+                    ${visibleHighlights.map(highlight => this.renderHighlightCard(highlight)).join('')}
+                </div>
+            </div>
+        `;
+        if (!needsPagination) return grid;
+
+        const disableLeftPageArrow = this.highlightPage === 0 ? 'disabled' : '';
+        const disableRightPageArrow = this.highlightPage >= maxPage ? 'disabled' : '';
         return `
-            <section class="card dashboard-totals-card dashboard-highlights-card">
-                ${this.renderHighlights(highlights)}
-            </section>
+            <div class="dashboard-highlights-shell">
+                <button type="button" class="dashboard-highlights-nav" data-highlights-dir="prev" ${disableLeftPageArrow} aria-label="Previous highlights">
+                    <svg width="12" height="28" viewBox="0 0 12 28" fill="none">
+                        <path d="M8 4L3 14L8 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </button>
+                ${grid}
+                <button type="button" class="dashboard-highlights-nav" data-highlights-dir="next" ${disableRightPageArrow} aria-label="Next highlights">
+                    <svg width="12" height="28" viewBox="0 0 12 28" fill="none">
+                        <path d="M4 4L9 14L4 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </button>
+            </div>
         `;
     }
 
     private renderWeekdayDistributionPanel(): string {
         const distribution = this.state.weekdayDistribution;
-        if (!distribution) return '';
         const metric = this.state.metric ?? 'minutes';
+        const emptyMetricLabel = metric === 'minutes' ? 'timed' : 'character';
+        const emptyBody = `
+            <div class="dashboard-weekday-empty">
+                <span aria-hidden="true">◇</span>
+                <p>No ${emptyMetricLabel} activity in the last 6 months.</p>
+            </div>
+        `;
+
+        if (!distribution) {
+            return renderDashboardCardShell({
+                title: WEEKDAY_DISTRIBUTION_CARD.label,
+                body: emptyBody,
+                cardClasses: ['dashboard-weekday-card'],
+                attributes: { 'data-metric': metric },
+            });
+        }
 
         const daysByWeekday = new Map(distribution.days.map(day => [day.weekday, day]));
         const orderedDays = Array.from({ length: 7 }, (_, index) => {
@@ -329,21 +385,18 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
             };
         });
         const hasActivity = orderedDays.some(day => this.getRadarAverage(day, metric) > 0);
-        const emptyMetricLabel = metric === 'minutes' ? 'timed' : 'character';
+        const body = hasActivity ? this.renderWeekdayRadar(orderedDays, metric) : emptyBody;
 
-        return `
-            <section class="card dashboard-totals-card dashboard-weekday-card"
-                data-range-start="${escapeHTML(distribution.start_date)}"
-                data-range-end="${escapeHTML(distribution.end_date)}"
-                data-metric="${metric}">
-                ${hasActivity ? this.renderWeekdayRadar(orderedDays, metric) : `
-                    <div class="dashboard-weekday-empty">
-                        <span aria-hidden="true">◇</span>
-                        <p>No ${emptyMetricLabel} activity in the last 6 months.</p>
-                    </div>
-                `}
-            </section>
-        `;
+        return renderDashboardCardShell({
+            title: WEEKDAY_DISTRIBUTION_CARD.label,
+            body,
+            cardClasses: ['dashboard-weekday-card'],
+            attributes: {
+                'data-range-start': distribution.start_date,
+                'data-range-end': distribution.end_date,
+                'data-metric': metric,
+            },
+        });
     }
 
     private renderWeekdayRadar(days: DashboardWeekdayStats[], metric: 'minutes' | 'characters'): string {
@@ -540,14 +593,19 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
             .sort((a, b) => b[1].minutes - a[1].minutes || b[1].characters - a[1].characters);
     }
 
-    private getHighlights(validStart: string, validEnd: string): HighlightCard[] {
-        if (this.state.rangeData) {
-            return this.state.rangeData.highlights
+    private getHighlights(
+        validStart: string,
+        validEnd: string,
+        categoryTotals: ReadonlyArray<[string, Totals]>,
+    ): HighlightCard[] {
+        const highlights = this.state.rangeData
+            ? this.state.rangeData.highlights
                 .map(highlight => this.toHighlightCard(highlight))
-                .filter((highlight): highlight is HighlightCard => highlight !== null);
-        }
+                .filter((highlight): highlight is HighlightCard => highlight !== null)
+            : this.getLegacyHighlights(validStart, validEnd);
 
-        return this.getLegacyHighlights(validStart, validEnd);
+        const topCategory = this.getTopCategoryHighlight(categoryTotals);
+        return topCategory === null ? highlights : [...highlights, topCategory];
     }
 
     private getLegacyHighlights(validStart: string, validEnd: string): HighlightCard[] {
@@ -812,7 +870,9 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
                     ${columns.showCharacters ? '<span class="dashboard-stats-row-value">Chars</span>' : ''}
                     ${columns.showHours ? '<span class="dashboard-stats-row-value">Hours</span>' : ''}
                 </div>
-                ${rows.map((row, index) => this.renderTotalsRow(row, row.selectable ? index : null, columns, gridTemplateColumns, splitDayLabel)).join('')}
+                <div class="dashboard-stats-rows">
+                    ${rows.map((row, index) => this.renderTotalsRow(row, row.selectable ? index : null, columns, gridTemplateColumns, splitDayLabel)).join('')}
+                </div>
                 <div class="dashboard-stats-row dashboard-stats-row-total" style="grid-template-columns: ${gridTemplateColumns};">
                     <span class="${splitDayLabel ? 'dashboard-stats-row-total-label' : ''}">Total</span>
                     ${columns.showCharacters ? `<span class="dashboard-stats-row-value">${escapeHTML(this.getRowsTotal(rows, 'characters'))}</span>` : ''}
@@ -928,13 +988,6 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
         return { label, subject: label };
     }
 
-    private getRangeLabel(validStart: string, validEnd: string, period: ActivityPeriod): string {
-        if (period === 'year') return validStart.slice(0, 4);
-        if (period === 'month') return validStart.slice(0, 7);
-        if (period === 'all-time') return 'All Time';
-        return `${validStart.slice(5)} to ${validEnd.slice(5)}`;
-    }
-
     private getComparisonUnitLabel(unit: string): string {
         switch (unit) {
             case 'day': return 'day';
@@ -998,65 +1051,6 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
         return globalThis.window !== undefined && globalThis.matchMedia?.(MOBILE_HIGHLIGHT_LAYOUT_QUERY).matches;
     }
 
-    private renderHighlights(highlights: HighlightCard[]): string {
-        const isMobile = this.isMobileHighlightLayout();
-        const pageSize = isMobile ? highlights.length : 3;
-        this.highlightsPerPage = pageSize;
-        const maxPage = this.getHighlightMaxPage(highlights.length);
-        this.highlightPage = Math.min(this.highlightPage, maxPage);
-        const start = this.highlightPage * pageSize;
-        const visibleHighlights = highlights.slice(start, start + pageSize);
-        const needsPagination = !isMobile && highlights.length > pageSize;
-        const disableLeftPageArrow = this.highlightPage === 0 ? 'disabled' : '';
-        const disableRightPageArrow = this.highlightPage >= maxPage ? 'disabled' : '';
-
-        if (highlights.length === 0) {
-            return `
-                <div class="dashboard-highlights-section">
-                    <div class="dashboard-stats-header">
-                        <h3 class="dashboard-module-title dashboard-totals-title">Highlights</h3>
-                        <span class="dashboard-stats-range-label"></span>
-                    </div>
-                    <p class="dashboard-totals-empty">No activity for this timeframe.</p>
-                </div>
-            `;
-        }
-
-        return `
-            <div class="dashboard-highlights-section">
-                <div class="dashboard-stats-header">
-                    <h3 class="dashboard-module-title dashboard-totals-title">Highlights</h3>
-                    <span class="dashboard-stats-range-label">${needsPagination ? `${this.highlightPage + 1}/${maxPage + 1}` : ''}</span>
-                </div>
-                ${needsPagination ? `
-                    <div class="dashboard-highlights-shell">
-                        <button type="button" class="dashboard-highlights-nav" data-highlights-dir="prev" ${disableLeftPageArrow} aria-label="Previous highlights">
-                            <svg width="12" height="28" viewBox="0 0 12 28" fill="none">
-                                <path d="M8 4L3 14L8 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                            </svg>
-                        </button>
-                        <div class="dashboard-highlights-viewport">
-                            <div class="dashboard-highlights-grid">
-                                ${visibleHighlights.map(highlight => this.renderHighlightCard(highlight)).join('')}
-                            </div>
-                        </div>
-                        <button type="button" class="dashboard-highlights-nav" data-highlights-dir="next" ${disableRightPageArrow} aria-label="Next highlights">
-                            <svg width="12" height="28" viewBox="0 0 12 28" fill="none">
-                                <path d="M4 4L9 14L4 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                            </svg>
-                        </button>
-                    </div>
-                ` : `
-                    <div class="dashboard-highlights-viewport">
-                        <div class="dashboard-highlights-grid">
-                            ${highlights.map(highlight => this.renderHighlightCard(highlight)).join('')}
-                        </div>
-                    </div>
-                `}
-            </div>
-        `;
-    }
-
     private renderHighlightCard(highlight: HighlightCard): string {
         const mediaId = highlight.media?.id;
         const coverUrl = mediaId ? this.coverUrls[mediaId] : '';
@@ -1105,7 +1099,28 @@ export class ActivityTotals extends Component<ActivityTotalsState> {
             case 'sessions': return 'S';
             case 'day': return 'D';
             case 'streak': return 'St';
+            case 'category': return 'Ca';
         }
+    }
+
+    private getTopCategoryHighlight(categoryTotals: ReadonlyArray<[string, Totals]>): HighlightCard | null {
+        const top = categoryTotals.reduce<[string, Totals] | null>(
+            (best, entry) => (best === null || entry[1].minutes > best[1].minutes ? entry : best),
+            null,
+        );
+        if (top === null) return null;
+
+        const [label, totals] = top;
+        if (totals.minutes <= 0) return null;
+
+        return {
+            key: 'top-category',
+            title: 'Top Category',
+            label,
+            value: formatStatsDuration(totals.minutes),
+            detail: formatOptionalCount(totals.characters, 'char'),
+            tone: 'category',
+        };
     }
 
     private formatFullDate(dateStr: string): string {

@@ -202,8 +202,8 @@ describe('Responsive Styling CUJ', () => {
       const grid = document.querySelector<HTMLElement>('#dashboard-card-grid');
       const primaryCards = [
         document.querySelector<HTMLElement>('.dashboard-weekday-card'),
-        Array.from(document.querySelectorAll<HTMLElement>('.dashboard-totals-card')).find(card => card.textContent?.includes('Weekly Stats')),
-        Array.from(document.querySelectorAll<HTMLElement>('.dashboard-totals-card')).find(card => card.textContent?.includes('Categories')),
+        Array.from(document.querySelectorAll<HTMLElement>('.dashboard-card')).find(card => card.textContent?.includes('Weekly Stats')),
+        Array.from(document.querySelectorAll<HTMLElement>('.dashboard-card')).find(card => card.textContent?.includes('Categories')),
       ];
       const highlights = document.querySelector<HTMLElement>('.dashboard-highlights-card');
       const radar = document.querySelector<SVGElement>('.dashboard-weekday-radar');
