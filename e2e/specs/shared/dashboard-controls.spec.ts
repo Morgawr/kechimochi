@@ -1,7 +1,7 @@
 import { waitForAppReady } from '../../helpers/setup.js';
 import { navigateTo } from '../../helpers/navigation.js';
 import { setSelect } from '../../helpers/form-controls.js';
-import { getActivityChartRangeMetadata, ACTIVITY_VISUALIZATION_SELECTOR, DASHBOARD_CONTROLS_SELECTOR } from '../../helpers/dashboard.js';
+import { getActivityChartRangeMetadata, ACTIVITY_FLOW_SELECTOR, DASHBOARD_CONTROLS_SELECTOR } from '../../helpers/dashboard.js';
 
 interface ChartSnapshot {
   chartType: string | null;
@@ -21,7 +21,7 @@ async function getChartSnapshot(): Promise<ChartSnapshot> {
     snapshot = await browser.execute(() => {
       const root = document.querySelector<HTMLElement>('.dashboard-root');
       const controls = root?.querySelector<HTMLElement>('[data-dashboard-card="controls"]');
-      const chart = root?.querySelector<HTMLCanvasElement>('[data-dashboard-card="activity_visualization"] #barChart');
+      const chart = root?.querySelector<HTMLCanvasElement>('[data-dashboard-card="activity_flow"] #barChart');
       const requestId = root?.dataset.dashboardRequestId;
       // Controls update before the range response and lazy Chart.js render.
       // Read one coherent snapshot only after the current render completes.
@@ -96,17 +96,17 @@ describe('CUJ: Dashboard Analytics Controls', () => {
 
     await setSelect('#select-time-range', { value: '7' });
     await getActivityChartRangeMetadata();
-    expect(await $(ACTIVITY_VISUALIZATION_SELECTOR).getAttribute('data-chart-empty')).toBe('true');
+    expect(await $(ACTIVITY_FLOW_SELECTOR).getAttribute('data-chart-empty')).toBe('true');
 
     await setSelect('#select-time-range', { value: '30' });
     await getActivityChartRangeMetadata();
-    expect(await $(ACTIVITY_VISUALIZATION_SELECTOR).getAttribute('data-chart-empty')).toBe('false');
+    expect(await $(ACTIVITY_FLOW_SELECTOR).getAttribute('data-chart-empty')).toBe('false');
 
     await clickChartToggle('#toggle-metric');
     await browser.waitUntil(async () => (await getChartSnapshot()).metric === 'characters');
     const characters = await getChartSnapshot();
     expect(characters.totals).toEqual([]);
-    expect(await $(ACTIVITY_VISUALIZATION_SELECTOR).getAttribute('data-chart-empty')).toBe('true');
+    expect(await $(ACTIVITY_FLOW_SELECTOR).getAttribute('data-chart-empty')).toBe('true');
 
     expect(await $(DASHBOARD_CONTROLS_SELECTOR).getAttribute('data-time-range-days')).toBe('30');
     await $('#btn-chart-prev').click();

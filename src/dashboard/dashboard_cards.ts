@@ -1,13 +1,17 @@
-import { HEATMAP_CARD } from './cards/HeatmapView';
-import { ACTIVITY_BREAKDOWN_CARD, ACTIVITY_VISUALIZATION_CARD } from './cards/ActivityCharts';
-import { WEEKDAY_DISTRIBUTION_CARD, PERIOD_STATS_CARD, CATEGORIES_CARD, HIGHLIGHTS_CARD } from './cards/ActivityTotals';
+import { HEATMAP_CARD } from './cards/Heatmap';
+import { ACTIVITY_FLOW_CARD } from './cards/ActivityFlow';
+import { ACTIVITY_MIX_CARD } from './cards/ActivityMix';
+import { WEEKDAY_RHYTHM_CARD } from './cards/WeekdayRhythm';
+import { PERIOD_STATS_CARD } from './cards/PeriodStats';
+import { CATEGORIES_CARD } from './cards/Categories';
+import { HIGHLIGHTS_CARD } from './cards/Highlights';
 import { RECENT_ACTIVITY_CARD } from './cards/RecentActivity';
 
 export const DASHBOARD_CARD_ORDER = [
     HEATMAP_CARD,
-    ACTIVITY_VISUALIZATION_CARD,
-    ACTIVITY_BREAKDOWN_CARD,
-    WEEKDAY_DISTRIBUTION_CARD,
+    ACTIVITY_FLOW_CARD,
+    ACTIVITY_MIX_CARD,
+    WEEKDAY_RHYTHM_CARD,
     PERIOD_STATS_CARD,
     CATEGORIES_CARD,
     HIGHLIGHTS_CARD,

@@ -24,26 +24,26 @@ function getIntensityRatio(value: number, fullIntensityValue: number): number {
     return Math.min(1, (value - 1) / (fullIntensityValue - 1));
 }
 
-interface HeatmapViewState {
+interface HeatmapState {
     heatmapData: DailyHeatmap[];
     year: number;
 }
 
-export interface HeatmapViewHost {
+export interface HeatmapHost {
     nextRequestId(): number;
     currentGeneration(): number;
     isCurrent(generation: number, requestId: number, responseId: number): boolean;
 }
 
-export class HeatmapView extends Component<HeatmapViewState> {
-    private readonly host: HeatmapViewHost;
+export class Heatmap extends Component<HeatmapState> {
+    private readonly host: HeatmapHost;
     private readonly onDateSelect?: (dateStr: string) => void;
     private activeYearRequest = 0;
 
     constructor(
         container: HTMLElement,
-        initialState: HeatmapViewState,
-        host: HeatmapViewHost,
+        initialState: HeatmapState,
+        host: HeatmapHost,
         onDateSelect?: (dateStr: string) => void
     ) {
         super(container, initialState);

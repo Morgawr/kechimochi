@@ -13,11 +13,16 @@ import {
 } from '../api';
 import type { DashboardGroupBy } from '../types';
 import { StatsCard } from './StatsCard';
-import { HeatmapView, type HeatmapViewHost } from './cards/HeatmapView';
-import { ActivityCharts, type ActivityChartsHostId } from './cards/ActivityCharts';
+import { Heatmap, type HeatmapHost } from './cards/Heatmap';
+import { ActivityFlow } from './cards/ActivityFlow';
+import { ActivityMix } from './cards/ActivityMix';
 import { DashboardControls } from './DashboardControls';
 import { QuickLog } from './QuickLog';
-import { ActivityTotals, type ActivityTotalsHostId } from './cards/ActivityTotals';
+import { WeekdayRhythm } from './cards/WeekdayRhythm';
+import { PeriodStats } from './cards/PeriodStats';
+import { Categories } from './cards/Categories';
+import { Highlights } from './cards/Highlights';
+import { computeRangeContext } from './range_context';
 import { RecentActivity, type RecentActivityHost } from './cards/RecentActivity';
 import { Logger } from '../logger';
 import { SETTING_KEYS } from '../constants';
@@ -67,13 +72,17 @@ interface DashboardState {
 }
 
 export class Dashboard extends Component<DashboardState> {
-    private activeChartsComponent: ActivityCharts | null = null;
+    private activityFlowComponent: ActivityFlow | null = null;
+    private activityMixComponent: ActivityMix | null = null;
     private controlsComponent: DashboardControls | null = null;
     private controlsHost: HTMLElement | null = null;
-    private heatmapComponent: HeatmapView | null = null;
+    private heatmapComponent: Heatmap | null = null;
     private statsComponent: StatsCard | null = null;
     private quickLogComponent: QuickLog | null = null;
-    private totalsComponent: ActivityTotals | null = null;
+    private weekdayRhythmComponent: WeekdayRhythm | null = null;
+    private periodStatsComponent: PeriodStats | null = null;
+    private categoriesComponent: Categories | null = null;
+    private highlightsComponent: Highlights | null = null;
     private recentActivityComponent: RecentActivity | null = null;
     private requestSequence = 0;
     private dataGeneration = 0;
@@ -334,12 +343,13 @@ export class Dashboard extends Component<DashboardState> {
             if (!this.isCurrentSnapshot(generation, snapshotRequestId)) return;
             measureSynchronous('render', 'dashboard_heatmap_stage', () => this.updateHeatmap());
             this.setRenderRequestMarker('dashboardHeatmapRequestId', snapshotRequestId);
-            measureSynchronous('render', 'dashboard_snapshot_totals_stage', () => this.updateTotals());
+            measureSynchronous('render', 'dashboard_snapshot_totals_stage', () => this.updateWeekdayRhythm());
             this.onNextFrame(() => {
                 if (!this.isCurrentSnapshot(generation, snapshotRequestId)) return;
                 this.controlsComponent?.syncControlState(this.state.chartParams);
                 this.updateRangeLabel();
-                this.activeChartsComponent?.updatePendingParams(this.state.chartParams);
+                this.activityFlowComponent?.updatePendingParams(this.state.chartParams);
+                this.activityMixComponent?.updatePendingParams(this.state.chartParams);
                 if (this.isRangeRequired()) {
                     this.requestRange().catch(error => Logger.error('Unexpected dashboard range failure', error));
                 } else {
@@ -367,7 +377,8 @@ export class Dashboard extends Component<DashboardState> {
         this.visibilityRevision++;
         this.reconcileCards();
         this.controlsComponent?.refreshCardsSummary();
-        this.activeChartsComponent?.updateHiddenCards(new Set(this.hiddenCards));
+        this.activityFlowComponent?.updateHiddenCards(new Set(this.hiddenCards));
+        this.activityMixComponent?.updateHiddenCards(new Set(this.hiddenCards));
         if (!this.state.rangeData && this.isRangeRequired()) {
             this.requestRange().catch(error => Logger.error('Unexpected dashboard range failure', error));
         }
@@ -449,7 +460,7 @@ export class Dashboard extends Component<DashboardState> {
         if (this.heatmapComponent) {
             this.heatmapComponent.setState(componentState);
         } else {
-            this.heatmapComponent = new HeatmapView(
+            this.heatmapComponent = new Heatmap(
                 host,
                 componentState,
                 this.createCardRequestHost(),
@@ -461,68 +472,112 @@ export class Dashboard extends Component<DashboardState> {
     }
 
     private updateCharts(): void {
-        const cardGrid = this.containers.cardGrid;
-        const breakdownHost = this.cardHosts.get('activity_breakdown');
-        const visualizationHost = this.cardHosts.get('activity_visualization');
-        if (!this.state.rangeData || !cardGrid || !breakdownHost || !visualizationHost) return;
+        const flowHost = this.cardHosts.get('activity_flow');
+        const mixHost = this.cardHosts.get('activity_mix');
+        if (!this.state.rangeData || !flowHost || !mixHost) return;
         const componentState = {
             rangeData: this.state.rangeData,
             ...this.state.chartParams,
             snapshotRequestId: this.activeSnapshotRequest,
             hiddenCards: new Set(this.hiddenCards),
         };
-        if (this.activeChartsComponent) {
-            this.activeChartsComponent.setState(componentState);
+        if (this.activityFlowComponent) {
+            this.activityFlowComponent.setState(componentState);
         } else {
-            const hosts = new Map<ActivityChartsHostId, HTMLElement>([
-                ['activity_breakdown', breakdownHost],
-                ['activity_visualization', visualizationHost],
-            ]);
-            this.activeChartsComponent = new ActivityCharts(
-                cardGrid,
-                hosts,
+            this.activityFlowComponent = new ActivityFlow(
+                flowHost,
                 componentState,
                 () => this.reconcileCards(),
-                requestId => this.publishControlsRequestId(requestId),
                 chartType => this.handleChartParamChange({ chartType }),
             );
-            this.activeChartsComponent.render();
+            this.activityFlowComponent.render();
+        }
+        if (this.activityMixComponent) {
+            this.activityMixComponent.setState(componentState);
+        } else {
+            this.activityMixComponent = new ActivityMix(
+                mixHost,
+                componentState,
+                () => this.reconcileCards(),
+            );
+            this.activityMixComponent.render();
         }
         this.reconcileCards();
     }
 
-    private updateTotals(): void {
-        const cardGrid = this.containers.cardGrid;
-        const weekdayHost = this.cardHosts.get('weekday_distribution');
-        const statsHost = this.cardHosts.get('period_stats');
-        const categoriesHost = this.cardHosts.get('categories');
-        const highlightsHost = this.cardHosts.get('highlights');
-        if (!cardGrid || !weekdayHost || !statsHost || !categoriesHost || !highlightsHost) return;
+    private updateWeekdayRhythm(): void {
+        const host = this.cardHosts.get('weekday_rhythm');
+        if (!host) return;
         const componentState = {
-            rangeData: this.state.rangeData ?? undefined,
             weekdayDistribution: this.state.weekdayDistribution ?? undefined,
             metric: this.state.chartParams.metric,
+            weekStartDay: this.state.chartParams.weekStartDay,
+        };
+        if (this.weekdayRhythmComponent) {
+            this.weekdayRhythmComponent.setState(componentState);
+        } else {
+            this.weekdayRhythmComponent = new WeekdayRhythm(host, componentState);
+            this.weekdayRhythmComponent.render();
+        }
+        this.reconcileCards();
+    }
+
+    /**
+     * The range/category derivation is shared cross-card (Categories' rows and the
+     * Highlights "Top Category" both read categoryTotals; Period Stats' table and
+     * Highlights' empty state both read the range), so it is computed once here
+     * rather than inside each card.
+     */
+    private updateRangeTotals(): void {
+        const periodStatsHost = this.cardHosts.get('period_stats');
+        const categoriesHost = this.cardHosts.get('categories');
+        const highlightsHost = this.cardHosts.get('highlights');
+        if (!this.state.rangeData || !periodStatsHost || !categoriesHost || !highlightsHost) return;
+
+        const { range, isTodayInRange, categoryTotals, timeRangeDays, timeRangeOffset, weekStartDay } = computeRangeContext({
+            rangeData: this.state.rangeData,
             timeRangeDays: this.state.chartParams.timeRangeDays,
             timeRangeOffset: this.state.chartParams.timeRangeOffset,
             weekStartDay: this.state.chartParams.weekStartDay,
+        });
+
+        const periodStatsState = {
+            range,
+            isTodayInRange,
+            rangeData: this.state.rangeData,
+            timeRangeDays,
+            timeRangeOffset,
+            weekStartDay,
         };
-        if (this.totalsComponent) {
-            this.totalsComponent.setState(componentState);
+        if (this.periodStatsComponent) {
+            this.periodStatsComponent.setState(periodStatsState);
         } else {
-            const hosts = new Map<ActivityTotalsHostId, HTMLElement>([
-                ['weekday_distribution', weekdayHost],
-                ['period_stats', statsHost],
-                ['categories', categoriesHost],
-                ['highlights', highlightsHost],
-            ]);
-            this.totalsComponent = new ActivityTotals(
-                cardGrid,
-                hosts,
-                componentState,
-                () => this.reconcileCards(),
-            );
-            this.totalsComponent.render();
+            this.periodStatsComponent = new PeriodStats(periodStatsHost, periodStatsState);
+            this.periodStatsComponent.render();
         }
+
+        const categoriesState = { categoryTotals, isTodayInRange };
+        if (this.categoriesComponent) {
+            this.categoriesComponent.setState(categoriesState);
+        } else {
+            this.categoriesComponent = new Categories(categoriesHost, categoriesState);
+            this.categoriesComponent.render();
+        }
+
+        const highlightsState = {
+            rangeData: this.state.rangeData,
+            categoryTotals,
+            validStart: range.validStart,
+            validEnd: range.validEnd,
+            isTodayInRange,
+        };
+        if (this.highlightsComponent) {
+            this.highlightsComponent.setState(highlightsState);
+        } else {
+            this.highlightsComponent = new Highlights(highlightsHost, highlightsState, () => this.reconcileCards());
+            this.highlightsComponent.render();
+        }
+
         this.reconcileCards();
     }
 
@@ -559,14 +614,15 @@ export class Dashboard extends Component<DashboardState> {
             || next.groupByMode !== previous.groupByMode
             || next.weekStartDay !== previous.weekStartDay;
         if (needsRange) {
-            this.activeChartsComponent?.updatePendingParams(next);
+            this.activityFlowComponent?.updatePendingParams(next);
+            this.activityMixComponent?.updatePendingParams(next);
             if (this.isRangeRequired()) {
                 this.requestRange().catch(error => Logger.error('Unexpected dashboard range failure', error));
             }
         } else {
             measureSynchronous('render', 'dashboard_chart_controls', () => {
                 this.updateCharts();
-                if (params.metric) this.updateTotals();
+                if (params.metric) this.updateWeekdayRhythm();
             });
         }
     }
@@ -597,12 +653,6 @@ export class Dashboard extends Component<DashboardState> {
             if (descriptor.dataSources.includes('range')) return true;
         }
         return false;
-    }
-
-    private hasMountedChartCard(): boolean {
-        const breakdownHost = this.cardHosts.get('activity_breakdown');
-        const visualizationHost = this.cardHosts.get('activity_visualization');
-        return Boolean(breakdownHost?.querySelector('.card') || visualizationHost?.querySelector('.card'));
     }
 
     private publishControlsRequestId(requestId: number): void {
@@ -651,11 +701,9 @@ export class Dashboard extends Component<DashboardState> {
             this.state = { ...this.state, rangeData: response };
             measureSynchronous('render', 'dashboard_range_response', () => {
                 this.updateCharts();
-                this.updateTotals();
+                this.updateRangeTotals();
             });
-            if (!this.hasMountedChartCard()) {
-                this.publishControlsRequestId(this.activeSnapshotRequest);
-            }
+            this.publishControlsRequestId(this.activeSnapshotRequest);
         } catch (error) {
             if (generation === this.dataGeneration && requestId === this.activeRangeRequest) {
                 Logger.error('Failed to load dashboard range', error);
@@ -700,7 +748,7 @@ export class Dashboard extends Component<DashboardState> {
         this.reconcileCards();
     }
 
-    private createCardRequestHost(): HeatmapViewHost {
+    private createCardRequestHost(): HeatmapHost {
         return {
             nextRequestId: () => this.nextRequestId(),
             currentGeneration: () => this.dataGeneration,

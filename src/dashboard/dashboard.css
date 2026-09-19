@@ -801,7 +801,7 @@
     padding: 0.65rem;
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
-    /* --highlight-cover is injected at runtime per-card by ActivityTotals.ts (inline style); the var() below has a fallback. */
+    /* --highlight-cover is injected at runtime per-card by Highlights.ts (inline style); the var() below has a fallback. */
     /*noinspection CssUnresolvedCustomProperty*/
     background:
         linear-gradient(90deg, color-mix(in srgb, var(--bg-dark) 92%, transparent), color-mix(in srgb, var(--bg-dark) 74%, transparent)),

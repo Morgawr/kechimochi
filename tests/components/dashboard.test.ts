@@ -9,8 +9,8 @@ import type {
     DashboardSnapshotRequest,
 } from '../../src/types';
 import { customConfirm } from '../../src/modal_base';
-import { HeatmapView } from '../../src/dashboard/cards/HeatmapView';
-import { ActivityCharts } from '../../src/dashboard/cards/ActivityCharts';
+import { Heatmap } from '../../src/dashboard/cards/Heatmap';
+import { ActivityFlow } from '../../src/dashboard/cards/ActivityFlow';
 import { StatsCard } from '../../src/dashboard/StatsCard';
 import { Logger } from '../../src/logger';
 import { getActivityRange } from '../../src/dashboard/activity_ranges';
@@ -42,19 +42,39 @@ const { stubComponentClass } = vi.hoisted(() => ({
 vi.mock('../../src/dashboard/StatsCard');
 vi.mock('../../src/dashboard/QuickLog');
 
-vi.mock('../../src/dashboard/cards/HeatmapView', async importOriginal => ({
-    ...await importOriginal<typeof import('../../src/dashboard/cards/HeatmapView')>(),
-    HeatmapView: stubComponentClass(),
+vi.mock('../../src/dashboard/cards/Heatmap', async importOriginal => ({
+    ...await importOriginal<typeof import('../../src/dashboard/cards/Heatmap')>(),
+    Heatmap: stubComponentClass(),
 }));
 
-vi.mock('../../src/dashboard/cards/ActivityCharts', async importOriginal => ({
-    ...await importOriginal<typeof import('../../src/dashboard/cards/ActivityCharts')>(),
-    ActivityCharts: stubComponentClass(),
+vi.mock('../../src/dashboard/cards/ActivityFlow', async importOriginal => ({
+    ...await importOriginal<typeof import('../../src/dashboard/cards/ActivityFlow')>(),
+    ActivityFlow: stubComponentClass(),
 }));
 
-vi.mock('../../src/dashboard/cards/ActivityTotals', async importOriginal => ({
-    ...await importOriginal<typeof import('../../src/dashboard/cards/ActivityTotals')>(),
-    ActivityTotals: stubComponentClass(),
+vi.mock('../../src/dashboard/cards/ActivityMix', async importOriginal => ({
+    ...await importOriginal<typeof import('../../src/dashboard/cards/ActivityMix')>(),
+    ActivityMix: stubComponentClass(),
+}));
+
+vi.mock('../../src/dashboard/cards/WeekdayRhythm', async importOriginal => ({
+    ...await importOriginal<typeof import('../../src/dashboard/cards/WeekdayRhythm')>(),
+    WeekdayRhythm: stubComponentClass(),
+}));
+
+vi.mock('../../src/dashboard/cards/PeriodStats', async importOriginal => ({
+    ...await importOriginal<typeof import('../../src/dashboard/cards/PeriodStats')>(),
+    PeriodStats: stubComponentClass(),
+}));
+
+vi.mock('../../src/dashboard/cards/Categories', async importOriginal => ({
+    ...await importOriginal<typeof import('../../src/dashboard/cards/Categories')>(),
+    Categories: stubComponentClass(),
+}));
+
+vi.mock('../../src/dashboard/cards/Highlights', async importOriginal => ({
+    ...await importOriginal<typeof import('../../src/dashboard/cards/Highlights')>(),
+    Highlights: stubComponentClass(),
 }));
 
 function getLocalISODate(date: Date): string {
@@ -215,7 +235,7 @@ describe('Dashboard', () => {
         const dashboard = new DashboardTestHarness(container);
         dashboard.render();
         await dashboard.loadData();
-        await vi.waitFor(() => expect(ActivityCharts).toHaveBeenCalled());
+        await vi.waitFor(() => expect(ActivityFlow).toHaveBeenCalled());
         return dashboard;
     }
 
@@ -253,7 +273,7 @@ describe('Dashboard', () => {
         expect(root?.dataset.dashboardRequestId).toBe(request.request_id.toString());
         expect(root?.dataset.dashboardPrimaryRequestId).toBe(request.request_id.toString());
         expect(root?.dataset.dashboardHeatmapRequestId).toBe(request.request_id.toString());
-        await vi.waitFor(() => expect(ActivityCharts).toHaveBeenCalledWith(
+        await vi.waitFor(() => expect(ActivityFlow).toHaveBeenCalledWith(
             expect.any(HTMLElement),
             expect.any(Map),
             expect.objectContaining({ snapshotRequestId: request.request_id }),
@@ -261,13 +281,13 @@ describe('Dashboard', () => {
             expect.any(Function),
         ));
         expect(dashboard.state.isInitialized).toBe(true);
-        expect(ActivityCharts).toHaveBeenCalledTimes(1);
+        expect(ActivityFlow).toHaveBeenCalledTimes(1);
     });
 
     it('reuses mounted components and does not explicitly render after setState', async () => {
         const dashboard = await loadDashboard();
         const stats = vi.mocked(StatsCard).mock.results[0].value;
-        const charts = vi.mocked(ActivityCharts).mock.results[0].value;
+        const charts = vi.mocked(ActivityFlow).mock.results[0].value;
         expect(stats.render).toHaveBeenCalledTimes(1);
         expect(charts.render).toHaveBeenCalledTimes(1);
 
@@ -275,7 +295,7 @@ describe('Dashboard', () => {
         await vi.waitFor(() => expect(charts.setState).toHaveBeenCalledTimes(1));
 
         expect(StatsCard).toHaveBeenCalledTimes(1);
-        expect(ActivityCharts).toHaveBeenCalledTimes(1);
+        expect(ActivityFlow).toHaveBeenCalledTimes(1);
         expect(stats.setState).toHaveBeenCalledTimes(1);
         expect(stats.render).toHaveBeenCalledTimes(1);
         expect(charts.render).toHaveBeenCalledTimes(1);
@@ -492,7 +512,7 @@ describe('Dashboard', () => {
     it('requests an explicit range when a heatmap day is selected', async () => {
         const clickedDate = getLocalISODate(new Date(Date.now() - (10 * 24 * 60 * 60 * 1000)));
         const dashboard = await loadDashboard();
-        const onDateSelect = vi.mocked(HeatmapView).mock.calls[0]?.[3] as ((date: string) => void);
+        const onDateSelect = vi.mocked(Heatmap).mock.calls[0]?.[3] as ((date: string) => void);
         onDateSelect(clickedDate);
 
         const expectedOffset = getWeeklyOffset(clickedDate);
@@ -519,7 +539,7 @@ describe('Dashboard', () => {
             },
         }));
         const dashboard = await loadDashboard();
-        const onDateSelect = vi.mocked(HeatmapView).mock.calls[0]?.[3] as ((date: string) => void);
+        const onDateSelect = vi.mocked(Heatmap).mock.calls[0]?.[3] as ((date: string) => void);
 
         onDateSelect('2025-12-10');
         await vi.waitFor(() => expect(api.getDashboardRange).toHaveBeenCalledTimes(2));
@@ -542,7 +562,7 @@ describe('Dashboard', () => {
             },
         }));
         const dashboard = await loadDashboard();
-        const onDateSelect = vi.mocked(HeatmapView).mock.calls[0]?.[3] as ((date: string) => void);
+        const onDateSelect = vi.mocked(Heatmap).mock.calls[0]?.[3] as ((date: string) => void);
 
         onDateSelect('2025-06-01');
         await vi.waitFor(() => expect(api.getDashboardRange).toHaveBeenCalledTimes(2));
@@ -563,7 +583,7 @@ describe('Dashboard', () => {
             },
         }));
         const dashboard = await loadDashboard();
-        const onDateSelect = vi.mocked(HeatmapView).mock.calls[0]?.[3] as ((date: string) => void);
+        const onDateSelect = vi.mocked(Heatmap).mock.calls[0]?.[3] as ((date: string) => void);
 
         onDateSelect('2020-01-01');
         await Promise.resolve();
@@ -627,16 +647,16 @@ describe('Dashboard', () => {
         await dashboard.loadData();
 
         await vi.waitFor(() => {
-            expect(cardHost('activity_visualization')?.textContent).toContain('Unable to load chart data.');
+            expect(cardHost('activity_flow')?.textContent).toContain('Unable to load chart data.');
         });
-        expect(cardHost('activity_breakdown')?.textContent).toContain('Unable to load chart data.');
+        expect(cardHost('activity_mix')?.textContent).toContain('Unable to load chart data.');
         expect(cardHost('period_stats')?.textContent).toContain('Unable to load chart data.');
         expect(cardHost('heatmap')?.textContent).not.toContain('Unable to load chart data.');
     });
 
     it('gives the heatmap a request host whose generation check follows the active load', async () => {
         const dashboard = await loadDashboard();
-        const host = vi.mocked(HeatmapView).mock.calls[0][2];
+        const host = vi.mocked(Heatmap).mock.calls[0][2];
 
         const generation = host.currentGeneration();
         const requestId = host.nextRequestId();

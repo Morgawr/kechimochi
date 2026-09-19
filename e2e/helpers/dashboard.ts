@@ -9,9 +9,9 @@ export function dashboardCardSelector(id: string): string {
 }
 
 export const DASHBOARD_CONTROLS_SELECTOR = dashboardCardSelector('controls');
-export const ACTIVITY_BREAKDOWN_SELECTOR = dashboardCardSelector('activity_breakdown');
-export const ACTIVITY_VISUALIZATION_SELECTOR = dashboardCardSelector('activity_visualization');
-export const WEEKDAY_DISTRIBUTION_SELECTOR = dashboardCardSelector('weekday_distribution');
+export const ACTIVITY_MIX_SELECTOR = dashboardCardSelector('activity_mix');
+export const ACTIVITY_FLOW_SELECTOR = dashboardCardSelector('activity_flow');
+export const WEEKDAY_RHYTHM_SELECTOR = dashboardCardSelector('weekday_rhythm');
 
 async function waitForActivitySubmissionResult(timeout = 5000): Promise<void> {
     await browser.waitUntil(async () => {
@@ -374,7 +374,14 @@ export async function waitForDashboardSettled(timeout = 20000): Promise<void> {
                 || root.dataset.dashboardHeatmapRequestId !== currentRequestId) return false;
 
             const controls = root.querySelector<HTMLElement>('[data-dashboard-card="controls"]');
-            return controls?.dataset.dashboardRequestId === currentRequestId;
+            if (controls?.dataset.dashboardRequestId !== currentRequestId) return false;
+
+            const isChartCardSettled = (id: string) => {
+                const host = root.querySelector<HTMLElement>(`[data-dashboard-card="${id}"]`);
+                if (!host || host.hidden || !host.querySelector('.card')) return true;
+                return host.dataset.dashboardRequestId === currentRequestId;
+            };
+            return isChartCardSettled('activity_flow') && isChartCardSettled('activity_mix');
         }).catch(() => false);
     }, {
         timeout,

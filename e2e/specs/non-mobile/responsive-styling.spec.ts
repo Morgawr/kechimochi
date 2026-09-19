@@ -71,7 +71,7 @@ describe('Responsive Styling CUJ', () => {
       return await browser.execute(() => {
         const stats = document.getElementById('stats-box-container');
         const heatmap = document.getElementById('heatmap-container');
-        const charts = document.querySelectorAll('[data-dashboard-card="activity_breakdown"] .card, [data-dashboard-card="activity_visualization"] .card');
+        const charts = document.querySelectorAll('[data-dashboard-card="activity_mix"] .card, [data-dashboard-card="activity_flow"] .card');
         return stats && heatmap && charts.length >= 2
           && heatmap.getBoundingClientRect().top > (stats.getBoundingClientRect().top + 40)
           && charts[1].getBoundingClientRect().top > (charts[0].getBoundingClientRect().top + 40);
@@ -81,7 +81,7 @@ describe('Responsive Styling CUJ', () => {
     const stacked = await browser.execute(() => {
       const stats = document.getElementById('stats-box-container');
       const heatmap = document.getElementById('heatmap-container');
-      const charts = document.querySelectorAll('[data-dashboard-card="activity_breakdown"] .card, [data-dashboard-card="activity_visualization"] .card');
+      const charts = document.querySelectorAll('[data-dashboard-card="activity_mix"] .card, [data-dashboard-card="activity_flow"] .card');
       if (!stats || !heatmap || charts.length < 2) {
         return {
           hasRequiredNodes: false,

@@ -4,7 +4,7 @@ import type { DashboardCardId } from '../../../src/dashboard/dashboard_cards';
 
 const CARDS: readonly { id: DashboardCardId; label: string }[] = [
     { id: 'heatmap', label: 'Tracking Heatmap' },
-    { id: 'activity_visualization', label: 'Activity Visualization' },
+    { id: 'activity_flow', label: 'Activity Flow' },
 ];
 
 describe('DashboardControls', () => {
