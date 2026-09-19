@@ -191,7 +191,7 @@ export function openMultiSelect<Value extends string>(
             focusableElements[0].focus();
         } else if (event.shiftKey && currentIndex === 0) {
             event.preventDefault();
-            focusableElements[focusableElements.length - 1].focus();
+            focusableElements.at(-1)?.focus();
         }
     };
 

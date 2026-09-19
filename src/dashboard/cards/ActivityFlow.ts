@@ -1,14 +1,13 @@
-import { Component } from '../../component';
 import { html, rawHtml } from '../../html';
 import { ActivitySummary, DashboardRangeResponse, Media } from '../../api';
 import type { Chart as ChartInstance } from 'chart.js';
 import { getActivityRange, getLocalISODate, resolveRangeLogs, type ActivityRange, type DatedActivityTotals } from '../activity_ranges';
-import { Logger } from '../../logger';
 import { logPerformance, measureSynchronous, performanceNow } from '../../performance';
 import { loadChartConstructor, type ChartConstructor } from '../../chart_loader';
 import type { DashboardCardDescriptor } from '../dashboard_layout';
 import { renderDashboardCardShell, renderNoPeriodDataMessage } from '../card_shell';
 import { CHART_RESIZE_DEBOUNCE_MS, getActiveGroups, getChartColors, getGroupForLog, toDatasets, type BarChartDataset } from '../chart_runtime';
+import { ChartCard, type ChartCardState } from '../chart_card';
 import { formatStatsDuration } from '../../time';
 
 export const ACTIVITY_FLOW_CARD = {
@@ -23,7 +22,7 @@ const DAILY_LABEL_FORMATTER = new Intl.DateTimeFormat('en-US', {
     day: '2-digit',
 });
 
-interface ActivityFlowState {
+interface ActivityFlowState extends ChartCardState {
     logs?: ActivitySummary[];
     mediaList?: Media[];
     rangeData?: DashboardRangeResponse;
@@ -37,10 +36,8 @@ interface ActivityFlowState {
     hiddenCards?: ReadonlySet<string>;
 }
 
-export class ActivityFlow extends Component<ActivityFlowState> {
+export class ActivityFlow extends ChartCard<ActivityFlowState> {
     private barChartInstance: ChartInstance | null = null;
-    private renderGeneration = 0;
-    private readonly onCardsRendered: () => void;
     private readonly onChartTypeChange: (chartType: 'bar' | 'line') => void;
 
     constructor(
@@ -49,63 +46,21 @@ export class ActivityFlow extends Component<ActivityFlowState> {
         onCardsRendered: () => void = () => {},
         onChartTypeChange: (chartType: 'bar' | 'line') => void = () => {},
     ) {
-        super(container, initialState);
-        this.onCardsRendered = onCardsRendered;
+        super(container, initialState, onCardsRendered);
         this.onChartTypeChange = onChartTypeChange;
     }
 
-    private getMountedCard(): HTMLElement | null {
-        return this.container.querySelector<HTMLElement>('#barChart')?.closest<HTMLElement>('.card') ?? null;
-    }
-
-    private shouldMount(): boolean {
-        return !this.state.hiddenCards?.has(ACTIVITY_FLOW_CARD.id);
-    }
-
-    public updateHiddenCards(hiddenCards: ReadonlySet<string>): void {
-        const previousIntent = this.shouldMount();
-        this.state = { ...this.state, hiddenCards };
-        if (this.shouldMount() === previousIntent) return;
-        this.setState({});
-    }
+    protected get cardId(): string { return ACTIVITY_FLOW_CARD.id; }
+    protected get canvasId(): string { return 'barChart'; }
+    protected get chartName(): string { return 'activity flow'; }
 
     /**
      * Chart.js owns mutable state on its canvas element. Keep the mounted
      * card stable across data/control updates so browser references, focus,
      * and event listeners do not get replaced for every range response.
      */
-    public setState(newState: Partial<ActivityFlowState>): void {
-        this.state = { ...this.state, ...newState };
-        const mountedCard = this.getMountedCard();
-        if (this.shouldMount() !== Boolean(mountedCard)) {
-            this.destroy();
-            this.clear();
-            this.render();
-            return;
-        }
-        if (!mountedCard) {
-            this.render();
-            return;
-        }
-
-        this.renderChart(mountedCard).catch(error => {
-            Logger.error('Failed to render dashboard activity flow chart', error);
-        });
-    }
-
-    render() {
-        const mountedCard = this.getMountedCard();
-        if (mountedCard) {
-            this.renderChart(mountedCard).catch(error => {
-                Logger.error('Failed to render dashboard activity flow chart', error);
-            });
-            return;
-        }
-
-        this.clear();
-        if (!this.shouldMount()) return;
-
-        const card = html`${rawHtml(renderDashboardCardShell({
+    protected buildCard(): HTMLElement {
+        return html`${rawHtml(renderDashboardCardShell({
             title: ACTIVITY_FLOW_CARD.label,
             headerExtras: `
                 <div class="toggle" role="group" id="toggle-chart-type" aria-label="Chart type">
@@ -120,12 +75,10 @@ export class ActivityFlow extends Component<ActivityFlowState> {
                 </div>
             `,
         }))}`;
-        this.container.appendChild(card);
-        this.setupChartTypeToggle(card);
+    }
 
-        this.renderChart(card).catch(error => {
-            Logger.error('Failed to render dashboard activity flow chart', error);
-        });
+    protected override onCardMounted(card: HTMLElement): void {
+        this.setupChartTypeToggle(card);
     }
 
     private setupChartTypeToggle(card: HTMLElement): void {
@@ -161,7 +114,7 @@ export class ActivityFlow extends Component<ActivityFlowState> {
         delete card?.querySelector<HTMLCanvasElement>('#barChart')?.dataset.chartEmpty;
     }
 
-    private async renderChart(card: HTMLElement): Promise<void> {
+    protected async renderChart(card: HTMLElement): Promise<void> {
         this.syncChartTypeToggle(card);
         const generation = ++this.renderGeneration;
         const snapshotRequestId = this.state.snapshotRequestId;
@@ -215,10 +168,6 @@ export class ActivityFlow extends Component<ActivityFlowState> {
         if (barCanvas) this.createBarChart(Chart, barCanvas, timeRange, datasets);
         if (snapshotRequestId !== undefined) this.publishRenderComplete(snapshotRequestId);
         this.onCardsRendered();
-    }
-
-    private publishRenderComplete(snapshotRequestId: number): void {
-        this.container.dataset.dashboardRequestId = snapshotRequestId.toString();
     }
 
     private isBarChartEmpty(logs: DatedActivityTotals[], timeRange: ActivityRange): boolean {

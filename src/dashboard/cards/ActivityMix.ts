@@ -1,15 +1,14 @@
-import { Component } from '../../component';
 import { html, rawHtml } from '../../html';
 import { ActivitySummary, DashboardRangeResponse, Media } from '../../api';
 import type { Chart as ChartInstance } from 'chart.js';
 import { formatStatsDuration } from '../../time';
 import { getActivityRange, getLocalISODate, resolveRangeLogs, type ActivityRange } from '../activity_ranges';
-import { Logger } from '../../logger';
 import { logPerformance, measureSynchronous, performanceNow } from '../../performance';
 import { loadChartConstructor, type ChartConstructor } from '../../chart_loader';
 import type { DashboardCardDescriptor } from '../dashboard_layout';
 import { renderDashboardCardShell, renderNoPeriodDataMessage } from '../card_shell';
 import { CHART_RESIZE_DEBOUNCE_MS, getActiveGroups, getChartColors, getGroupForLog } from '../chart_runtime';
+import { ChartCard, type ChartCardState } from '../chart_card';
 
 export const ACTIVITY_MIX_CARD = {
     id: 'activity_mix',
@@ -18,7 +17,7 @@ export const ACTIVITY_MIX_CARD = {
     dataSources: ['range'],
 } as const satisfies DashboardCardDescriptor;
 
-interface ActivityMixState {
+interface ActivityMixState extends ChartCardState {
     logs?: ActivitySummary[];
     mediaList?: Media[];
     rangeData?: DashboardRangeResponse;
@@ -36,72 +35,15 @@ interface PieChartData {
     values: number[];
 }
 
-export class ActivityMix extends Component<ActivityMixState> {
+export class ActivityMix extends ChartCard<ActivityMixState> {
     private pieChartInstance: ChartInstance | null = null;
-    private renderGeneration = 0;
-    private readonly onCardsRendered: () => void;
 
-    constructor(
-        container: HTMLElement,
-        initialState: ActivityMixState,
-        onCardsRendered: () => void = () => {},
-    ) {
-        super(container, initialState);
-        this.onCardsRendered = onCardsRendered;
-    }
+    protected get cardId(): string { return ACTIVITY_MIX_CARD.id; }
+    protected get canvasId(): string { return 'pieChart'; }
+    protected get chartName(): string { return 'activity mix'; }
 
-    private getMountedCard(): HTMLElement | null {
-        return this.container.querySelector<HTMLElement>('#pieChart')?.closest<HTMLElement>('.card') ?? null;
-    }
-
-    private shouldMount(): boolean {
-        return !this.state.hiddenCards?.has(ACTIVITY_MIX_CARD.id);
-    }
-
-    public updateHiddenCards(hiddenCards: ReadonlySet<string>): void {
-        const previousIntent = this.shouldMount();
-        this.state = { ...this.state, hiddenCards };
-        if (this.shouldMount() === previousIntent) return;
-        this.setState({});
-    }
-
-    /**
-     * Chart.js owns mutable state on its canvas element. Keep the mounted
-     * card stable across data/control updates so browser references, focus,
-     * and event listeners do not get replaced for every range response.
-     */
-    public setState(newState: Partial<ActivityMixState>): void {
-        this.state = { ...this.state, ...newState };
-        const mountedCard = this.getMountedCard();
-        if (this.shouldMount() !== Boolean(mountedCard)) {
-            this.destroy();
-            this.clear();
-            this.render();
-            return;
-        }
-        if (!mountedCard) {
-            this.render();
-            return;
-        }
-
-        this.renderChart(mountedCard).catch(error => {
-            Logger.error('Failed to render dashboard activity mix chart', error);
-        });
-    }
-
-    render() {
-        const mountedCard = this.getMountedCard();
-        if (mountedCard) {
-            this.renderChart(mountedCard).catch(error => {
-                Logger.error('Failed to render dashboard activity mix chart', error);
-            });
-            return;
-        }
-
-        this.clear();
-        if (!this.shouldMount()) return;
-
-        const card = html`${rawHtml(renderDashboardCardShell({
+    protected buildCard(): HTMLElement {
+        return html`${rawHtml(renderDashboardCardShell({
             title: ACTIVITY_MIX_CARD.label,
             body: `
                 <div class="chart-container-wrapper">
@@ -110,11 +52,6 @@ export class ActivityMix extends Component<ActivityMixState> {
                 </div>
             `,
         }))}`;
-        this.container.appendChild(card);
-
-        this.renderChart(card).catch(error => {
-            Logger.error('Failed to render dashboard activity mix chart', error);
-        });
     }
 
     /** Updates interaction state while a new backend range is in flight,
@@ -134,7 +71,7 @@ export class ActivityMix extends Component<ActivityMixState> {
         delete pieCanvas?.dataset.chartEmpty;
     }
 
-    private async renderChart(card: HTMLElement): Promise<void> {
+    protected async renderChart(card: HTMLElement): Promise<void> {
         const generation = ++this.renderGeneration;
         const snapshotRequestId = this.state.snapshotRequestId;
         const pieCanvas = card.querySelector<HTMLCanvasElement>('#pieChart') ?? null;
@@ -187,10 +124,6 @@ export class ActivityMix extends Component<ActivityMixState> {
         if (pieCanvas) this.createPieChart(Chart, pieCanvas, colors, pieData);
         if (snapshotRequestId !== undefined) this.publishRenderComplete(snapshotRequestId);
         this.onCardsRendered();
-    }
-
-    private publishRenderComplete(snapshotRequestId: number): void {
-        this.container.dataset.dashboardRequestId = snapshotRequestId.toString();
     }
 
     private isPieChartEmpty(pieData: PieChartData): boolean {

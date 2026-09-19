@@ -32,11 +32,11 @@ export function parseHiddenDashboardCards(raw: string | null): Set<DashboardCard
 
     if (!Array.isArray(parsedValue)) return new Set();
 
-    const declaredIds: readonly DashboardCardId[] = DASHBOARD_CARD_ORDER.map(card => card.id);
+    const declaredIds = new Set<string>(DASHBOARD_CARD_ORDER.map(card => card.id));
     const hiddenIds = new Set<DashboardCardId>();
     for (const entry of parsedValue) {
         if (typeof entry !== 'string') continue;
-        if (!declaredIds.includes(entry as DashboardCardId)) continue;
+        if (!declaredIds.has(entry)) continue;
 
         hiddenIds.add(entry as DashboardCardId);
     }

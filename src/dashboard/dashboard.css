@@ -186,6 +186,7 @@
 
 .dashboard-controls-field-bare {
     align-self: flex-end;
+    display: none;
 }
 
 .dashboard-controls-field .toggle,
@@ -259,10 +260,6 @@
         grid-row: 2;
         justify-self: stretch;
     }
-}
-
-.dashboard-controls-field-bare {
-    display: none;
 }
 
 @media (min-width: 1025px) {
@@ -647,9 +644,6 @@
     flex-direction: column;
     min-width: 0;
     max-height: 21rem;
-}
-
-.dashboard-stats-rows {
     overflow-y: auto;
 }
 
@@ -845,6 +839,10 @@
 .dashboard-highlight-copy {
     position: relative;
     z-index: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
 }
 
 .dashboard-highlight-icon {
@@ -868,12 +866,6 @@
     background: color-mix(in srgb, var(--accent-blue) 55%, var(--accent-purple));
 }
 
-.dashboard-highlight-copy {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-    min-width: 0;
-}
 
 .dashboard-highlight-title {
     color: var(--text-secondary);

@@ -83,3 +83,15 @@ export function formatLoggedDuration(totalMinutes: number, capitalizeMinutes: bo
     }
     return minStr;
 }
+
+/** Zero-padded day/month, e.g. `03/08`. */
+export function formatDayMonth(date: Date): string {
+    return `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')}`;
+}
+
+/** Weekday plus `formatDayMonth`, e.g. `Sunday 03/08` or `Sunday 03/08/2026`. */
+export function formatWeekdayDate(date: Date, includeYear: boolean): string {
+    const weekday = date.toLocaleDateString('en-US', { weekday: 'long' });
+    const yearSuffix = includeYear ? `/${date.getFullYear()}` : '';
+    return `${weekday} ${formatDayMonth(date)}${yearSuffix}`;
+}

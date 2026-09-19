@@ -1,7 +1,7 @@
 import { Component } from '../../component';
 import { ActivitySummary, DashboardRangeResponse } from '../../api';
 import { escapeHTML } from '../../html';
-import { formatStatsDuration } from '../../time';
+import { formatStatsDuration, formatWeekdayDate } from '../../time';
 import { getLocalISODate, getPreviousBucketKey, normalizeWeekStartDay, type ActivityPeriod, type ActivityRange } from '../activity_ranges';
 import type { Totals } from '../range_context';
 import type { DashboardCardDescriptor } from '../dashboard_layout';
@@ -298,8 +298,8 @@ export class PeriodStats extends Component<PeriodStatsState> {
             const date = new Date(label + 'T00:00:00');
             const weekday = date.toLocaleDateString("en-US", { weekday: 'short' }).toUpperCase();
             return {
-                label: this.formatWeekdayDate(date, false),
-                subject: this.formatWeekdayDate(date, true),
+                label: formatWeekdayDate(date, false),
+                subject: formatWeekdayDate(date, true),
                 dayOfMonth: date.getDate().toString().padStart(2, '0'),
                 weekday,
             };
@@ -348,14 +348,4 @@ export class PeriodStats extends Component<PeriodStatsState> {
         }
     }
 
-    private formatWeekdayDate(date: Date, includeYear: boolean): string {
-        const weekday = date.toLocaleDateString("en-US", { weekday: 'long' });
-        const fullYear = date.getFullYear();
-        const yearSuffix = includeYear ? `/${fullYear}` : '';
-        return `${weekday} ${this.formatShortDate(date)}${yearSuffix}`;
-    }
-
-    private formatShortDate(date: Date): string {
-        return `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')}`;
-    }
 }

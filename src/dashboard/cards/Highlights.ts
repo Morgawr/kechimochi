@@ -2,7 +2,7 @@ import { Component } from '../../component';
 import { ActivitySummary, DashboardMedia, DashboardRangeResponse, Media } from '../../api';
 import { escapeHTML } from '../../html';
 import { formatCount, formatOptionalCount } from '../../count_formatting';
-import { formatOptionalStatsDuration, formatStatsDuration } from '../../time';
+import { formatOptionalStatsDuration, formatStatsDuration, formatWeekdayDate } from '../../time';
 import type { Totals } from '../range_context';
 import { MediaCoverLoader } from '../../media/cover_loader';
 import { Logger } from '../../logger';
@@ -437,18 +437,7 @@ export class Highlights extends Component<HighlightsState> {
 
     private formatFullDate(dateStr: string): string {
         const date = new Date(dateStr + 'T00:00:00');
-        return this.formatWeekdayDate(date, true);
-    }
-
-    private formatWeekdayDate(date: Date, includeYear: boolean): string {
-        const weekday = date.toLocaleDateString("en-US", { weekday: 'long' });
-        const fullYear = date.getFullYear();
-        const yearSuffix = includeYear ? `/${fullYear}` : '';
-        return `${weekday} ${this.formatShortDate(date)}${yearSuffix}`;
-    }
-
-    private formatShortDate(date: Date): string {
-        return `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')}`;
+        return formatWeekdayDate(date, true);
     }
 
     private getLongestStreak(dates: string[]): number {
