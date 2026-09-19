@@ -12,12 +12,13 @@ The format is based on Keep a Changelog, with one section per released version.
  - Right-clicking empty space in the library opens a menu for New media
  - Added an E-Ink theme: black on white, borders instead of fill-tints, no motion or elevation, tuned for e-ink panels
  - Media details now have a Create variant action that carries over the same medatada into a new variant
- - Every dashboard card now shows a message when the selected period has no data, instead of an empty chart, an empty table, or vanishing from the layout entirely
- - The dashboard cards were renamed for clarity: Tracking Heatmap is now Heatmap, Activity Visualization is Activity Flow, Activity Breakdown is Activity Mix, and Weekday Distribution is Weekday Rhythm
  - Media supporting reading speed estimates can now carry a custom override, set from the media detail menu
  - Activity logs can now be scoped to a whole month or year instead of a single day, for recording time you know you spent without inventing a date for it. Dashboard graphs gained according visualization.
- - The dashboard now has an always-visible controls card and a Cards menu to show or hide individual dashboard cards, with the layout reflowing to avoid empty gaps. The choice persists across reloads.
- - The dashboard Highlights card gained a Top Category highlight, showing which content type took the most time in the selected period
+ - The dashboard has a new card, Controls. All dashboard control widgets (but one) were moved there.
+ - The dashboard now allows hiding of all cards but Controls, individually, and adjusts the layout smoothly.
+ - The dashboard Highlights card has a new banner, Top Category.
+ - The dashboard card with the spider graph gained a title, Weekday Rhythm.
+ - Every dashboard card now has an empty state when there is no data to display.
 
 ### Changed
  - Doughnut and stacked-bar chart segments now have a border separating them, across all themes
@@ -34,6 +35,10 @@ The format is based on Keep a Changelog, with one section per released version.
  - The Log Activity date picker now switches between day, month and year views, shows the date you have selected above it, and keeps a constant height so the dialog no longer resizes as you page through months.
  - Days from the neighbouring months are now shown in the day picker and can be selected directly.
  - Dates in a few places are now written out in full, as `August 3, 2026` rather than `Aug 3, 2026`.
+ - Some dashboard cards were renamed: "Tracking Heatmap" to "Heatmap", "Activity Visualization" to "Activity Flow", "Activity Breakdown" to "Activity Mix", "Weekday Distribution" to "Weekday Rhythm".
+ - The dashboard control UI elements were altered. The "sidebar collapse" button was adjusted to closer match the other buttons in this view.
+ - The dashboard "Activity Visualization" (now Flow) and "Activity Breakdown" (now Mix) cards changed their order
+ - The dashboard "Period Stats" card when in Monthly view mode has a height limit and becomes scrollable instead
 
 ### Fixed
  - The startup error and database recovery screens now show their intended background gradient
@@ -50,7 +55,9 @@ The format is based on Keep a Changelog, with one section per released version.
    average speed when estimating remaining time and completion
  - The calendar's first column now follows the week start day preference instead of always beginning on Sunday.
  - The dashboard Study Stats card "daily averages" no longer renders zero-minutes (`6h` instead of `6h 0m`)
- - The Activity Mix and Activity Flow dashboard cards no longer grow too tall after crossing the tablet width breakpoint and back
+ - The dashboard now has proper bottom padding, matching the other main views
+ - Some dashboard cards could grow far too tall when switching between different viewport types (e.g. desktop -> mobile -> desktop)
+ - Very rarely, the dashboard charts (donut and bar/graph) could get stuck in oddly stretched ways and now always render correctly
 
 ## [0.3.2] - 2026-08-25
 
