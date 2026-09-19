@@ -220,6 +220,18 @@ describe('Highlights', () => {
         expect(textContent(container)).toContain('1/2');
     });
 
+    it('notifies onCardsRendered again after a cover load triggers its own re-render, not just the explicit render() call', async () => {
+        const onCardsRendered = vi.fn();
+        const component = new Highlights(container, weeklyHighlightsState(weeklyLogs(), weeklyMedia()), onCardsRendered);
+
+        component.render();
+        expect(onCardsRendered).toHaveBeenCalledTimes(1);
+
+        await flushPromises();
+
+        expect(onCardsRendered).toHaveBeenCalledTimes(2);
+    });
+
     it('renders mobile highlights without pagination and responds to viewport breakpoint changes', async () => {
         const component = new Highlights(container, weeklyHighlightsState(weeklyLogs(), weeklyMedia()));
         const renderSpy = vi.spyOn(component, 'render');
@@ -245,6 +257,101 @@ describe('Highlights', () => {
 
         component.destroy();
         expect(removeQueryListenerSpy).toHaveBeenCalledWith('change', expect.any(Function));
+    });
+
+    it('picks the top category by minutes rather than trusting response order', () => {
+        const component = new Highlights(container, {
+            categoryTotals: [
+                ['Anime', { minutes: 30, characters: 0 }],
+                ['Novel', { minutes: 90, characters: 500 }],
+                ['Manga', { minutes: 60, characters: 200 }],
+            ],
+            isTodayInRange: true,
+            validStart: '2026-06-08',
+            validEnd: '2026-06-14',
+        });
+
+        component.render();
+
+        const text = textContent(container);
+        expect(text).toContain('Top Category');
+        expect(text).toContain('Novel');
+        expect(text).not.toContain('Anime');
+        expect(text).not.toContain('Manga');
+    });
+
+    it('does not add a Top Category highlight when categoryTotals is empty', () => {
+        const component = new Highlights(container, weeklyHighlightsState(weeklyLogs(), weeklyMedia()));
+        component.setState({ categoryTotals: [] });
+
+        expect(textContent(container)).not.toContain('Top Category');
+    });
+
+    it('does not add a Top Category highlight when the top entry has zero minutes', () => {
+        const component = new Highlights(container, weeklyHighlightsState(weeklyLogs(), weeklyMedia()));
+        component.setState({ categoryTotals: [['Anime', { minutes: 0, characters: 0 }]] });
+
+        expect(textContent(container)).not.toContain('Top Category');
+    });
+
+    it('appends Top Category alongside the backend-supplied highlights', () => {
+        const component = new Highlights(container, {
+            rangeData: {
+                request_id: 1,
+                start_date: '2026-06-08',
+                end_date: '2026-06-14',
+                bucket: 'day',
+                group_by: 'activity_type',
+                series: [],
+                bucket_totals: [],
+                previous_bucket_totals: { bucket: null, total_minutes: 0, total_characters: 0 },
+                category_totals: [],
+                highlights: [{
+                    kind: 'most_time',
+                    media: {
+                        id: 1,
+                        title: 'Novel A',
+                        variant: '',
+                        default_activity_type: 'Reading',
+                        status: 'Active',
+                        cover_image: '',
+                        content_type: 'Novel',
+                        tracking_status: 'Ongoing',
+                    },
+                    date: null,
+                    total_minutes: 90,
+                    total_characters: 2500,
+                    sessions: 2,
+                    streak_days: 0,
+                }],
+            },
+            categoryTotals: [['Anime', { minutes: 45, characters: 0 }]],
+            isTodayInRange: true,
+            validStart: '2026-06-08',
+            validEnd: '2026-06-14',
+        });
+
+        component.render();
+
+        const text = textContent(container);
+        expect(text).toContain('Most Time Spent');
+        expect(text).toContain('Top Category');
+        expect(text).toContain('Anime');
+    });
+
+    it('appends Top Category alongside the legacy log-derived highlights', () => {
+        const component = new Highlights(container, {
+            ...weeklyHighlightsState(weeklyLogs(), weeklyMedia()),
+            categoryTotals: [['Anime', { minutes: 45, characters: 0 }]],
+        });
+
+        component.render();
+        expect(textContent(container)).toContain('Most Time Spent');
+
+        container.querySelector<HTMLButtonElement>('[data-highlights-dir="next"]')?.click();
+        const secondPageText = textContent(container);
+        expect(secondPageText).toContain('Top Category');
+        expect(secondPageText).toContain('Anime');
     });
 
     it('logs cover loading failures without breaking highlight rendering', async () => {

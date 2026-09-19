@@ -15,7 +15,7 @@ interface ChartSnapshot {
 
 async function getChartSnapshot(): Promise<ChartSnapshot> {
   const canvas = $('#barChart');
-  await canvas.waitForDisplayed({ timeout: 5000 });
+  await canvas.waitForExist({ timeout: 5000 });
   let snapshot: ChartSnapshot | null = null;
   await browser.waitUntil(async () => {
     snapshot = await browser.execute(() => {

@@ -243,28 +243,26 @@ describe('Responsive Styling CUJ', () => {
     expect(desktop?.weekdayFirst).toBe(true);
 
     await browser.execute(() => {
-      const toggle = document.querySelector<HTMLInputElement>('#toggle-metric');
-      if (!toggle) return;
-      toggle.checked = true;
-      toggle.dispatchEvent(new Event('change', { bubbles: true }));
+      document.querySelector<HTMLButtonElement>('#toggle-metric-characters')?.click();
     });
     await browser.waitUntil(async () => browser.execute(() =>
       document.querySelector<HTMLElement>('.dashboard-weekday-card')?.dataset.metric === 'characters'
     ), { timeout: 3000, timeoutMsg: 'Weekday distribution did not switch to characters' });
     await browser.execute(() => {
-      const toggle = document.querySelector<HTMLInputElement>('#toggle-metric');
-      if (!toggle) return;
-      toggle.checked = false;
-      toggle.dispatchEvent(new Event('change', { bubbles: true }));
+      document.querySelector<HTMLButtonElement>('#toggle-metric-time')?.click();
     });
     await browser.waitUntil(async () => browser.execute(() =>
       document.querySelector<HTMLElement>('.dashboard-weekday-card')?.dataset.metric === 'minutes'
     ), { timeout: 3000, timeoutMsg: 'Weekday distribution did not switch back to time' });
 
-    await browser.setWindowSize(700, 1200);
-    await browser.waitUntil(async () => (await readTotalsLayout())?.rowCount === 2, {
+    // 900px is the `medium` tier (769-1024), where cards are two across.
+    await browser.setWindowSize(900, 1200);
+    await browser.waitUntil(async () => {
+      const layout = await readTotalsLayout();
+      return layout?.rowCount === 2 && !layout.gridOverflow;
+    }, {
       timeout: 5000,
-      timeoutMsg: 'Dashboard totals did not wrap to two rows at medium width',
+      timeoutMsg: 'Dashboard totals did not wrap to two rows at the medium tier',
     });
     const medium = await readTotalsLayout();
     expect(medium?.weekdayOwnRow).toBe(true);
@@ -273,9 +271,12 @@ describe('Responsive Styling CUJ', () => {
     expect(medium?.gridOverflow).toBe(false);
 
     await browser.setWindowSize(390, 1200);
-    await browser.waitUntil(async () => (await readTotalsLayout())?.rowCount === 3, {
+    await browser.waitUntil(async () => {
+      const layout = await readTotalsLayout();
+      return layout?.rowCount === 3 && !layout.gridOverflow;
+    }, {
       timeout: 5000,
-      timeoutMsg: 'Dashboard totals did not stack in compact mode',
+      timeoutMsg: 'Dashboard totals did not stack without overflow in compact mode',
     });
     const compact = await readTotalsLayout();
     expect(compact?.highlightsBelowPrimary).toBe(true);

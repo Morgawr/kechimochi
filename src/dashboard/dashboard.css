@@ -235,7 +235,30 @@
     overflow: hidden;
     text-overflow: ellipsis;
     color: var(--text-primary);
+    font-size: 1.5rem;
     font-weight: 600;
+}
+
+@media (max-width: 768px) {
+    .dashboard-range-label {
+        font-size: inherit;
+    }
+}
+
+@media (max-width: 340px) {
+    .dashboard-controls-header .dashboard-range-nav {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .dashboard-controls-header .dashboard-range-label {
+        grid-row: 1;
+        grid-column: 1 / -1;
+    }
+
+    .dashboard-controls-header .dashboard-range-nav > .chart-nav-button {
+        grid-row: 2;
+        justify-self: stretch;
+    }
 }
 
 .dashboard-controls-field-bare {
