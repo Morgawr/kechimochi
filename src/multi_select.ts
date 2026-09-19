@@ -41,6 +41,105 @@ function positionPanel(panelElement: HTMLElement, anchor: HTMLElement): void {
     panelElement.style.top = `${Math.max(0, top)}px`;
 }
 
+export interface MultiSelectFieldOptions<Value extends string> {
+    readonly id: string;
+    readonly label: string;
+    readonly items: readonly MultiSelectItem<Value>[];
+    readonly getSelectedValues: () => ReadonlySet<Value>;
+    readonly onToggle: (value: Value, isSelected: boolean) => void;
+    readonly placeholderLabel?: string;
+    readonly allLabel?: string;
+}
+
+export interface MultiSelectField {
+    readonly element: HTMLElement;
+    refresh(): void;
+    close(): void;
+}
+
+const DEFAULT_PLACEHOLDER_LABEL = 'None';
+const DEFAULT_ALL_LABEL = 'All';
+
+export function createMultiSelectField<Value extends string>(
+    options: MultiSelectFieldOptions<Value>,
+): MultiSelectField {
+    const {
+        id, label, items, getSelectedValues, onToggle,
+        placeholderLabel = DEFAULT_PLACEHOLDER_LABEL,
+        allLabel = DEFAULT_ALL_LABEL,
+    } = options;
+
+    const trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.id = id;
+    trigger.className = 'multi-select-trigger';
+    trigger.setAttribute('aria-haspopup', 'true');
+    trigger.setAttribute('aria-expanded', 'false');
+    trigger.setAttribute('aria-label', label);
+    trigger.innerHTML = `
+        <span class="multi-select-trigger-value"></span>
+        <span class="multi-select-trigger-counter"></span>
+        <span class="multi-select-trigger-chevron" aria-hidden="true"></span>
+    `;
+    const valueElement = trigger.querySelector<HTMLElement>('.multi-select-trigger-value')!;
+    const counterElement = trigger.querySelector<HTMLElement>('.multi-select-trigger-counter')!;
+
+    let closePanel: (() => void) | null = null;
+
+    function refresh(): void {
+        const selectedValues = getSelectedValues();
+        const selectedLabels = items.filter(item => selectedValues.has(item.value)).map(item => item.label);
+
+        if (selectedLabels.length === 0) {
+            valueElement.textContent = placeholderLabel;
+            valueElement.classList.add('is-placeholder');
+            counterElement.textContent = '';
+        } else if (selectedLabels.length === items.length) {
+            valueElement.textContent = allLabel;
+            valueElement.classList.remove('is-placeholder');
+            counterElement.textContent = '';
+        } else {
+            const [firstLabel, ...restLabels] = selectedLabels;
+            valueElement.textContent = firstLabel;
+            valueElement.classList.remove('is-placeholder');
+            counterElement.textContent = restLabels.length > 0 ? `+${restLabels.length}` : '';
+        }
+
+        if (selectedLabels.length > 0) {
+            trigger.title = ['Selected options:', ...selectedLabels.map(selectedLabel => `• ${selectedLabel}`)].join('\n');
+        } else {
+            trigger.removeAttribute('title');
+        }
+    }
+
+    trigger.addEventListener('click', () => {
+        if (closePanel) {
+            closePanel();
+            return;
+        }
+        const { close } = openMultiSelect<Value>({
+            anchor: trigger,
+            label,
+            items,
+            selectedValues: getSelectedValues(),
+            onToggle: (value, isSelected) => {
+                onToggle(value, isSelected);
+                refresh();
+            },
+            onClose: () => { closePanel = null; },
+        });
+        closePanel = close;
+    });
+
+    refresh();
+
+    return {
+        element: trigger,
+        refresh,
+        close: () => closePanel?.(),
+    };
+}
+
 export function openMultiSelect<Value extends string>(
     options: MultiSelectOptions<Value>,
 ): { close: () => void } {

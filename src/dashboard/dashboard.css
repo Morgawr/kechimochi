@@ -1,3 +1,17 @@
+/* ============================================================================
+ * The five viewport tiers — the single source of truth for every breakpoint
+ * in this file. Every media query below (and the side-panel fold, which lives in
+ * this file too) must key off these exact numbers rather than a nearby one.
+ *
+ *   wide        >= 1366px    side panel real & collapsible, grid 3-across
+ *   medium+     1025-1365px  side panel real & collapsible, grid 2-across
+ *   medium       769-1024px  side panel folded into the column, grid 2-across
+ *   mobile       341-768px   side panel folded, grid 1-across
+ *   supernarrow  <= 340px    side panel folded, grid 1-across
+ *
+ * `medium+` and `medium` differ only in whether the side panel exists.
+ * ============================================================================ */
+
 .dashboard-media-link:hover {
     filter: brightness(1.2);
 }
@@ -87,7 +101,6 @@
 }
 
 #dashboard-card-grid {
-    container: dashboard-cards / inline-size;
     display: grid;
     grid-template-columns: repeat(12, minmax(0, 1fr));
     gap: 2rem;
@@ -109,43 +122,125 @@
     display: none;
 }
 
-@container dashboard-cards (max-width: 960px) {
+@media (max-width: 1365px) {
     .dashboard-card-host {
         grid-column: var(--dashboard-card-span-medium, span 12);
     }
 }
 
-@container dashboard-cards (max-width: 560px) {
+@media (max-width: 768px) {
     .dashboard-card-host {
         grid-column: 1 / -1;
+    }
+
+    #dashboard-card-grid {
+        column-gap: 0;
     }
 }
 
 .dashboard-controls-card {
     display: flex;
     flex-direction: column;
+    gap: 0.75rem;
     min-width: 0;
 }
 
-.dashboard-controls-row {
+.dashboard-controls-fields {
+    --dashboard-control-height: 2.25rem;
+    --dashboard-dropdown-width: 12rem;
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
+    align-items: flex-start;
+    gap: 1rem 2rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.dashboard-controls-cluster {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    flex: 0 0 100%;
+    min-width: 0;
     gap: 1rem;
 }
 
-.dashboard-controls-row .activity-charts-title-controls {
-    width: 19rem;
+.dashboard-controls-field {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
     flex: 0 0 auto;
-    justify-content: space-between;
+    gap: 0.45rem;
+    min-width: 0;
 }
 
-.dashboard-controls-row .chart-nav-button {
-    flex: 0 0 auto;
+.dashboard-controls-field-stretch {
+    flex: 1 1 12rem;
+}
+
+.dashboard-controls-field-stretch select,
+.dashboard-controls-field-stretch .multi-select-trigger {
+    --multi-select-trigger-width: 100%;
+    width: 100%;
+}
+
+.dashboard-controls-field-bare {
+    align-self: flex-end;
+}
+
+.dashboard-controls-field .toggle,
+.dashboard-controls-field .multi-select-trigger,
+.dashboard-controls-field .dashboard-side-panel-toggle,
+.dashboard-controls-field select {
+    min-height: var(--dashboard-control-height);
+}
+
+@media (max-width: 768px) {
+    .dashboard-controls-field-stretch {
+        flex-basis: 100%;
+    }
+}
+
+@media (max-width: 340px) {
+    .dashboard-controls-field {
+        flex-basis: 100%;
+    }
+}
+
+@media (max-width: 768px) {
+    .dashboard-card-header-has-extras,
+    .dashboard-card-header-has-extras > :not(.dashboard-card-title) {
+        grid-column: auto;
+        grid-template-columns: 1fr;
+        justify-items: center;
+    }
+}
+
+@media (min-width: 1366px) {
+    .dashboard-controls-fields {
+        justify-content: space-between;
+    }
+
+    .dashboard-controls-cluster {
+        flex: 0 0 auto;
+    }
+
+    .dashboard-controls-field-stretch {
+        flex: 0 0 var(--dashboard-dropdown-width);
+    }
+
+    .dashboard-controls-field-stretch select,
+    .dashboard-controls-field-stretch .multi-select-trigger {
+        --multi-select-trigger-width: var(--dashboard-dropdown-width);
+        width: var(--dashboard-dropdown-width);
+    }
+
+    .dashboard-controls-field-bare {
+        order: -1;
+    }
 }
 
 .dashboard-range-label {
-    flex: 1 1 0;
     min-width: 0;
     text-align: center;
     white-space: nowrap;
@@ -155,13 +250,7 @@
     font-weight: 600;
 }
 
-.dashboard-controls-hint {
-    margin: 0;
-    color: var(--text-secondary);
-    font-size: 0.85rem;
-}
-
-.dashboard-side-panel-toggle {
+.dashboard-controls-field .dashboard-side-panel-toggle {
     display: none;
 }
 
@@ -177,17 +266,17 @@
     width: var(--dashboard-rail-width);
   }
 
-  .dashboard-side-panel-toggle {
+  .dashboard-controls-field .dashboard-side-panel-toggle {
     flex: 0 0 auto;
-    width: var(--dashboard-rail-width);
-    height: var(--dashboard-rail-width);
-    padding: 0;
-    display: flex;
+    gap: 0.4rem;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.9rem;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    background: var(--bg-card);
+    background: transparent;
     border: 1px solid var(--border-color);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-md);
     color: var(--text-secondary);
     cursor: pointer;
     transition: background-color var(--transition-fast), color var(--transition-fast);
@@ -278,11 +367,18 @@
 }
 
 .dashboard-card-header-has-extras {
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    justify-items: end;
 }
 
 .dashboard-card-header-has-extras .dashboard-card-title {
-    flex: 1;
+    grid-column: 2;
+    justify-self: center;
+}
+
+.dashboard-card-header-has-extras > :not(.dashboard-card-title) {
+    grid-column: 3;
 }
 
 .dashboard-card-title {
@@ -813,10 +909,6 @@
 @media (max-width: 560px) {
   .dashboard-selected-metrics {
     grid-template-columns: 1fr;
-  }
-
-  .dashboard-card-header-has-extras {
-    flex-direction: column;
   }
 
   .dashboard-module-title,

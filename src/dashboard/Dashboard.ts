@@ -222,10 +222,10 @@ export class Dashboard extends Component<DashboardState> {
 
             this.controlsHost = html`<div class="dashboard-card-host" data-dashboard-card="controls"></div>`;
             this.containers.cardGrid.appendChild(this.controlsHost);
-            const { timeRangeDays, timeRangeOffset, groupByMode, chartType, metric } = this.state.chartParams;
+            const { timeRangeDays, timeRangeOffset, groupByMode, metric } = this.state.chartParams;
             this.controlsComponent = new DashboardControls(
                 this.controlsHost,
-                { timeRangeDays, timeRangeOffset, groupByMode, chartType, metric },
+                { timeRangeDays, timeRangeOffset, groupByMode, metric },
                 params => this.handleChartParamChange(params),
                 DASHBOARD_CARD_ORDER,
                 () => this.hiddenCards,
@@ -263,14 +263,16 @@ export class Dashboard extends Component<DashboardState> {
         const label = this.sidePanelCollapsed ? SIDE_PANEL_SHOW_LABEL : SIDE_PANEL_HIDE_LABEL;
         const toggle = html`
             <button type="button" id="dashboard-side-panel-toggle"
-                class="dashboard-side-panel-toggle"
+                class="btn btn-ghost dashboard-side-panel-toggle"
                 aria-controls="dashboard-left-column"
                 aria-expanded="${(!this.sidePanelCollapsed).toString()}"
                 aria-label="${label}"
                 title="${label}">
                 <svg class="dashboard-side-panel-chevron" width="14" height="14" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                    <path d="M7.5 2.5L4 6l3.5 3.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M6.5 2.5L3 6l3.5 3.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M10 2.5L6.5 6l3.5 3.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
+                <span class="dashboard-side-panel-toggle-text">Sidebar</span>
             </button>
         `;
         toggle.addEventListener('click', () => this.toggleSidePanel());
@@ -482,6 +484,7 @@ export class Dashboard extends Component<DashboardState> {
                 componentState,
                 () => this.reconcileCards(),
                 requestId => this.publishControlsRequestId(requestId),
+                chartType => this.handleChartParamChange({ chartType }),
             );
             this.activeChartsComponent.render();
         }

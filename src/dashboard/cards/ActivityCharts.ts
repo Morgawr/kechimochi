@@ -80,6 +80,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
     private readonly hosts: ReadonlyMap<ActivityChartsHostId, HTMLElement>;
     private readonly onCardsRendered: () => void;
     private readonly onRenderComplete: (requestId: number) => void;
+    private readonly onChartTypeChange: (chartType: 'bar' | 'line') => void;
 
     constructor(
         container: HTMLElement,
@@ -87,11 +88,13 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         initialState: ActivityChartsState,
         onCardsRendered: () => void = () => {},
         onRenderComplete: (requestId: number) => void = () => {},
+        onChartTypeChange: (chartType: 'bar' | 'line') => void = () => {},
     ) {
         super(container, initialState);
         this.hosts = hosts;
         this.onCardsRendered = onCardsRendered;
         this.onRenderComplete = onRenderComplete;
+        this.onChartTypeChange = onChartTypeChange;
     }
 
     protected override clear(): void {
@@ -177,6 +180,12 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         }))}` : null;
         const visualizationCard = this.shouldMount('activity_visualization') ? html`${rawHtml(renderDashboardCardShell({
             title: 'Activity Visualization',
+            headerExtras: `
+                <div class="toggle" role="group" id="toggle-chart-type" aria-label="Chart type">
+                    <button type="button" class="toggle-option" id="toggle-chart-type-bar" aria-pressed="false">Bar</button>
+                    <button type="button" class="toggle-option" id="toggle-chart-type-line" aria-pressed="false">Line</button>
+                </div>
+            `,
             body: `
                 <div class="chart-container-wrapper">
                     <canvas id="barChart"></canvas>
@@ -189,9 +198,28 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         if (visualizationCard) visualizationHost.appendChild(visualizationCard);
         if (!breakdownCard && !visualizationCard) return;
 
+        this.setupChartTypeToggle(visualizationCard);
+
         this.renderCharts({ breakdownCard, visualizationCard }).catch(error => {
             Logger.error('Failed to render dashboard charts', error);
         });
+    }
+
+    private setupChartTypeToggle(visualizationCard: HTMLElement | null): void {
+        const barOption = visualizationCard?.querySelector<HTMLButtonElement>('#toggle-chart-type-bar');
+        const lineOption = visualizationCard?.querySelector<HTMLButtonElement>('#toggle-chart-type-line');
+        barOption?.addEventListener('click', () => this.onChartTypeChange('bar'));
+        lineOption?.addEventListener('click', () => this.onChartTypeChange('line'));
+    }
+
+    private syncChartTypeToggle(visualizationCard: HTMLElement | null): void {
+        const barOption = visualizationCard?.querySelector<HTMLButtonElement>('#toggle-chart-type-bar');
+        const lineOption = visualizationCard?.querySelector<HTMLButtonElement>('#toggle-chart-type-line');
+        const isLine = this.state.chartType === 'line';
+        barOption?.classList.toggle('is-active', !isLine);
+        barOption?.setAttribute('aria-pressed', String(!isLine));
+        lineOption?.classList.toggle('is-active', isLine);
+        lineOption?.setAttribute('aria-pressed', String(isLine));
     }
 
     /** Updates interaction state while a new backend range is in flight,
@@ -217,6 +245,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
 
     private async renderCharts(mounted: MountedActivityChartsCards): Promise<void> {
         const { breakdownCard, visualizationCard } = mounted;
+        this.syncChartTypeToggle(visualizationCard);
         const generation = ++this.renderGeneration;
         const snapshotRequestId = this.state.snapshotRequestId;
         const visualizationHost = this.hosts.get('activity_visualization');

@@ -9,9 +9,7 @@
   --library-card-height: 320px;
   --library-overlay-top-reserve: 1.6rem;
   --library-overlay-bottom-reserve: 2.5rem;
-  /* Default multiselect trigger width; a consumer needing another size overrides this on
-     the trigger or any ancestor. */
-  --multi-select-trigger-width: 18rem;
+  --multi-select-trigger-width: 12rem;
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 12px;
@@ -2084,7 +2082,7 @@ input:focus, select:focus {
 
   #study-stats-breakdown {
     display: grid !important;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
     gap: 0.45rem;
     align-items: stretch;
   }
@@ -2907,6 +2905,17 @@ input:focus, select:focus {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.multi-select-trigger-value.is-placeholder {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.multi-select-trigger-counter {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
 }
 
 .multi-select-trigger-chevron {

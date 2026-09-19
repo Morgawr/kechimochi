@@ -20,7 +20,6 @@ describe('DashboardControls', () => {
                 timeRangeDays: 7,
                 timeRangeOffset: 0,
                 groupByMode: 'activity_type',
-                chartType: 'bar',
                 metric: 'minutes',
                 ...state,
             },
@@ -95,7 +94,7 @@ describe('DashboardControls', () => {
     it('should reflect a pushed state onto the controls', () => {
         const controls = mountControls();
 
-        controls.setState({ timeRangeDays: 30, timeRangeOffset: 1, chartType: 'line', groupByMode: 'log_name', metric: 'characters' });
+        controls.setState({ timeRangeDays: 30, timeRangeOffset: 1, groupByMode: 'log_name', metric: 'characters' });
 
         expect((container.querySelector('#select-time-range') as HTMLSelectElement).value).toBe('30');
         expect((container.querySelector('#toggle-chart-type') as HTMLInputElement).checked).toBe(true);
