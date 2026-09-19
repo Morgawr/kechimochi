@@ -9,7 +9,7 @@ import { renderDashboardCardEmptyState, renderDashboardCardShell } from '../card
 
 export const HEATMAP_CARD = {
     id: 'heatmap',
-    label: 'Tracking Heatmap',
+    label: 'Heatmap',
     spans: { wide: 12, medium: 12 },
     dataSources: ['heatmap'],
 } as const satisfies DashboardCardDescriptor;
@@ -92,7 +92,7 @@ export class HeatmapView extends Component<HeatmapViewState> {
                                 <path d="M10 4l-4 4 4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                             </svg>
                         </button>
-                        <h3 class="heatmap-title dashboard-module-title">Tracking Heatmap (<span id="heatmap-year-label">${this.state.year}</span>)</h3>
+                        <h3 class="heatmap-title dashboard-module-title">Heatmap (<span id="heatmap-year-label">${this.state.year}</span>)</h3>
                         <button class="btn btn-ghost chart-nav-button" id="btn-heatmap-next">
                             <svg class="nav-svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
                                 <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>

@@ -9,7 +9,7 @@
   --library-card-height: 320px;
   --library-overlay-top-reserve: 1.6rem;
   --library-overlay-bottom-reserve: 2.5rem;
-  --multi-select-trigger-width: 12rem;
+  --multi-select-trigger-width: 13.5rem;
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 12px;
@@ -2914,7 +2914,7 @@ input:focus, select:focus {
 
 .multi-select-trigger-counter {
   flex: 0 0 auto;
-  color: var(--text-secondary);
+  color: var(--text-primary);
   font-variant-numeric: tabular-nums;
 }
 

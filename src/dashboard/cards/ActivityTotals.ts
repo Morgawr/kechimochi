@@ -11,7 +11,7 @@ import { renderDashboardCardShell, renderNoPeriodDataEmptyState } from '../card_
 
 export const WEEKDAY_DISTRIBUTION_CARD = {
     id: 'weekday_distribution',
-    label: 'Weekday Distribution',
+    label: 'Weekday Rhythm',
     spans: { wide: 4, medium: 6 },
     dataSources: ['weekdayDistribution'],
 } as const satisfies DashboardCardDescriptor;

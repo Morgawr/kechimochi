@@ -12,14 +12,14 @@ import { renderDashboardCardShell, renderNoPeriodDataMessage } from '../card_she
 
 export const ACTIVITY_BREAKDOWN_CARD = {
     id: 'activity_breakdown',
-    label: 'Activity Breakdown',
+    label: 'Activity Mix',
     spans: { wide: 4, medium: 6 },
     dataSources: ['range'],
 } as const satisfies DashboardCardDescriptor;
 
 export const ACTIVITY_VISUALIZATION_CARD = {
     id: 'activity_visualization',
-    label: 'Activity Visualization',
+    label: 'Activity Flow',
     spans: { wide: 8, medium: 12 },
     dataSources: ['range'],
 } as const satisfies DashboardCardDescriptor;
@@ -170,7 +170,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
         this.clear();
 
         const breakdownCard = this.shouldMount('activity_breakdown') ? html`${rawHtml(renderDashboardCardShell({
-            title: 'Activity Breakdown',
+            title: ACTIVITY_BREAKDOWN_CARD.label,
             body: `
                 <div class="chart-container-wrapper">
                     <canvas id="pieChart"></canvas>
@@ -179,7 +179,7 @@ export class ActivityCharts extends Component<ActivityChartsState> {
             `,
         }))}` : null;
         const visualizationCard = this.shouldMount('activity_visualization') ? html`${rawHtml(renderDashboardCardShell({
-            title: 'Activity Visualization',
+            title: ACTIVITY_VISUALIZATION_CARD.label,
             headerExtras: `
                 <div class="toggle" role="group" id="toggle-chart-type" aria-label="Chart type">
                     <button type="button" class="toggle-option" id="toggle-chart-type-bar" aria-pressed="false">Bar</button>

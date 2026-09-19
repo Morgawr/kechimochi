@@ -147,7 +147,7 @@
 
 .dashboard-controls-fields {
     --dashboard-control-height: 2.25rem;
-    --dashboard-dropdown-width: 12rem;
+    --dashboard-dropdown-width: 13.5rem;
     display: flex;
     flex-wrap: wrap;
     align-items: flex-start;
@@ -207,15 +207,6 @@
     }
 }
 
-@media (max-width: 768px) {
-    .dashboard-card-header-has-extras,
-    .dashboard-card-header-has-extras > :not(.dashboard-card-title) {
-        grid-column: auto;
-        grid-template-columns: 1fr;
-        justify-items: center;
-    }
-}
-
 @media (min-width: 1366px) {
     .dashboard-controls-fields {
         justify-content: space-between;
@@ -235,9 +226,6 @@
         width: var(--dashboard-dropdown-width);
     }
 
-    .dashboard-controls-field-bare {
-        order: -1;
-    }
 }
 
 .dashboard-range-label {
@@ -250,11 +238,16 @@
     font-weight: 600;
 }
 
-.dashboard-controls-field .dashboard-side-panel-toggle {
+.dashboard-controls-field-bare {
     display: none;
 }
 
 @media (min-width: 1025px) {
+
+  .dashboard-controls-field-bare {
+    display: flex;
+  }
+
 
   #stats-box-container,
   #quick-log-container {
@@ -379,6 +372,15 @@
 
 .dashboard-card-header-has-extras > :not(.dashboard-card-title) {
     grid-column: 3;
+}
+
+@media (max-width: 768px) {
+    .dashboard-card-header-has-extras {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
+    }
 }
 
 .dashboard-card-title {
