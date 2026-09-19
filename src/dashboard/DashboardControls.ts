@@ -106,8 +106,8 @@ export class DashboardControls extends Component<DashboardControlsState> {
                         </button>
                     </div>
                 </div>
-                <div class="dashboard-controls-fields">
-                    <div class="dashboard-controls-cluster">
+                <div class="dashboard-controls-fields" data-dashboard-controls-fields>
+                    <div class="dashboard-controls-cluster" data-dashboard-controls-cluster="cards">
                         <div class="dashboard-controls-field dashboard-controls-field-stretch">
                             <span class="timeline-filter-label">Cards</span>
                             ${cardsMenuField.element}
@@ -116,7 +116,7 @@ export class DashboardControls extends Component<DashboardControlsState> {
                             ${this.createSidePanelToggle()}
                         </div>
                     </div>
-                    <div class="dashboard-controls-cluster">
+                    <div class="dashboard-controls-cluster" data-dashboard-controls-cluster="period">
                         <label class="dashboard-controls-field dashboard-controls-field-stretch">
                             <span class="timeline-filter-label">Period</span>
                             <select id="select-time-range">

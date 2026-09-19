@@ -84,9 +84,7 @@ describe('DashboardControls', () => {
     it('should report a metric change on the metric toggle', () => {
         mountControls();
 
-        const toggleMetric = container.querySelector('#toggle-metric') as HTMLInputElement;
-        toggleMetric.checked = true;
-        toggleMetric.dispatchEvent(new Event('change'));
+        container.querySelector<HTMLButtonElement>('#toggle-metric-characters')?.click();
 
         expect(onChartParamChange).toHaveBeenCalledWith({ metric: 'characters' });
     });
@@ -97,9 +95,10 @@ describe('DashboardControls', () => {
         controls.setState({ timeRangeDays: 30, timeRangeOffset: 1, groupByMode: 'log_name', metric: 'characters' });
 
         expect((container.querySelector('#select-time-range') as HTMLSelectElement).value).toBe('30');
-        expect((container.querySelector('#toggle-chart-type') as HTMLInputElement).checked).toBe(true);
-        expect((container.querySelector('#toggle-group-by') as HTMLInputElement).checked).toBe(true);
-        expect((container.querySelector('#toggle-metric') as HTMLInputElement).checked).toBe(true);
+        expect(container.querySelector('#toggle-group-by-name')?.getAttribute('aria-pressed')).toBe('true');
+        expect(container.querySelector('#toggle-group-by-name')?.classList.contains('is-active')).toBe(true);
+        expect(container.querySelector('#toggle-metric-characters')?.getAttribute('aria-pressed')).toBe('true');
+        expect(container.querySelector('#toggle-metric-characters')?.classList.contains('is-active')).toBe(true);
         expect((container.querySelector('#btn-chart-next') as HTMLButtonElement).disabled).toBe(false);
     });
 

@@ -11,6 +11,7 @@ import type {
 import { customConfirm } from '../../src/modal_base';
 import { Heatmap } from '../../src/dashboard/cards/Heatmap';
 import { ActivityFlow } from '../../src/dashboard/cards/ActivityFlow';
+import { ActivityMix } from '../../src/dashboard/cards/ActivityMix';
 import { StatsCard } from '../../src/dashboard/StatsCard';
 import { Logger } from '../../src/logger';
 import { getActivityRange } from '../../src/dashboard/activity_ranges';
@@ -275,7 +276,6 @@ describe('Dashboard', () => {
         expect(root?.dataset.dashboardHeatmapRequestId).toBe(request.request_id.toString());
         await vi.waitFor(() => expect(ActivityFlow).toHaveBeenCalledWith(
             expect.any(HTMLElement),
-            expect.any(Map),
             expect.objectContaining({ snapshotRequestId: request.request_id }),
             expect.any(Function),
             expect.any(Function),
@@ -287,18 +287,23 @@ describe('Dashboard', () => {
     it('reuses mounted components and does not explicitly render after setState', async () => {
         const dashboard = await loadDashboard();
         const stats = vi.mocked(StatsCard).mock.results[0].value;
-        const charts = vi.mocked(ActivityFlow).mock.results[0].value;
+        const flow = vi.mocked(ActivityFlow).mock.results[0].value;
+        const mix = vi.mocked(ActivityMix).mock.results[0].value;
         expect(stats.render).toHaveBeenCalledTimes(1);
-        expect(charts.render).toHaveBeenCalledTimes(1);
+        expect(flow.render).toHaveBeenCalledTimes(1);
+        expect(mix.render).toHaveBeenCalledTimes(1);
 
         await dashboard.loadData();
-        await vi.waitFor(() => expect(charts.setState).toHaveBeenCalledTimes(1));
+        await vi.waitFor(() => expect(flow.setState).toHaveBeenCalledTimes(1));
+        await vi.waitFor(() => expect(mix.setState).toHaveBeenCalledTimes(1));
 
         expect(StatsCard).toHaveBeenCalledTimes(1);
         expect(ActivityFlow).toHaveBeenCalledTimes(1);
+        expect(ActivityMix).toHaveBeenCalledTimes(1);
         expect(stats.setState).toHaveBeenCalledTimes(1);
         expect(stats.render).toHaveBeenCalledTimes(1);
-        expect(charts.render).toHaveBeenCalledTimes(1);
+        expect(flow.render).toHaveBeenCalledTimes(1);
+        expect(mix.render).toHaveBeenCalledTimes(1);
     });
 
     it('fetches recent logs one page at a time', async () => {

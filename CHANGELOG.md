@@ -12,7 +12,8 @@ The format is based on Keep a Changelog, with one section per released version.
  - Right-clicking empty space in the library opens a menu for New media
  - Added an E-Ink theme: black on white, borders instead of fill-tints, no motion or elevation, tuned for e-ink panels
  - Media details now have a Create variant action that carries over the same medatada into a new variant
- - The Activity Visualization and Activity Breakdown cards now show a message instead of an empty chart when the selected period has no data.
+ - Every dashboard card now shows a message when the selected period has no data, instead of an empty chart, an empty table, or vanishing from the layout entirely
+ - The dashboard cards were renamed for clarity: Tracking Heatmap is now Heatmap, Activity Visualization is Activity Flow, Activity Breakdown is Activity Mix, and Weekday Distribution is Weekday Rhythm
  - Media supporting reading speed estimates can now carry a custom override, set from the media detail menu
  - Activity logs can now be scoped to a whole month or year instead of a single day, for recording time you know you spent without inventing a date for it. Dashboard graphs gained according visualization.
  - The dashboard now has an always-visible controls card and a Cards menu to show or hide individual dashboard cards, with the layout reflowing to avoid empty gaps. The choice persists across reloads.
@@ -49,7 +50,7 @@ The format is based on Keep a Changelog, with one section per released version.
    average speed when estimating remaining time and completion
  - The calendar's first column now follows the week start day preference instead of always beginning on Sunday.
  - The dashboard Study Stats card "daily averages" no longer renders zero-minutes (`6h` instead of `6h 0m`)
- - The Activity Breakdown and Activity Visualization dashboard cards no longer grow too tall after crossing the tablet width breakpoint and back
+ - The Activity Mix and Activity Flow dashboard cards no longer grow too tall after crossing the tablet width breakpoint and back
 
 ## [0.3.2] - 2026-08-25
 

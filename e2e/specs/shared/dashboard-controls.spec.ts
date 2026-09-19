@@ -51,13 +51,14 @@ function totalsByLabel(snapshot: ChartSnapshot): Record<string, number> {
   return Object.fromEntries(snapshot.labels.map((label, index) => [label, snapshot.totals[index]]));
 }
 
-async function clickChartToggle(selector: string): Promise<void> {
+async function clickChartToggle(groupSelector: string): Promise<void> {
   const clicked = await browser.execute((targetSelector) => {
-    const input = document.querySelector(targetSelector);
-    if (!(input instanceof HTMLInputElement)) return false;
-    input.click();
+    const group = document.querySelector(targetSelector);
+    const secondOption = group?.querySelectorAll<HTMLButtonElement>('.toggle-option').item(1);
+    if (!secondOption) return false;
+    secondOption.click();
     return true;
-  }, selector);
+  }, groupSelector);
   expect(clicked).toBe(true);
 }
 

@@ -33,6 +33,7 @@ import {
     getDashboardBucket,
     getLocalISODate,
     getOffsetForDate,
+    type ActivityRange,
     type DatedActivityTotals,
 } from './activity_ranges';
 import { measureSynchronous } from '../performance';
@@ -669,10 +670,7 @@ export class Dashboard extends Component<DashboardState> {
             this.getAllTimeRangeSeeds(),
             this.state.chartParams.weekStartDay,
         );
-        if (this.controlsHost) {
-            this.controlsHost.dataset.rangeStart = range.validStart;
-            this.controlsHost.dataset.rangeEnd = range.validEnd;
-        }
+        this.publishControlsRange(range);
         const bucket = getDashboardBucket(range.unit);
         const rangeHosts = this.rangeDependentCardHosts();
         for (const host of rangeHosts) host.setAttribute('aria-busy', 'true');
@@ -688,12 +686,7 @@ export class Dashboard extends Component<DashboardState> {
             if (!this.isCurrentResponse(generation, requestId, this.activeRangeRequest, response.request_id)) {
                 return;
             }
-            // Besides the token, verify all query-defining fields. This makes a
-            // malformed/cross-environment response impossible to apply silently.
-            if (response.start_date !== range.validStart
-                || response.end_date !== range.validEnd
-                || response.bucket !== bucket
-                || response.group_by !== this.state.chartParams.groupByMode) {
+            if (!this.isMatchingRangeResponse(response, range, bucket)) {
                 Logger.warn('[kechimochi] Ignored mismatched dashboard range response.');
                 return;
             }
@@ -705,15 +698,32 @@ export class Dashboard extends Component<DashboardState> {
             });
             this.publishControlsRequestId(this.activeSnapshotRequest);
         } catch (error) {
-            if (generation === this.dataGeneration && requestId === this.activeRangeRequest) {
+            if (this.isLiveRangeRequest(generation, requestId)) {
                 Logger.error('Failed to load dashboard range', error);
                 if (!this.state.rangeData) this.renderRangeLoadError();
             }
         } finally {
-            if (generation === this.dataGeneration && requestId === this.activeRangeRequest) {
+            if (this.isLiveRangeRequest(generation, requestId)) {
                 for (const host of rangeHosts) host.removeAttribute('aria-busy');
             }
         }
+    }
+
+    private publishControlsRange(range: ActivityRange): void {
+        if (!this.controlsHost) return;
+        this.controlsHost.dataset.rangeStart = range.validStart;
+        this.controlsHost.dataset.rangeEnd = range.validEnd;
+    }
+
+    private isLiveRangeRequest(generation: number, requestId: number): boolean {
+        return generation === this.dataGeneration && requestId === this.activeRangeRequest;
+    }
+
+    private isMatchingRangeResponse(response: DashboardRangeResponse, range: ActivityRange, bucket: string): boolean {
+        return response.start_date === range.validStart
+            && response.end_date === range.validEnd
+            && response.bucket === bucket
+            && response.group_by === this.state.chartParams.groupByMode;
     }
 
     private getAllTimeRangeSeeds(): DatedActivityTotals[] {
