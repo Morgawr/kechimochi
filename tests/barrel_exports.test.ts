@@ -19,8 +19,8 @@ describe('public module entrypoints', () => {
         const media = await import('../src/media/index');
         const components = await import('../src/components');
 
-        expect(dashboard.ActivityCharts).toBeTypeOf('function');
-        expect(dashboard.HeatmapView).toBeTypeOf('function');
+        expect(dashboard.ActivityFlow).toBeTypeOf('function');
+        expect(dashboard.Heatmap).toBeTypeOf('function');
         expect(media.MediaDetail).toBeTypeOf('function');
         expect(media.MediaGrid).toBeTypeOf('function');
         expect(components.Dashboard).toBeTypeOf('function');

@@ -60,8 +60,8 @@ describe('Dashboard CUJ', () => {
     expect(monthlyRange.rangeEnd).toBe(MOCK_DATE);
 
     const monthlyStats = await browser.execute(() => {
-      const cards = Array.from(document.querySelectorAll<HTMLElement>('.dashboard-totals-card'));
-      const card = cards.find(candidate => candidate.querySelector('.dashboard-totals-title')?.textContent?.includes('Monthly Stats'));
+      const cards = Array.from(document.querySelectorAll<HTMLElement>('.dashboard-card'));
+      const card = cards.find(candidate => candidate.querySelector('.dashboard-card-title')?.textContent?.includes('Monthly Stats'));
       const rows = Array.from(card?.querySelectorAll<HTMLElement>('[data-dashboard-total-index]') ?? []);
       const headerCells = Array.from(card?.querySelectorAll<HTMLElement>('.dashboard-stats-row-header > span') ?? []);
       const rowCellLefts = rows.slice(0, 5).map(row =>

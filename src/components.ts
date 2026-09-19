@@ -1,5 +1,16 @@
 export { Dashboard } from './dashboard/Dashboard';
-export { ActivityCharts, HeatmapView, QuickLog, StatsCard } from './dashboard';
+export {
+    ActivityFlow,
+    ActivityMix,
+    Categories,
+    Heatmap,
+    Highlights,
+    PeriodStats,
+    QuickLog,
+    RecentActivity,
+    StatsCard,
+    WeekdayRhythm,
+} from './dashboard';
 export {
     MediaCoverLoader,
     MediaDetail,

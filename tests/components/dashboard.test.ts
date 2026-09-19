@@ -5,12 +5,15 @@ import type {
     DashboardRangeRequest,
     DashboardRangeResponse,
     DashboardRecentLog,
+    DashboardRecentPage,
     DashboardSnapshot,
     DashboardSnapshotRequest,
 } from '../../src/types';
 import { customConfirm } from '../../src/modal_base';
-import { HeatmapView } from '../../src/dashboard/HeatmapView';
-import { ActivityCharts } from '../../src/dashboard/ActivityCharts';
+import { Heatmap } from '../../src/dashboard/cards/Heatmap';
+import { ActivityFlow } from '../../src/dashboard/cards/ActivityFlow';
+import { ActivityMix } from '../../src/dashboard/cards/ActivityMix';
+import { WeekdayRhythm } from '../../src/dashboard/cards/WeekdayRhythm';
 import { StatsCard } from '../../src/dashboard/StatsCard';
 import { Logger } from '../../src/logger';
 import { getActivityRange } from '../../src/dashboard/activity_ranges';
@@ -22,15 +25,62 @@ vi.mock('../../src/api', () => ({
     getDashboardRecentLogs: vi.fn(),
     deleteLog: vi.fn(),
     setSetting: vi.fn(),
+    getSetting: vi.fn(),
 }));
 
 vi.mock('../../src/modal_base', () => ({ customConfirm: vi.fn() }));
 vi.mock('../../src/activity_modal', () => ({ showLogActivityModal: vi.fn() }));
+const { stubComponentClass } = vi.hoisted(() => ({
+    stubComponentClass: () => vi.fn(() => ({
+        render: vi.fn(),
+        setState: vi.fn(),
+        destroy: vi.fn(),
+        updatePendingParams: vi.fn(),
+        updateHiddenCards: vi.fn(),
+        refreshCardsSummary: vi.fn(),
+        syncControlState: vi.fn(),
+        setRangeLabel: vi.fn(),
+        closeCardsPanel: vi.fn(),
+    })),
+}));
+
 vi.mock('../../src/dashboard/StatsCard');
-vi.mock('../../src/dashboard/HeatmapView');
-vi.mock('../../src/dashboard/ActivityCharts');
 vi.mock('../../src/dashboard/QuickLog');
-vi.mock('../../src/dashboard/ActivityTotals');
+
+vi.mock('../../src/dashboard/cards/Heatmap', async importOriginal => ({
+    ...await importOriginal<typeof import('../../src/dashboard/cards/Heatmap')>(),
+    Heatmap: stubComponentClass(),
+}));
+
+vi.mock('../../src/dashboard/cards/ActivityFlow', async importOriginal => ({
+    ...await importOriginal<typeof import('../../src/dashboard/cards/ActivityFlow')>(),
+    ActivityFlow: stubComponentClass(),
+}));
+
+vi.mock('../../src/dashboard/cards/ActivityMix', async importOriginal => ({
+    ...await importOriginal<typeof import('../../src/dashboard/cards/ActivityMix')>(),
+    ActivityMix: stubComponentClass(),
+}));
+
+vi.mock('../../src/dashboard/cards/WeekdayRhythm', async importOriginal => ({
+    ...await importOriginal<typeof import('../../src/dashboard/cards/WeekdayRhythm')>(),
+    WeekdayRhythm: stubComponentClass(),
+}));
+
+vi.mock('../../src/dashboard/cards/PeriodStats', async importOriginal => ({
+    ...await importOriginal<typeof import('../../src/dashboard/cards/PeriodStats')>(),
+    PeriodStats: stubComponentClass(),
+}));
+
+vi.mock('../../src/dashboard/cards/Categories', async importOriginal => ({
+    ...await importOriginal<typeof import('../../src/dashboard/cards/Categories')>(),
+    Categories: stubComponentClass(),
+}));
+
+vi.mock('../../src/dashboard/cards/Highlights', async importOriginal => ({
+    ...await importOriginal<typeof import('../../src/dashboard/cards/Highlights')>(),
+    Highlights: stubComponentClass(),
+}));
 
 function getLocalISODate(date: Date): string {
     const pad = (value: number) => value.toString().padStart(2, '0');
@@ -153,6 +203,7 @@ describe('Dashboard', () => {
 
     beforeEach(() => {
         container = document.createElement('div');
+        document.body.innerHTML = '';
         vi.useRealTimers();
         vi.clearAllMocks();
         vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => {
@@ -184,14 +235,47 @@ describe('Dashboard', () => {
             items: [],
         }));
         vi.mocked(api.setSetting).mockResolvedValue();
+        vi.mocked(api.getSetting).mockResolvedValue(null);
     });
 
     async function loadDashboard(): Promise<DashboardTestHarness> {
         const dashboard = new DashboardTestHarness(container);
         dashboard.render();
         await dashboard.loadData();
-        await vi.waitFor(() => expect(ActivityCharts).toHaveBeenCalled());
+        await vi.waitFor(() => expect(ActivityFlow).toHaveBeenCalled());
         return dashboard;
+    }
+
+    function selectTimeRange(days: number): void {
+        const select = container.querySelector('#select-time-range') as HTMLSelectElement;
+        select.value = String(days);
+        select.dispatchEvent(new Event('change'));
+    }
+
+    function stepToPreviousPeriod(): void {
+        (container.querySelector('#btn-chart-prev') as HTMLButtonElement).dispatchEvent(new Event('click'));
+    }
+
+    function cardHost(id: string): HTMLElement | null {
+        return container.querySelector<HTMLElement>(`[data-dashboard-card="${id}"]`);
+    }
+
+    function openCardsMenu(): void {
+        (container.querySelector('#dashboard-cards-menu-button') as HTMLButtonElement).click();
+    }
+
+    function toggleCardCheckbox(id: string): void {
+        const checkbox = document.querySelector<HTMLInputElement>(`.multi-select-panel input[value="${id}"]`)!;
+        checkbox.checked = !checkbox.checked;
+        checkbox.dispatchEvent(new Event('change'));
+    }
+
+    function isCardHiddenAccordingToMenu(id: string): boolean {
+        const trigger = container.querySelector('#dashboard-cards-menu-button') as HTMLButtonElement;
+        if (trigger.getAttribute('aria-expanded') === 'true') trigger.click();
+        trigger.click();
+        const checkbox = document.querySelector<HTMLInputElement>(`.multi-select-panel input[value="${id}"]`)!;
+        return !checkbox.checked;
     }
 
     it('mounts the shell first and loads one bounded snapshot', async () => {
@@ -214,30 +298,36 @@ describe('Dashboard', () => {
         expect(root?.dataset.dashboardRequestId).toBe(request.request_id.toString());
         expect(root?.dataset.dashboardPrimaryRequestId).toBe(request.request_id.toString());
         expect(root?.dataset.dashboardHeatmapRequestId).toBe(request.request_id.toString());
-        await vi.waitFor(() => expect(ActivityCharts).toHaveBeenCalledWith(
+        await vi.waitFor(() => expect(ActivityFlow).toHaveBeenCalledWith(
             expect.any(HTMLElement),
             expect.objectContaining({ snapshotRequestId: request.request_id }),
             expect.any(Function),
+            expect.any(Function),
         ));
         expect(dashboard.state.isInitialized).toBe(true);
-        expect(ActivityCharts).toHaveBeenCalledTimes(1);
+        expect(ActivityFlow).toHaveBeenCalledTimes(1);
     });
 
     it('reuses mounted components and does not explicitly render after setState', async () => {
         const dashboard = await loadDashboard();
         const stats = vi.mocked(StatsCard).mock.results[0].value;
-        const charts = vi.mocked(ActivityCharts).mock.results[0].value;
+        const flow = vi.mocked(ActivityFlow).mock.results[0].value;
+        const mix = vi.mocked(ActivityMix).mock.results[0].value;
         expect(stats.render).toHaveBeenCalledTimes(1);
-        expect(charts.render).toHaveBeenCalledTimes(1);
+        expect(flow.render).toHaveBeenCalledTimes(1);
+        expect(mix.render).toHaveBeenCalledTimes(1);
 
         await dashboard.loadData();
-        await vi.waitFor(() => expect(charts.setState).toHaveBeenCalledTimes(1));
+        await vi.waitFor(() => expect(flow.setState).toHaveBeenCalledTimes(1));
+        await vi.waitFor(() => expect(mix.setState).toHaveBeenCalledTimes(1));
 
         expect(StatsCard).toHaveBeenCalledTimes(1);
-        expect(ActivityCharts).toHaveBeenCalledTimes(1);
+        expect(ActivityFlow).toHaveBeenCalledTimes(1);
+        expect(ActivityMix).toHaveBeenCalledTimes(1);
         expect(stats.setState).toHaveBeenCalledTimes(1);
         expect(stats.render).toHaveBeenCalledTimes(1);
-        expect(charts.render).toHaveBeenCalledTimes(1);
+        expect(flow.render).toHaveBeenCalledTimes(1);
+        expect(mix.render).toHaveBeenCalledTimes(1);
     });
 
     it('fetches recent logs one page at a time', async () => {
@@ -257,7 +347,7 @@ describe('Dashboard', () => {
             total_count: 20,
             items: Array.from({ length: 5 }, (_, index) => recentLog({ id: index + 1 })),
         }));
-        const dashboard = await loadDashboard();
+        await loadDashboard();
 
         (container.querySelector('#next-page') as HTMLButtonElement).click();
         await vi.waitFor(() => expect(api.getDashboardRecentLogs).toHaveBeenCalledWith(expect.objectContaining({
@@ -265,7 +355,7 @@ describe('Dashboard', () => {
             limit: 15,
         })));
         await vi.waitFor(() => {
-            expect(dashboard.state.currentPage).toBe(2);
+            expect(container.querySelector('#current-page-display')?.textContent).toBe('2');
             expect(container.querySelectorAll('.dashboard-activity-item')).toHaveLength(5);
         });
     });
@@ -346,20 +436,18 @@ describe('Dashboard', () => {
 
     it('persists All Time as "0" when selected', async () => {
         await loadDashboard();
-        const chartCallback = vi.mocked(ActivityCharts).mock.calls[0][2] as (params: Record<string, unknown>) => void;
 
-        chartCallback({ timeRangeDays: 0, timeRangeOffset: 0 });
+        selectTimeRange(0);
 
         expect(api.setSetting).toHaveBeenCalledWith('dashboard_time_range_days', '0');
     });
 
     it('does not snap a live period change back to a stale persisted value on a later load', async () => {
         const dashboard = await loadDashboard();
-        const chartCallback = vi.mocked(ActivityCharts).mock.calls[0][2] as (params: Record<string, unknown>) => void;
         const { promise: pendingWrite } = deferred<void>();
         vi.mocked(api.setSetting).mockReturnValueOnce(pendingWrite);
 
-        chartCallback({ timeRangeDays: 30, timeRangeOffset: 0 });
+        selectTimeRange(30);
         expect(dashboard.state.chartParams).toMatchObject({ timeRangeDays: 30 });
 
         // The snapshot returned by a later load (e.g. after logging) still reflects the
@@ -378,15 +466,14 @@ describe('Dashboard', () => {
 
     it('keeps a live period pinned while an earlier overlapping setting write settles first', async () => {
         const dashboard = await loadDashboard();
-        const chartCallback = vi.mocked(ActivityCharts).mock.calls[0][2] as (params: Record<string, unknown>) => void;
         const monthWrite = deferred<void>();
         const yearWrite = deferred<void>();
         vi.mocked(api.setSetting)
             .mockReturnValueOnce(monthWrite.promise)
             .mockReturnValueOnce(yearWrite.promise);
 
-        chartCallback({ timeRangeDays: 30, timeRangeOffset: 0 });
-        chartCallback({ timeRangeDays: 365, timeRangeOffset: 0 });
+        selectTimeRange(30);
+        selectTimeRange(365);
         expect(dashboard.state.chartParams).toMatchObject({ timeRangeDays: 365 });
 
         monthWrite.resolve();
@@ -454,7 +541,7 @@ describe('Dashboard', () => {
     it('requests an explicit range when a heatmap day is selected', async () => {
         const clickedDate = getLocalISODate(new Date(Date.now() - (10 * 24 * 60 * 60 * 1000)));
         const dashboard = await loadDashboard();
-        const onDateSelect = vi.mocked(HeatmapView).mock.calls[0]?.[3] as ((date: string) => void);
+        const onDateSelect = vi.mocked(Heatmap).mock.calls[0]?.[3] as ((date: string) => void);
         onDateSelect(clickedDate);
 
         const expectedOffset = getWeeklyOffset(clickedDate);
@@ -481,7 +568,7 @@ describe('Dashboard', () => {
             },
         }));
         const dashboard = await loadDashboard();
-        const onDateSelect = vi.mocked(HeatmapView).mock.calls[0]?.[3] as ((date: string) => void);
+        const onDateSelect = vi.mocked(Heatmap).mock.calls[0]?.[3] as ((date: string) => void);
 
         onDateSelect('2025-12-10');
         await vi.waitFor(() => expect(api.getDashboardRange).toHaveBeenCalledTimes(2));
@@ -504,7 +591,7 @@ describe('Dashboard', () => {
             },
         }));
         const dashboard = await loadDashboard();
-        const onDateSelect = vi.mocked(HeatmapView).mock.calls[0]?.[3] as ((date: string) => void);
+        const onDateSelect = vi.mocked(Heatmap).mock.calls[0]?.[3] as ((date: string) => void);
 
         onDateSelect('2025-06-01');
         await vi.waitFor(() => expect(api.getDashboardRange).toHaveBeenCalledTimes(2));
@@ -525,7 +612,7 @@ describe('Dashboard', () => {
             },
         }));
         const dashboard = await loadDashboard();
-        const onDateSelect = vi.mocked(HeatmapView).mock.calls[0]?.[3] as ((date: string) => void);
+        const onDateSelect = vi.mocked(Heatmap).mock.calls[0]?.[3] as ((date: string) => void);
 
         onDateSelect('2020-01-01');
         await Promise.resolve();
@@ -560,16 +647,15 @@ describe('Dashboard', () => {
 
     it('rejects an out-of-order range response', async () => {
         const dashboard = await loadDashboard();
-        const chartCallback = vi.mocked(ActivityCharts).mock.calls[0][2] as (params: Record<string, unknown>) => void;
         const older = deferred<DashboardRangeResponse>();
         const newer = deferred<DashboardRangeResponse>();
         vi.mocked(api.getDashboardRange)
             .mockReturnValueOnce(older.promise)
             .mockReturnValueOnce(newer.promise);
 
-        chartCallback({ timeRangeOffset: 1 });
+        stepToPreviousPeriod();
         const olderRequest = vi.mocked(api.getDashboardRange).mock.calls[1][0];
-        chartCallback({ timeRangeOffset: 2 });
+        stepToPreviousPeriod();
         const newerRequest = vi.mocked(api.getDashboardRange).mock.calls[2][0];
         newer.resolve(rangeResponse(newerRequest, 22));
         await vi.waitFor(() => {
@@ -590,33 +676,24 @@ describe('Dashboard', () => {
         await dashboard.loadData();
 
         await vi.waitFor(() => {
-            expect(container.querySelector('#charts-container')?.textContent).toContain('Unable to load chart data.');
+            expect(cardHost('activity_flow')?.textContent).toContain('Unable to load chart data.');
         });
-        expect(container.querySelector('#dashboard-totals-container')?.textContent).toContain('Unable to load chart data.');
+        expect(cardHost('activity_mix')?.textContent).toContain('Unable to load chart data.');
+        expect(cardHost('period_stats')?.textContent).toContain('Unable to load chart data.');
+        expect(cardHost('heatmap')?.textContent).not.toContain('Unable to load chart data.');
     });
 
-    it('rejects an out-of-order heatmap-year response', async () => {
+    it('gives the heatmap a request host whose generation check follows the active load', async () => {
         const dashboard = await loadDashboard();
-        const yearCallback = vi.mocked(HeatmapView).mock.calls[0][2] as (direction: number) => void;
-        const older = deferred<Awaited<ReturnType<typeof api.getDashboardHeatmapYear>>>();
-        const newer = deferred<Awaited<ReturnType<typeof api.getDashboardHeatmapYear>>>();
-        vi.mocked(api.getDashboardHeatmapYear)
-            .mockReturnValueOnce(older.promise)
-            .mockReturnValueOnce(newer.promise);
+        const host = vi.mocked(Heatmap).mock.calls[0][2];
 
-        yearCallback(-1);
-        const olderRequest = vi.mocked(api.getDashboardHeatmapYear).mock.calls[0][0];
-        yearCallback(-1);
-        const newerRequest = vi.mocked(api.getDashboardHeatmapYear).mock.calls[1][0];
-        newer.resolve({ request_id: newerRequest.request_id, year: newerRequest.year, days: [{ date: `${newerRequest.year}-01-02`, total_minutes: 2, total_characters: 0 }] });
-        await vi.waitFor(() => {
-            expect(dashboard.state.heatmapData[0]?.total_minutes).toBe(2);
-        });
-        older.resolve({ request_id: olderRequest.request_id, year: olderRequest.year, days: [{ date: `${olderRequest.year}-01-01`, total_minutes: 1, total_characters: 0 }] });
-        await older.promise;
-        await Promise.resolve();
+        const generation = host.currentGeneration();
+        const requestId = host.nextRequestId();
+        expect(host.isCurrent(generation, requestId, requestId)).toBe(true);
 
-        expect(dashboard.state.heatmapData[0]?.total_minutes).toBe(2);
+        await dashboard.loadData();
+
+        expect(host.isCurrent(generation, requestId, requestId)).toBe(false);
     });
 
     it('should render the side panel toggle expanded by default', async () => {
@@ -627,10 +704,10 @@ describe('Dashboard', () => {
         expect(container.querySelector('#dashboard-columns')?.classList.contains('is-side-panel-collapsed')).toBe(false);
     });
 
-    it('should anchor the side panel toggle inside the collapsible column', async () => {
+    it('should place the side panel toggle inside the controls card', async () => {
         await loadDashboard();
 
-        expect(container.querySelector('#dashboard-left-column > #dashboard-side-panel-toggle')).not.toBeNull();
+        expect(container.querySelector('.dashboard-controls-card #dashboard-side-panel-toggle')).not.toBeNull();
     });
 
     it('should collapse the side panel when the toggle is clicked', async () => {
@@ -660,5 +737,180 @@ describe('Dashboard', () => {
         await dashboard.loadData();
 
         expect(container.querySelector('#dashboard-columns')?.classList.contains('is-side-panel-collapsed')).toBe(true);
+    });
+
+    it('lets the visibility revision win over a stale hidden-cards read from an overlapping reload', async () => {
+        const dashboard = await loadDashboard();
+
+        const { promise: readPromise, resolve: resolveRead } = deferred<string | null>();
+        vi.mocked(api.getSetting).mockReturnValueOnce(readPromise);
+        const reload = dashboard.loadData();
+        await vi.waitFor(() => expect(api.getSetting).toHaveBeenCalledTimes(2));
+
+        openCardsMenu();
+        toggleCardCheckbox('heatmap');
+        await vi.mocked(api.setSetting).mock.results[0].value;
+        await Promise.resolve();
+        await Promise.resolve();
+
+        resolveRead('[]');
+        await reload;
+
+        expect(isCardHiddenAccordingToMenu('heatmap')).toBe(true);
+    });
+
+    describe('hidden-cards write coalescing', () => {
+        it('keeps exactly one write in flight and writes the final coalesced value once it settles', async () => {
+            await loadDashboard();
+            const firstWrite = deferred<void>();
+            vi.mocked(api.setSetting).mockReturnValueOnce(firstWrite.promise);
+
+            openCardsMenu();
+            toggleCardCheckbox('heatmap');
+            expect(api.setSetting).toHaveBeenCalledTimes(1);
+
+            toggleCardCheckbox('activity_flow');
+            toggleCardCheckbox('recent_activity');
+            expect(api.setSetting).toHaveBeenCalledTimes(1);
+
+            firstWrite.resolve();
+            await vi.waitFor(() => expect(api.setSetting).toHaveBeenCalledTimes(2));
+
+            expect(JSON.parse(vi.mocked(api.setSetting).mock.calls[1][1])).toEqual([
+                'heatmap', 'activity_flow', 'recent_activity',
+            ]);
+        });
+
+        it('is unaffected by out-of-order write resolution because only one write is ever in flight', async () => {
+            await loadDashboard();
+            const firstWrite = deferred<void>();
+            const secondWrite = deferred<void>();
+            vi.mocked(api.setSetting)
+                .mockReturnValueOnce(firstWrite.promise)
+                .mockReturnValueOnce(secondWrite.promise);
+
+            openCardsMenu();
+            toggleCardCheckbox('heatmap');
+            toggleCardCheckbox('activity_flow');
+            expect(api.setSetting).toHaveBeenCalledTimes(1);
+
+            secondWrite.resolve();
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(api.setSetting).toHaveBeenCalledTimes(1);
+
+            firstWrite.resolve();
+            await vi.waitFor(() => expect(api.setSetting).toHaveBeenCalledTimes(2));
+
+            expect(JSON.parse(vi.mocked(api.setSetting).mock.calls[1][1])).toEqual(['heatmap', 'activity_flow']);
+        });
+
+        it('does not write once per card when every card is hidden in one sweep', async () => {
+            await loadDashboard();
+
+            openCardsMenu();
+            for (const id of [
+                'heatmap', 'activity_flow', 'activity_mix', 'weekday_rhythm',
+                'period_stats', 'categories', 'highlights', 'recent_activity',
+            ]) {
+                toggleCardCheckbox(id);
+            }
+
+            await vi.waitFor(() => expect(api.setSetting).toHaveBeenCalledTimes(2));
+            expect(api.setSetting).not.toHaveBeenCalledTimes(8);
+        });
+
+        it('recovers after a rejected write without leaving a queued value stranded', async () => {
+            await loadDashboard();
+            const loggerSpy = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
+            vi.mocked(api.setSetting).mockRejectedValueOnce(new Error('write failed'));
+
+            openCardsMenu();
+            toggleCardCheckbox('heatmap');
+            await vi.waitFor(() => expect(loggerSpy).toHaveBeenCalledWith(
+                'Failed to save dashboard hidden cards setting',
+                expect.any(Error),
+            ));
+
+            toggleCardCheckbox('activity_flow');
+            await vi.waitFor(() => expect(api.setSetting).toHaveBeenCalledTimes(2));
+
+            expect(JSON.parse(vi.mocked(api.setSetting).mock.calls[1][1])).toEqual(['heatmap', 'activity_flow']);
+        });
+    });
+
+    it('keeps requiring range data when only the weekday card is hidden', async () => {
+        const dashboard = await loadDashboard();
+        expect(api.getDashboardRange).toHaveBeenCalledTimes(1);
+
+        openCardsMenu();
+        toggleCardCheckbox('weekday_rhythm');
+        vi.mocked(api.getSetting).mockResolvedValueOnce(JSON.stringify(['weekday_rhythm']));
+        await dashboard.loadData();
+
+        await vi.waitFor(() => expect(api.getDashboardRange).toHaveBeenCalledTimes(2));
+    });
+
+    it('renders the radar from the snapshot alone and skips the range fetch once every range card is hidden', async () => {
+        const dashboard = await loadDashboard();
+        const rangeCardIds = ['activity_flow', 'activity_mix', 'period_stats', 'categories', 'highlights'];
+
+        openCardsMenu();
+        for (const id of rangeCardIds) {
+            toggleCardCheckbox(id);
+        }
+
+        vi.mocked(api.getDashboardRange).mockClear();
+        vi.mocked(api.getSetting).mockResolvedValueOnce(JSON.stringify(rangeCardIds));
+        await dashboard.loadData();
+        await vi.waitFor(() => expect(WeekdayRhythm).toHaveBeenCalled());
+
+        expect(api.getDashboardRange).not.toHaveBeenCalled();
+        expect(dashboard.state.weekdayDistribution).not.toBeNull();
+    });
+
+    it('clears stale range data before a repeat load\'s new range response arrives', async () => {
+        const dashboard = await loadDashboard();
+        expect(dashboard.state.rangeData).not.toBeNull();
+
+        const pendingRange = deferred<DashboardRangeResponse>();
+        vi.mocked(api.getDashboardRange).mockReturnValueOnce(pendingRange.promise);
+
+        const reload = dashboard.loadData();
+        await vi.waitFor(() => expect(dashboard.state.rangeData).toBeNull());
+
+        pendingRange.resolve(rangeResponse(vi.mocked(api.getDashboardRange).mock.calls.at(-1)![0]));
+        await reload;
+
+        expect(dashboard.state.rangeData).not.toBeNull();
+    });
+
+    it('resets a stuck "Loading page…" flag when a reload invalidates an in-flight page request', async () => {
+        vi.mocked(api.getDashboardSnapshot).mockImplementation(async request => snapshot(request, {
+            recent_logs: {
+                request_id: request.request_id,
+                offset: 0,
+                limit: 15,
+                total_count: 20,
+                items: Array.from({ length: 15 }, (_, index) => recentLog({ id: index + 1 })),
+            },
+        }));
+        const dashboard = await loadDashboard();
+
+        const pendingPage = deferred<DashboardRecentPage>();
+        vi.mocked(api.getDashboardRecentLogs).mockReturnValueOnce(pendingPage.promise);
+        (container.querySelector('#next-page') as HTMLButtonElement).click();
+        expect(container.querySelector('#recent-logs-list')?.textContent).toContain('Loading page');
+
+        await dashboard.loadData();
+
+        expect(container.querySelector('#recent-logs-list')?.textContent).not.toContain('Loading page');
+        expect(container.querySelectorAll('.dashboard-activity-item')).toHaveLength(15);
+        expect(container.querySelector('#current-page-display')?.textContent).toBe('1');
+
+        pendingPage.resolve({ request_id: 999, offset: 15, limit: 15, total_count: 20, items: [] });
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(container.querySelector('#recent-logs-list')?.textContent).not.toContain('Loading page');
     });
 });

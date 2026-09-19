@@ -5,6 +5,8 @@ export {
     formatOptionalStatsDuration,
     formatLoggedDuration,
     formatCompactDuration,
+    formatDayMonth,
+    formatWeekdayDate,
 } from './formatting';
 export type { TimeParts } from './formatting';
 export { parseDuration, DURATION_INPUT_PLACEHOLDER, DURATION_INPUT_TOOLTIP } from './duration_parsing';

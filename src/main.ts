@@ -662,6 +662,8 @@ export class App {
             && !this.timelineContainer.querySelector('#timeline-root')
         ) this.timelineView.render();
         else if (this.currentView === VIEW_NAMES.PROFILE) this.profileView.render();
+
+        if (this.currentView !== VIEW_NAMES.DASHBOARD) this.dashboard.closeCardsMenu();
     }
 }
 
