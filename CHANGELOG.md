@@ -58,6 +58,7 @@ The format is based on Keep a Changelog, with one section per released version.
  - The dashboard now has proper bottom padding, matching the other main views
  - Some dashboard cards could grow far too tall when switching between different viewport types (e.g. desktop -> mobile -> desktop)
  - Very rarely, the dashboard charts (donut and bar/graph) could get stuck in oddly stretched ways and now always render correctly
+ - The dashboard's sidebar collapse animation had some jitter / flash issues and is now smoother
 
 ## [0.3.2] - 2026-08-25
 
