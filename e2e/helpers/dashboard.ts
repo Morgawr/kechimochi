@@ -364,26 +364,33 @@ export async function clickRecentActivityMediaLink(title: string, timeout = 1000
     });
 }
 
+async function isDashboardSettled(
+    scope: 'charts' | 'full',
+    requireRangeStart = false,
+): Promise<boolean> {
+    return browser.execute((settleScope, needsRangeStart) => {
+        const root = document.querySelector<HTMLElement>('.dashboard-root');
+        const currentRequestId = root?.dataset.dashboardRequestId;
+        if (!currentRequestId) return false;
+        if (settleScope === 'full'
+            && (root.dataset.dashboardPrimaryRequestId !== currentRequestId
+                || root.dataset.dashboardHeatmapRequestId !== currentRequestId)) return false;
+
+        const controls = root.querySelector<HTMLElement>('[data-dashboard-card="controls"]');
+        if (controls?.dataset.dashboardRequestId !== currentRequestId) return false;
+        if (needsRangeStart && !controls.dataset.rangeStart) return false;
+
+        for (const id of ['activity_flow', 'activity_mix']) {
+            const host = root.querySelector<HTMLElement>(`[data-dashboard-card="${id}"]`);
+            if (!host || host.hidden || !host.querySelector('.card')) continue;
+            if (host.dataset.dashboardRequestId !== currentRequestId) return false;
+        }
+        return true;
+    }, scope, requireRangeStart).catch(() => false);
+}
+
 export async function waitForDashboardSettled(timeout = 20000): Promise<void> {
-    await browser.waitUntil(async () => {
-        return browser.execute(() => {
-            const root = document.querySelector<HTMLElement>('.dashboard-root');
-            const currentRequestId = root?.dataset.dashboardRequestId;
-            if (!currentRequestId
-                || root.dataset.dashboardPrimaryRequestId !== currentRequestId
-                || root.dataset.dashboardHeatmapRequestId !== currentRequestId) return false;
-
-            const controls = root.querySelector<HTMLElement>('[data-dashboard-card="controls"]');
-            if (controls?.dataset.dashboardRequestId !== currentRequestId) return false;
-
-            const isChartCardSettled = (id: string) => {
-                const host = root.querySelector<HTMLElement>(`[data-dashboard-card="${id}"]`);
-                if (!host || host.hidden || !host.querySelector('.card')) return true;
-                return host.dataset.dashboardRequestId === currentRequestId;
-            };
-            return isChartCardSettled('activity_flow') && isChartCardSettled('activity_mix');
-        }).catch(() => false);
-    }, {
+    await browser.waitUntil(async () => isDashboardSettled('full'), {
         timeout,
         interval: 100,
         timeoutMsg: 'Expected the dashboard to finish its staged render',
@@ -433,16 +440,7 @@ export async function getActivityChartRangeMetadata(): Promise<{
 }> {
     await $(DASHBOARD_CONTROLS_SELECTOR).waitForDisplayed({ timeout: 5000 });
 
-    await browser.waitUntil(async () => {
-        return browser.execute(() => {
-            const root = document.querySelector<HTMLElement>('.dashboard-root');
-            const controls = document.querySelector<HTMLElement>('[data-dashboard-card="controls"]');
-            const currentRequestId = root?.dataset.dashboardRequestId;
-            if (!currentRequestId || controls?.dataset.dashboardRequestId !== currentRequestId) return false;
-
-            return Boolean(controls.dataset.rangeStart);
-        }).catch(() => false);
-    }, {
+    await browser.waitUntil(async () => isDashboardSettled('charts', true), {
         timeout: 10000,
         interval: 100,
         timeoutMsg: 'Expected activity chart range metadata to settle on the current range (not a stale one)'

@@ -22,10 +22,10 @@ async function getChartSnapshot(): Promise<ChartSnapshot> {
       const root = document.querySelector<HTMLElement>('.dashboard-root');
       const controls = root?.querySelector<HTMLElement>('[data-dashboard-card="controls"]');
       const chart = root?.querySelector<HTMLCanvasElement>('[data-dashboard-card="activity_flow"] #barChart');
+      const flowHost = root?.querySelector<HTMLElement>('[data-dashboard-card="activity_flow"]');
       const requestId = root?.dataset.dashboardRequestId;
-      // Controls update before the range response and lazy Chart.js render.
-      // Read one coherent snapshot only after the current render completes.
       if (!requestId || controls?.dataset.dashboardRequestId !== requestId
+          || flowHost?.dataset.dashboardRequestId !== requestId
           || !chart?.dataset.seriesLabels || !chart.dataset.seriesTotals) return null;
       return {
         chartType: chart.dataset.chartType ?? null,
