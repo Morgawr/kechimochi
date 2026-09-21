@@ -35,7 +35,7 @@ Used for importing and exporting your daily activity history.
 
 | Column Name | Description | Required | Example |
 | :--- | :--- | :--- | :--- |
-| **Date** | The date of the activity. Supports `YYYY-MM-DD` or `YYYY/MM/DD`. | Yes | 2024-01-15 |
+| **Date** | The date of the activity. Supports `YYYY-MM-DD` or `YYYY/MM/DD` for a single day, `YYYY-MM` for a whole month, and `YYYY` for a whole year. Export writes the shortest form matching the log's own precision. | Yes | 2024-01-15 |
 | **Log Name** | The title of the media being logged. | Yes | Frieren: Beyond Journey's End |
 | **Default Activity Type** | The media entry's default for future activities. Used when an import creates a missing media entry. Standard values are `Reading`, `Watching`, `Playing`, `Listening`, and `None`. | Yes | Watching |
 | **Duration** | The time spent in minutes. | Yes | 24 |
