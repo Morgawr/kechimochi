@@ -22,7 +22,7 @@ An app release may keep the same database schema version, and a new backup forma
 
 ## Current Baseline
 
-- Current database schema version: `7`
+- Current database schema version: `8`
 - Current backup format version: `1`
 - First stable release schema: the current latest schema in `src-tauri`
 
@@ -78,6 +78,27 @@ state through the usual sync workflow. The snapshot retains its recorded schema
 version, and downloaded snapshots are checked against their remote checksum
 before normalization.
 
+Schema version `8` gives every activity log an explicit date precision, so an
+activity may be recorded against a whole year or month instead of a single day.
+`main.activity_logs.date_precision` is required and constrained to `day`,
+`month`, or `year`. The `date` column always stores the canonical anchor, the
+first day of the covered span. The reduced display form (`2026`, `2026-08`,
+`2026-08-03`) is derived from the precision.
+
+Two virtual generated columns derive the rest. `effective_end` is the last day
+the log covers, and `precision_key_length` is the character length of the
+reduced form (`10`, `7`, or `4`). Activity is ordered by `effective_end DESC`,
+then `precision_key_length ASC`, then `id DESC`. The `effective_end`
+expression falls back to `9999-12-31` for a year-`9999` anchor, where SQLite's
+date arithmetic would run past the supported range and yield `NULL`.
+
+The `v7` to `v8` migration adds the three columns to the existing table. Every
+pre-existing row keeps its stored date and takes `day` precision, so no
+historical activity changes meaning.
+
+Sync snapshots carry `date_precision` per activity and default it to `day` when
+the field is absent, so snapshots written by an older client load unchanged.
+
 ## Storage Model
 
 Kechimochi persists data in two SQLite files:
@@ -117,9 +138,9 @@ The app must behave as follows:
 - If the two DB files disagree on version, treat that as an inconsistent state and only auto-repair it when the actual schema structure is clearly recoverable.
 
 There is no special "two versions behind" shortcut. A current app opening a
-schema-`3` database applies `v3` to `v4`, `v4` to `v5`, `v5` to `v6`, and `v6`
-to `v7` in order, within the normal migration workflow. Database files are
-never downgraded implicitly.
+schema-`3` database applies `v3` to `v4`, `v4` to `v5`, `v5` to `v6`, `v6` to
+`v7`, and `v7` to `v8` in order, within the normal migration workflow. Database
+files are never downgraded implicitly.
 
 The startup guard in the current code also rejects a database newer than the
 running binary before applying persistent pragmas or creating a missing bundle

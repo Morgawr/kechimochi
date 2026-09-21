@@ -140,6 +140,7 @@ Activity log payloads use these fields:
   "duration_minutes": 30,
   "characters": 0,
   "date": "2026-05-07",
+  "date_precision": "day",
   "activity_type": "Reading",
   "notes": "Chapter 1"
 }
@@ -147,6 +148,11 @@ Activity log payloads use these fields:
 
 Activity-summary responses use only `activity_type` for the value recorded on
 the individual log.
+
+`date_precision` is `day`, `month`, or `year`, and defaults to `day` when a
+request omits it. `date` always uses the full `YYYY-MM-DD` form. A coarser
+precision may be written with any day inside the span; it is stored as the
+first day of that month or year, and responses return that anchor.
 
 Milestone payloads use these fields:
 
