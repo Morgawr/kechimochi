@@ -2899,6 +2899,12 @@ input:focus, select:focus {
   background: color-mix(in srgb, var(--bg-card-hover) 82%, transparent);
 }
 
+.multi-select-trigger-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
 .multi-select-trigger-value {
   flex: 1;
   min-width: 0;

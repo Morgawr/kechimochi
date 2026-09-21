@@ -4,6 +4,7 @@ import { ACTIVITY_TIME_RANGES, type ActivityRange } from './activity_ranges';
 import type { DashboardGroupBy } from '../types';
 import { createMultiSelectField, type MultiSelectField } from '../multi_select';
 import type { DashboardCardId } from './dashboard_cards';
+import { WIDGET_GRID } from '../icons';
 
 const RANGE_LABEL_DAY_FORMATTER = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
 const RANGE_LABEL_MONTH_FORMATTER = new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' });
@@ -45,7 +46,6 @@ export class DashboardControls extends Component<DashboardControlsState> {
     private readonly cards: readonly DashboardCardsMenuEntry[];
     private readonly getHiddenCards: () => ReadonlySet<DashboardCardId>;
     private readonly onToggleCard: (id: DashboardCardId, isVisible: boolean) => void;
-    private readonly createSidePanelToggle: () => HTMLElement;
     private cardElement: HTMLElement | null = null;
     private cardsMenuField: MultiSelectField | null = null;
 
@@ -56,14 +56,12 @@ export class DashboardControls extends Component<DashboardControlsState> {
         cards: readonly DashboardCardsMenuEntry[],
         getHiddenCards: () => ReadonlySet<DashboardCardId>,
         onToggleCard: (id: DashboardCardId, isVisible: boolean) => void,
-        createSidePanelToggle: () => HTMLElement,
     ) {
         super(container, initialState);
         this.onChartParamChange = onChartParamChange;
         this.cards = cards;
         this.getHiddenCards = getHiddenCards;
         this.onToggleCard = onToggleCard;
-        this.createSidePanelToggle = createSidePanelToggle;
     }
 
     public setState(newState: Partial<DashboardControlsState>): void {
@@ -79,13 +77,17 @@ export class DashboardControls extends Component<DashboardControlsState> {
         this.clear();
         const cardsMenuField = createMultiSelectField<DashboardCardId>({
             id: 'dashboard-cards-menu-button',
-            label: 'Cards',
+            label: 'Displayed Widgets',
             items: this.cards.map(card => ({ value: card.id, label: card.label })),
             getSelectedValues: () => {
                 const hiddenCards = this.getHiddenCards();
                 return new Set(this.cards.map(card => card.id).filter(id => !hiddenCards.has(id)));
             },
             onToggle: (value, isSelected) => this.onToggleCard(value, isSelected),
+            iconMarkup: WIDGET_GRID,
+            noneLabel: 'None shown',
+            allLabel: ({ totalCount }) => ({ value: `All ${totalCount} shown` }),
+            partialLabel: ({ selectedCount, totalCount }) => ({ value: `${selectedCount} of ${totalCount} shown` }),
         });
         this.cardsMenuField = cardsMenuField;
 
@@ -107,13 +109,10 @@ export class DashboardControls extends Component<DashboardControlsState> {
                     </div>
                 </div>
                 <div class="dashboard-controls-fields" data-dashboard-controls-fields>
-                    <div class="dashboard-controls-cluster" data-dashboard-controls-cluster="cards">
+                    <div class="dashboard-controls-cluster dashboard-controls-cluster-cards" data-dashboard-controls-cluster="cards">
                         <div class="dashboard-controls-field dashboard-controls-field-stretch">
-                            <span class="timeline-filter-label">Cards</span>
+                            <span class="timeline-filter-label">Displayed Widgets</span>
                             ${cardsMenuField.element}
-                        </div>
-                        <div class="dashboard-controls-field dashboard-controls-field-bare">
-                            ${this.createSidePanelToggle()}
                         </div>
                     </div>
                     <div class="dashboard-controls-cluster" data-dashboard-controls-cluster="period">

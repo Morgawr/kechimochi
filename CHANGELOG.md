@@ -14,7 +14,7 @@ The format is based on Keep a Changelog, with one section per released version.
  - Media details now have a Create variant action that carries over the same medatada into a new variant
  - Media supporting reading speed estimates can now carry a custom override, set from the media detail menu
  - Activity logs can now be scoped to a whole month or year instead of a single day, for recording time you know you spent without inventing a date for it. Dashboard graphs gained according visualization.
- - The dashboard has a new card, Controls. All dashboard control widgets (but one) were moved there.
+ - The dashboard has a new card, Controls. Most dashboard control widgets were moved there.
  - The dashboard now allows hiding of all cards but Controls, individually, and adjusts the layout smoothly.
  - The dashboard Highlights card has a new banner, Top Category.
  - The dashboard card with the spider graph gained a title, Weekday Rhythm.
@@ -37,8 +37,9 @@ The format is based on Keep a Changelog, with one section per released version.
  - Dates in a few places are now written out in full, as `August 3, 2026` rather than `Aug 3, 2026`.
  - Some dashboard cards were renamed: "Tracking Heatmap" to "Heatmap", "Activity Visualization" to "Activity Flow", "Activity Breakdown" to "Activity Mix", "Weekday Distribution" to "Weekday Rhythm".
  - The dashboard control UI elements were altered. The "sidebar collapse" button was adjusted to closer match the other buttons in this view.
- - The dashboard "Activity Visualization" (now Flow) and "Activity Breakdown" (now Mix) cards changed their order
- - The dashboard "Period Stats" card when in Monthly view mode has a height limit and becomes scrollable instead
+ - The dashboard "Study Stats" widget was adjusted to match the card styling of the other widgets.
+ - The dashboard "Activity Visualization" (now Flow) and "Activity Breakdown" (now Mix) cards changed their order.
+ - The dashboard "Period Stats" card when in Monthly view mode has a height limit and becomes scrollable instead.
 
 ### Fixed
  - The startup error and database recovery screens now show their intended background gradient

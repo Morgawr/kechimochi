@@ -1,9 +1,11 @@
 import { escapeHTML } from './html';
 import { STORAGE_KEYS } from './constants';
 import { pushBackHandler } from './back_stack';
+import { renderIcon } from './icons';
 
 const ANCHOR_GAP_PX = 8;
 const SHEET_LAYOUT_MEDIA_QUERY = '(max-width: 768px)';
+const TRIGGER_ICON_SIZE_PX = 16;
 
 // E2E only: parallel test windows steal focus at random, so the harness opts out of blur dismissal to keep specs deterministic without giving up suite parallelism.
 function shouldCloseOnWindowBlur(): boolean {
@@ -41,14 +43,29 @@ function positionPanel(panelElement: HTMLElement, anchor: HTMLElement): void {
     panelElement.style.top = `${Math.max(0, top)}px`;
 }
 
+export interface MultiSelectCounts {
+    readonly selectedCount: number;
+    readonly totalCount: number;
+    readonly selectedLabels: readonly string[];
+}
+
+export interface MultiSelectSummary {
+    readonly value: string;
+    readonly suffix?: string;
+}
+
+export type MultiSelectSummarySource = string | ((counts: MultiSelectCounts) => MultiSelectSummary);
+
 export interface MultiSelectFieldOptions<Value extends string> {
     readonly id: string;
     readonly label: string;
     readonly items: readonly MultiSelectItem<Value>[];
     readonly getSelectedValues: () => ReadonlySet<Value>;
     readonly onToggle: (value: Value, isSelected: boolean) => void;
-    readonly placeholderLabel?: string;
-    readonly allLabel?: string;
+    readonly noneLabel?: MultiSelectSummarySource;
+    readonly allLabel?: MultiSelectSummarySource;
+    readonly partialLabel?: MultiSelectSummarySource;
+    readonly iconMarkup?: string;
 }
 
 export interface MultiSelectField {
@@ -57,16 +74,25 @@ export interface MultiSelectField {
     close(): void;
 }
 
-const DEFAULT_PLACEHOLDER_LABEL = 'None';
-const DEFAULT_ALL_LABEL = 'All';
+const DEFAULT_NONE_LABEL: MultiSelectSummarySource = 'None';
+const DEFAULT_ALL_LABEL: MultiSelectSummarySource = 'All';
+const DEFAULT_PARTIAL_LABEL: MultiSelectSummarySource = ({ selectedLabels }) => {
+    const [firstLabel, ...restLabels] = selectedLabels;
+    return restLabels.length > 0 ? { value: firstLabel, suffix: `+${restLabels.length}` } : { value: firstLabel };
+};
+
+function resolveSummary(source: MultiSelectSummarySource, counts: MultiSelectCounts): MultiSelectSummary {
+    return typeof source === 'string' ? { value: source } : source(counts);
+}
 
 export function createMultiSelectField<Value extends string>(
     options: MultiSelectFieldOptions<Value>,
 ): MultiSelectField {
     const {
-        id, label, items, getSelectedValues, onToggle,
-        placeholderLabel = DEFAULT_PLACEHOLDER_LABEL,
+        id, label, items, getSelectedValues, onToggle, iconMarkup,
+        noneLabel = DEFAULT_NONE_LABEL,
         allLabel = DEFAULT_ALL_LABEL,
+        partialLabel = DEFAULT_PARTIAL_LABEL,
     } = options;
 
     const trigger = document.createElement('button');
@@ -76,7 +102,11 @@ export function createMultiSelectField<Value extends string>(
     trigger.setAttribute('aria-haspopup', 'true');
     trigger.setAttribute('aria-expanded', 'false');
     trigger.setAttribute('aria-label', label);
+    const iconSpan = iconMarkup
+        ? `<span class="multi-select-trigger-icon">${renderIcon(iconMarkup, TRIGGER_ICON_SIZE_PX)}</span>`
+        : '';
     trigger.innerHTML = `
+        ${iconSpan}
         <span class="multi-select-trigger-value"></span>
         <span class="multi-select-trigger-counter"></span>
         <span class="multi-select-trigger-chevron" aria-hidden="true"></span>
@@ -89,21 +119,20 @@ export function createMultiSelectField<Value extends string>(
     function refresh(): void {
         const selectedValues = getSelectedValues();
         const selectedLabels = items.filter(item => selectedValues.has(item.value)).map(item => item.label);
+        const counts: MultiSelectCounts = { selectedCount: selectedLabels.length, totalCount: items.length, selectedLabels };
 
-        if (selectedLabels.length === 0) {
-            valueElement.textContent = placeholderLabel;
-            valueElement.classList.add('is-placeholder');
-            counterElement.textContent = '';
-        } else if (selectedLabels.length === items.length) {
-            valueElement.textContent = allLabel;
-            valueElement.classList.remove('is-placeholder');
-            counterElement.textContent = '';
-        } else {
-            const [firstLabel, ...restLabels] = selectedLabels;
-            valueElement.textContent = firstLabel;
-            valueElement.classList.remove('is-placeholder');
-            counterElement.textContent = restLabels.length > 0 ? `+${restLabels.length}` : '';
-        }
+        const hasNoneSelected = selectedLabels.length === 0;
+        const hasAllSelected = selectedLabels.length === items.length;
+
+        let summarySource = partialLabel;
+        if (hasNoneSelected) summarySource = noneLabel;
+        else if (hasAllSelected) summarySource = allLabel;
+
+        const summary = resolveSummary(summarySource, counts);
+
+        valueElement.textContent = summary.value;
+        valueElement.classList.toggle('is-placeholder', hasNoneSelected);
+        counterElement.textContent = summary.suffix ?? '';
 
         if (selectedLabels.length > 0) {
             trigger.title = ['Selected options:', ...selectedLabels.map(selectedLabel => `• ${selectedLabel}`)].join('\n');

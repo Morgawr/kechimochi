@@ -46,8 +46,8 @@ import {
 import { reconcileDashboardCards, type DashboardCardDescriptor } from './dashboard_layout';
 
 const RECENT_LOGS_PER_PAGE = 15;
-const SIDE_PANEL_HIDE_LABEL = 'Hide side panel';
-const SIDE_PANEL_SHOW_LABEL = 'Show side panel';
+const SIDE_PANEL_HIDE_LABEL = 'Collapse sidebar';
+const SIDE_PANEL_SHOW_LABEL = 'Expand sidebar';
 const SIDE_PANEL_RAIL_CLASS = 'is-side-panel-rail';
 const SIDE_PANEL_SWAPPING_CLASS = 'is-side-panel-swapping';
 
@@ -222,6 +222,7 @@ export class Dashboard extends Component<DashboardState> {
 
             this.containers.leftColumn = html`<div id="dashboard-left-column"></div>`;
             dashboardColumns.appendChild(this.containers.leftColumn);
+            this.containers.leftColumn.appendChild(this.createSidePanelToggle());
             this.containers.stats = this.createStageContainer('stats-box-container', 'Loading study stats…');
             this.containers.leftColumn.appendChild(this.containers.stats);
             this.containers.quickLog = this.createStageContainer('quick-log-container', 'Loading quick log…');
@@ -240,7 +241,6 @@ export class Dashboard extends Component<DashboardState> {
                 DASHBOARD_CARD_ORDER,
                 () => this.hiddenCards,
                 (id, isVisible) => this.toggleCardVisibility(id, isVisible),
-                () => this.createSidePanelToggle(),
             );
             this.controlsComponent.render();
 
@@ -273,7 +273,7 @@ export class Dashboard extends Component<DashboardState> {
         const label = this.sidePanelCollapsed ? SIDE_PANEL_SHOW_LABEL : SIDE_PANEL_HIDE_LABEL;
         const toggle = html`
             <button type="button" id="dashboard-side-panel-toggle"
-                class="btn btn-ghost dashboard-side-panel-toggle"
+                class="dashboard-side-panel-toggle"
                 aria-controls="dashboard-left-column"
                 aria-expanded="${(!this.sidePanelCollapsed).toString()}"
                 aria-label="${label}"
@@ -282,7 +282,7 @@ export class Dashboard extends Component<DashboardState> {
                     <path d="M6.5 2.5L3 6l3.5 3.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
                     <path d="M10 2.5L6.5 6l3.5 3.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
-                <span class="dashboard-side-panel-toggle-text">Sidebar</span>
+                <span class="dashboard-side-panel-toggle-text">Collapse</span>
             </button>
         `;
         toggle.addEventListener('click', () => this.toggleSidePanel());
