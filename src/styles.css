@@ -4078,9 +4078,18 @@ input:checked + .slider:before {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-start;
+  align-items: center;
   gap: 0.5rem 2rem;
   padding: 0.8rem 1rem;
   font-size: 0.85rem;
+}
+
+#media-first-last-stats[hidden] {
+  display: none;
+}
+
+#media-stats-grid[hidden] {
+  display: none !important;
 }
 
 /* Sits on cover artwork, not a themed surface, so it must not follow --text-primary.

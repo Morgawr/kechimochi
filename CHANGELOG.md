@@ -6,6 +6,9 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+### Fixed
+ - Media details no longer show an empty stats box for media with no logged activity
+
 ## [0.3.3] - 2026-09-22
 
 ### Added
