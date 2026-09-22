@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-09-22
+
 ### Added
  - Hovering a library grid card now shows its title over the cover, with a border tinted to its tracking status
  - Right-clicking a library item opens a menu for Add log, Add milestone, Mark complete, Archive/Unarchive, and Delete without opening the detail view
