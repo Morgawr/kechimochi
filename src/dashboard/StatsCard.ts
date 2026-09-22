@@ -52,9 +52,9 @@ export class StatsCard extends Component<StatsCardState> {
         const breakdownHtml = this.renderBreakdown(mediaBreakdown, loggedDaysCount);
 
         const content = html`
-            <div id="study-stats-root" style="display: flex; flex-direction: column; height: 100%;">
+            <div id="study-stats-root" class="card" style="display: flex; flex-direction: column; height: 100%;">
                 <div style="text-align: center; margin-bottom: 1rem;">
-                    <h3 style="color: var(--text-secondary); font-size: 1.1rem; margin: 0;">Study Stats</h3>
+                    <h3 class="dashboard-card-title">Study Stats</h3>
                     <div style="font-size: 0.7rem; color: var(--text-secondary); opacity: 0.7; margin-top: 0.2rem;">Since: ${sinceDate}</div>
                 </div>
                 <div id="study-stats-content" style="display: flex; flex-direction: column; gap: 0.75rem; flex: 1;">
@@ -185,7 +185,7 @@ export class StatsCard extends Component<StatsCardState> {
                     </div>` : '';
 
             return `
-                <div class="study-stats-breakdown-item" style="display: flex; flex-direction: column; gap: 0.2rem; background: color-mix(in srgb, var(--tint-light) 3%, transparent); padding: 0.4rem; border-radius: var(--radius-sm);">
+                <div class="study-stats-breakdown-item" style="display: flex; flex-direction: column; gap: 0.2rem; background: var(--bg-dark); padding: 0.4rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
                     <div style="display: flex; justify-content: space-between; font-size: 0.85rem;">
                         <span style="color: var(--text-secondary);">${mtype}</span>
                         <span style="font-weight: bold; color: var(--text-primary);">${totalFormat}</span>

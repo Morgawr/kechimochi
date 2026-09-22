@@ -9,6 +9,7 @@
   --library-card-height: 320px;
   --library-overlay-top-reserve: 1.6rem;
   --library-overlay-bottom-reserve: 2.5rem;
+  --multi-select-trigger-width: 13.5rem;
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 12px;
@@ -1918,29 +1919,27 @@ input:focus, select:focus {
 .chart-container-wrapper {
   position: relative;
   width: 100%;
-  height: 300px;
+  flex: 1;
+  min-height: 300px;
+}
+
+.chart-container-wrapper > canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.chart-container-wrapper > canvas[data-chart-empty="true"] {
+  display: none;
 }
 
 .chart-empty-message {
   display: none;
   position: absolute;
   inset: 0;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.35rem;
-  padding: 1.5rem;
-  text-align: center;
-  color: var(--text-secondary);
 }
 
 .chart-empty-message.is-visible {
   display: flex;
-}
-
-.chart-empty-prompt {
-  color: var(--text-primary);
-  font-weight: 600;
 }
 
 /* Editable elements styling */
@@ -2083,7 +2082,7 @@ input:focus, select:focus {
 
   #study-stats-breakdown {
     display: grid !important;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
     gap: 0.45rem;
     align-items: stretch;
   }
@@ -2872,6 +2871,132 @@ input:focus, select:focus {
   background: var(--border-color);
 }
 
+.multi-select-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+  width: var(--multi-select-trigger-width);
+  max-width: 100%;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-dark) 88%, transparent);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.multi-select-trigger:hover {
+  border-color: color-mix(in srgb, var(--accent-green) 34%, var(--border-color) 66%);
+}
+
+.multi-select-trigger:focus-visible,
+.multi-select-trigger[aria-expanded='true'] {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent-green) 42%, var(--border-color) 58%);
+  background: color-mix(in srgb, var(--bg-card-hover) 82%, transparent);
+}
+
+.multi-select-trigger-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.multi-select-trigger-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.multi-select-trigger-value.is-placeholder {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.multi-select-trigger-counter {
+  flex: 0 0 auto;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.multi-select-trigger-chevron {
+  flex: 0 0 auto;
+  width: 0.36rem;
+  height: 0.36rem;
+  margin-right: 0.2rem;
+  border-right: 0.1rem solid var(--text-secondary);
+  border-bottom: 0.1rem solid var(--text-secondary);
+  transform: translateY(-25%) rotate(45deg);
+}
+
+.multi-select-panel {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  padding: 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-md);
+  z-index: 900;
+}
+
+.multi-select-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 899;
+  background: var(--scrim);
+}
+
+.multi-select-panel.is-sheet {
+  right: 0;
+  bottom: 0;
+  left: 0;
+  border-bottom: 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding: 0.5rem 0.75rem calc(0.5rem + env(safe-area-inset-bottom));
+}
+
+.multi-select-panel.is-sheet .multi-select-options {
+  max-height: 60vh;
+}
+
+.multi-select-panel.is-sheet .multi-select-option {
+  padding: 0.85rem 0.75rem;
+}
+
+.multi-select-options {
+  display: flex;
+  flex-direction: column;
+  max-height: 22rem;
+  overflow-y: auto;
+}
+
+.multi-select-option {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.multi-select-option:hover,
+.multi-select-option:has(input:focus-visible) {
+  background: var(--bg-card-hover);
+}
+
+.multi-select-option input {
+  accent-color: var(--accent-blue);
+}
+
 .media-library-section-header {
   display: flex;
   align-items: center;
@@ -3613,14 +3738,6 @@ input:focus, select:focus {
     margin-bottom: 2rem;
 }
 
-.activity-charts-header {
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.75rem;
-    margin-bottom: 1rem;
-}
-
 .activity-charts-title-controls,
 .heatmap-title-controls {
     display: grid;
@@ -3631,7 +3748,6 @@ input:focus, select:focus {
     min-width: 0;
 }
 
-.activity-charts-title,
 .heatmap-title {
     margin: 0;
     min-width: 0;
@@ -4066,9 +4182,9 @@ input:checked + .slider:before {
   }
 
   #dashboard-left-column,
-  #dashboard-right-column,
+  #dashboard-card-grid,
   #heatmap-container,
-  #charts-container {
+  .dashboard-card-host {
     width: 100%;
     min-width: 0;
   }
@@ -4086,18 +4202,6 @@ input:checked + .slider:before {
 
   #heatmap-container #heatmap-inner-container {
     justify-content: stretch !important;
-  }
-
-  #activity-charts-grid {
-    grid-template-columns: 1fr !important;
-    gap: 2rem !important;
-  }
-
-  /* flex: 1 on chart wrappers overrides height: 300px via flex-basis: 0.
-     With no constrained parent height in a stacked layout, Chart.js inflates the card.
-     Fix: constrain the card height so flex: 1 resolves correctly. */
-  #activity-charts-grid .card {
-    height: 380px;
   }
 
   #media-content-area {
@@ -4729,10 +4833,6 @@ input:checked + .slider:before {
     
   }
 
-  .activity-charts-header {
-    gap: 0.75rem;
-  }
-
   .chart-toolbar {
     gap: 0.38rem;
     padding: 0.35rem 0.4rem;
@@ -4914,8 +5014,8 @@ button:hover{
 }
 
 
-@media (max-width: 460px){ 
-  #logs-header{
+@media (max-width: 460px){
+  .dashboard-recent-activity-card .dashboard-card-header-has-extras{
     justify-content: center!important;
     width: 60%; /*force wrap and center for big page numbers to not risk creating bugs*/
     margin: 0 auto;

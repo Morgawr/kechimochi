@@ -71,7 +71,7 @@ describe('Responsive Styling CUJ', () => {
       return await browser.execute(() => {
         const stats = document.getElementById('stats-box-container');
         const heatmap = document.getElementById('heatmap-container');
-        const charts = document.querySelectorAll('#activity-charts-grid .card');
+        const charts = document.querySelectorAll('[data-dashboard-card="activity_mix"] .card, [data-dashboard-card="activity_flow"] .card');
         return stats && heatmap && charts.length >= 2
           && heatmap.getBoundingClientRect().top > (stats.getBoundingClientRect().top + 40)
           && charts[1].getBoundingClientRect().top > (charts[0].getBoundingClientRect().top + 40);
@@ -81,7 +81,7 @@ describe('Responsive Styling CUJ', () => {
     const stacked = await browser.execute(() => {
       const stats = document.getElementById('stats-box-container');
       const heatmap = document.getElementById('heatmap-container');
-      const charts = document.querySelectorAll('#activity-charts-grid .card');
+      const charts = document.querySelectorAll('[data-dashboard-card="activity_mix"] .card, [data-dashboard-card="activity_flow"] .card');
       if (!stats || !heatmap || charts.length < 2) {
         return {
           hasRequiredNodes: false,
@@ -199,11 +199,11 @@ describe('Responsive Styling CUJ', () => {
     });
 
     const readTotalsLayout = async () => browser.execute(() => {
-      const grid = document.querySelector<HTMLElement>('.dashboard-totals-grid');
+      const grid = document.querySelector<HTMLElement>('#dashboard-card-grid');
       const primaryCards = [
         document.querySelector<HTMLElement>('.dashboard-weekday-card'),
-        Array.from(document.querySelectorAll<HTMLElement>('.dashboard-totals-card')).find(card => card.textContent?.includes('Weekly Stats')),
-        Array.from(document.querySelectorAll<HTMLElement>('.dashboard-totals-card')).find(card => card.textContent?.includes('Categories')),
+        Array.from(document.querySelectorAll<HTMLElement>('.dashboard-card')).find(card => card.textContent?.includes('Weekly Stats')),
+        Array.from(document.querySelectorAll<HTMLElement>('.dashboard-card')).find(card => card.textContent?.includes('Categories')),
       ];
       const highlights = document.querySelector<HTMLElement>('.dashboard-highlights-card');
       const radar = document.querySelector<SVGElement>('.dashboard-weekday-radar');
@@ -231,7 +231,9 @@ describe('Responsive Styling CUJ', () => {
       };
     });
 
-    await browser.setWindowSize(1280, 1200);
+    // The card grid is the window less the side panel and padding, and the three-abreast
+    // tier needs 960px of grid, so this has to clear roughly 1336.
+    await browser.setWindowSize(1400, 1200);
     await browser.waitUntil(async () => (await readTotalsLayout())?.rowCount === 1, {
       timeout: 5000,
       timeoutMsg: 'Dashboard totals did not form one desktop row',
@@ -241,28 +243,26 @@ describe('Responsive Styling CUJ', () => {
     expect(desktop?.weekdayFirst).toBe(true);
 
     await browser.execute(() => {
-      const toggle = document.querySelector<HTMLInputElement>('#toggle-metric');
-      if (!toggle) return;
-      toggle.checked = true;
-      toggle.dispatchEvent(new Event('change', { bubbles: true }));
+      document.querySelector<HTMLButtonElement>('#toggle-metric-characters')?.click();
     });
     await browser.waitUntil(async () => browser.execute(() =>
       document.querySelector<HTMLElement>('.dashboard-weekday-card')?.dataset.metric === 'characters'
     ), { timeout: 3000, timeoutMsg: 'Weekday distribution did not switch to characters' });
     await browser.execute(() => {
-      const toggle = document.querySelector<HTMLInputElement>('#toggle-metric');
-      if (!toggle) return;
-      toggle.checked = false;
-      toggle.dispatchEvent(new Event('change', { bubbles: true }));
+      document.querySelector<HTMLButtonElement>('#toggle-metric-time')?.click();
     });
     await browser.waitUntil(async () => browser.execute(() =>
       document.querySelector<HTMLElement>('.dashboard-weekday-card')?.dataset.metric === 'minutes'
     ), { timeout: 3000, timeoutMsg: 'Weekday distribution did not switch back to time' });
 
-    await browser.setWindowSize(700, 1200);
-    await browser.waitUntil(async () => (await readTotalsLayout())?.rowCount === 2, {
+    // 900px is the `medium` tier (769-1024), where cards are two across.
+    await browser.setWindowSize(900, 1200);
+    await browser.waitUntil(async () => {
+      const layout = await readTotalsLayout();
+      return layout?.rowCount === 2 && !layout.gridOverflow;
+    }, {
       timeout: 5000,
-      timeoutMsg: 'Dashboard totals did not wrap to two rows at medium width',
+      timeoutMsg: 'Dashboard totals did not wrap to two rows at the medium tier',
     });
     const medium = await readTotalsLayout();
     expect(medium?.weekdayOwnRow).toBe(true);
@@ -271,9 +271,12 @@ describe('Responsive Styling CUJ', () => {
     expect(medium?.gridOverflow).toBe(false);
 
     await browser.setWindowSize(390, 1200);
-    await browser.waitUntil(async () => (await readTotalsLayout())?.rowCount === 3, {
+    await browser.waitUntil(async () => {
+      const layout = await readTotalsLayout();
+      return layout?.rowCount === 3 && !layout.gridOverflow;
+    }, {
       timeout: 5000,
-      timeoutMsg: 'Dashboard totals did not stack in compact mode',
+      timeoutMsg: 'Dashboard totals did not stack without overflow in compact mode',
     });
     const compact = await readTotalsLayout();
     expect(compact?.highlightsBelowPrimary).toBe(true);
@@ -282,33 +285,36 @@ describe('Responsive Styling CUJ', () => {
     expect(compact?.radarInsideCard).toBe(true);
   });
 
-  it('should distribute dashboard visualization controls across the full row at desktop width', async () => {
+  it('should keep dashboard controls on a single row at the wide tier', async () => {
     await navigateTo('dashboard');
     expect(await verifyActiveView('dashboard')).toBe(true);
 
-    await browser.setWindowSize(1280, 1200);
+    await browser.setWindowSize(1400, 1200);
     await browser.waitUntil(async () => {
       return await browser.execute(() => {
-        const chartToolbar = document.querySelector('.chart-toolbar') as HTMLElement;
-        return chartToolbar && getComputedStyle(chartToolbar).gridTemplateColumns.split(' ').length === 4;
+        const cardsCluster = document.querySelector('[data-dashboard-controls-cluster="cards"]') as HTMLElement | null;
+        const periodCluster = document.querySelector('[data-dashboard-controls-cluster="period"]') as HTMLElement | null;
+        if (!cardsCluster || !periodCluster) return false;
+        return Math.round(cardsCluster.getBoundingClientRect().top) === Math.round(periodCluster.getBoundingClientRect().top);
       });
-    }, { timeout: 3000 });
+    }, { timeout: 3000, timeoutMsg: 'Dashboard controls did not settle onto a single row at the wide tier' });
 
     const alignment = await browser.execute(() => {
       const heatmapCard = document.querySelector('#heatmap-container .card') as HTMLElement | null;
       const heatmapTitleControls = document.querySelector('.heatmap-title-controls') as HTMLElement | null;
-      const chartCard = document.querySelector('#activity-charts-grid .card:last-child') as HTMLElement | null;
+      const chartCard = document.querySelector('[data-dashboard-card="controls"] .card') as HTMLElement | null;
       const chartTitleControls = document.querySelector('.activity-charts-title-controls') as HTMLElement | null;
-      const chartToolbar = document.querySelector('.chart-toolbar') as HTMLElement | null;
+      const controlsFields = document.querySelector('[data-dashboard-controls-fields]') as HTMLElement | null;
+      const cardsCluster = document.querySelector('[data-dashboard-controls-cluster="cards"]') as HTMLElement | null;
+      const periodCluster = document.querySelector('[data-dashboard-controls-cluster="period"]') as HTMLElement | null;
 
-      if (!heatmapCard || !heatmapTitleControls || !chartCard || !chartTitleControls || !chartToolbar) {
+      if (!heatmapCard || !heatmapTitleControls || !chartCard || !chartTitleControls || !controlsFields || !cardsCluster || !periodCluster) {
         return {
           hasRequiredNodes: false,
           heatmapCenterOffset: Number.POSITIVE_INFINITY,
           chartTitleCenterOffset: Number.POSITIVE_INFINITY,
-          chartToolbarCenterOffset: Number.POSITIVE_INFINITY,
-          chartToolbarWidthRatio: Number.POSITIVE_INFINITY,
-          chartToolbarColumnCount: 0,
+          clustersShareRow: false,
+          controlsFieldsWidthRatio: Number.POSITIVE_INFINITY,
         };
       }
 
@@ -320,77 +326,65 @@ describe('Responsive Styling CUJ', () => {
         return Math.abs(elementCenter - parentCenter);
       };
 
-      const chartToolbarRect = chartToolbar.getBoundingClientRect();
+      const controlsFieldsRect = controlsFields.getBoundingClientRect();
       const chartCardRect = chartCard.getBoundingClientRect();
-      const chartToolbarColumnCount = getComputedStyle(chartToolbar).gridTemplateColumns.split(' ').length;
 
       return {
         hasRequiredNodes: true,
         heatmapCenterOffset: getCenterOffset(heatmapTitleControls, heatmapCard),
         chartTitleCenterOffset: getCenterOffset(chartTitleControls, chartCard),
-        chartToolbarCenterOffset: getCenterOffset(chartToolbar, chartCard),
-        chartToolbarWidthRatio: chartToolbarRect.width / chartCardRect.width,
-        chartToolbarColumnCount,
+        clustersShareRow: Math.round(cardsCluster.getBoundingClientRect().top) === Math.round(periodCluster.getBoundingClientRect().top),
+        controlsFieldsWidthRatio: controlsFieldsRect.width / chartCardRect.width,
       };
     });
 
     expect(alignment.hasRequiredNodes).toBe(true);
     expect(alignment.heatmapCenterOffset).toBeLessThan(16);
     expect(alignment.chartTitleCenterOffset).toBeLessThan(16);
-    expect(alignment.chartToolbarCenterOffset).toBeLessThan(16);
-    expect(alignment.chartToolbarWidthRatio).toBeGreaterThan(0.9);
-    expect(alignment.chartToolbarWidthRatio).toBeLessThan(1.02);
-    expect(alignment.chartToolbarColumnCount).toBe(4);
+    expect(alignment.clustersShareRow).toBe(true);
+    expect(alignment.controlsFieldsWidthRatio).toBeGreaterThan(0.9);
+    expect(alignment.controlsFieldsWidthRatio).toBeLessThan(1.02);
   });
 
-  it('should keep dashboard visualization controls on one scaled row at narrow app widths', async () => {
+  it('should wrap dashboard controls onto stacked rows without overflow at narrow app widths', async () => {
     await navigateTo('dashboard');
     expect(await verifyActiveView('dashboard')).toBe(true);
 
     await browser.setWindowSize(650, 1200);
     await browser.waitUntil(async () => {
       return await browser.execute(() => {
-        const chartCard = document.querySelector('#activity-charts-grid .card:last-child') as HTMLElement | null;
-        const chartToolbar = document.querySelector('.chart-toolbar') as HTMLElement | null;
-        return chartCard && chartToolbar && (chartToolbar.getBoundingClientRect().width / chartCard.getBoundingClientRect().width > 0.9);
+        const cardsCluster = document.querySelector('[data-dashboard-controls-cluster="cards"]') as HTMLElement | null;
+        const periodCluster = document.querySelector('[data-dashboard-controls-cluster="period"]') as HTMLElement | null;
+        if (!cardsCluster || !periodCluster) return false;
+        return cardsCluster.getBoundingClientRect().top < periodCluster.getBoundingClientRect().top;
       });
-    }, { timeout: 3000 });
+    }, { timeout: 3000, timeoutMsg: 'Dashboard controls did not stack their clusters at the mobile tier' });
 
     const compactLayout = await browser.execute(() => {
-      const chartCard = document.querySelector('#activity-charts-grid .card:last-child') as HTMLElement | null;
-      const chartToolbar = document.querySelector('.chart-toolbar') as HTMLElement | null;
+      const chartCard = document.querySelector('[data-dashboard-card="controls"] .card') as HTMLElement | null;
+      const controlsFields = document.querySelector('[data-dashboard-controls-fields]') as HTMLElement | null;
 
-      if (!chartCard || !chartToolbar) {
+      if (!chartCard || !controlsFields) {
         return {
           hasRequiredNodes: false,
-          chartToolbarWidthRatio: Number.POSITIVE_INFINITY,
-          chartToolbarColumnCount: 0,
-          chartToolbarRowCount: Number.POSITIVE_INFINITY,
-          chartToolbarOverflow: true,
+          controlsFieldsWidthRatio: Number.POSITIVE_INFINITY,
+          controlsFieldsOverflow: true,
         };
       }
 
-      const chartToolbarRect = chartToolbar.getBoundingClientRect();
+      const controlsFieldsRect = controlsFields.getBoundingClientRect();
       const chartCardRect = chartCard.getBoundingClientRect();
-      const toolbarItems = Array.from(chartToolbar.children).filter((child) =>
-        child instanceof HTMLElement && child.matches('.chart-toolbar-group, .chart-toolbar-select-shell'),
-      ) as HTMLElement[];
-      const rowCount = new Set(toolbarItems.map((item) => Math.round(item.getBoundingClientRect().top))).size;
 
       return {
         hasRequiredNodes: true,
-        chartToolbarWidthRatio: chartToolbarRect.width / chartCardRect.width,
-        chartToolbarColumnCount: getComputedStyle(chartToolbar).gridTemplateColumns.split(' ').length,
-        chartToolbarRowCount: rowCount,
-        chartToolbarOverflow: chartToolbar.scrollWidth > (chartToolbar.clientWidth + 1),
+        controlsFieldsWidthRatio: controlsFieldsRect.width / chartCardRect.width,
+        controlsFieldsOverflow: controlsFields.scrollWidth > (controlsFields.clientWidth + 1),
       };
     });
 
     expect(compactLayout.hasRequiredNodes).toBe(true);
-    expect(compactLayout.chartToolbarWidthRatio).toBeGreaterThan(0.9);
-    expect(compactLayout.chartToolbarColumnCount).toBe(4);
-    expect(compactLayout.chartToolbarRowCount).toBe(1);
-    expect(compactLayout.chartToolbarOverflow).toBe(false);
+    expect(compactLayout.controlsFieldsWidthRatio).toBeGreaterThan(0.9);
+    expect(compactLayout.controlsFieldsOverflow).toBe(false);
   });
 
   it('should keep dashboard visualization headers inside their cards on narrow mobile widths', async () => {
@@ -400,25 +394,23 @@ describe('Responsive Styling CUJ', () => {
     await browser.setWindowSize(390, 960);
     await browser.waitUntil(async () => {
       return await browser.execute(() => {
-        const chartToolbar = document.querySelector('.chart-toolbar') as HTMLElement;
-        return chartToolbar && getComputedStyle(chartToolbar).gridTemplateColumns.split(' ').length === 2;
+        const cardsCluster = document.querySelector('[data-dashboard-controls-cluster="cards"]') as HTMLElement | null;
+        const periodCluster = document.querySelector('[data-dashboard-controls-cluster="period"]') as HTMLElement | null;
+        return Boolean(cardsCluster && periodCluster && cardsCluster.getBoundingClientRect().top < periodCluster.getBoundingClientRect().top);
       });
     }, { timeout: 3000 });
 
     const overflow = await browser.execute(() => {
       const heatmapCard = document.querySelector('#heatmap-container .card') as HTMLElement | null;
       const heatmapTitleControls = document.querySelector('.heatmap-title-controls') as HTMLElement | null;
-      const chartCard = document.querySelector('#activity-charts-grid .card:last-child') as HTMLElement | null;
-      const chartHeader = document.querySelector('.activity-charts-header') as HTMLElement | null;
-      const chartToolbar = document.querySelector('.chart-toolbar') as HTMLElement | null;
+      const chartCard = document.querySelector('[data-dashboard-card="controls"] .card') as HTMLElement | null;
+      const controlsFields = document.querySelector('[data-dashboard-controls-fields]') as HTMLElement | null;
 
-      if (!heatmapCard || !heatmapTitleControls || !chartCard || !chartHeader || !chartToolbar) {
+      if (!heatmapCard || !heatmapTitleControls || !chartCard || !controlsFields) {
         return {
           hasRequiredNodes: false,
           heatmapTitleOverflow: true,
-          chartHeaderOverflow: true,
-          chartToolbarOverflow: true,
-          chartToolbarColumnCount: 0,
+          controlsFieldsOverflow: true,
         };
       }
 
@@ -431,17 +423,13 @@ describe('Responsive Styling CUJ', () => {
       return {
         hasRequiredNodes: true,
         heatmapTitleOverflow: exceedsParent(heatmapTitleControls, heatmapCard) || heatmapTitleControls.scrollWidth > (heatmapTitleControls.clientWidth + 1),
-        chartHeaderOverflow: exceedsParent(chartHeader, chartCard) || chartHeader.scrollWidth > (chartHeader.clientWidth + 1),
-        chartToolbarOverflow: exceedsParent(chartToolbar, chartCard) || chartToolbar.scrollWidth > (chartToolbar.clientWidth + 1),
-        chartToolbarColumnCount: getComputedStyle(chartToolbar).gridTemplateColumns.split(' ').length,
+        controlsFieldsOverflow: exceedsParent(controlsFields, chartCard) || controlsFields.scrollWidth > (controlsFields.clientWidth + 1),
       };
     });
 
     expect(overflow.hasRequiredNodes).toBe(true);
     expect(overflow.heatmapTitleOverflow).toBe(false);
-    expect(overflow.chartHeaderOverflow).toBe(false);
-    expect(overflow.chartToolbarOverflow).toBe(false);
-    expect(overflow.chartToolbarColumnCount).toBe(2);
+    expect(overflow.controlsFieldsOverflow).toBe(false);
   });
 
   it('should switch the library to list mode on narrow widths and restore grid when widened again', async () => {

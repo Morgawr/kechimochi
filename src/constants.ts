@@ -49,6 +49,7 @@ export const SETTING_KEYS = {
     DASHBOARD_GROUP_BY: 'dashboard_group_by',
     DASHBOARD_TIME_RANGE_DAYS: 'dashboard_time_range_days',
     DASHBOARD_METRIC: 'dashboard_metric',
+    DASHBOARD_HIDDEN_CARDS: 'dashboard_hidden_cards',
     WEEK_START_DAY: 'week_start_day',
     UPDATES_AUTO_CHECK_ENABLED: 'updates_auto_check_enabled',
     UPDATES_LAST_SEEN_RELEASE_VERSION: 'updates_last_seen_release_version',

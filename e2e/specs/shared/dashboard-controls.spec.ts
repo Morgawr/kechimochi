@@ -1,7 +1,7 @@
 import { waitForAppReady } from '../../helpers/setup.js';
 import { navigateTo } from '../../helpers/navigation.js';
 import { setSelect } from '../../helpers/form-controls.js';
-import { getActivityChartRangeMetadata } from '../../helpers/dashboard.js';
+import { getActivityChartRangeMetadata, ACTIVITY_FLOW_SELECTOR, DASHBOARD_CONTROLS_SELECTOR } from '../../helpers/dashboard.js';
 
 interface ChartSnapshot {
   chartType: string | null;
@@ -15,17 +15,17 @@ interface ChartSnapshot {
 
 async function getChartSnapshot(): Promise<ChartSnapshot> {
   const canvas = $('#barChart');
-  await canvas.waitForDisplayed({ timeout: 5000 });
+  await canvas.waitForExist({ timeout: 5000 });
   let snapshot: ChartSnapshot | null = null;
   await browser.waitUntil(async () => {
     snapshot = await browser.execute(() => {
       const root = document.querySelector<HTMLElement>('.dashboard-root');
-      const layout = root?.querySelector<HTMLElement>('#activity-charts-grid');
-      const chart = layout?.querySelector<HTMLCanvasElement>('#barChart');
+      const controls = root?.querySelector<HTMLElement>('[data-dashboard-card="controls"]');
+      const chart = root?.querySelector<HTMLCanvasElement>('[data-dashboard-card="activity_flow"] #barChart');
+      const flowHost = root?.querySelector<HTMLElement>('[data-dashboard-card="activity_flow"]');
       const requestId = root?.dataset.dashboardRequestId;
-      // Controls update before the range response and lazy Chart.js render.
-      // Read one coherent snapshot only after the current render completes.
-      if (!requestId || layout?.dataset.dashboardRequestId !== requestId
+      if (!requestId || controls?.dataset.dashboardRequestId !== requestId
+          || flowHost?.dataset.dashboardRequestId !== requestId
           || !chart?.dataset.seriesLabels || !chart.dataset.seriesTotals) return null;
       return {
         chartType: chart.dataset.chartType ?? null,
@@ -33,8 +33,8 @@ async function getChartSnapshot(): Promise<ChartSnapshot> {
         metric: chart.dataset.metric ?? null,
         labels: JSON.parse(chart.dataset.seriesLabels) as string[],
         totals: JSON.parse(chart.dataset.seriesTotals) as number[],
-        rangeStart: layout.dataset.rangeStart ?? '',
-        rangeEnd: layout.dataset.rangeEnd ?? '',
+        rangeStart: controls.dataset.rangeStart ?? '',
+        rangeEnd: controls.dataset.rangeEnd ?? '',
       };
     });
     return snapshot !== null;
@@ -51,13 +51,14 @@ function totalsByLabel(snapshot: ChartSnapshot): Record<string, number> {
   return Object.fromEntries(snapshot.labels.map((label, index) => [label, snapshot.totals[index]]));
 }
 
-async function clickChartToggle(selector: string): Promise<void> {
+async function clickChartToggle(groupSelector: string): Promise<void> {
   const clicked = await browser.execute((targetSelector) => {
-    const input = document.querySelector(targetSelector);
-    if (!(input instanceof HTMLInputElement)) return false;
-    input.click();
+    const group = document.querySelector(targetSelector);
+    const secondOption = group?.querySelectorAll<HTMLButtonElement>('.toggle-option').item(1);
+    if (!secondOption) return false;
+    secondOption.click();
     return true;
-  }, selector);
+  }, groupSelector);
   expect(clicked).toBe(true);
 }
 
@@ -96,21 +97,21 @@ describe('CUJ: Dashboard Analytics Controls', () => {
 
     await setSelect('#select-time-range', { value: '7' });
     await getActivityChartRangeMetadata();
-    expect(await $('#activity-charts-grid').getAttribute('data-chart-empty')).toBe('true');
+    expect(await $(ACTIVITY_FLOW_SELECTOR).getAttribute('data-chart-empty')).toBe('true');
 
     await setSelect('#select-time-range', { value: '30' });
     await getActivityChartRangeMetadata();
-    expect(await $('#activity-charts-grid').getAttribute('data-chart-empty')).toBe('false');
+    expect(await $(ACTIVITY_FLOW_SELECTOR).getAttribute('data-chart-empty')).toBe('false');
 
     await clickChartToggle('#toggle-metric');
     await browser.waitUntil(async () => (await getChartSnapshot()).metric === 'characters');
     const characters = await getChartSnapshot();
     expect(characters.totals).toEqual([]);
-    expect(await $('#activity-charts-grid').getAttribute('data-chart-empty')).toBe('true');
+    expect(await $(ACTIVITY_FLOW_SELECTOR).getAttribute('data-chart-empty')).toBe('true');
 
-    expect(await $('#activity-charts-grid').getAttribute('data-time-range-days')).toBe('30');
+    expect(await $(DASHBOARD_CONTROLS_SELECTOR).getAttribute('data-time-range-days')).toBe('30');
     await $('#btn-chart-prev').click();
-    expect(await $('#activity-charts-grid').getAttribute('data-time-range-offset')).toBe('1');
+    expect(await $(DASHBOARD_CONTROLS_SELECTOR).getAttribute('data-time-range-offset')).toBe('1');
     expect(await $('#btn-chart-next').isEnabled()).toBe(true);
 
     await setSelect('#select-time-range', { value: '0' });
@@ -124,6 +125,6 @@ describe('CUJ: Dashboard Analytics Controls', () => {
     expect(afterReload.chartType).toBe('line');
     expect(afterReload.groupBy).toBe('log_name');
     expect(afterReload.metric).toBe('characters');
-    expect(await $('#activity-charts-grid').getAttribute('data-time-range-days')).toBe('0');
+    expect(await $(DASHBOARD_CONTROLS_SELECTOR).getAttribute('data-time-range-days')).toBe('0');
   });
 });
