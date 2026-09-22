@@ -175,7 +175,7 @@ export function openSelectPopup(select: HTMLSelectElement, onClose?: () => void)
     function commit(index: number): void {
         if (!select.isConnected) return;
         const entry = entries[index];
-        if (!entry || entry.kind !== 'option' || entry.isDisabled) return;
+        if (entry?.kind !== 'option' || entry.isDisabled) return;
         if (select.value !== entry.value) {
             select.value = entry.value;
             select.dispatchEvent(new Event('input', { bubbles: true }));
