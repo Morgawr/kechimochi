@@ -282,6 +282,39 @@ describe('modals/base.ts', () => {
         });
     });
 
+    describe('createCancelableOverlay', () => {
+        function createFocusedSelect(overlay: HTMLElement): HTMLSelectElement {
+            const select = document.createElement('select');
+            overlay.appendChild(select);
+            select.focus();
+            return select;
+        }
+
+        it('should dismiss on Escape when closeOnEscape is set', () => {
+            const onDismiss = vi.fn();
+            const { overlay } = base.createCancelableOverlay(onDismiss, { closeOnEscape: true });
+            const select = createFocusedSelect(overlay);
+
+            select.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+
+            expect(onDismiss).toHaveBeenCalledTimes(1);
+        });
+
+        it('should leave Escape to a focused control whose popup is open', () => {
+            const onDismiss = vi.fn();
+            const { overlay, cleanup } = base.createCancelableOverlay(onDismiss, { closeOnEscape: true });
+            const select = createFocusedSelect(overlay);
+            select.setAttribute('aria-expanded', 'true');
+
+            const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+            select.dispatchEvent(event);
+
+            expect(onDismiss).not.toHaveBeenCalled();
+            expect(event.defaultPrevented).toBe(false);
+            cleanup();
+        });
+    });
+
     describe('showBlockingStatus', () => {
         it('should render escaped content and close idempotently', () => {
             const status = base.showBlockingStatus('<Export>', 'In "progress"');

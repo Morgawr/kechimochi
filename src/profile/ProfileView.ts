@@ -616,15 +616,15 @@ export class ProfileView extends Component<ProfileState> {
                     <p style="color: var(--text-secondary); font-size: 0.9rem;">Choose your preferred theme for this profile. Double click the profile picture above to change it.</p>
 
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-                        <label for="profile-select-theme" style="font-size: 0.85rem; font-weight: 500;">Theme</label>
-                        <select id="profile-select-theme" style="width: 100%;">
+                        <span id="profile-select-theme-label" style="font-size: 0.85rem; font-weight: 500;">Theme</span>
+                        <select id="profile-select-theme" aria-labelledby="profile-select-theme-label" style="width: 100%;">
                             ${this.renderThemeOptions(theme)}
                         </select>
                     </div>
 
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-                        <label for="profile-select-font" style="font-size: 0.85rem; font-weight: 500;">Font</label>
-                        <select id="profile-select-font" style="width: 100%;">
+                        <span id="profile-select-font-label" style="font-size: 0.85rem; font-weight: 500;">Font</span>
+                        <select id="profile-select-font" aria-labelledby="profile-select-font-label" style="width: 100%;">
                             ${this.renderFontOptions(font)}
                         </select>
                     </div>
@@ -641,8 +641,8 @@ export class ProfileView extends Component<ProfileState> {
 
                     ${themeOverrideEnabled ? html`
                         <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-                            <label for="profile-select-theme-local" style="font-size: 0.85rem; font-weight: 500;">Local theme</label>
-                                <select id="profile-select-theme-local" style="width: 100%;">
+                            <span id="profile-select-theme-local-label" style="font-size: 0.85rem; font-weight: 500;">Local theme</span>
+                                <select id="profile-select-theme-local" aria-labelledby="profile-select-theme-local-label" style="width: 100%;">
                                     ${this.renderThemeOptions(themeOverrideValue)}
                                 </select>
                         </div>
@@ -650,8 +650,8 @@ export class ProfileView extends Component<ProfileState> {
 
                     ${themeOverrideEnabled ? html`
                         <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-                            <label for="profile-select-font-local" style="font-size: 0.85rem; font-weight: 500;">Local font</label>
-                                <select id="profile-select-font-local" style="width: 100%;">
+                            <span id="profile-select-font-local-label" style="font-size: 0.85rem; font-weight: 500;">Local font</span>
+                                <select id="profile-select-font-local" aria-labelledby="profile-select-font-local-label" style="width: 100%;">
                                     ${this.renderFontOptions(fontOverrideValue)}
                                 </select>
                         </div>
@@ -667,8 +667,8 @@ export class ProfileView extends Component<ProfileState> {
                     <p style="color: var(--text-secondary); font-size: 0.9rem;">Choose how weekly activity ranges are grouped across the dashboard.</p>
 
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-                        <label for="profile-select-week-start" style="font-size: 0.85rem; font-weight: 500;">Week starts on</label>
-                        <select id="profile-select-week-start" style="width: 100%;">
+                        <span id="profile-select-week-start-label" style="font-size: 0.85rem; font-weight: 500;">Week starts on</span>
+                        <select id="profile-select-week-start" aria-labelledby="profile-select-week-start-label" style="width: 100%;">
                             ${this.renderWeekStartOptions(weekStartDay)}
                         </select>
                     </div>
@@ -993,13 +993,13 @@ export class ProfileView extends Component<ProfileState> {
                                 Port
                                 <input id="profile-local-api-port" type="number" min="1" max="65535" step="1" value="${status.port}" style="width: 100%;" />
                             </label>
-                            <label style="display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.85rem; font-weight: 500;">
-                                API Scope
-                                <select id="profile-local-api-scope" style="width: 100%;">
+                            <div style="display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.85rem; font-weight: 500;">
+                                <span id="profile-local-api-scope-label">API Scope</span>
+                                <select id="profile-local-api-scope" aria-labelledby="profile-local-api-scope-label" style="width: 100%;">
                                     <option value="automation" ${status.scope === 'automation' ? 'selected' : ''}>Automation</option>
                                     <option value="full" ${status.scope === 'full' ? 'selected' : ''}>Full</option>
                                 </select>
-                            </label>
+                            </div>
                         </div>
 
                         <label style="display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.85rem; font-weight: 500;">

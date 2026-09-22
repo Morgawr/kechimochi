@@ -24,13 +24,13 @@ export async function showAddMediaModal(): Promise<{title: string, variant: stri
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">
                         <label style="font-size: 0.85rem; color: var(--text-secondary);">Activity Type</label>
-                        <select id="add-media-type" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); outline: none;">
+                        <select id="add-media-type">
                             ${ACTIVITY_TYPES.map(type => `<option value="${type}">${type}</option>`).join('')}
                         </select>
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">
                         <label style="font-size: 0.85rem; color: var(--text-secondary);">Media Content Type</label>
-                        <select id="add-media-content-type" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); outline: none;">
+                        <select id="add-media-content-type">
                         </select>
                     </div>
                 </div>

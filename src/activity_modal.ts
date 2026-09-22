@@ -249,14 +249,14 @@ export async function showLogActivityModal(prefillMediaId?: number, editLog?: Ac
                     </div>
                     <div style="display: flex; gap: 1rem; width: 100%;">
                         <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.5rem;">
-                            <label for="activity-type" style="font-size: 0.85rem; color: var(--text-secondary);">Activity Type</label>
-                            <select id="activity-type" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); width: 100%;">
+                            <span id="activity-type-label" style="font-size: 0.85rem; color: var(--text-secondary);">Activity Type</span>
+                            <select id="activity-type" aria-labelledby="activity-type-label" style="width: 100%;">
                                 ${ACTIVITY_TYPES.map(t => `<option value="${t}" ${t === defaultActivityType ? 'selected' : ''}>${t}</option>`).join('')}
                             </select>
                         </div>
                         <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.5rem;">
-                            <label for="activity-date-scope" style="font-size: 0.85rem; color: var(--text-secondary);">Date scope</label>
-                            <select id="activity-date-scope" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); width: 100%;">
+                            <span id="activity-date-scope-label" style="font-size: 0.85rem; color: var(--text-secondary);">Date scope</span>
+                            <select id="activity-date-scope" aria-labelledby="activity-date-scope-label" style="width: 100%;">
                                 <option value="day" ${initialScope === 'day' ? 'selected' : ''}>Day</option>
                                 <option value="month" ${initialScope === 'month' ? 'selected' : ''}>Month</option>
                                 <option value="year" ${initialScope === 'year' ? 'selected' : ''}>Year</option>

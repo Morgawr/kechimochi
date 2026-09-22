@@ -1,6 +1,7 @@
 @import './fonts.css';
 @import './dashboard/dashboard.css';
 @import './calendar/calendar.css';
+@import './popups/popups.css';
 
 :root {
   /* Layout & Utilities (Common across themes) */
@@ -10,6 +11,10 @@
   --library-overlay-top-reserve: 1.6rem;
   --library-overlay-bottom-reserve: 2.5rem;
   --multi-select-trigger-width: 13.5rem;
+  --chevron-arm-length: 0.36rem;
+  --chevron-stroke-width: 0.1rem;
+  --field-padding-inline: 0.75rem;
+  --chevron-right-offset: 0.875rem;
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 12px;
@@ -534,7 +539,7 @@ body[data-theme='eink'] {
 
 select {
   appearance: none;
-  background: var(--bg-dark);
+  cursor: pointer;
   color: var(--text-primary);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
@@ -944,20 +949,72 @@ a {
 
 
 /* Forms & Inputs */
-input, select {
+input, select, .multi-select-trigger {
   background-color: var(--bg-dark);
   color: var(--text-primary);
   border: 1px solid var(--border-color);
-  padding: 0.5rem 0.75rem;
+  padding: 0.5rem var(--field-padding-inline);
   border-radius: var(--radius-sm);
   font-family: inherit;
   font-size: 0.9rem;
   transition: border-color var(--transition-fast);
 }
 
-input:focus, select:focus {
+input:focus {
   outline: none;
   border-color: var(--accent-green);
+}
+
+.multi-select-trigger,
+select:not(:where(.badge-select, #media-select)) {
+  background-color: color-mix(in srgb, var(--bg-dark) 88%, transparent);
+}
+
+.multi-select-trigger:hover,
+select:not(:where(.badge-select, #media-select)):hover {
+  border-color: color-mix(in srgb, var(--accent-green) 34%, var(--border-color) 66%);
+}
+
+.multi-select-trigger:focus-visible,
+.multi-select-trigger[aria-expanded='true'],
+select:not(:where(.badge-select, #media-select)):focus-visible,
+select:not(:where(.badge-select, #media-select))[aria-expanded='true'] {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent-green) 42%, var(--border-color) 58%);
+}
+
+.multi-select-trigger[aria-expanded='true'],
+select:not(:where(.badge-select, #media-select))[aria-expanded='true'] {
+  background-color: color-mix(in srgb, var(--bg-card-hover) 82%, transparent);
+}
+
+/*
+ * select can't host a span/::after, so both chevrons are drawn the same way: two square background
+ * tiles, each holding one arm as a diagonal band. Tile side = arm length / sqrt(2). Band edges ramp
+ * over 1px so they antialias softly. The multiselect's chevron span carries the same background.
+ */
+.multi-select-trigger-chevron,
+select:not(:where(.badge-select, #media-select)) {
+  --chevron-tile: calc(var(--chevron-arm-length) * 0.7071);
+  --chevron-band:
+    transparent calc(50% - var(--chevron-stroke-width) / 2 - 0.5px),
+    var(--text-secondary) calc(50% - var(--chevron-stroke-width) / 2 + 0.5px) calc(50% + var(--chevron-stroke-width) / 2 - 0.5px),
+    transparent calc(50% + var(--chevron-stroke-width) / 2 + 0.5px);
+  background-repeat: no-repeat;
+  background-image:
+    linear-gradient(to top right, var(--chevron-band)),
+    linear-gradient(to top left, var(--chevron-band));
+  background-size: var(--chevron-tile) var(--chevron-tile);
+}
+
+select:not(:where(.badge-select, #media-select)) {
+  padding-right: 2rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+  background-position:
+    right calc(var(--chevron-right-offset) + var(--chevron-tile)) center,
+    right var(--chevron-right-offset) center;
 }
 
 /* Cards */
@@ -2652,21 +2709,22 @@ input:focus, select:focus {
 .media-extra-filter-value,
 .media-boolean-tag-add {
   min-width: 0;
-  padding: 0.38rem 0.6rem;
+  padding-block: 0.38rem;
+  padding-left: 0.6rem;
+  font: inherit;
+  font-size: 0.82rem;
+}
+
+.media-extra-filter-value {
+  padding-right: 0.6rem;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
   background: var(--bg-dark);
   color: var(--text-primary);
   outline: none;
-  font: inherit;
-  font-size: 0.82rem;
 }
 
-.media-filter-logic:focus-visible,
-.media-extra-filter-field:focus-visible,
-.media-extra-filter-operator:focus-visible,
-.media-extra-filter-value:focus-visible,
-.media-boolean-tag-add:focus-visible {
+.media-extra-filter-value:focus-visible {
   border-color: color-mix(in srgb, var(--accent-green) 65%, var(--border-color) 35%);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-green) 18%, transparent);
 }
@@ -2821,182 +2879,6 @@ input:focus, select:focus {
 .media-grid-item[data-tracking-status='Dropped'] { --library-hover-border-color: var(--status-dropped-led); }
 .media-grid-item[data-tracking-status='Not Started'] { --library-hover-border-color: var(--status-not-started-led); }
 
-.popup-menu {
-  position: fixed;
-  display: flex;
-  flex-direction: column;
-  min-width: 12rem;
-  padding: 0.35rem;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: var(--bg-card);
-  box-shadow: var(--shadow-md);
-  z-index: 900;
-}
-
-.popup-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  width: 100%;
-  padding: 0.55rem 0.7rem;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-primary);
-  font: inherit;
-  font-size: 0.9rem;
-  text-align: left;
-  cursor: pointer;
-}
-
-.popup-menu-item:hover,
-.popup-menu-item:focus-visible {
-  background: var(--bg-card-hover);
-  outline: none;
-}
-
-.popup-menu-item-danger {
-  color: var(--danger-text);
-}
-
-.popup-menu-item-danger:hover,
-.popup-menu-item-danger:focus-visible {
-  background: color-mix(in srgb, var(--danger-text) 16%, transparent);
-}
-
-.popup-menu-separator {
-  height: 1px;
-  margin: 0.3rem 0.2rem;
-  background: var(--border-color);
-}
-
-.multi-select-trigger {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex: 0 0 auto;
-  width: var(--multi-select-trigger-width);
-  max-width: 100%;
-  padding: 0.4rem 0.6rem;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--bg-dark) 88%, transparent);
-  color: var(--text-primary);
-  font-size: 0.85rem;
-  text-align: left;
-  cursor: pointer;
-}
-
-.multi-select-trigger:hover {
-  border-color: color-mix(in srgb, var(--accent-green) 34%, var(--border-color) 66%);
-}
-
-.multi-select-trigger:focus-visible,
-.multi-select-trigger[aria-expanded='true'] {
-  outline: none;
-  border-color: color-mix(in srgb, var(--accent-green) 42%, var(--border-color) 58%);
-  background: color-mix(in srgb, var(--bg-card-hover) 82%, transparent);
-}
-
-.multi-select-trigger-icon {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-}
-
-.multi-select-trigger-value {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.multi-select-trigger-value.is-placeholder {
-  color: var(--text-secondary);
-  font-style: italic;
-}
-
-.multi-select-trigger-counter {
-  flex: 0 0 auto;
-  color: var(--text-primary);
-  font-variant-numeric: tabular-nums;
-}
-
-.multi-select-trigger-chevron {
-  flex: 0 0 auto;
-  width: 0.36rem;
-  height: 0.36rem;
-  margin-right: 0.2rem;
-  border-right: 0.1rem solid var(--text-secondary);
-  border-bottom: 0.1rem solid var(--text-secondary);
-  transform: translateY(-25%) rotate(45deg);
-}
-
-.multi-select-panel {
-  position: fixed;
-  display: flex;
-  flex-direction: column;
-  padding: 0.5rem;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: var(--bg-card);
-  box-shadow: var(--shadow-md);
-  z-index: 900;
-}
-
-.multi-select-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 899;
-  background: var(--scrim);
-}
-
-.multi-select-panel.is-sheet {
-  right: 0;
-  bottom: 0;
-  left: 0;
-  border-bottom: 0;
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-  padding: 0.5rem 0.75rem calc(0.5rem + env(safe-area-inset-bottom));
-}
-
-.multi-select-panel.is-sheet .multi-select-options {
-  max-height: 60vh;
-}
-
-.multi-select-panel.is-sheet .multi-select-option {
-  padding: 0.85rem 0.75rem;
-}
-
-.multi-select-options {
-  display: flex;
-  flex-direction: column;
-  max-height: 22rem;
-  overflow-y: auto;
-}
-
-.multi-select-option {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.5rem 0.6rem;
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  font-size: 0.9rem;
-  cursor: pointer;
-}
-
-.multi-select-option:hover,
-.multi-select-option:has(input:focus-visible) {
-  background: var(--bg-card-hover);
-}
-
-.multi-select-option input {
-  accent-color: var(--accent-blue);
-}
-
 .media-library-section-header {
   display: flex;
   align-items: center;
@@ -3070,12 +2952,8 @@ input:focus, select:focus {
 .media-sort-level-select {
   flex: 1 1 160px;
   min-width: 0;
-  padding: 0.38rem 0.6rem;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-color);
-  background: var(--bg-dark);
-  color: var(--text-primary);
-  outline: none;
+  padding-block: 0.38rem;
+  padding-left: 0.6rem;
   font: inherit;
   font-size: 0.82rem;
 }
@@ -3786,62 +3664,6 @@ input:focus, select:focus {
     width: 100%;
     min-width: 0;
     padding: 0 0.08rem;
-}
-
-.chart-toolbar-select-shell {
-    position: relative;
-    display: flex;
-    align-items: center;
-    width: 100%;
-    min-width: 0;
-}
-
-.chart-toolbar-select-shell::after {
-    content: '';
-    position: absolute;
-    top: 50%;
-    right: 0.7rem;
-    width: 0.36rem;
-    height: 0.36rem;
-    border-right: 0.1rem solid var(--text-secondary);
-    border-bottom: 0.1rem solid var(--text-secondary);
-    transform: translateY(-62%) rotate(45deg);
-    pointer-events: none;
-}
-
-.chart-toolbar-select {
-    appearance: none;
-    -webkit-appearance: none;
-    width: 100%;
-    font-size: 0.6rem;
-    line-height: 1.2;
-    padding: 0.34rem 1.45rem 0.34rem 0.45rem;
-    border: 1px solid color-mix(in srgb, var(--border-color) 82%, var(--accent-green) 18%);
-    border-radius: var(--radius-full);
-    background: color-mix(in srgb, var(--bg-dark) 88%, transparent);
-    cursor: pointer;
-    color: var(--text-primary);
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    text-align: center;
-    text-align-last: center;
-    min-width: 0;
-}
-
-.chart-toolbar-select:focus {
-    outline: none;
-    border-color: color-mix(in srgb, var(--accent-green) 42%, var(--border-color) 58%);
-    background: color-mix(in srgb, var(--bg-card-hover) 82%, transparent);
-}
-
-.chart-toolbar-select:hover {
-    border-color: color-mix(in srgb, var(--accent-green) 34%, var(--border-color) 66%);
-}
-
-.chart-toolbar-select option {
-    background-color: var(--bg-dark);
-    color: var(--text-primary);
 }
 
 .chart-toolbar-divider {
@@ -4837,11 +4659,6 @@ input:checked + .slider:before {
     gap: 0.38rem;
     padding: 0.35rem 0.4rem;
   }
-
-  .chart-toolbar-select {
-    font-size: 0.58rem;
-    padding-left: 0.38rem;
-  }
 }
 
 .activity-date-picker-row {
@@ -4871,8 +4688,7 @@ input:checked + .slider:before {
     padding: 0.32rem 0.35rem;
   }
 
-  .chart-toolbar-group,
-  .chart-toolbar-select-shell {
+  .chart-toolbar-group {
     min-width: 0;
   }
 
@@ -4895,10 +4711,6 @@ input:checked + .slider:before {
 
   .chart-toolbar input:checked + .slider:before {
     transform: translateX(15px);
-  }
-
-  .chart-toolbar-select-shell::after {
-    right: 0.62rem;
   }
 
   .heatmap-title-controls {

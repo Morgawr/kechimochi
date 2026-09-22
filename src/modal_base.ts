@@ -239,7 +239,9 @@ export function createCancelableOverlay(onDismiss: () => void, options: { closeO
 
     if (options.closeOnEscape) {
         const handleEscape = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') {
+            // A focused control with its popup open (e.g. a select) owns Escape; this window-capture
+            // listener would otherwise run first and dismiss the whole modal instead.
+            if (event.key === 'Escape' && document.activeElement?.getAttribute('aria-expanded') !== 'true') {
                 event.preventDefault();
                 event.stopPropagation();
                 dismiss();

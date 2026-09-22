@@ -2,7 +2,7 @@ import { Component } from '../component';
 import { html } from '../html';
 import { ACTIVITY_TIME_RANGES, type ActivityRange } from './activity_ranges';
 import type { DashboardGroupBy } from '../types';
-import { createMultiSelectField, type MultiSelectField } from '../multi_select';
+import { createMultiSelectField, type MultiSelectField } from '../popups';
 import type { DashboardCardId } from './dashboard_cards';
 import { WIDGET_GRID } from '../icons';
 
@@ -116,15 +116,15 @@ export class DashboardControls extends Component<DashboardControlsState> {
                         </div>
                     </div>
                     <div class="dashboard-controls-cluster" data-dashboard-controls-cluster="period">
-                        <label class="dashboard-controls-field dashboard-controls-field-stretch">
-                            <span class="timeline-filter-label">Period</span>
-                            <select id="select-time-range">
+                        <div class="dashboard-controls-field dashboard-controls-field-stretch">
+                            <span class="timeline-filter-label" id="select-time-range-label">Period</span>
+                            <select id="select-time-range" aria-labelledby="select-time-range-label">
                                 <option value="7" ${this.state.timeRangeDays === ACTIVITY_TIME_RANGES.WEEKLY ? 'selected' : ''}>Week</option>
                                 <option value="30" ${this.state.timeRangeDays === ACTIVITY_TIME_RANGES.MONTHLY ? 'selected' : ''}>Month</option>
                                 <option value="365" ${this.state.timeRangeDays === ACTIVITY_TIME_RANGES.YEARLY ? 'selected' : ''}>Year</option>
                                 <option value="0" ${this.state.timeRangeDays === ACTIVITY_TIME_RANGES.ALL_TIME ? 'selected' : ''}>All Time</option>
                             </select>
-                        </label>
+                        </div>
                         <div class="dashboard-controls-field">
                             <span class="timeline-filter-label" id="toggle-group-by-label">Group By</span>
                             <div class="toggle" role="group" id="toggle-group-by" aria-labelledby="toggle-group-by-label">
