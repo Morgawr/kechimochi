@@ -364,6 +364,26 @@ describe('MediaDetail', () => {
         expect(text).toContain('Total Chars: 1,500');
     });
 
+    it('should hide the stats card and empty stats grid without logs and show them once a log exists', () => {
+        const media = { ...mockMedia, extra_data: '{}' } as unknown as Media;
+        const component = new MediaDetail(container, media, [], [media], 0, mockCallbacks);
+        component.render();
+
+        const statsCard = container.querySelector<HTMLElement>('#media-first-last-stats')!;
+        const statsGrid = container.querySelector<HTMLElement>('#media-stats-grid')!;
+        expect(statsCard.hidden).toBe(true);
+        expect(statsGrid.hidden).toBe(true);
+
+        component.updateLogs(1, [{
+            id: 1, media_id: 1, date: '2019-01-01', date_precision: 'year', duration_minutes: 0,
+            characters: 0, activity_type: 'Reading',
+        } as api.ActivitySummary]);
+
+        expect(statsCard.hidden).toBe(false);
+        expect(statsGrid.hidden).toBe(false);
+        expect(statsCard.textContent).toContain('2019');
+    });
+
     it('should hide duration in milestones if it is 0', async () => {
         const milestones = [{ id: 1, name: 'M1', duration: 0, characters: 5000 }];
         vi.mocked(api.getMilestones).mockResolvedValue(milestones as unknown as Milestone[]);
