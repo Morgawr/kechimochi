@@ -328,7 +328,9 @@ function validateNumber(label: string, value: string, minimum: number, maximum?:
 function summarizeFields(metadata: ScrapedMetadata): string {
     const baseFields = ['title', 'description', 'coverImageUrl'];
     if (metadata.contentType !== undefined) baseFields.push('contentType');
-    const extraFields = Object.keys(metadata.extraData).sort().map(key => `extraData.${key}`);
+    const extraFields = Object.keys(metadata.extraData)
+        .sort((left, right) => left.localeCompare(right))
+        .map(key => `extraData.${key}`);
     return [...baseFields, ...extraFields].join(', ');
 }
 
@@ -351,7 +353,7 @@ function buildReport(results: HealthResult[]): string {
 }
 
 function tableCell(value: string): string {
-    return value.replaceAll('|', '\\|').replaceAll(/\s+/g, ' ').trim();
+    return value.replaceAll('|', String.raw`\|`).replaceAll(/\s+/g, ' ').trim();
 }
 
 function errorMessage(error: unknown): string {
