@@ -625,7 +625,7 @@ a {
   color: var(--accent-text);
 }
 
-.btn-primary:hover {
+.btn-primary:hover:not(:disabled) {
   background-color: var(--accent-green-hover);
   transform: translateY(-1px);
 }

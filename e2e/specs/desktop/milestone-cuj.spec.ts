@@ -109,7 +109,8 @@ describe('Milestone CUJ Test', () => {
         // Verify validation for 0 duration and 0 characters
         await submitInvalidMilestone('Invalid Milestone', '0', '0', '0');
 
-        await dismissAlert('Please enter either duration or characters.');
+        await dismissAlert('Please enter a duration, a character count, or both.');
+        expect(await $('#milestone-confirm').isEnabled()).toBe(false);
         await closeModal('#milestone-cancel');
     });
 

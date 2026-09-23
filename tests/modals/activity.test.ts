@@ -363,36 +363,120 @@ describe('modals/activity.ts', () => {
              expect(result).toBe(false);
         });
 
-        it('should show alert if both duration and characters are 0', async () => {
+        it('should open a new log with empty characters and a disabled submit button that explains why', async () => {
             vi.mocked(api.getAllMedia).mockResolvedValue([{ id: 1, title: 'Item 1', status: 'Active', tracking_status: 'Ongoing' }] as unknown as Media[]);
-            const { customAlert } = await import('../../src/modal_base');
-            
+
             void showLogActivityModal(1);
             await vi.waitFor(() => queryOrThrow('#add-activity-form'));
-            
-            // Duration and characters are 0 by default
-            
-            document.querySelector('#add-activity-form')!.dispatchEvent(new Event('submit'));
-            
-            await vi.waitFor(() => {
-                expect(customAlert).toHaveBeenCalledWith("Input Required", expect.any(String));
-            });
+
+            const charactersInput = document.querySelector('#activity-characters') as HTMLInputElement;
+            const submitButton = document.querySelector('#activity-submit') as HTMLButtonElement;
+            expect(charactersInput.value).toBe('');
+            expect(charactersInput.placeholder).toBe('e.g. 1500');
+            expect(submitButton.disabled).toBe(true);
+            expect(submitButton.title).toBe('Please enter a duration, a character count, or both.');
         });
 
-        it('should reject a negative character count before calling the backend', async () => {
-            vi.mocked(api.getAllMedia).mockResolvedValue([{ id: 10, title: 'Validation', status: 'Active', tracking_status: 'Ongoing' }] as unknown as Media[]);
+        it('should enable the submit button once a character count is entered', async () => {
+            vi.mocked(api.getAllMedia).mockResolvedValue([{ id: 1, title: 'Item 1', status: 'Active', tracking_status: 'Ongoing' }] as unknown as Media[]);
+
+            void showLogActivityModal(1);
+            await vi.waitFor(() => queryOrThrow('#add-activity-form'));
+
+            const charactersInput = document.querySelector('#activity-characters') as HTMLInputElement;
+            charactersInput.value = '500';
+            charactersInput.dispatchEvent(new Event('input'));
+
+            const submitButton = document.querySelector('#activity-submit') as HTMLButtonElement;
+            expect(submitButton.disabled).toBe(false);
+            expect(submitButton.hasAttribute('title')).toBe(false);
+        });
+
+        it('should log zero characters when the characters field is left empty', async () => {
+            vi.mocked(api.getAllMedia).mockResolvedValue([{ id: 10, title: 'Time Only', status: 'Active', tracking_status: 'Ongoing' }] as unknown as Media[]);
+
+            const promise = showLogActivityModal(10);
+            await vi.waitFor(() => queryOrThrow('#add-activity-form'));
+            const durationInput = document.querySelector('#activity-duration') as HTMLInputElement;
+            durationInput.value = '20';
+            durationInput.dispatchEvent(new Event('input'));
+            (document.querySelector('#activity-submit') as HTMLButtonElement).click();
+
+            await expect(promise).resolves.toBe(true);
+            expect(api.addLog).toHaveBeenCalledWith(expect.objectContaining({ duration_minutes: 20, characters: 0 }));
+        });
+
+        it('should list every missing input when Enter is pressed before the log is complete', async () => {
+            vi.mocked(api.getAllMedia).mockResolvedValue([]);
             const { customAlert } = await import('../../src/modal_base');
 
-            void showLogActivityModal(10);
+            void showLogActivityModal();
             await vi.waitFor(() => queryOrThrow('#add-activity-form'));
-            (document.querySelector('#activity-duration') as HTMLInputElement).value = '10';
-            (document.querySelector('#activity-characters') as HTMLInputElement).value = '-1';
-            document.querySelector('#add-activity-form')!.dispatchEvent(new Event('submit'));
-            await vi.waitFor(() => expect(customAlert).toHaveBeenCalledWith(
-                'Invalid Characters',
-                'Activity character count cannot be negative.',
-            ));
+
+            const enterPress = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+            document.querySelector('#activity-characters')!.dispatchEvent(enterPress);
+
+            expect(enterPress.defaultPrevented).toBe(true);
+            expect(customAlert).toHaveBeenCalledWith(
+                'Input Required',
+                'Please enter a media title, and also a duration, a character count, or both.',
+            );
             expect(api.addLog).not.toHaveBeenCalled();
+        });
+
+        it('should not show the missing-inputs alert for Enter in the notes field', async () => {
+            vi.mocked(api.getAllMedia).mockResolvedValue([]);
+            const { customAlert } = await import('../../src/modal_base');
+
+            void showLogActivityModal();
+            await vi.waitFor(() => queryOrThrow('#add-activity-form'));
+
+            document.querySelector('#activity-notes')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+
+            expect(customAlert).not.toHaveBeenCalled();
+        });
+
+        it('should pick a highlighted suggestion on Enter without the missing-inputs alert and re-check the submit button', async () => {
+            vi.mocked(api.getAllMedia).mockResolvedValue([{ id: 1, title: 'Blue Box', status: 'Active', tracking_status: 'Ongoing' }] as unknown as Media[]);
+            const { customAlert } = await import('../../src/modal_base');
+
+            void showLogActivityModal();
+            await vi.waitFor(() => queryOrThrow('#add-activity-form'));
+
+            const submitButton = document.querySelector('#activity-submit') as HTMLButtonElement;
+            expect(submitButton.title).toBe('Please enter a media title, and also a duration, a character count, or both.');
+
+            const titleInput = document.querySelector('#activity-media') as HTMLInputElement;
+            titleInput.focus();
+            expect(titleInput.value).toBe('');
+            titleInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+            titleInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+
+            expect(titleInput.value).toBe('Blue Box');
+            expect(customAlert).not.toHaveBeenCalled();
+            expect(submitButton.title).toBe('Please enter a duration, a character count, or both.');
+        });
+
+        it('should show an empty characters field when editing a log without characters', async () => {
+            vi.mocked(api.getAllMedia).mockResolvedValue([]);
+            const editLog: ActivitySummary = {
+                id: 5,
+                media_id: 6,
+                title: 'Time Only',
+                activity_type: 'Reading',
+                duration_minutes: 40,
+                characters: 0,
+                date: '2024-03-01',
+                date_precision: 'day',
+                language: 'Japanese',
+                notes: ''
+            };
+
+            void showLogActivityModal(undefined, editLog);
+            await vi.waitFor(() => queryOrThrow('#add-activity-form'));
+
+            expect((document.querySelector('#activity-characters') as HTMLInputElement).value).toBe('');
+            expect((document.querySelector('#activity-submit') as HTMLButtonElement).disabled).toBe(false);
         });
 
         it('should leave the submit button disabled and not submit for an unparseable duration', async () => {
@@ -412,20 +496,22 @@ describe('modals/activity.ts', () => {
             expect(api.addLog).not.toHaveBeenCalled();
         });
 
-        it('should show alert when the submitted title is empty', async () => {
+        it('should not save when submitted with an empty title', async () => {
             vi.mocked(api.getAllMedia).mockResolvedValue([]);
-            const { customAlert } = await import('../../src/modal_base');
 
             void showLogActivityModal();
             await vi.waitFor(() => queryOrThrow('#add-activity-form'));
 
-            (document.querySelector('#activity-duration') as HTMLInputElement).value = '15';
-            document.querySelector('#add-activity-form')!.dispatchEvent(new Event('submit'));
+            const durationInput = document.querySelector('#activity-duration') as HTMLInputElement;
+            durationInput.value = '15';
+            durationInput.dispatchEvent(new Event('input'));
+            expect((document.querySelector('#activity-submit') as HTMLButtonElement).disabled).toBe(true);
 
-            await vi.waitFor(() => {
-                expect(customAlert).toHaveBeenCalledWith("Required Field", "Please enter a Media Title.");
-            });
+            document.querySelector('#add-activity-form')!.dispatchEvent(new Event('submit'));
+            await Promise.resolve();
+
             expect(api.addLog).not.toHaveBeenCalled();
+            expect(api.addMedia).not.toHaveBeenCalled();
         });
 
         it('should have custom validation message for media title', async () => {

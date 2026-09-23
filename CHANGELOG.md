@@ -8,10 +8,12 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ### Changed
  - Selects now match multiselects through a forced Kechimochi theme. Mobile keeps its native picker.
+ - Characters fields in the log and milestone modals start empty instead of 0 and accept only digits.
 
 ### Fixed
  - Media details no longer show an empty stats box for media with no logged activity
  - Imdb importer works again
+ - Disabled primary buttons no longer lift or change color on hover
 
 ## [0.3.3] - 2026-09-22
 

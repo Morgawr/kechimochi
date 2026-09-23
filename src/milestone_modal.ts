@@ -4,6 +4,13 @@ import { createCancelableOverlay, customAlert } from './modal_base';
 import { escapeAttribute } from './html';
 import { DURATION_INPUT_PLACEHOLDER, DURATION_INPUT_TOOLTIP, wireDurationInput } from './time';
 import { SETTING_KEYS } from './constants';
+import { COUNT_INPUT_PLACEHOLDER, readCount, wireDigitsOnlyInput } from './counts';
+import {
+    MISSING_INPUTS_ALERT_TITLE,
+    describeMissingAmount,
+    formatMissingInputsMessage,
+    syncConfirmButton,
+} from './log_entry_validation';
 
 type MilestoneDefaults = {
     duration?: number;
@@ -54,7 +61,7 @@ export async function showAddMilestoneModal(mediaTitle: string, mediaUid: string
 
                     <div style="display: flex; flex-direction: column; gap: 0.3rem;">
                         <label style="font-size: 0.85rem; color: var(--text-secondary);">Characters</label>
-                        <input type="number" id="milestone-characters" class="milestone-input" value="${initialCharacters}" min="0" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm);" />
+                        <input type="text" id="milestone-characters" class="milestone-input" inputmode="numeric" autocomplete="off" placeholder="${escapeAttribute(COUNT_INPUT_PLACEHOLDER)}" value="${initialCharacters > 0 ? String(initialCharacters) : ''}" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm);" />
                     </div>
 
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">
@@ -81,8 +88,20 @@ export async function showAddMilestoneModal(mediaTitle: string, mediaUid: string
         const recordDateCheckbox = overlay.querySelector<HTMLInputElement>('#milestone-record-date')!;
         const calendarContainer = overlay.querySelector<HTMLElement>('#milestone-calendar-container')!;
         const charactersInput = overlay.querySelector<HTMLInputElement>('#milestone-characters')!;
-        const { getDurationMinutes } = wireDurationInput(durationInput, durationHint, confirmButton);
+        const listMissingInputs = (): string[] => {
+            const missingInputs: string[] = [];
+            if (!nameInput.value.trim()) missingInputs.push('a milestone name');
+            const missingAmount = describeMissingAmount(getDurationMinutes(), readCount(charactersInput));
+            if (missingAmount) missingInputs.push(missingAmount);
+            return missingInputs;
+        };
+        const syncMilestoneConfirmButton = () => syncConfirmButton(confirmButton, listMissingInputs());
+        const { getDurationMinutes } = wireDurationInput(durationInput, durationHint, syncMilestoneConfirmButton);
+        wireDigitsOnlyInput(charactersInput);
+        charactersInput.addEventListener('input', syncMilestoneConfirmButton);
+        nameInput.addEventListener('input', syncMilestoneConfirmButton);
         nameInput.value = existingMilestone?.name ?? '';
+        syncMilestoneConfirmButton();
         if (hasExistingDate) {
             buildCalendar(overlay.querySelector<HTMLElement>('#milestone-calendar')!, existingDate, (d) => {
                 selectedDate = d;
@@ -90,21 +109,16 @@ export async function showAddMilestoneModal(mediaTitle: string, mediaUid: string
         }
 
         const handleConfirm = () => {
+            const missingInputs = listMissingInputs();
+            if (missingInputs.length > 0) {
+                customAlert(MISSING_INPUTS_ALERT_TITLE, formatMissingInputsMessage(missingInputs));
+                return;
+            }
+
             const name = nameInput.value.trim();
-            if (!name) {
-                customAlert("Required Field", "Please enter a Milestone Name.");
-                return;
-            }
-
             const totalDuration = getDurationMinutes();
+            const characters = readCount(charactersInput);
             if (totalDuration === null) return;
-
-            const characters = Number.parseInt(charactersInput.value) || 0;
-
-            if (totalDuration === 0 && characters === 0) {
-                customAlert("Input Required", "Please enter either duration or characters.");
-                return;
-            }
 
             cleanup();
             resolve({

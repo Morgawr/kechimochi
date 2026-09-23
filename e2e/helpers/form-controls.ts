@@ -1,7 +1,7 @@
 /**
  * Cross-platform form-control helpers.
  *
- * Value entry (text / select / checkbox) is done IN-PAGE on every platform: the
+ * Value entry (text / select / checkbox) and Enter are done IN-PAGE on every platform: the
  * element is resolved by selector, its value/checked is set directly, and
  * input+change are dispatched. This path is uniform across desktop, web and
  * Android — the Android WebView's soft keyboard and native <select> control are
@@ -23,6 +23,7 @@ type ApplyRequest =
     | { kind: 'selectValue'; value: string }
     | { kind: 'selectText'; text: string }
     | { kind: 'checkbox'; checked: boolean }
+    | { kind: 'pressEnter' }
     | { kind: 'readSelectValue' };
 
 type ApplyResult = boolean | string | null;
@@ -64,6 +65,11 @@ function applyRequestInPage(sel: string, req: ApplyRequest): ApplyResult {
 
     if (!(element instanceof HTMLElement) || !isVisible(element)) return false;
 
+    if (req.kind === 'pressEnter') {
+        element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        return true;
+    }
+
     if (req.kind === 'text') {
         if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)) return false;
         element.value = req.value;
@@ -98,6 +104,14 @@ export async function setText(selector: string, value: string, timeout = 5000): 
         timeout,
         interval: 100,
         timeoutMsg: `Text field "${selector}" did not accept "${value}"`,
+    });
+}
+
+export async function pressEnter(selector: string, timeout = 5000): Promise<void> {
+    await browser.waitUntil(async () => applyAndVerify(selector, { kind: 'pressEnter' }), {
+        timeout,
+        interval: 100,
+        timeoutMsg: `Field "${selector}" was not available for Enter`,
     });
 }
 

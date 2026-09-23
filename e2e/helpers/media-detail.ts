@@ -12,7 +12,7 @@ import {
     selectActivityDate,
     setDialogMockPath,
 } from './common.js';
-import { getSelectValue, setText, setSelect } from './form-controls.js';
+import { getSelectValue, pressEnter, setText, setSelect } from './form-controls.js';
 import { type LibraryLayoutMode, waitForLibraryLayout, waitForLibraryDisplayed, isLayoutToggleAvailable } from './library.js';
 import type { ChainablePromiseElement } from 'webdriverio';
 
@@ -407,7 +407,7 @@ export async function getMilestonePrefillValues(): Promise<{ duration: string; c
 export async function submitInvalidMilestone(name: string, hours: string, minutes: string, characters: string = '0'): Promise<void> {
     const overlay = await openMilestoneModal();
     await populateMilestoneForm(overlay, { name, hours, minutes, characters });
-    await safeClick(() => overlay.$('#milestone-confirm'));
+    await pressEnter('#milestone-characters');
 }
 
 export async function deleteMilestoneByName(name: string): Promise<void> {

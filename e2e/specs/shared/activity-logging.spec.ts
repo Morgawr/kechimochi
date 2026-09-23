@@ -2,6 +2,7 @@ import { waitForAppReady } from '../../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../../helpers/navigation.js';
 import {
   logActivity,
+  submitIncompleteActivity,
   getStatValue,
   waitForStatValue,
   deleteMostRecentLog,
@@ -36,10 +37,11 @@ describe('CUJ: Log Daily Activity', () => {
     await logActivity('Final Fantasy 7', '0', '500', '2024-03-30');
   });
 
-  it('should show an alert when trying to log 0 duration and 0 characters', async () => {
-    await logActivity('Final Fantasy 7', '0', '0');
+  it('should keep the submit button disabled and explain on Enter when logging 0 duration and 0 characters', async () => {
+    await submitIncompleteActivity('Final Fantasy 7', '0', '0');
 
-    await dismissAlert('Please enter either duration or characters.');
+    await dismissAlert('Please enter a duration, a character count, or both.');
+    expect(await $('#activity-submit').isEnabled()).toBe(false);
     await closeModal('#activity-cancel');
   });
 

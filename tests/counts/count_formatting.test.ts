@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import * as countFormatting from '../../src/count_formatting';
+import * as countFormatting from '../../src/counts/count_formatting';
 
 describe('count_formatting.ts', () => {
     describe('formatCount', () => {
