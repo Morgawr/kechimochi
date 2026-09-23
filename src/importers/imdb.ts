@@ -155,8 +155,13 @@ export class ImdbImporter extends BaseImporter {
                 variables: { id: titleId }
             }),
             {
-                "Accept": "application/json",
+                "Accept": "application/graphql+json, application/json",
                 "Content-Type": "application/json",
+                "Origin": "https://www.imdb.com",
+                "Referer": "https://www.imdb.com/",
+                "x-imdb-client-name": "imdb-web-next",
+                "x-imdb-user-language": "en-US",
+                "x-imdb-user-country": "US",
             },
         );
         const response = JSON.parse(responseText) as ImdbGraphQlResponse;
