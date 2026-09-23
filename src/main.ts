@@ -17,6 +17,7 @@ import { showInitialSetupPrompt } from './profile/modal';
 import { showLogActivityModal } from './activity_modal';
 import { customAlert } from './modal_base';
 import { configureBackStack } from './back_stack';
+import { installSelectPopups } from './popups';
 import { syncAppShell } from './app_shell';
 import { initServices, getServices } from './services';
 import { MediaCoverLoader } from './media/cover_loader';
@@ -373,6 +374,7 @@ export class App {
             subscribe: (handler) => getServices().subscribeSystemBack(handler),
             onEmpty: () => getServices().closeWindow(),
         });
+        installSelectPopups();
     }
 
     private async initProfile(): Promise<boolean> {

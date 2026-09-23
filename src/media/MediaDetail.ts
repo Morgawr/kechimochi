@@ -21,7 +21,7 @@ import {fetchMetadataForUrl, isValidImporterUrl} from '../importers';
 import {getServices} from '../services';
 import {MediaCoverLoader} from './cover_loader';
 import {pushBackHandler} from '../back_stack';
-import {openPopupMenu, type PopupMenuHandle, type PopupMenuItem} from '../popup_menu';
+import {openPopupMenu, type PopupMenuHandle, type PopupMenuItem} from '../popups';
 import {FORK, GAUGE, TRASH_CAN} from '../icons';
 import {
     addLogForMedia,

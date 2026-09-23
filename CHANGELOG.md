@@ -6,6 +6,9 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+### Changed
+ - Selects now match multiselects through a forced Kechimochi theme. Mobile keeps its native picker.
+
 ### Fixed
  - Media details no longer show an empty stats box for media with no logged activity
 

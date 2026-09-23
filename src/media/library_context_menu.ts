@@ -1,5 +1,5 @@
 import { Media, getLogsForMedia } from '../api';
-import { openPopupMenu, type PopupMenuHandle, type PopupMenuItem } from '../popup_menu';
+import { openPopupMenu, type PopupMenuHandle, type PopupMenuItem } from '../popups';
 import { BOX, CHECKMARK, FLAG, PLUS, TRASH_CAN } from '../icons';
 import {
     addLogForMedia,

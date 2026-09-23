@@ -1,18 +1,8 @@
-import { escapeHTML } from './html';
-import { STORAGE_KEYS } from './constants';
+import { escapeHTML } from '../html';
+import { ANCHOR_GAP_PX, shouldCloseOnWindowBlur } from './anchoring';
 
 const ICON_VIEWBOX = '0 0 24 24';
 const ICON_SIZE_PX = 14;
-const ANCHOR_GAP_PX = 8;
-
-// E2E only: parallel test windows steal focus at random, so the harness opts out of blur dismissal to keep popup specs deterministic without giving up suite parallelism.
-function shouldCloseOnWindowBlur(): boolean {
-    try {
-        return sessionStorage.getItem(STORAGE_KEYS.KEEP_POPUP_MENUS_ON_BLUR) !== 'true';
-    } catch {
-        return true;
-    }
-}
 
 export interface PopupMenuItem {
     actionId: string;

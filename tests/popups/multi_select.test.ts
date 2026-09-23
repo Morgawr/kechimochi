@@ -1,7 +1,7 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {createMultiSelectField, openMultiSelect} from '../src/multi_select';
-import {STORAGE_KEYS} from '../src/constants';
-import {configureBackStack, resetBackStack} from '../src/back_stack';
+import {createMultiSelectField, openMultiSelect} from '../../src/popups/multi_select';
+import {STORAGE_KEYS} from '../../src/constants';
+import {configureBackStack, resetBackStack} from '../../src/back_stack';
 
 type Value = 'a' | 'b' | 'c';
 
@@ -355,6 +355,27 @@ describe('createMultiSelectField', () => {
         expect(document.querySelector('.multi-select-panel')).not.toBeNull();
 
         field.element.click();
+        expect(document.querySelector('.multi-select-panel')).toBeNull();
+    });
+
+    it('opens the panel on a primary mousedown and ignores the click that follows it', () => {
+        const field = makeField([]);
+        document.body.appendChild(field.element);
+
+        const mouseDown = new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 });
+        field.element.dispatchEvent(mouseDown);
+        field.element.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+
+        expect(mouseDown.defaultPrevented).toBe(true);
+        expect(document.querySelector('.multi-select-panel')).not.toBeNull();
+    });
+
+    it('ignores non-primary mouse buttons', () => {
+        const field = makeField([]);
+        document.body.appendChild(field.element);
+
+        field.element.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 2 }));
+
         expect(document.querySelector('.multi-select-panel')).toBeNull();
     });
 

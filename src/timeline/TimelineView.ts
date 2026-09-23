@@ -682,9 +682,9 @@ export class TimelineView extends Component<TimelineState> {
 
     private renderYearFilterField(yearOptions: string[]): string {
         return `
-            <label class="timeline-filter-field timeline-filter-field-sm">
-                <span class="timeline-filter-label">Year</span>
-                <select id="timeline-year-filter">
+            <div class="timeline-filter-field timeline-filter-field-sm">
+                <span class="timeline-filter-label" id="timeline-year-filter-label">Year</span>
+                <select id="timeline-year-filter" aria-labelledby="timeline-year-filter-label">
                     <option value="all" ${this.state.selectedYear === 'all' ? 'selected' : ''}>All years</option>
                     ${yearOptions
                         .map(
@@ -694,18 +694,18 @@ export class TimelineView extends Component<TimelineState> {
                         )
                         .join('')}
                 </select>
-            </label>
+            </div>
         `;
     }
 
     private renderKindFilterField(): string {
         return `
-            <label class="timeline-filter-field timeline-filter-field-sm">
-                <span class="timeline-filter-label">Kind</span>
-                <select id="timeline-kind-filter">
+            <div class="timeline-filter-field timeline-filter-field-sm">
+                <span class="timeline-filter-label" id="timeline-kind-filter-label">Kind</span>
+                <select id="timeline-kind-filter" aria-labelledby="timeline-kind-filter-label">
                     ${this.renderKindOptions()}
                 </select>
-            </label>
+            </div>
         `;
     }
 

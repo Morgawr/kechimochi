@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { openPopupMenu, type PopupMenuItem } from '../src/popup_menu';
+import { openPopupMenu, type PopupMenuItem } from '../../src/popups/menu';
 
 function makeItem(overrides: Partial<PopupMenuItem> = {}): PopupMenuItem {
     return {

@@ -1,20 +1,10 @@
-import { escapeHTML } from './html';
-import { STORAGE_KEYS } from './constants';
-import { pushBackHandler } from './back_stack';
-import { renderIcon } from './icons';
+import { escapeHTML } from '../html';
+import { pushBackHandler } from '../back_stack';
+import { renderIcon } from '../icons';
+import { shouldCloseOnWindowBlur, positionPanelBelowAnchor } from './anchoring';
 
-const ANCHOR_GAP_PX = 8;
 const SHEET_LAYOUT_MEDIA_QUERY = '(max-width: 768px)';
 const TRIGGER_ICON_SIZE_PX = 16;
-
-// E2E only: parallel test windows steal focus at random, so the harness opts out of blur dismissal to keep specs deterministic without giving up suite parallelism.
-function shouldCloseOnWindowBlur(): boolean {
-    try {
-        return sessionStorage.getItem(STORAGE_KEYS.KEEP_POPUP_MENUS_ON_BLUR) !== 'true';
-    } catch {
-        return true;
-    }
-}
 
 export interface MultiSelectItem<Value extends string> {
     readonly value: Value;
@@ -28,19 +18,6 @@ export interface MultiSelectOptions<Value extends string> {
     readonly selectedValues: ReadonlySet<Value>;
     readonly onToggle: (value: Value, isSelected: boolean) => void;
     readonly onClose?: () => void;
-}
-
-function positionPanel(panelElement: HTMLElement, anchor: HTMLElement): void {
-    const { width, height } = panelElement.getBoundingClientRect();
-    const anchorRect = anchor.getBoundingClientRect();
-
-    const preferredLeft = anchorRect.left;
-    const left = preferredLeft + width > globalThis.innerWidth ? globalThis.innerWidth - width : preferredLeft;
-    let top = anchorRect.bottom + ANCHOR_GAP_PX;
-    if (top + height > globalThis.innerHeight) top = anchorRect.top - ANCHOR_GAP_PX - height;
-
-    panelElement.style.left = `${Math.max(0, left)}px`;
-    panelElement.style.top = `${Math.max(0, top)}px`;
 }
 
 export interface MultiSelectCounts {
@@ -141,7 +118,7 @@ export function createMultiSelectField<Value extends string>(
         }
     }
 
-    trigger.addEventListener('click', () => {
+    function togglePanel(): void {
         if (closePanel) {
             closePanel();
             return;
@@ -158,6 +135,17 @@ export function createMultiSelectField<Value extends string>(
             onClose: () => { closePanel = null; },
         });
         closePanel = close;
+    }
+
+    trigger.addEventListener('mousedown', (event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        togglePanel();
+    });
+
+    // detail === 0 is a keyboard-activated click (Enter/Space); mouse clicks were handled on press.
+    trigger.addEventListener('click', (event) => {
+        if (event.detail === 0) togglePanel();
     });
 
     refresh();
@@ -272,7 +260,7 @@ export function openMultiSelect<Value extends string>(
     if (scrimElement) document.body.appendChild(scrimElement);
     if (!isSheet) panelElement.style.minWidth = `${anchorRectAtOpen.width}px`;
     document.body.appendChild(panelElement);
-    if (!isSheet) positionPanel(panelElement, anchor);
+    if (!isSheet) positionPanelBelowAnchor(panelElement, anchor);
     anchor.setAttribute('aria-expanded', 'true');
     checkboxes[0]?.focus();
 

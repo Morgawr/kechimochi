@@ -6,7 +6,7 @@ import { CONTENT_TYPES, EVENTS, FILTERS, TRACKING_STATUSES, MEDIA_STATUS } from 
 import { MediaGrid } from './MediaGrid';
 import { MediaList } from './MediaList';
 import { openLibraryBackgroundMenu, openLibraryContextMenu } from './library_context_menu';
-import type { PopupMenuHandle } from '../popup_menu';
+import type { PopupMenuHandle } from '../popups';
 import { LibraryPlacementBeforeRow, resolveLibraryItemPlacement } from './library_item_placement';
 import {
     LIBRARY_GRID_ZOOM,
