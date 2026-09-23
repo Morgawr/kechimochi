@@ -11,6 +11,7 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ### Fixed
  - Media details no longer show an empty stats box for media with no logged activity
+ - Imdb importer works again
 
 ## [0.3.3] - 2026-09-22
 

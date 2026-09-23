@@ -142,7 +142,15 @@ describe('ImdbImporter', () => {
         expect(mockedInvoke).toHaveBeenLastCalledWith('fetch_external_json', expect.objectContaining({
             url: 'https://caching.graphql.imdb.com/',
             method: 'POST',
-            headers: expect.objectContaining({ Accept: 'application/json' })
+            headers: {
+                Accept: 'application/graphql+json, application/json',
+                'Content-Type': 'application/json',
+                Origin: 'https://www.imdb.com',
+                Referer: 'https://www.imdb.com/',
+                'x-imdb-client-name': 'imdb-web-next',
+                'x-imdb-user-language': 'en-US',
+                'x-imdb-user-country': 'US'
+            }
         }));
     });
 
