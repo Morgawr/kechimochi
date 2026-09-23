@@ -1,0 +1,35 @@
+name: "Daily Importer Infrastructure Health"
+
+on:
+  schedule:
+    # 06:17 JST. The off-hour minute avoids GitHub's busiest cron boundary.
+    - cron: '17 21 * * *'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+concurrency:
+  group: importer-infrastructure-health
+  cancel-in-progress: false
+
+jobs:
+  importer-health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: check live importer infrastructure health
+        run: npm run health:importers:check
