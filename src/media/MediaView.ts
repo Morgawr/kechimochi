@@ -324,10 +324,7 @@ export class MediaView extends Component<MediaViewState> {
         await this.loadDetailLogs(detailMediaList[currentIndex], requestId);
     }
 
-    private async exitDetail(shouldRefresh: boolean = false) {
-        if (shouldRefresh) {
-            await this.loadData();
-        }
+    private async exitDetail() {
         this.navigationSource = undefined;
         this.setState({
             viewMode: 'grid',
@@ -335,6 +332,7 @@ export class MediaView extends Component<MediaViewState> {
             currentLogs: [],
             currentIndex: 0,
         });
+        await this.handleActionCommitted();
     }
 
 private async handleBack() {
@@ -345,13 +343,13 @@ private async handleBack() {
                 detail: { view: VIEW_NAMES.DASHBOARD }
             }));
         } else {
-            await this.exitDetail(false);
+            await this.exitDetail();
         }
     }
 
     private async handleBackToLibrary() {
         this.navigationSource = undefined;
-        await this.exitDetail(false);
+        await this.exitDetail();
     }
     
     public prepareLibraryView(): boolean {
@@ -892,7 +890,7 @@ private async handleBack() {
                 onNavigate: (index) => { this.runAsync(this.navigateToDetailIndex(index), 'Failed to navigate to selected media'); },
                 onNavigateToMedia: (mediaId) => { this.runAsync(this.navigateToMedia(mediaId), 'Failed to navigate to related media variant'); },
                 onVariantCreated: (mediaId) => { this.runAsync(this.loadData(mediaId), 'Failed to open created media variant'); },
-                onDelete: () => { this.runAsync(this.exitDetail(true), 'Failed to refresh library after delete'); },
+                onDelete: () => { this.runAsync(this.exitDetail(), 'Failed to refresh library after delete'); },
             },
             this.state.libraryMediaList,
         );
