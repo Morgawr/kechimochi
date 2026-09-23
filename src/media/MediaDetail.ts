@@ -932,13 +932,15 @@ export class MediaDetail extends Component<MediaDetailState> {
         const statsDiv = root.querySelector('#media-first-last-stats') as HTMLElement;
         const { logs, media, readingSpeedSettings } = this.state;
         if (!statsDiv) return;
+        statsDiv.hidden = logs.length === 0;
+        const statsGrid = root.querySelector<HTMLElement>('#media-stats-grid');
+        if (statsGrid) {
+            statsGrid.hidden = Array.from(statsGrid.children).every(child => (child as HTMLElement).hidden);
+        }
         if (logs.length === 0) {
             statsDiv.replaceChildren();
             return;
         }
-
-        statsDiv.style.display = 'flex';
-        statsDiv.style.alignItems = 'center';
 
         const lastLogDate = formatLogDate(this.getMostRecentLog(logs));
         const firstLogDate = formatLogDate(this.getEarliestLog(logs));
