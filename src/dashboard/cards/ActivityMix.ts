@@ -7,7 +7,7 @@ import { logPerformance, measureSynchronous, performanceNow } from '../../perfor
 import { loadChartConstructor, type ChartConstructor } from '../../chart_loader';
 import type { DashboardCardDescriptor } from '../dashboard_layout';
 import { renderDashboardCardShell, renderNoPeriodDataMessage } from '../card_shell';
-import { CHART_RESIZE_DEBOUNCE_MS, getActiveGroups, getChartColors, getGroupForLog } from '../chart_runtime';
+import { CHART_RESIZE_DEBOUNCE_MS, createTooltipVisibilityPlugin, getActiveGroups, getChartColors, getGroupForLog } from '../chart_runtime';
 import { ChartCard, type ChartCardState } from '../chart_card';
 
 export const ACTIVITY_MIX_CARD = {
@@ -192,6 +192,7 @@ export class ActivityMix extends ChartCard<ActivityMixState> {
                     borderWidth: 1
                 }]
             },
+            plugins: [createTooltipVisibilityPlugin(true)],
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
