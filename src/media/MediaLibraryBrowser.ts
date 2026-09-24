@@ -2,11 +2,11 @@ import { Component } from '../component';
 import { html, escapeHTML, escapeAttribute, rawHtml } from '../html';
 import { Media, addMedia } from '../api';
 import { showAddMediaModal } from './modal';
-import { CONTENT_TYPES, EVENTS, FILTERS, TRACKING_STATUSES, MEDIA_STATUS } from '../constants';
+import { CONTENT_TYPES, EVENTS, TRACKING_STATUSES, MEDIA_STATUS } from '../constants';
 import { MediaGrid } from './MediaGrid';
 import { MediaList } from './MediaList';
 import { openLibraryBackgroundMenu, openLibraryContextMenu } from './library_context_menu';
-import type { PopupMenuHandle } from '../popups';
+import { createMultiSelectField, type MultiSelectField, type MultiSelectFieldOptions, type PopupMenuHandle } from '../popups';
 import { LibraryPlacementBeforeRow, resolveLibraryItemPlacement } from './library_item_placement';
 import {
     LIBRARY_GRID_ZOOM,
@@ -19,18 +19,26 @@ import { measureSynchronous } from '../performance';
 import { Logger } from '../logger';
 import { resolveDisplayContentType } from './content_type';
 import {
+    appendRuleGroup,
+    appendRuleToGroup,
     filterMediaByExtraData,
     getDefaultLibraryExtraFilterOperator,
     getLibraryExtraDataFacets,
     getLibraryExtraFieldValueKind,
+    groupLibraryFilterRules,
     isLibraryFilterRuleReady,
     LIBRARY_NUMERIC_FILTER_OPERATORS,
     LIBRARY_TEXT_FILTER_OPERATORS,
+    removeLibraryFilterRule,
+    removeLibraryFilterRuleGroup,
+    stripNonNumericFilterValueCharacters,
     revalidateLibraryFilterRules,
+    toggleLibraryFilterRuleJoin,
     type LibraryExtraDataFacets,
     type LibraryExtraFilterOperator,
     type LibraryExtraFilterRule,
     type LibraryFilterRule,
+    type LibraryFilterRuleGroup,
 } from './filtering';
 import {
     applyLibrarySort,
@@ -50,8 +58,8 @@ import {
 interface MediaLibraryBrowserState {
     mediaList: Media[];
     searchQuery: string;
-    typeFilters: string[];
-    statusFilters: string[];
+    hiddenTypes: ReadonlySet<string>;
+    hiddenStatuses: ReadonlySet<string>;
     hideArchived: boolean;
     filterRules: LibraryFilterRule[];
     preferredLayout: LibraryLayoutMode;
@@ -84,8 +92,8 @@ type MediaLibraryBrowserInitialState = Omit<
 
 export interface MediaLibraryFilters {
     searchQuery?: string;
-    typeFilters?: string[];
-    statusFilters?: string[];
+    hiddenTypes?: ReadonlySet<string>;
+    hiddenStatuses?: ReadonlySet<string>;
     hideArchived?: boolean;
     filterRules?: LibraryFilterRule[];
     sortStages?: LibrarySortStage[];
@@ -113,8 +121,8 @@ const LIBRARY_BUILTIN_SORT_LABELS: Record<LibraryBuiltinSortKey, string> = {
     totalCharacters: 'Total Characters',
 };
 
-const LIBRARY_SORT_TIEBREAKER_NOTE = 'Ties broken by last activity (newest first)';
-const LIBRARY_FILTER_EXPRESSION_NOTE = 'AND is evaluated before OR. NOT inverts the rule it precedes.';
+const LIBRARY_GRID_UNAVAILABLE_HINT = 'Grid re-enables when the window is wider.';
+const LIBRARY_SORT_TIEBREAKER_NOTE ='Ties broken by last activity (newest first)';
 
 const LIBRARY_EXTRA_FILTER_OPERATOR_LABELS: Record<LibraryExtraFilterOperator, string> = {
     contains: 'Contains',
@@ -133,14 +141,41 @@ interface SortSwitchConfig {
     id: string;
     label: string;
     stateKey: 'groupByType' | 'keepOngoingFirst' | 'keepArchivedLast';
-    disabledWhenArchivedHidden: boolean;
+    hiddenWhenArchivedHidden: boolean;
 }
 
 const SORT_SWITCH_CONFIGS: readonly SortSwitchConfig[] = [
-    { id: 'sort-group-by-type', label: 'Group by type', stateKey: 'groupByType', disabledWhenArchivedHidden: false },
-    { id: 'sort-keep-ongoing-first', label: 'Keep ongoing first', stateKey: 'keepOngoingFirst', disabledWhenArchivedHidden: false },
-    { id: 'sort-keep-archived-last', label: 'Keep archived last', stateKey: 'keepArchivedLast', disabledWhenArchivedHidden: true },
+    { id: 'sort-group-by-type', label: 'Group by type', stateKey: 'groupByType', hiddenWhenArchivedHidden: false },
+    { id: 'sort-keep-ongoing-first', label: 'Keep ongoing first', stateKey: 'keepOngoingFirst', hiddenWhenArchivedHidden: false },
+    { id: 'sort-keep-archived-last', label: 'Keep archived last', stateKey: 'keepArchivedLast', hiddenWhenArchivedHidden: true },
 ];
+
+const KEEP_ARCHIVED_LAST_SWITCH_ID = SORT_SWITCH_CONFIGS.find(config => config.hiddenWhenArchivedHidden)!.id;
+
+interface SwitchRowConfig {
+    id: string;
+    label: string;
+    isChecked: boolean;
+    isHidden: boolean;
+}
+
+function renderSwitchGroup(switches: readonly SwitchRowConfig[], ariaLabel: string): string {
+    const switchesMarkup = switches.map(({ id, label, isChecked, isHidden }) => `
+        <label class="media-sort-switch" id="${id}-switch" ${isHidden ? 'hidden' : ''}>
+            <span>${label}</span>
+            <span class="switch">
+                <input type="checkbox" id="${id}" ${isChecked ? 'checked' : ''} ${isHidden ? 'disabled' : ''}>
+                <span class="slider round"></span>
+            </span>
+        </label>
+    `).join('');
+
+    return `
+        <div class="media-sort-switch-group" role="group" aria-label="${ariaLabel}">
+            ${switchesMarkup}
+        </div>
+    `;
+}
 
 function renderPaneToggleButton({ id, label, panelId, isExpanded, count, countLabel }: {
     id: string;
@@ -165,22 +200,83 @@ function renderPaneToggleButton({ id, label, panelId, isExpanded, count, countLa
     `;
 }
 
-function renderCollapsiblePanel({ id, isExpanded, body }: {
-    id: string;
-    isExpanded: boolean;
-    body: string;
-}): string {
-    const panelStyle = isExpanded
+function renderPanelStyleAttribute(isExpanded: boolean): string {
+    return isExpanded
         ? 'style="height: auto; opacity: 1; transform: translateY(0); pointer-events: auto;"'
         : 'style="height: 0; opacity: 0; transform: translateY(-8px); pointer-events: none;"';
+}
 
-    return `
-        <div id="${id}" class="media-grid-filter-panel ${isExpanded ? 'is-expanded' : 'is-collapsed'}" aria-hidden="${isExpanded ? 'false' : 'true'}" ${panelStyle}>
-            <div class="media-grid-filter-panel-body">
-                ${body}
-            </div>
-        </div>
-    `;
+const VISIBILITY_SUMMARY_LABELS: Pick<MultiSelectFieldOptions<string>, 'noneLabel' | 'allLabel' | 'partialLabel'> = {
+    noneLabel: 'None shown',
+    allLabel: ({ totalCount }) => ({ value: `All ${totalCount} shown` }),
+    partialLabel: ({ selectedCount, totalCount }) => ({ value: `${selectedCount} of ${totalCount} shown` }),
+};
+
+type FilterSubjectKind = 'field' | 'tag';
+
+const FILTER_SUBJECT_OPTION_SEPARATOR = ':';
+
+function toFilterSubjectOptionValue(kind: FilterSubjectKind, name: string): string {
+    return `${kind}${FILTER_SUBJECT_OPTION_SEPARATOR}${name}`;
+}
+
+function fromFilterSubjectOptionValue(optionValue: string): { kind: FilterSubjectKind; name: string } | null {
+    const separatorIndex = optionValue.indexOf(FILTER_SUBJECT_OPTION_SEPARATOR);
+    if (separatorIndex === -1) return null;
+
+    const kind = optionValue.slice(0, separatorIndex);
+    if (kind !== 'field' && kind !== 'tag') return null;
+    return { kind, name: optionValue.slice(separatorIndex + FILTER_SUBJECT_OPTION_SEPARATOR.length) };
+}
+
+function computeTypeOptionsKey(uniqueTypes: readonly string[]): string {
+    return uniqueTypes.join('\u0000');
+}
+
+interface HostFocusState {
+    selector: string;
+    selectionStart: number | null;
+    selectionEnd: number | null;
+}
+
+function captureHostFocusState(host: HTMLElement): HostFocusState | null {
+    const activeElement = document.activeElement;
+    if (!(activeElement instanceof HTMLElement) || !host.contains(activeElement)) return null;
+
+    const structuralClass = activeElement.classList[0];
+    const index = activeElement.dataset.levelIndex ?? activeElement.dataset.ruleIndex;
+    if (!structuralClass || index === undefined) return null;
+    const indexAttribute = activeElement.dataset.levelIndex !== undefined ? 'data-level-index' : 'data-rule-index';
+    const direction = activeElement.dataset.direction;
+    const directionSelector = direction === undefined ? '' : `[data-direction="${direction}"]`;
+    const negated = activeElement.dataset.negated;
+    const negatedSelector = negated === undefined ? '' : `[data-negated="${negated}"]`;
+
+    const selectionStart = 'selectionStart' in activeElement ? (activeElement as HTMLInputElement).selectionStart : null;
+    const selectionEnd = 'selectionEnd' in activeElement ? (activeElement as HTMLInputElement).selectionEnd : null;
+
+    return {
+        selector: `.${structuralClass}[${indexAttribute}="${index}"]${directionSelector}${negatedSelector}`,
+        selectionStart,
+        selectionEnd,
+    };
+}
+
+function restoreHostFocusState(host: HTMLElement, state: HostFocusState | null): void {
+    if (!state) return;
+
+    const element = host.querySelector<HTMLElement>(state.selector);
+    if (!element) return;
+
+    element.focus({ preventScroll: true });
+    if (state.selectionStart === null || state.selectionEnd === null) return;
+    if (!('setSelectionRange' in element)) return;
+
+    try {
+        (element as HTMLInputElement).setSelectionRange(state.selectionStart, state.selectionEnd);
+    } catch {
+        // Some input types (e.g. number, email) do not support text selection.
+    }
 }
 
 export interface LibraryMediaSelection {
@@ -207,6 +303,10 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
     private renderedRows: LibraryRow[] | null = null;
     private contextMenuHandle: PopupMenuHandle | null = null;
     private shellRendered = false;
+    private headerElement: HTMLElement | null = null;
+    private statusMultiSelectField: MultiSelectField | null = null;
+    private typeMultiSelectField: MultiSelectField | null = null;
+    private renderedTypeOptionsKey: string | null = null;
     private memoizedExtraDataMediaList: Media[] | null = null;
     private memoizedExtraDataIndex: Map<number, Record<string, string>> = new Map();
     private memoizedExtraFieldNames: string[] = [];
@@ -235,8 +335,8 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         );
         super(container, {
             ...initialState,
-            typeFilters: [...new Set(initialState.typeFilters)],
-            statusFilters: [...new Set(initialState.statusFilters)],
+            hiddenTypes: new Set(initialState.hiddenTypes),
+            hiddenStatuses: new Set(initialState.hiddenStatuses),
             filterRules: revalidatedFilterRules,
             gridZoom: normalizeLibraryGridZoom(initialState.gridZoom),
             filtersExpanded: false,
@@ -262,6 +362,8 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
             this.searchRenderTimer = null;
         }
         this.closeContextMenu();
+        this.statusMultiSelectField?.close();
+        this.typeMultiSelectField?.close();
         this.activeLayoutComponent?.destroy?.();
         super.destroy();
     }
@@ -293,7 +395,9 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         const contentContainer = this.container.querySelector<HTMLElement>('#media-library-content');
         if (!headerContainer || !contentContainer) return;
 
-        this.renderHeader(headerContainer);
+        if (!this.headerElement) {
+            this.renderHeaderShell(headerContainer);
+        }
         this.renderContent(contentContainer);
     }
 
@@ -311,8 +415,8 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         const {
             mediaList,
             searchQuery,
-            typeFilters,
-            statusFilters,
+            hiddenTypes,
+            hiddenStatuses,
             hideArchived,
             filterRules,
         } = this.state;
@@ -321,8 +425,8 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
             const matchesQuery = media.title.toLowerCase().includes(normalizedQuery)
                 || (media.variant || '').toLowerCase().includes(normalizedQuery);
             const mediaType = resolveDisplayContentType(media);
-            const typeMatch = typeFilters.length === 0 || typeFilters.includes(mediaType);
-            const statusMatch = statusFilters.length === 0 || statusFilters.includes(media.tracking_status);
+            const typeMatch = !hiddenTypes.has(mediaType);
+            const statusMatch = !hiddenStatuses.has(media.tracking_status);
             const isArchived = media.status === MEDIA_STATUS.ARCHIVED;
             const archiveMatch = !hideArchived || !isArchived;
             return matchesQuery && typeMatch && statusMatch && archiveMatch;
@@ -370,53 +474,87 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
     }
 
     private getActiveFilterCount(): number {
-        const extraDataIndex = this.getExtraDataIndex();
         const readyRuleCount = this.state.filterRules.filter(rule => (
-            isLibraryFilterRuleReady(
-                rule,
-                extraDataIndex,
-                this.memoizedExtraDataFacets,
-            )
+            isLibraryFilterRuleReady(rule, this.getExtraDataIndex(), this.getExtraDataFacets())
         )).length;
-        return this.state.statusFilters.length
-            + this.state.typeFilters.length
-            + readyRuleCount;
+        const narrowedGroupCount = (this.state.hiddenStatuses.size > 0 ? 1 : 0)
+            + (this.state.hiddenTypes.size > 0 ? 1 : 0);
+        return narrowedGroupCount + readyRuleCount;
     }
 
     private getSortLevelCount(): number {
         return this.state.sortStages.length;
     }
 
-    private renderFilterChipGroup(
-        label: string,
-        group: 'status' | 'type',
-        values: readonly string[],
-        selectedValues: string[],
-    ): string {
-        const chips = [
-            `<button type="button" class="media-filter-chip ${selectedValues.length === 0 ? 'is-active' : ''}" data-filter-group="${group}" data-filter-value="${FILTERS.ALL}" aria-pressed="${selectedValues.length === 0}">${FILTERS.ALL}</button>`,
-            ...values.map((value) => {
-                const isActive = selectedValues.includes(value);
-                const escapedValue = escapeHTML(value);
-                return `<button type="button" class="media-filter-chip ${isActive ? 'is-active' : ''}" data-filter-group="${group}" data-filter-value="${escapeAttribute(value)}" aria-pressed="${isActive}">${escapedValue}</button>`;
-            }),
-        ].join('');
-
-        return `
-            <div class="media-grid-filter-row">
-                <div class="media-grid-filter-label">${label}</div>
-                <div class="media-grid-chip-list" role="group" aria-label="${label} filters">
-                    ${chips}
-                </div>
-            </div>
-        `;
+    private createStatusMultiSelectField(): MultiSelectField {
+        return createMultiSelectField({
+            id: 'media-status-multiselect-trigger',
+            label: 'Status',
+            items: TRACKING_STATUSES.map((status) => ({ value: status, label: status })),
+            getSelectedValues: () => new Set(
+                TRACKING_STATUSES.filter((status) => !this.state.hiddenStatuses.has(status)),
+            ),
+            onToggle: (value, isSelected) => this.toggleHiddenStatus(value, isSelected),
+            ...VISIBILITY_SUMMARY_LABELS,
+        });
     }
 
-    private renderExtraFilterFieldOptions(rule: LibraryExtraFilterRule, valuedFieldNames: string[]): string {
-        return valuedFieldNames.map((fieldName) => {
-            const isSelected = fieldName.toLowerCase() === rule.fieldName.toLowerCase();
-            return `<option value="${escapeAttribute(fieldName)}" ${isSelected ? 'selected' : ''}>${escapeHTML(fieldName)}</option>`;
-        }).join('');
+    private createTypeMultiSelectField(uniqueTypes: string[]): MultiSelectField {
+        return createMultiSelectField({
+            id: 'media-type-multiselect-trigger',
+            label: 'Type',
+            items: uniqueTypes.map((type) => ({ value: type, label: type })),
+            getSelectedValues: () => new Set(
+                uniqueTypes.filter((type) => !this.state.hiddenTypes.has(type)),
+            ),
+            onToggle: (value, isSelected) => this.toggleHiddenType(value, isSelected),
+            ...VISIBILITY_SUMMARY_LABELS,
+        });
+    }
+
+    private toggleHiddenStatus(status: string, isSelected: boolean): void {
+        const nextHiddenStatuses = new Set(this.state.hiddenStatuses);
+        if (isSelected) nextHiddenStatuses.delete(status); else nextHiddenStatuses.add(status);
+        this.state.hiddenStatuses = nextHiddenStatuses;
+        this.commitVisibilityFilterChange();
+    }
+
+    private toggleHiddenType(type: string, isSelected: boolean): void {
+        const nextHiddenTypes = new Set(this.state.hiddenTypes);
+        if (isSelected) nextHiddenTypes.delete(type); else nextHiddenTypes.add(type);
+        this.state.hiddenTypes = nextHiddenTypes;
+        this.commitVisibilityFilterChange();
+    }
+
+    private commitVisibilityFilterChange(): void {
+        const header = this.container.querySelector<HTMLElement>('#media-library-header');
+        if (header) this.updateFilterCountBadge(header);
+        this.renderContent(this.container.querySelector<HTMLElement>('#media-library-content')!);
+        this.notifyFilterChange();
+    }
+
+    private renderFieldOrTagOptions(
+        rule: LibraryFilterRule,
+        valuedFieldNames: string[],
+        booleanTagNames: string[],
+    ): string {
+        const selectedValue = rule.kind === 'booleanTag'
+            ? toFilterSubjectOptionValue('tag', rule.tagName)
+            : toFilterSubjectOptionValue('field', rule.fieldName);
+
+        const renderOption = (kind: FilterSubjectKind, name: string, label: string): string => {
+            const optionValue = toFilterSubjectOptionValue(kind, name);
+            const isSelected = optionValue.toLowerCase() === selectedValue.toLowerCase();
+            return `<option value="${escapeAttribute(optionValue)}" ${isSelected ? 'selected' : ''}>${escapeHTML(label)}</option>`;
+        };
+
+        const fieldOptions = valuedFieldNames.map((fieldName) => renderOption('field', fieldName, fieldName)).join('');
+        const tagOptions = booleanTagNames.map((tagName) => renderOption('tag', tagName, `#${tagName}`)).join('');
+
+        return `
+            ${fieldOptions ? `<optgroup label="Fields">${fieldOptions}</optgroup>` : ''}
+            ${tagOptions ? `<optgroup label="Tags">${tagOptions}</optgroup>` : ''}
+        `;
     }
 
     private renderExtraFilterOperatorOptions(rule: LibraryExtraFilterRule): string {
@@ -430,148 +568,129 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         )).join('');
     }
 
-    private renderFilterLogicOptions(rule: LibraryFilterRule, ruleIndex: number): string {
-        let selectedValue: string;
-        if (ruleIndex === 0) {
-            selectedValue = rule.negated ? 'not' : 'match';
-        } else {
-            selectedValue = rule.join;
-            if (rule.negated) selectedValue += 'Not';
-        }
-        const options = ruleIndex === 0
-            ? [
-                { value: 'match', label: 'Match' },
-                { value: 'not', label: 'NOT' },
-            ]
-            : [
-                { value: 'and', label: 'AND' },
-                { value: 'or', label: 'OR' },
-                { value: 'andNot', label: 'AND NOT' },
-                { value: 'orNot', label: 'OR NOT' },
-            ];
-
-        return options.map(({ value, label }) => (
-            `<option value="${value}" ${value === selectedValue ? 'selected' : ''}>${label}</option>`
-        )).join('');
+    private renderFilterNegationToggle(rule: LibraryFilterRule, ruleIndex: number): string {
+        return `
+            <div class="media-filter-negation-toggle" role="group" aria-label="Rule ${ruleIndex + 1} match mode">
+                <button type="button" class="media-filter-negation-option ${!rule.negated ? 'is-active' : ''}" data-rule-index="${ruleIndex}" data-negated="false" aria-pressed="${!rule.negated}" aria-label="Switch rule ${ruleIndex + 1} to Match">Match</button>
+                <button type="button" class="media-filter-negation-option ${rule.negated ? 'is-active' : ''}" data-rule-index="${ruleIndex}" data-negated="true" aria-pressed="${rule.negated}" aria-label="Switch rule ${ruleIndex + 1} to Not">Not</button>
+            </div>
+        `;
     }
 
-    private renderExtraFilterRule(
-        rule: LibraryExtraFilterRule,
-        ruleIndex: number,
-        valuedFieldNames: string[],
-    ): string {
+    private renderFilterOrDivider(ruleIndex: number): string {
+        return `<button type="button" class="media-filter-join-toggle media-filter-or-divider" data-rule-index="${ruleIndex}" aria-label="Switch to AND">or</button>`;
+    }
+
+    private renderFilterConnectorCell(ruleIndex: number, isFirstInGroup: boolean): string {
+        return isFirstInGroup
+            ? '<div class="media-filter-connector media-filter-connector-label">Where</div>'
+            : `<button type="button" class="media-filter-join-toggle media-filter-connector media-filter-and-pill" data-rule-index="${ruleIndex}" aria-label="Switch to OR">and</button>`;
+    }
+
+    private renderExtraFilterConditionMarkup(rule: LibraryExtraFilterRule, ruleIndex: number): string {
         const valueKind = getLibraryExtraFieldValueKind(this.getExtraDataIndex(), rule.fieldName);
-        const inputMode = valueKind === 'numeric' ? 'inputmode="decimal"' : '';
+        const isNumeric = valueKind === 'numeric';
+        return `
+            <select class="media-extra-filter-operator" data-rule-index="${ruleIndex}" aria-label="Field rule ${ruleIndex + 1} operator">
+                ${this.renderExtraFilterOperatorOptions(rule)}
+            </select>
+            <input
+                type="text"
+                class="media-extra-filter-value"
+                data-rule-index="${ruleIndex}"
+                aria-label="Field rule ${ruleIndex + 1} value"
+                aria-invalid="${!isLibraryFilterRuleReady(rule, this.getExtraDataIndex(), this.getExtraDataFacets())}"
+                placeholder="${isNumeric ? 'Enter a number to apply' : 'Enter text to apply'}"
+                value="${escapeAttribute(rule.value)}"
+                ${isNumeric ? 'inputmode="decimal"' : ''}
+                autocomplete="off"
+            />
+        `;
+    }
+
+    private renderFilterRuleRow(
+        rule: LibraryFilterRule,
+        ruleIndex: number,
+        isFirstInGroup: boolean,
+        valuedFieldNames: string[],
+        booleanTagNames: string[],
+    ): string {
+        const conditionMarkup = rule.kind === 'booleanTag' ? '' : this.renderExtraFilterConditionMarkup(rule, ruleIndex);
 
         return `
-            <div class="media-extra-filter-rule" data-rule-kind="extra" data-rule-index="${ruleIndex}">
-                <select class="media-filter-logic" data-rule-index="${ruleIndex}" aria-label="Rule ${ruleIndex + 1} logic">
-                    ${this.renderFilterLogicOptions(rule, ruleIndex)}
+            <div class="media-extra-filter-rule" data-rule-kind="${rule.kind}" data-rule-index="${ruleIndex}">
+                ${this.renderFilterConnectorCell(ruleIndex, isFirstInGroup)}
+                ${this.renderFilterNegationToggle(rule, ruleIndex)}
+                <select class="media-extra-filter-field" data-rule-index="${ruleIndex}" aria-label="Rule ${ruleIndex + 1} field">
+                    ${this.renderFieldOrTagOptions(rule, valuedFieldNames, booleanTagNames)}
                 </select>
-                <select class="media-extra-filter-field" data-rule-index="${ruleIndex}" aria-label="Field rule ${ruleIndex + 1} field">
-                    ${this.renderExtraFilterFieldOptions(rule, valuedFieldNames)}
-                </select>
-                <select class="media-extra-filter-operator" data-rule-index="${ruleIndex}" aria-label="Field rule ${ruleIndex + 1} operator">
-                    ${this.renderExtraFilterOperatorOptions(rule)}
-                </select>
-                <input
-                    type="text"
-                    class="media-extra-filter-value"
-                    data-rule-index="${ruleIndex}"
-                    aria-label="Field rule ${ruleIndex + 1} value"
-                    placeholder="Value"
-                    value="${escapeAttribute(rule.value)}"
-                    ${inputMode}
-                    autocomplete="off"
-                />
-                <button type="button" class="media-filter-rule-remove" data-rule-index="${ruleIndex}" aria-label="Remove field rule ${ruleIndex + 1}">×</button>
+                ${conditionMarkup}
+                <button type="button" class="media-filter-rule-remove" data-rule-index="${ruleIndex}" aria-label="Remove rule ${ruleIndex + 1}">×</button>
             </div>
         `;
     }
 
-    private renderBooleanTagFilterRule(rule: LibraryFilterRule, ruleIndex: number): string {
-        if (rule.kind !== 'booleanTag') return '';
-
-        return `
-            <div class="media-extra-filter-rule" data-rule-kind="booleanTag" data-rule-index="${ruleIndex}">
-                <select class="media-filter-logic" data-rule-index="${ruleIndex}" aria-label="Rule ${ruleIndex + 1} logic">
-                    ${this.renderFilterLogicOptions(rule, ruleIndex)}
-                </select>
-                <div class="media-boolean-tag-condition" aria-label="Boolean tag ${escapeAttribute(rule.tagName)}">
-                    <span>Tag</span>
-                    <strong>${escapeHTML(rule.tagName)}</strong>
-                </div>
-                <button type="button" class="media-filter-rule-remove" data-rule-index="${ruleIndex}" aria-label="Remove boolean tag rule ${ruleIndex + 1}">×</button>
-            </div>
-        `;
-    }
-
-    private renderFilterRules(valuedFieldNames: string[], booleanTagNames: string[]): string {
-        if (valuedFieldNames.length === 0 && booleanTagNames.length === 0) return '';
-
-        const rulesMarkup = this.state.filterRules.map((rule, ruleIndex) => (
-            rule.kind === 'extra'
-                ? this.renderExtraFilterRule(rule, ruleIndex, valuedFieldNames)
-                : this.renderBooleanTagFilterRule(rule, ruleIndex)
+    private renderFilterRuleGroupMarkup(
+        group: LibraryFilterRuleGroup,
+        groupIndex: number,
+        valuedFieldNames: string[],
+        booleanTagNames: string[],
+    ): string {
+        const rowsMarkup = group.map((entry, entryIndex) => (
+            this.renderFilterRuleRow(entry.rule, entry.ruleIndex, entryIndex === 0, valuedFieldNames, booleanTagNames)
         )).join('');
-        const selectedBooleanTags = new Set(
-            this.state.filterRules
-                .filter(rule => rule.kind === 'booleanTag')
-                .map(rule => rule.tagName.toLowerCase()),
-        );
-        const availableBooleanTagNames = booleanTagNames
-            .filter(tagName => !selectedBooleanTags.has(tagName.toLowerCase()));
-        const availableBooleanTagOptions = availableBooleanTagNames
-            .map(tagName => `<option value="${escapeAttribute(tagName)}">${escapeHTML(tagName)}</option>`)
-            .join('');
-        const booleanTagSelector = availableBooleanTagNames.length > 0
-            ? `
-                <select id="media-boolean-tag-add" class="media-boolean-tag-add" aria-label="Add tag filter">
-                    <option value="">+ Add tag…</option>
-                    ${availableBooleanTagOptions}
-                </select>
-            `
-            : '';
-        const fieldRuleButton = valuedFieldNames.length > 0
-            ? '<button type="button" class="media-sort-add-level" id="btn-add-extra-filter-rule">+ Add filter rule</button>'
-            : '';
 
         return `
-            <div class="media-grid-filter-row">
-                <div class="media-grid-filter-label">Rules</div>
-                <div class="media-extra-filter-builder">
-                    <div class="media-extra-filter-rules" id="media-filter-rules">${rulesMarkup}</div>
-                    <div class="media-filter-add-controls">
-                        ${booleanTagSelector}
-                        ${fieldRuleButton}
-                    </div>
-                    <p class="media-extra-filter-note">${LIBRARY_FILTER_EXPRESSION_NOTE}</p>
+            <div class="media-filter-rule-group media-pane-subcard" data-group-index="${groupIndex}">
+                ${rowsMarkup}
+                <div class="media-filter-group-footer">
+                    <button type="button" class="media-filter-connector media-filter-add-and" data-group-index="${groupIndex}" aria-label="Add a rule to group ${groupIndex + 1}">+ and</button>
+                    <button type="button" class="media-filter-remove-group" data-group-index="${groupIndex}" aria-label="Delete group ${groupIndex + 1}">Delete group</button>
                 </div>
             </div>
         `;
     }
 
-    private renderSortSwitches(): string {
-        const archivedDisabled = this.state.hideArchived;
-
-        const switchesMarkup = SORT_SWITCH_CONFIGS.map(({ id, label, stateKey, disabledWhenArchivedHidden }) => {
-            const isDisabled = disabledWhenArchivedHidden && archivedDisabled;
-            const isChecked = this.state[stateKey];
-
-            return `
-                <label class="media-sort-switch ${isDisabled ? 'is-disabled' : ''}" id="${id}-switch">
-                    <span>${label}</span>
-                    <span class="switch">
-                        <input type="checkbox" id="${id}" ${isChecked ? 'checked' : ''} ${isDisabled ? 'disabled' : ''}>
-                        <span class="slider round"></span>
-                    </span>
-                </label>
-            `;
+    private renderFilterRuleStackContents(valuedFieldNames: string[], booleanTagNames: string[]): string {
+        const groups = groupLibraryFilterRules(this.state.filterRules);
+        const groupsMarkup = groups.map((group, groupIndex) => {
+            const orDivider = groupIndex > 0 ? this.renderFilterOrDivider(group[0].ruleIndex) : '';
+            return orDivider + this.renderFilterRuleGroupMarkup(group, groupIndex, valuedFieldNames, booleanTagNames);
         }).join('');
 
+        const addGroupSlot = groups.length === 0
+            ? '<button type="button" class="media-pane-add-slot" id="btn-add-filter-rule-group">+ Add filter</button>'
+            : '<button type="button" class="media-filter-add-or-divider" id="btn-add-filter-rule-group" aria-label="Add an OR group">+ or</button>';
+
+        return `${groupsMarkup}${addGroupSlot}`;
+    }
+
+    private renderFilterRuleSectionMarkup(): string {
+        const { valuedFieldNames, booleanTagNames } = this.getExtraDataFacets();
+        const shouldShow = valuedFieldNames.length > 0 || booleanTagNames.length > 0;
+
         return `
-            <div class="media-sort-switch-group" role="group" aria-label="Library grouping and ordering switches">
-                ${switchesMarkup}
+            <div id="media-filter-rule-section" class="media-filter-rule-section" ${shouldShow ? '' : 'hidden'}>
+                <div id="media-filter-rule-stack" class="media-extra-filter-rules">
+                    ${shouldShow ? this.renderFilterRuleStackContents(valuedFieldNames, booleanTagNames) : ''}
+                </div>            </div>
+        `;
+    }
+
+    private renderSortLevelRow(stage: LibrarySortStage, stageIndex: number, extraFieldNames: string[]): string {
+        const isDefaultField = stage.field.kind === 'builtin' && stage.field.key === 'default';
+
+        return `
+            <div class="media-sort-level-row">
+                <div class="media-sort-level-label">${stageIndex === 0 ? 'Sort by' : 'Then by'}</div>
+                <select class="media-sort-level-select" data-level-index="${stageIndex}" aria-label="Sort level ${stageIndex + 1} field">
+                    ${this.renderSortFieldOptions(stageIndex, extraFieldNames)}
+                </select>
+                <div class="media-sort-direction-toggle" role="group" aria-label="Sort level ${stageIndex + 1} direction">
+                    <button type="button" class="media-sort-direction-option ${stage.direction === 'ascending' ? 'is-active' : ''}" data-level-index="${stageIndex}" data-direction="ascending" ${isDefaultField ? 'disabled' : ''}>Ascending</button>
+                    <button type="button" class="media-sort-direction-option ${stage.direction === 'descending' ? 'is-active' : ''}" data-level-index="${stageIndex}" data-direction="descending" ${isDefaultField ? 'disabled' : ''}>Descending</button>
+                </div>
+                <button type="button" class="media-sort-level-remove" data-level-index="${stageIndex}" aria-label="Remove sort level ${stageIndex + 1}">×</button>
             </div>
         `;
     }
@@ -609,40 +728,42 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         `;
     }
 
-    private renderSortLevelRow(stage: LibrarySortStage, stageIndex: number, extraFieldNames: string[]): string {
-        const levelLabel = stageIndex === 0 ? 'Sort by' : 'Then by';
-        const isDefaultField = stage.field.kind === 'builtin' && stage.field.key === 'default';
-
-        return `
-            <div class="media-sort-level-row">
-                <div class="media-sort-level-label">${levelLabel}</div>
-                <select class="media-sort-level-select" data-level-index="${stageIndex}" aria-label="${levelLabel} field">
-                    ${this.renderSortFieldOptions(stageIndex, extraFieldNames)}
-                </select>
-                <div class="media-sort-direction-toggle" role="group" aria-label="${levelLabel} direction">
-                    <button type="button" class="media-sort-direction-option ${stage.direction === 'ascending' ? 'is-active' : ''}" data-level-index="${stageIndex}" data-direction="ascending" ${isDefaultField ? 'disabled' : ''}>Ascending</button>
-                    <button type="button" class="media-sort-direction-option ${stage.direction === 'descending' ? 'is-active' : ''}" data-level-index="${stageIndex}" data-direction="descending" ${isDefaultField ? 'disabled' : ''}>Descending</button>
-                </div>
-                <button type="button" class="media-sort-level-remove" data-level-index="${stageIndex}" aria-label="Remove ${levelLabel.toLowerCase()} level">×</button>
-            </div>
-        `;
-    }
-
-    private renderSortPanelBody(): string {
+    private renderSortLevelsMarkup(): string {
         const extraFieldNames = this.getExtraFieldNames();
-        const levelsMarkup = this.state.sortStages
+        const rowsMarkup = this.state.sortStages
             .map((stage, stageIndex) => this.renderSortLevelRow(stage, stageIndex, extraFieldNames))
             .join('');
 
         return `
-            <div class="media-sort-tray">
-                ${this.renderSortSwitches()}
-                <div class="media-sort-levels" id="media-sort-levels" aria-describedby="media-sort-tiebreaker-note">
-                    ${levelsMarkup}
+            ${rowsMarkup}
+            <button type="button" class="media-pane-add-slot media-sort-add-level" id="btn-add-sort-level">+ Add sort</button>
+        `;
+    }
+
+    private renderSortPaneMarkup(): string {
+        const switchesMarkup = renderSwitchGroup(
+            SORT_SWITCH_CONFIGS.map(({ id, label, stateKey, hiddenWhenArchivedHidden }) => ({
+                id,
+                label,
+                isChecked: this.state[stateKey],
+                isHidden: hiddenWhenArchivedHidden && this.state.hideArchived,
+            })),
+            'Library grouping and ordering switches',
+        );
+
+        return `
+            <div class="media-sort-tray card">
+                <div class="media-pane-header">
+                    <h2 class="media-pane-title" id="media-sort-pane-title">Sort</h2>
+                    <div class="media-pane-header-controls">
+                        ${switchesMarkup}
+                    </div>
                 </div>
-                <button type="button" class="media-sort-add-level" id="btn-add-sort-level">+ Add sort</button>
+                <div class="media-sort-levels" id="media-sort-levels" aria-describedby="media-sort-tiebreaker-note">
+                    ${this.renderSortLevelsMarkup()}
+                </div>
                 <div class="media-sort-tiebreaker-divider"></div>
-                <p class="media-sort-tiebreaker-note" id="media-sort-tiebreaker-note">${LIBRARY_SORT_TIEBREAKER_NOTE}</p>
+                <p class="media-sort-tiebreaker-note media-pane-note" id="media-sort-tiebreaker-note">${LIBRARY_SORT_TIEBREAKER_NOTE}</p>
             </div>
         `;
     }
@@ -681,41 +802,38 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         `;
     }
 
-    private renderHeader(container: HTMLElement) {
+    private renderHeaderShell(container: HTMLElement) {
         container.innerHTML = '';
 
         const uniqueTypes = this.getUniqueTypes();
+        this.renderedTypeOptionsKey = computeTypeOptionsKey(uniqueTypes);
+        const statusMultiSelectField = this.createStatusMultiSelectField();
+        const typeMultiSelectField = this.createTypeMultiSelectField(uniqueTypes);
+        this.statusMultiSelectField = statusMultiSelectField;
+        this.typeMultiSelectField = typeMultiSelectField;
+
         const activeLayout = this.getActiveLayout();
         const activeFilterCount = this.getActiveFilterCount();
-        const { valuedFieldNames, booleanTagNames } = this.getExtraDataFacets();
+        const sortLevelCount = this.getSortLevelCount();
         const compactHint = this.state.isGridSupported
             ? ''
-            : '<span class="media-layout-hint">Grid re-enables when the window is wider.</span>';
-        const sortLevelCount = this.getSortLevelCount();
+            : `<span class="media-layout-hint">${LIBRARY_GRID_UNAVAILABLE_HINT}</span>`;
 
-        const filterTrayBody = `
-            <div id="media-grid-filter-tray" class="media-grid-filter-tray">
-                ${this.renderFilterChipGroup('Status', 'status', TRACKING_STATUSES, this.state.statusFilters)}
-                ${this.renderFilterChipGroup('Type', 'type', uniqueTypes, this.state.typeFilters)}
-                ${this.renderFilterRules(valuedFieldNames, booleanTagNames)}
-                <div class="media-grid-filter-row">
-                    <div class="media-grid-filter-label">Other</div>
-                    <div class="media-grid-archive-toggle" style="display: flex; align-items: center; gap: 0.5rem;">
-                        <span style="font-size: 0.85rem; color: var(--text-secondary);">Hide Archived</span>
-                        <label class="switch" style="font-size: 0.7rem;">
-                            <input type="checkbox" id="grid-hide-archived" ${this.state.hideArchived ? 'checked' : ''}>
-                            <span class="slider round"></span>
-                        </label>
-                    </div>
-                </div>
-            </div>
-        `;
+        const hideArchivedSwitchMarkup = renderSwitchGroup(
+            [{
+                id: 'grid-hide-archived',
+                label: 'Hide archived',
+                isChecked: this.state.hideArchived,
+                isHidden: false,
+            }],
+            'Library archive visibility',
+        );
 
         const header = html`
             <div class="media-grid-toolbar-shell">
                 <div class="media-grid-toolbar">
                     <div class="media-grid-toolbar-primary">
-                        <button class="btn btn-ghost" id="btn-add-media-grid" style="font-size: 0.9rem; padding: 0.4rem 0.6rem;">+ New Media</button>
+                        <button class="btn btn-primary media-grid-new-media-button" id="btn-add-media-grid">+ New Media</button>
                         <button class="btn btn-ghost" id="btn-refresh-grid" title="Refresh Library" style="padding: 0.4rem; display: flex; align-items: center; justify-content: center;">
                             <svg id="refresh-icon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
                                 <g transform="rotate(0 0 30)">><path d="M17.91 14c-.478 2.833-2.943 5-5.91 5-3.308 0-6-2.692-6-6s2.692-6 6-6h2.172l-2.086 2.086L13.5 10.5 18 6l-4.5-4.5-1.414 1.414L14.172 5H12c-4.418 0-8 3.582-8 8s3.582 8 8 8c4.08 0 7.438-3.055 7.93-7h-2.02z"/></g>
@@ -755,7 +873,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
 
                         ${rawHtml(renderPaneToggleButton({
                             id: 'btn-toggle-filters',
-                            label: 'Filters',
+                            label: 'Filter',
                             panelId: 'media-grid-filter-panel',
                             isExpanded: this.state.filtersExpanded,
                             count: activeFilterCount,
@@ -773,22 +891,424 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
                     </div>
                 </div>
 
-                ${rawHtml(renderCollapsiblePanel({
-                    id: 'media-grid-filter-panel',
-                    isExpanded: this.state.filtersExpanded,
-                    body: filterTrayBody,
-                }))}
+                <div id="media-grid-filter-panel" class="media-grid-filter-panel ${this.state.filtersExpanded ? 'is-expanded' : 'is-collapsed'}" aria-hidden="${this.state.filtersExpanded ? 'false' : 'true'}" aria-labelledby="media-filters-pane-title" ${rawHtml(renderPanelStyleAttribute(this.state.filtersExpanded))}>
+                    <div class="media-grid-filter-panel-body">
+                        <div id="media-grid-filter-tray" class="media-grid-filter-tray card">
+                            <div class="media-pane-header">
+                                <h2 class="media-pane-title" id="media-filters-pane-title">Filter</h2>
+                                <div class="media-pane-header-controls">
+                                    <div class="media-grid-filter-field">
+                                        <div class="media-grid-filter-label">Status</div>
+                                        <div class="media-grid-filter-trigger-slot" id="media-status-multiselect-slot">${statusMultiSelectField.element}</div>
+                                    </div>
+                                    <div class="media-grid-filter-field">
+                                        <div class="media-grid-filter-label">Type</div>
+                                        <div class="media-grid-filter-trigger-slot" id="media-type-multiselect-slot">${typeMultiSelectField.element}</div>
+                                    </div>
+                                    ${rawHtml(hideArchivedSwitchMarkup)}
+                                </div>
+                            </div>
+                            ${rawHtml(this.renderFilterRuleSectionMarkup())}
+                        </div>
+                    </div>
+                </div>
 
-                ${rawHtml(renderCollapsiblePanel({
-                    id: 'media-sort-panel',
-                    isExpanded: this.state.sortExpanded,
-                    body: this.renderSortPanelBody(),
-                }))}
+                <div id="media-sort-panel" class="media-grid-filter-panel ${this.state.sortExpanded ? 'is-expanded' : 'is-collapsed'}" aria-hidden="${this.state.sortExpanded ? 'false' : 'true'}" aria-labelledby="media-sort-pane-title" ${rawHtml(renderPanelStyleAttribute(this.state.sortExpanded))}>
+                    <div class="media-grid-filter-panel-body">
+                        ${rawHtml(this.renderSortPaneMarkup())}
+                    </div>
+                </div>
             </div>
         `;
 
         container.appendChild(header);
-        this.setupListeners(header);
+        this.headerElement = header;
+        this.bindShellListeners(header);
+    }
+
+    private bindShellListeners(header: HTMLElement) {
+        header.querySelector('#btn-add-media-grid')?.addEventListener('click', async () => {
+            await this.createMediaFromModal();
+        });
+
+        header.querySelector('#btn-refresh-grid')?.addEventListener('click', async (e) => {
+            const btn = e.currentTarget as HTMLElement;
+            const icon = btn.querySelector<HTMLElement>('#refresh-icon');
+            if (icon) icon.style.animation = 'spin 0.8s linear infinite';
+
+            await this.onDataChange();
+
+            if (icon) icon.style.animation = '';
+        });
+
+        const searchFilter = header.querySelector<HTMLInputElement>('#grid-search-filter');
+        searchFilter?.addEventListener('input', () => {
+            this.state.searchQuery = searchFilter.value;
+            this.container.querySelector<HTMLElement>('#media-library-content')
+                ?.setAttribute('aria-busy', 'true');
+            if (this.searchRenderTimer !== null) {
+                globalThis.clearTimeout(this.searchRenderTimer);
+            }
+            this.searchRenderTimer = globalThis.setTimeout(() => {
+                this.searchRenderTimer = null;
+                const content = this.container.querySelector<HTMLElement>('#media-library-content');
+                if (!content) return;
+                this.renderContent(content);
+                content.setAttribute('aria-busy', 'false');
+                this.notifyFilterChange();
+            }, 120);
+        });
+
+        header.querySelector('#btn-toggle-filters')?.addEventListener('click', () => {
+            this.toggleFiltersPanel();
+        });
+
+        header.querySelector('#btn-toggle-sort')?.addEventListener('click', () => {
+            this.toggleSortPanel();
+        });
+
+        const hideArchived = header.querySelector<HTMLInputElement>('#grid-hide-archived');
+        hideArchived?.addEventListener('change', () => {
+            this.handleHideArchivedChange(hideArchived);
+        });
+
+        header.querySelector('#btn-layout-grid')?.addEventListener('click', () => {
+            this.setLayout('grid');
+        });
+
+        header.querySelector('#btn-layout-list')?.addEventListener('click', () => {
+            this.setLayout('list');
+        });
+
+        header.querySelector('#btn-grid-zoom-out')?.addEventListener('click', () => {
+            this.setGridZoom(this.state.gridZoom - LIBRARY_GRID_ZOOM.STEP);
+        });
+
+        header.querySelector('#btn-grid-zoom-reset')?.addEventListener('click', () => {
+            this.setGridZoom(LIBRARY_GRID_ZOOM.DEFAULT);
+        });
+
+        header.querySelector('#btn-grid-zoom-in')?.addEventListener('click', () => {
+            this.setGridZoom(this.state.gridZoom + LIBRARY_GRID_ZOOM.STEP);
+        });
+
+        SORT_SWITCH_CONFIGS.forEach(({ id, stateKey }) => {
+            const switchInput = header.querySelector<HTMLInputElement>(`#${id}`);
+            switchInput?.addEventListener('change', () => {
+                this.state[stateKey] = switchInput.checked;
+                this.commitSortSwitchChange();
+            });
+        });
+
+        const sortLevelsHost = header.querySelector<HTMLElement>('#media-sort-levels');
+        if (sortLevelsHost) this.bindSortLevelsDelegation(sortLevelsHost);
+
+        const filterRuleStackHost = header.querySelector<HTMLElement>('#media-filter-rule-stack');
+        if (filterRuleStackHost) this.bindFilterRuleStackDelegation(filterRuleStackHost);
+    }
+
+    private bindSortLevelsDelegation(host: HTMLElement) {
+        host.addEventListener('change', (event) => {
+            const target = event.target;
+            if (target instanceof HTMLSelectElement && target.classList.contains('media-sort-level-select')) {
+                this.handleSortLevelFieldChange(target);
+            }
+        });
+
+        host.addEventListener('click', (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) return;
+
+            const directionButton = target.closest<HTMLButtonElement>('.media-sort-direction-option');
+            if (directionButton) {
+                this.handleSortDirectionClick(directionButton);
+                return;
+            }
+
+            const removeButton = target.closest<HTMLButtonElement>('.media-sort-level-remove');
+            if (removeButton) {
+                this.handleSortLevelRemove(removeButton);
+                return;
+            }
+
+            if (target.closest('#btn-add-sort-level')) this.handleAddSortLevel();
+        });
+    }
+
+    private bindFilterRuleStackDelegation(host: HTMLElement) {
+        host.addEventListener('change', (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLSelectElement)) return;
+
+            if (target.classList.contains('media-extra-filter-field')) {
+                this.handleFieldOrTagChange(target);
+            } else if (target.classList.contains('media-extra-filter-operator')) {
+                this.handleExtraFilterOperatorChange(target);
+            }
+        });
+
+        host.addEventListener('input', (event) => {
+            const target = event.target;
+            if (target instanceof HTMLInputElement && target.classList.contains('media-extra-filter-value')) {
+                this.handleExtraFilterValueInput(target);
+            }
+        });
+
+        host.addEventListener('click', (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) return;
+
+            const negationOption = target.closest<HTMLButtonElement>('.media-filter-negation-option');
+            if (negationOption) {
+                this.handleFilterNegationClick(negationOption);
+                return;
+            }
+
+            const joinDivider = target.closest<HTMLButtonElement>('.media-filter-join-toggle');
+            if (joinDivider) {
+                this.handleFilterJoinDividerClick(joinDivider);
+                return;
+            }
+
+            const removeButton = target.closest<HTMLButtonElement>('.media-filter-rule-remove');
+            if (removeButton) {
+                this.handleFilterRuleRemove(removeButton);
+                return;
+            }
+
+            const removeGroupButton = target.closest<HTMLButtonElement>('.media-filter-remove-group');
+            if (removeGroupButton) {
+                this.handleRemoveFilterRuleGroup(Number(removeGroupButton.dataset.groupIndex));
+                return;
+            }
+
+            const addAndButton = target.closest<HTMLButtonElement>('.media-filter-add-and');
+            if (addAndButton) {
+                this.handleAddRuleToGroup(Number(addAndButton.dataset.groupIndex));
+                return;
+            }
+
+            if (target.closest('#btn-add-filter-rule-group')) this.handleAddFilterRuleGroup();
+        });
+    }
+
+    private handleSortLevelFieldChange(select: HTMLSelectElement): void {
+        const stageIndex = Number(select.dataset.levelIndex);
+        const stage = this.state.sortStages[stageIndex];
+        if (!stage) return;
+
+        const extraFieldNames = this.getExtraFieldNames();
+        const parsedField = fromSortFieldOptionValue(select.value, extraFieldNames);
+        if (!parsedField) return;
+
+        stage.field = parsedField;
+        this.commitSortLevelsChange();
+    }
+
+    private handleSortDirectionClick(button: HTMLButtonElement): void {
+        const stageIndex = Number(button.dataset.levelIndex);
+        const direction = button.dataset.direction as LibrarySortDirection | undefined;
+        const stage = this.state.sortStages[stageIndex];
+        if (!stage || !direction) return;
+
+        stage.direction = direction;
+        this.commitSortLevelsChange();
+    }
+
+    private handleSortLevelRemove(button: HTMLButtonElement): void {
+        const stageIndex = Number(button.dataset.levelIndex);
+        this.state.sortStages = this.state.sortStages.filter((_, index) => index !== stageIndex);
+        this.commitSortLevelsChange();
+    }
+
+    private handleAddSortLevel(): void {
+        const extraFieldNames = this.getExtraFieldNames();
+        const usedFieldKeys = new Set(this.state.sortStages.map((stage) => toSortFieldOptionValue(stage.field)));
+        const nextField = this.pickNextAvailableSortField(usedFieldKeys, extraFieldNames);
+        this.state.sortStages = [...this.state.sortStages, { field: nextField, direction: 'ascending' }];
+        this.commitSortLevelsChange();
+    }
+
+    private buildDefaultFilterRule(): LibraryFilterRule | null {
+        const { valuedFieldNames, booleanTagNames } = this.getExtraDataFacets();
+        const fieldName = valuedFieldNames[0];
+        if (fieldName !== undefined) {
+            const valueKind = getLibraryExtraFieldValueKind(this.getExtraDataIndex(), fieldName);
+            return {
+                kind: 'extra',
+                fieldName,
+                operator: getDefaultLibraryExtraFilterOperator(valueKind),
+                value: '',
+                join: 'and',
+                negated: false,
+            };
+        }
+
+        const tagName = booleanTagNames[0];
+        return tagName === undefined ? null : { kind: 'booleanTag', tagName, join: 'and', negated: false };
+    }
+
+    private handleFieldOrTagChange(select: HTMLSelectElement): void {
+        const ruleIndex = Number(select.dataset.ruleIndex);
+        const rule = this.state.filterRules[ruleIndex];
+        if (!rule) return;
+
+        const subject = fromFilterSubjectOptionValue(select.value);
+        if (!subject) return;
+        const { kind, name } = subject;
+        const facets = this.getExtraDataFacets();
+
+        if (kind === 'tag') {
+            const tagName = facets.booleanTagNames.find(candidate => candidate.toLowerCase() === name.toLowerCase());
+            if (tagName === undefined) return;
+            this.state.filterRules[ruleIndex] = { kind: 'booleanTag', tagName, join: rule.join, negated: rule.negated };
+        } else {
+            const fieldName = facets.valuedFieldNames.find(candidate => candidate.toLowerCase() === name.toLowerCase());
+            if (fieldName === undefined) return;
+            const valueKind = getLibraryExtraFieldValueKind(this.getExtraDataIndex(), fieldName);
+            this.state.filterRules[ruleIndex] = {
+                kind: 'extra',
+                fieldName,
+                operator: getDefaultLibraryExtraFilterOperator(valueKind),
+                value: '',
+                join: rule.join,
+                negated: rule.negated,
+            };
+        }
+        this.commitFilterRuleStackChange();
+    }
+
+    private handleExtraFilterOperatorChange(select: HTMLSelectElement): void {
+        const ruleIndex = Number(select.dataset.ruleIndex);
+        const rule = this.state.filterRules[ruleIndex];
+        if (rule?.kind !== 'extra') return;
+
+        rule.operator = select.value as LibraryExtraFilterOperator;
+        this.commitFilterRuleStackChange();
+    }
+
+    private handleExtraFilterValueInput(input: HTMLInputElement): void {
+        const ruleIndex = Number(input.dataset.ruleIndex);
+        const rule = this.state.filterRules[ruleIndex];
+        if (rule?.kind !== 'extra') return;
+
+        if (getLibraryExtraFieldValueKind(this.getExtraDataIndex(), rule.fieldName) === 'numeric') {
+            this.stripNonNumericCharactersKeepingCaret(input);
+        }
+        rule.value = input.value;
+        input.setAttribute(
+            'aria-invalid',
+            String(!isLibraryFilterRuleReady(rule, this.getExtraDataIndex(), this.getExtraDataFacets())),
+        );
+        this.renderContent(this.container.querySelector<HTMLElement>('#media-library-content')!);
+        const header = this.container.querySelector<HTMLElement>('#media-library-header');
+        if (header) this.updateFilterCountBadge(header);
+        this.notifyFilterChange();
+    }
+
+    private stripNonNumericCharactersKeepingCaret(input: HTMLInputElement): void {
+        const strippedValue = stripNonNumericFilterValueCharacters(input.value);
+        if (strippedValue === input.value) return;
+
+        const caretPosition = input.selectionStart ?? input.value.length;
+        const caretAfterStripping = stripNonNumericFilterValueCharacters(input.value.slice(0, caretPosition)).length;
+        input.value = strippedValue;
+        input.setSelectionRange(caretAfterStripping, caretAfterStripping);
+    }
+
+    private handleFilterNegationClick(button: HTMLButtonElement): void {
+        const ruleIndex = Number(button.dataset.ruleIndex);
+        const rule = this.state.filterRules[ruleIndex];
+        if (!rule) return;
+
+        rule.negated = button.dataset.negated === 'true';
+        this.commitFilterRuleStackChange();
+    }
+
+    private handleFilterJoinDividerClick(button: HTMLButtonElement): void {
+        const ruleIndex = Number(button.dataset.ruleIndex);
+        this.state.filterRules = toggleLibraryFilterRuleJoin(this.state.filterRules, ruleIndex);
+        this.commitFilterRuleStackChange();
+    }
+
+    private handleFilterRuleRemove(button: HTMLButtonElement): void {
+        const ruleIndex = Number(button.dataset.ruleIndex);
+        this.state.filterRules = removeLibraryFilterRule(this.state.filterRules, ruleIndex);
+        this.commitFilterRuleStackChange();
+    }
+
+    private handleAddFilterRuleGroup(): void {
+        const rule = this.buildDefaultFilterRule();
+        if (!rule) return;
+
+        this.state.filterRules = appendRuleGroup(this.state.filterRules, rule);
+        this.commitFilterRuleStackChange();
+    }
+
+    private handleRemoveFilterRuleGroup(groupIndex: number): void {
+        this.state.filterRules = removeLibraryFilterRuleGroup(this.state.filterRules, groupIndex);
+        this.commitFilterRuleStackChange();
+    }
+
+    private handleAddRuleToGroup(groupIndex: number): void {
+        const rule = this.buildDefaultFilterRule();
+        if (!rule) return;
+
+        this.state.filterRules = appendRuleToGroup(this.state.filterRules, groupIndex, rule);
+        this.commitFilterRuleStackChange();
+    }
+
+    private commitSortLevelsChange(): void {
+        this.patchHost('media-sort-levels', () => this.renderSortLevelsMarkup());
+        const header = this.container.querySelector<HTMLElement>('#media-library-header');
+        if (header) this.updateSortCountBadge(header);
+        this.renderContent(this.container.querySelector<HTMLElement>('#media-library-content')!);
+        this.notifyFilterChange();
+    }
+
+    private commitFilterRuleStackChange(): void {
+        this.patchHost('media-filter-rule-stack', () => {
+            const { valuedFieldNames, booleanTagNames } = this.getExtraDataFacets();
+            return this.renderFilterRuleStackContents(valuedFieldNames, booleanTagNames);
+        });
+        const header = this.container.querySelector<HTMLElement>('#media-library-header');
+        if (header) this.updateFilterCountBadge(header);
+        this.renderContent(this.container.querySelector<HTMLElement>('#media-library-content')!);
+        this.notifyFilterChange();
+    }
+
+    private commitSortSwitchChange(): void {
+        this.renderContent(this.container.querySelector<HTMLElement>('#media-library-content')!);
+        this.notifyFilterChange();
+    }
+
+    private patchHost(hostId: string, renderInner: () => string): void {
+        const host = this.container.querySelector<HTMLElement>(`#${hostId}`);
+        if (!host) return;
+
+        const focusState = captureHostFocusState(host);
+        host.innerHTML = renderInner();
+        restoreHostFocusState(host, focusState);
+    }
+
+    private handleHideArchivedChange(checkbox: HTMLInputElement): void {
+        this.state.hideArchived = checkbox.checked;
+        this.updateKeepArchivedLastVisibility();
+        const header = this.container.querySelector<HTMLElement>('#media-library-header');
+        if (header) this.updateFilterCountBadge(header);
+        this.renderContent(this.container.querySelector<HTMLElement>('#media-library-content')!);
+        this.notifyFilterChange();
+    }
+
+    private updateKeepArchivedLastVisibility(): void {
+        const header = this.container.querySelector<HTMLElement>('#media-library-header');
+        if (!header) return;
+
+        const isHidden = this.state.hideArchived;
+        const switchLabel = header.querySelector<HTMLElement>(`#${KEEP_ARCHIVED_LAST_SWITCH_ID}-switch`);
+        const checkbox = header.querySelector<HTMLInputElement>(`#${KEEP_ARCHIVED_LAST_SWITCH_ID}`);
+        if (switchLabel) switchLabel.hidden = isHidden;
+        if (checkbox) checkbox.disabled = isHidden;
     }
 
     private renderContent(container: HTMLElement) {
@@ -916,8 +1436,8 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
     ): Promise<void> {
         this.state.mediaList = freshMediaList;
         this.state.listMetricsByMediaId = freshMetrics;
-        this.pruneTypeFiltersToAvailableTypes();
-        this.refreshHeader();
+        this.pruneHiddenTypesToAvailableTypes();
+        this.reconcileHeaderForDataChange();
 
         const layout = this.activeLayoutComponent;
         const previousRows = this.renderedRows;
@@ -1013,256 +1533,53 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         if (content) this.renderContent(content);
     }
 
-    private refreshHeader(): void {
+    private reconcileHeaderForDataChange(): void {
         const header = this.container.querySelector<HTMLElement>('#media-library-header');
-        if (header) this.renderHeader(header);
+        if (!header) return;
+
+        const uniqueTypes = this.getUniqueTypes();
+        const typeOptionsKey = computeTypeOptionsKey(uniqueTypes);
+        if (typeOptionsKey !== this.renderedTypeOptionsKey) {
+            this.rebuildTypeMultiSelectField(header, uniqueTypes, typeOptionsKey);
+        }
+
+        this.patchHost('media-sort-levels', () => this.renderSortLevelsMarkup());
+        this.reconcileFilterRuleSection(header);
+        this.updateFilterCountBadge(header);
+        this.updateSortCountBadge(header);
     }
 
-    private pruneTypeFiltersToAvailableTypes(): void {
+    private rebuildTypeMultiSelectField(header: HTMLElement, uniqueTypes: string[], typeOptionsKey: string): void {
+        const slot = header.querySelector<HTMLElement>('#media-type-multiselect-slot');
+        if (!slot) return;
+
+        this.typeMultiSelectField?.close();
+        const field = this.createTypeMultiSelectField(uniqueTypes);
+        slot.replaceChildren(field.element);
+        this.typeMultiSelectField = field;
+        this.renderedTypeOptionsKey = typeOptionsKey;
+    }
+
+    private reconcileFilterRuleSection(header: HTMLElement): void {
+        const section = header.querySelector<HTMLElement>('#media-filter-rule-section');
+        const stack = header.querySelector<HTMLElement>('#media-filter-rule-stack');
+        if (!section || !stack) return;
+
+        const { valuedFieldNames, booleanTagNames } = this.getExtraDataFacets();
+        const shouldShow = valuedFieldNames.length > 0 || booleanTagNames.length > 0;
+        section.hidden = !shouldShow;
+        if (shouldShow) stack.innerHTML = this.renderFilterRuleStackContents(valuedFieldNames, booleanTagNames);
+    }
+
+    private pruneHiddenTypesToAvailableTypes(): void {
         const availableTypes = new Set(this.state.mediaList.map((media) => resolveDisplayContentType(media)));
-        const remainingTypeFilters = this.state.typeFilters.filter((type) => availableTypes.has(type));
-        if (remainingTypeFilters.length === this.state.typeFilters.length) return;
+        const prunedHiddenTypes = new Set(
+            [...this.state.hiddenTypes].filter((type) => availableTypes.has(type)),
+        );
+        if (prunedHiddenTypes.size === this.state.hiddenTypes.size) return;
 
-        this.state.typeFilters = remainingTypeFilters;
+        this.state.hiddenTypes = prunedHiddenTypes;
         this.notifyFilterChange();
-    }
-
-    private setupListeners(header: HTMLElement) {
-        header.querySelector('#btn-add-media-grid')?.addEventListener('click', async () => {
-            await this.createMediaFromModal();
-        });
-
-        header.querySelector('#btn-refresh-grid')?.addEventListener('click', async (e) => {
-            const btn = e.currentTarget as HTMLElement;
-            const icon = btn.querySelector<HTMLElement>('#refresh-icon');
-            if (icon) icon.style.animation = 'spin 0.8s linear infinite';
-
-            await this.onDataChange();
-
-            if (icon) icon.style.animation = '';
-        });
-
-        const searchFilter = header.querySelector<HTMLInputElement>('#grid-search-filter');
-        searchFilter?.addEventListener('input', () => {
-            this.state.searchQuery = searchFilter.value;
-            this.container.querySelector<HTMLElement>('#media-library-content')
-                ?.setAttribute('aria-busy', 'true');
-            if (this.searchRenderTimer !== null) {
-                globalThis.clearTimeout(this.searchRenderTimer);
-            }
-            this.searchRenderTimer = globalThis.setTimeout(() => {
-                this.searchRenderTimer = null;
-                const content = this.container.querySelector<HTMLElement>('#media-library-content');
-                if (!content) return;
-                this.renderContent(content);
-                content.setAttribute('aria-busy', 'false');
-                this.notifyFilterChange();
-            }, 120);
-        });
-
-        header.querySelector('#btn-toggle-filters')?.addEventListener('click', () => {
-            this.toggleFiltersPanel();
-        });
-
-        header.querySelector('#btn-toggle-sort')?.addEventListener('click', () => {
-            this.toggleSortPanel();
-        });
-
-        header.querySelectorAll<HTMLButtonElement>('.media-filter-chip').forEach((chip) => {
-            chip.addEventListener('click', () => {
-                const group = chip.dataset.filterGroup;
-                const value = chip.dataset.filterValue;
-                if (!group || !value) return;
-
-                if (group === 'status') {
-                    this.updateMultiFilter('statusFilters', value, [...TRACKING_STATUSES]);
-                } else {
-                    this.updateMultiFilter('typeFilters', value, this.getUniqueTypes());
-                }
-            });
-        });
-
-        const hideArchived = header.querySelector<HTMLInputElement>('#grid-hide-archived');
-        hideArchived?.addEventListener('change', () => {
-            this.state.hideArchived = hideArchived.checked;
-            this.applyPresentationStateChange();
-        });
-
-        header.querySelector('#btn-layout-grid')?.addEventListener('click', () => {
-            this.setLayout('grid');
-        });
-
-        header.querySelector('#btn-layout-list')?.addEventListener('click', () => {
-            this.setLayout('list');
-        });
-
-        header.querySelector('#btn-grid-zoom-out')?.addEventListener('click', () => {
-            this.setGridZoom(this.state.gridZoom - LIBRARY_GRID_ZOOM.STEP);
-        });
-
-        header.querySelector('#btn-grid-zoom-reset')?.addEventListener('click', () => {
-            this.setGridZoom(LIBRARY_GRID_ZOOM.DEFAULT);
-        });
-
-        header.querySelector('#btn-grid-zoom-in')?.addEventListener('click', () => {
-            this.setGridZoom(this.state.gridZoom + LIBRARY_GRID_ZOOM.STEP);
-        });
-
-        SORT_SWITCH_CONFIGS.forEach(({ id, stateKey }) => {
-            const switchInput = header.querySelector<HTMLInputElement>(`#${id}`);
-            switchInput?.addEventListener('change', () => {
-                this.state[stateKey] = switchInput.checked;
-                this.applyPresentationStateChange();
-            });
-        });
-
-        header.querySelectorAll<HTMLSelectElement>('.media-sort-level-select').forEach((select) => {
-            select.addEventListener('change', () => {
-                const stageIndex = Number(select.dataset.levelIndex);
-                const stage = this.state.sortStages[stageIndex];
-                if (!stage) return;
-
-                const extraFieldNames = this.getExtraFieldNames();
-                const parsedField = fromSortFieldOptionValue(select.value, extraFieldNames);
-                if (!parsedField) return;
-
-                stage.field = parsedField;
-                this.applyPresentationStateChange();
-            });
-        });
-
-        header.querySelectorAll<HTMLButtonElement>('.media-sort-direction-option').forEach((button) => {
-            button.addEventListener('click', () => {
-                const stageIndex = Number(button.dataset.levelIndex);
-                const direction = button.dataset.direction as LibrarySortDirection | undefined;
-                const stage = this.state.sortStages[stageIndex];
-                if (!stage || !direction) return;
-
-                stage.direction = direction;
-                this.applyPresentationStateChange();
-            });
-        });
-
-        header.querySelectorAll<HTMLButtonElement>('.media-sort-level-remove').forEach((button) => {
-            button.addEventListener('click', () => {
-                const stageIndex = Number(button.dataset.levelIndex);
-                this.state.sortStages = this.state.sortStages.filter((_, index) => index !== stageIndex);
-                this.applyPresentationStateChange();
-            });
-        });
-
-        header.querySelector('#btn-add-sort-level')?.addEventListener('click', () => {
-            const extraFieldNames = this.getExtraFieldNames();
-            const usedFieldKeys = new Set(this.state.sortStages.map((stage) => toSortFieldOptionValue(stage.field)));
-            const nextField = this.pickNextAvailableSortField(usedFieldKeys, extraFieldNames);
-            this.state.sortStages = [...this.state.sortStages, { field: nextField, direction: 'ascending' }];
-            this.applyPresentationStateChange();
-        });
-
-        header.querySelectorAll<HTMLSelectElement>('.media-extra-filter-field').forEach((select) => {
-            select.addEventListener('change', () => {
-                const ruleIndex = Number(select.dataset.ruleIndex);
-                const rule = this.state.filterRules[ruleIndex];
-                const fieldName = this.getExtraDataFacets().valuedFieldNames
-                    .find(name => name.toLowerCase() === select.value.toLowerCase());
-                if (rule?.kind !== 'extra' || fieldName === undefined) return;
-
-                const valueKind = getLibraryExtraFieldValueKind(this.getExtraDataIndex(), fieldName);
-                rule.fieldName = fieldName;
-                rule.operator = getDefaultLibraryExtraFilterOperator(valueKind);
-                rule.value = '';
-                this.applyPresentationStateChange();
-            });
-        });
-
-        header.querySelectorAll<HTMLSelectElement>('.media-extra-filter-operator').forEach((select) => {
-            select.addEventListener('change', () => {
-                const ruleIndex = Number(select.dataset.ruleIndex);
-                const rule = this.state.filterRules[ruleIndex];
-                if (rule?.kind !== 'extra') return;
-
-                rule.operator = select.value as LibraryExtraFilterOperator;
-                this.applyPresentationStateChange();
-            });
-        });
-
-        header.querySelectorAll<HTMLInputElement>('.media-extra-filter-value').forEach((input) => {
-            input.addEventListener('input', () => {
-                const ruleIndex = Number(input.dataset.ruleIndex);
-                const rule = this.state.filterRules[ruleIndex];
-                if (rule?.kind !== 'extra') return;
-
-                rule.value = input.value;
-                this.renderContent(this.container.querySelector<HTMLElement>('#media-library-content')!);
-                this.updateFilterCountBadge(header);
-                this.notifyFilterChange();
-            });
-        });
-
-        header.querySelectorAll<HTMLSelectElement>('.media-filter-logic').forEach((select) => {
-            select.addEventListener('change', () => {
-                const ruleIndex = Number(select.dataset.ruleIndex);
-                const rule = this.state.filterRules[ruleIndex];
-                if (!rule) return;
-
-                const logic = select.value;
-                rule.join = logic.startsWith('or') ? 'or' : 'and';
-                rule.negated = logic === 'not' || logic.endsWith('Not');
-                this.applyPresentationStateChange();
-            });
-        });
-
-        header.querySelectorAll<HTMLButtonElement>('.media-filter-rule-remove').forEach((button) => {
-            button.addEventListener('click', () => {
-                const ruleIndex = Number(button.dataset.ruleIndex);
-                this.state.filterRules = this.state.filterRules
-                    .filter((_, index) => index !== ruleIndex);
-                this.applyPresentationStateChange();
-            });
-        });
-
-        header.querySelector('#btn-add-extra-filter-rule')?.addEventListener('click', () => {
-            const fieldName = this.getExtraDataFacets().valuedFieldNames[0];
-            if (fieldName === undefined) return;
-
-            const valueKind = getLibraryExtraFieldValueKind(this.getExtraDataIndex(), fieldName);
-            this.state.filterRules = [
-                ...this.state.filterRules,
-                {
-                    kind: 'extra',
-                    fieldName,
-                    operator: getDefaultLibraryExtraFilterOperator(valueKind),
-                    value: '',
-                    join: 'and',
-                    negated: false,
-                },
-            ];
-            this.applyPresentationStateChange();
-        });
-
-        header.querySelector<HTMLSelectElement>('#media-boolean-tag-add')?.addEventListener('change', (event) => {
-            const select = event.currentTarget as HTMLSelectElement;
-            if (select.value === '') return;
-
-            const tagName = this.getExtraDataFacets().booleanTagNames
-                .find(name => name.toLowerCase() === select.value.toLowerCase());
-            const isAlreadySelected = this.state.filterRules.some(rule => (
-                rule.kind === 'booleanTag'
-                && rule.tagName.toLowerCase() === tagName?.toLowerCase()
-            ));
-            if (tagName === undefined || isAlreadySelected) return;
-
-            this.state.filterRules = [
-                ...this.state.filterRules,
-                {
-                    kind: 'booleanTag',
-                    tagName,
-                    join: 'and',
-                    negated: false,
-                },
-            ];
-            this.applyPresentationStateChange();
-        });
     }
 
     private pickNextAvailableSortField(usedFieldKeys: Set<string>, extraFieldNames: string[]): LibrarySortField {
@@ -1278,12 +1595,6 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         }
 
         return { kind: 'builtin', key: 'default' };
-    }
-
-    private applyPresentationStateChange() {
-        this.renderHeader(this.container.querySelector<HTMLElement>('#media-library-header')!);
-        this.renderContent(this.container.querySelector<HTMLElement>('#media-library-content')!);
-        this.notifyFilterChange();
     }
 
     private updateFilterCountBadge(header: HTMLElement) {
@@ -1306,6 +1617,53 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         badge.textContent = count.toString();
     }
 
+    private updateSortCountBadge(header: HTMLElement) {
+        const button = header.querySelector<HTMLButtonElement>('#btn-toggle-sort');
+        if (!button) return;
+
+        const count = this.getSortLevelCount();
+        let badge = button.querySelector<HTMLElement>('.media-grid-filter-count');
+        if (count === 0) {
+            badge?.remove();
+            return;
+        }
+
+        if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'media-grid-filter-count';
+            button.querySelector('svg')?.before(badge);
+        }
+        badge.setAttribute('aria-label', `${count} active sort levels`);
+        badge.textContent = count.toString();
+    }
+
+    public setGridSupport(isGridSupported: boolean): void {
+        if (this.state.isGridSupported === isGridSupported) return;
+
+        this.state.isGridSupported = isGridSupported;
+        this.updateLayoutToggleControls();
+        this.updateCompactLayoutHint();
+        this.renderContent(this.container.querySelector<HTMLElement>('#media-library-content')!);
+    }
+
+    private updateCompactLayoutHint(): void {
+        const header = this.container.querySelector<HTMLElement>('#media-library-header');
+        const toggleShell = header?.querySelector<HTMLElement>('.toggle-shell');
+        if (!toggleShell) return;
+
+        let hint = toggleShell.querySelector<HTMLElement>('.media-layout-hint');
+        if (this.state.isGridSupported) {
+            hint?.remove();
+            return;
+        }
+
+        if (hint) return;
+        hint = document.createElement('span');
+        hint.className = 'media-layout-hint';
+        hint.textContent = LIBRARY_GRID_UNAVAILABLE_HINT;
+        toggleShell.appendChild(hint);
+    }
+
     private setLayout(layout: LibraryLayoutMode) {
         if (layout === 'grid' && !this.state.isGridSupported) {
             return;
@@ -1316,9 +1674,40 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         }
 
         this.state.preferredLayout = layout;
-        this.renderHeader(this.container.querySelector<HTMLElement>('#media-library-header')!);
+        this.updateLayoutToggleControls();
         this.renderContent(this.container.querySelector<HTMLElement>('#media-library-content')!);
         this.onLayoutChange?.(layout);
+    }
+
+    private updateLayoutToggleControls(): void {
+        const header = this.container.querySelector<HTMLElement>('#media-library-header');
+        if (!header) return;
+
+        const activeLayout = this.getActiveLayout();
+        const gridButton = header.querySelector<HTMLButtonElement>('#btn-layout-grid');
+        const listButton = header.querySelector<HTMLButtonElement>('#btn-layout-list');
+        if (gridButton) gridButton.disabled = !this.state.isGridSupported;
+        gridButton?.classList.toggle('is-active', activeLayout === 'grid');
+        gridButton?.setAttribute('aria-pressed', String(activeLayout === 'grid'));
+        listButton?.classList.toggle('is-active', activeLayout === 'list');
+        listButton?.setAttribute('aria-pressed', String(activeLayout === 'list'));
+        this.updateGridZoomControls();
+    }
+
+    private updateGridZoomControls(): void {
+        const header = this.container.querySelector<HTMLElement>('#media-library-header');
+        if (!header) return;
+
+        const gridZoomDisabled = this.getActiveLayout() !== 'grid';
+        const zoomOut = header.querySelector<HTMLButtonElement>('#btn-grid-zoom-out');
+        const zoomReset = header.querySelector<HTMLButtonElement>('#btn-grid-zoom-reset');
+        const zoomIn = header.querySelector<HTMLButtonElement>('#btn-grid-zoom-in');
+        if (zoomOut) zoomOut.disabled = gridZoomDisabled || this.state.gridZoom <= LIBRARY_GRID_ZOOM.MIN;
+        if (zoomReset) {
+            zoomReset.disabled = gridZoomDisabled;
+            zoomReset.textContent = `${this.state.gridZoom}%`;
+        }
+        if (zoomIn) zoomIn.disabled = gridZoomDisabled || this.state.gridZoom >= LIBRARY_GRID_ZOOM.MAX;
     }
 
     private setGridZoom(gridZoom: number) {
@@ -1332,7 +1721,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         }
 
         this.state.gridZoom = nextGridZoom;
-        this.renderHeader(this.container.querySelector<HTMLElement>('#media-library-header')!);
+        this.updateGridZoomControls();
         this.renderContent(this.container.querySelector<HTMLElement>('#media-library-content')!);
         this.onGridZoomChange?.(nextGridZoom);
     }
@@ -1377,44 +1766,11 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         }
     }
 
-    private updateMultiFilter(
-        key: 'statusFilters' | 'typeFilters',
-        value: string,
-        availableValues: string[],
-    ) {
-        const currentValues = this.state[key];
-        let nextValues: string[];
-
-        if (value === FILTERS.ALL) {
-            nextValues = [];
-        } else if (currentValues.includes(value)) {
-            nextValues = currentValues.filter((currentValue) => currentValue !== value);
-        } else {
-            nextValues = [...currentValues, value].sort((a, b) => availableValues.indexOf(a) - availableValues.indexOf(b));
-        }
-
-        if (
-            nextValues.length === currentValues.length
-            && nextValues.every((currentValue, index) => currentValue === currentValues[index])
-        ) {
-            return;
-        }
-
-        if (key === 'statusFilters') {
-            this.state.statusFilters = nextValues;
-        } else {
-            this.state.typeFilters = nextValues;
-        }
-        this.renderHeader(this.container.querySelector<HTMLElement>('#media-library-header')!);
-        this.renderContent(this.container.querySelector<HTMLElement>('#media-library-content')!);
-        this.notifyFilterChange();
-    }
-
     private notifyFilterChange() {
         this.onFilterChange?.({
             searchQuery: this.state.searchQuery,
-            typeFilters: [...this.state.typeFilters],
-            statusFilters: [...this.state.statusFilters],
+            hiddenTypes: new Set(this.state.hiddenTypes),
+            hiddenStatuses: new Set(this.state.hiddenStatuses),
             hideArchived: this.state.hideArchived,
             filterRules: this.state.filterRules.map(rule => ({ ...rule })),
             sortStages: this.state.sortStages.map((stage) => ({ ...stage })),

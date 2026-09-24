@@ -300,8 +300,8 @@ describe('MediaView', () => {
         );
         onFilterChange({
             searchQuery: 'Filtered',
-            typeFilters: ['Anime'],
-            statusFilters: ['Ongoing'],
+            hiddenTypes: new Set(['Anime']),
+            hiddenStatuses: new Set(['Ongoing']),
             hideArchived: true,
         });
 
@@ -754,8 +754,8 @@ describe('MediaView', () => {
             'MediaLibraryBrowser onFilterChange callback',
         );
         onFilterChange({
-            statusFilters: ['Ongoing'],
-            typeFilters: ['Anime'],
+            hiddenStatuses: new Set(['Ongoing']),
+            hiddenTypes: new Set(['Anime']),
             hideArchived: true,
         });
 

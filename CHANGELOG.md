@@ -9,6 +9,7 @@ The format is based on Keep a Changelog, with one section per released version.
 ### Changed
  - Selects now match multiselects through a forced Kechimochi theme. Mobile keeps its native picker.
  - Characters fields in the log and milestone modals start empty instead of 0 and accept only digits.
+ - General UIUX overhaul of the Library's header, filter pane, and sort pane.
 
 ### Fixed
  - Media details no longer show an empty stats box for media with no logged activity
@@ -16,6 +17,8 @@ The format is based on Keep a Changelog, with one section per released version.
  - Disabled primary buttons no longer lift or change color on hover
  - Fixed media data sometimes not being updated correctly on logging and archival, leading to all kinds of stale data quirks
  - Logging activity on an archived media now updates its "Archive" button (in the media's detail page) right away
+ - Library filter rules now group correctly: a non-ready rule starting an OR group no longer erases the group boundary
+ - The library's Filters and Sort panes now stay open when the window crosses the grid/list layout breakpoint
 
 ## [0.3.3] - 2026-09-22
 

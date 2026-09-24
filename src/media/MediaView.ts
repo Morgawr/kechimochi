@@ -29,8 +29,8 @@ import {
 
 interface MediaViewLibraryFilters {
     searchQuery: string;
-    typeFilters: string[];
-    statusFilters: string[];
+    hiddenTypes: ReadonlySet<string>;
+    hiddenStatuses: ReadonlySet<string>;
     hideArchived: boolean;
     filterRules: LibraryFilterRule[];
     sortStages: LibrarySortStage[];
@@ -89,8 +89,8 @@ export class MediaView extends Component<MediaViewState> {
             currentIndex: 0,
             libraryFilters: {
                 searchQuery: '',
-                typeFilters: [],
-                statusFilters: [],
+                hiddenTypes: new Set(),
+                hiddenStatuses: new Set(),
                 hideArchived: false,
                 filterRules: [],
                 sortStages: [],
@@ -201,10 +201,16 @@ export class MediaView extends Component<MediaViewState> {
             return;
         }
 
-        // Grid support only changes the library browser. Recreating the detail
-        // here would discard edits and open menus when crossing the breakpoint.
         this.state.isGridSupported = isGridSupported;
-        if (this.state.viewMode === 'grid') this.render();
+        if (this.state.viewMode !== 'grid') return;
+
+        if (this.activeSubComponent instanceof MediaLibraryBrowser) {
+            this.activeSubComponent.setGridSupport(isGridSupported);
+            this.captureRenderedLibraryPresentation();
+            return;
+        }
+
+        this.render();
     }
 
     private readonly keyboardHandler = (e: KeyboardEvent) => {
@@ -459,7 +465,7 @@ private async handleBack() {
         const availableTypes = new Set(snapshot.media.map((media) => resolveDisplayContentType(media)));
         libraryFilters = {
             ...libraryFilters,
-            typeFilters: libraryFilters.typeFilters.filter((type) => availableTypes.has(type)),
+            hiddenTypes: new Set([...libraryFilters.hiddenTypes].filter((type) => availableTypes.has(type))),
         };
 
         return { libraryFilters, preferredLayout, gridZoom };
@@ -570,13 +576,17 @@ private async handleBack() {
             && left.keepOngoingFirst === right.keepOngoingFirst
             && left.keepArchivedLast === right.keepArchivedLast
             && serializeLibrarySortStages(left.sortStages) === serializeLibrarySortStages(right.sortStages)
-            && this.areStringArraysEqual(left.typeFilters, right.typeFilters)
-            && this.areStringArraysEqual(left.statusFilters, right.statusFilters)
+            && this.areStringSetsEqual(left.hiddenTypes, right.hiddenTypes)
+            && this.areStringSetsEqual(left.hiddenStatuses, right.hiddenStatuses)
             && this.areFilterRulesEqual(left.filterRules, right.filterRules);
     }
 
-    private areStringArraysEqual(left: string[], right: string[]): boolean {
-        return left.length === right.length && left.every((value, index) => value === right[index]);
+    private areStringSetsEqual(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
+        if (left.size !== right.size) return false;
+        for (const value of left) {
+            if (!right.has(value)) return false;
+        }
+        return true;
     }
 
     private areFilterRulesEqual(
@@ -678,8 +688,8 @@ private async handleBack() {
             mediaList: this.state.libraryMediaList,
             libraryFilters: {
                 ...this.state.libraryFilters,
-                typeFilters: [...this.state.libraryFilters.typeFilters],
-                statusFilters: [...this.state.libraryFilters.statusFilters],
+                hiddenTypes: new Set(this.state.libraryFilters.hiddenTypes),
+                hiddenStatuses: new Set(this.state.libraryFilters.hiddenStatuses),
                 filterRules: this.state.libraryFilters.filterRules.map(rule => ({ ...rule })),
             },
             preferredLayout: this.state.preferredLayout,
@@ -814,6 +824,7 @@ private async handleBack() {
     }
 
     private renderBrowser(root: HTMLElement) {
+        root.classList.add('media-root-library');
         this.activeSubComponent = new MediaLibraryBrowser(
             root,
             {

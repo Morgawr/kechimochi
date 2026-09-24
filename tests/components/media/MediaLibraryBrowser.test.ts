@@ -53,8 +53,8 @@ vi.mock('../../../src/api', () => ({
 const createState = (overrides: Partial<{
     mediaList: Media[];
     searchQuery: string;
-    typeFilters: string[];
-    statusFilters: string[];
+    hiddenTypes: ReadonlySet<string>;
+    hiddenStatuses: ReadonlySet<string>;
     hideArchived: boolean;
     filterRules: LibraryFilterRule[];
     preferredLayout: LibraryLayoutMode;
@@ -65,8 +65,8 @@ const createState = (overrides: Partial<{
 }> = {}) => ({
     mediaList: [],
     searchQuery: '',
-    typeFilters: [],
-    statusFilters: [],
+    hiddenTypes: new Set<string>(),
+    hiddenStatuses: new Set<string>(),
     hideArchived: false,
     filterRules: [],
     preferredLayout: 'grid' as LibraryLayoutMode,
@@ -114,8 +114,8 @@ describe('MediaLibraryBrowser', () => {
             createState({
                 mediaList: mediaList as Media[],
                 searchQuery: 'a',
-                typeFilters: ['Anime'],
-                statusFilters: ['Ongoing', 'Complete'],
+                hiddenTypes: new Set(['Anime']),
+                hiddenStatuses: new Set(['Ongoing', 'Complete']),
                 preferredLayout: 'grid',
             }),
             onGridMediaClick,
@@ -147,8 +147,8 @@ describe('MediaLibraryBrowser', () => {
             createState({
                 mediaList: mediaList as Media[],
                 searchQuery: 'a',
-                typeFilters: ['Anime'],
-                statusFilters: ['Ongoing', 'Complete'],
+                hiddenTypes: new Set(['Anime']),
+                hiddenStatuses: new Set(['Ongoing', 'Complete']),
                 preferredLayout: 'list',
             }),
             onListMediaClick,

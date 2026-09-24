@@ -90,6 +90,12 @@ export function getLibraryExtraFieldValueKind(
     return inferExtraFieldValueType(getExtraFieldValues(extraDataIndex, fieldName));
 }
 
+const NON_NUMERIC_FILTER_VALUE_CHARACTER_PATTERN = /[^\d.,+-]/g;
+
+export function stripNonNumericFilterValueCharacters(rawValue: string): string {
+    return rawValue.replaceAll(NON_NUMERIC_FILTER_VALUE_CHARACTER_PATTERN, '');
+}
+
 export function getDefaultLibraryExtraFilterOperator(valueKind: SortValueKind): LibraryExtraFilterOperator {
     return valueKind === 'numeric' ? 'greaterThan' : 'contains';
 }
@@ -242,28 +248,69 @@ function matchesRule(
     return rule.negated ? !matches : matches;
 }
 
-function matchesRuleExpression(
-    media: Media,
+export interface LibraryFilterRuleGroupEntry {
+    rule: LibraryFilterRule;
+    ruleIndex: number;
+}
+
+export type LibraryFilterRuleGroup = LibraryFilterRuleGroupEntry[];
+
+export function groupLibraryFilterRules(rules: LibraryFilterRule[]): LibraryFilterRuleGroup[] {
+    const groups: LibraryFilterRuleGroup[] = [];
+
+    rules.forEach((rule, ruleIndex) => {
+        if (rule.join === 'or' || groups.length === 0) groups.push([]);
+        groups[groups.length - 1].push({ rule, ruleIndex });
+    });
+
+    return groups;
+}
+
+export function appendRuleToGroup(
     rules: LibraryFilterRule[],
-    extraDataIndex: Map<number, Record<string, string>>,
-    fieldValueKinds: Map<string, SortValueKind>,
-): boolean {
-    if (rules.length === 0) return true;
+    groupIndex: number,
+    rule: LibraryFilterRule,
+): LibraryFilterRule[] {
+    const group = groupLibraryFilterRules(rules)[groupIndex];
+    if (!group) return rules;
 
-    let completedOrGroupsMatch = false;
-    let currentAndGroupMatches = matchesRule(media, rules[0], extraDataIndex, fieldValueKinds);
+    const insertAt = group[group.length - 1].ruleIndex + 1;
+    const nextRules = [...rules];
+    nextRules.splice(insertAt, 0, { ...rule, join: 'and' });
+    return nextRules;
+}
 
-    for (const rule of rules.slice(1)) {
-        const ruleMatches = matchesRule(media, rule, extraDataIndex, fieldValueKinds);
-        if (rule.join === 'or') {
-            completedOrGroupsMatch = completedOrGroupsMatch || currentAndGroupMatches;
-            currentAndGroupMatches = ruleMatches;
-        } else {
-            currentAndGroupMatches = currentAndGroupMatches && ruleMatches;
-        }
+export function appendRuleGroup(rules: LibraryFilterRule[], rule: LibraryFilterRule): LibraryFilterRule[] {
+    return [...rules, { ...rule, join: 'or' }];
+}
+
+export function removeLibraryFilterRule(rules: LibraryFilterRule[], ruleIndex: number): LibraryFilterRule[] {
+    const removedRule = rules[ruleIndex];
+    if (!removedRule) return rules;
+
+    const removedRuleStartsGroup = ruleIndex === 0 || removedRule.join === 'or';
+    const nextRule = rules[ruleIndex + 1];
+    const nextRuleContinuesSameGroup = nextRule !== undefined && nextRule.join !== 'or';
+
+    const nextRules = rules.filter((_, index) => index !== ruleIndex);
+    if (removedRuleStartsGroup && nextRuleContinuesSameGroup) {
+        nextRules[ruleIndex] = { ...nextRules[ruleIndex], join: 'or' };
     }
+    return nextRules;
+}
 
-    return completedOrGroupsMatch || currentAndGroupMatches;
+export function removeLibraryFilterRuleGroup(rules: LibraryFilterRule[], groupIndex: number): LibraryFilterRule[] {
+    const group = groupLibraryFilterRules(rules)[groupIndex];
+    if (!group) return rules;
+
+    const removedRuleIndexes = new Set(group.map(entry => entry.ruleIndex));
+    return rules.filter((_, index) => !removedRuleIndexes.has(index));
+}
+
+export function toggleLibraryFilterRuleJoin(rules: LibraryFilterRule[], ruleIndex: number): LibraryFilterRule[] {
+    return rules.map((rule, index) => (
+        index === ruleIndex ? { ...rule, join: rule.join === 'or' ? 'and' : 'or' } : rule
+    ));
 }
 
 export function filterMediaByExtraData(
@@ -272,18 +319,27 @@ export function filterMediaByExtraData(
     extraDataIndex: Map<number, Record<string, string>>,
 ): Media[] {
     const facets = getLibraryExtraDataFacets(extraDataIndex);
-    const readyRules = rules.filter(rule => isLibraryFilterRuleReady(rule, extraDataIndex, facets));
+    const readyGroups = groupLibraryFilterRules(rules)
+        .map(group => group.filter(entry => isLibraryFilterRuleReady(entry.rule, extraDataIndex, facets)))
+        .filter(group => group.length > 0);
+
     const fieldValueKinds = new Map<string, SortValueKind>();
-    for (const rule of readyRules) {
-        if (rule.kind === 'extra' && !fieldValueKinds.has(rule.fieldName)) {
-            fieldValueKinds.set(
-                rule.fieldName,
-                getLibraryExtraFieldValueKind(extraDataIndex, rule.fieldName),
-            );
+    for (const group of readyGroups) {
+        for (const { rule } of group) {
+            if (rule.kind === 'extra' && !fieldValueKinds.has(rule.fieldName)) {
+                fieldValueKinds.set(
+                    rule.fieldName,
+                    getLibraryExtraFieldValueKind(extraDataIndex, rule.fieldName),
+                );
+            }
         }
     }
 
+    if (readyGroups.length === 0) return mediaList;
+
     return mediaList.filter(media => (
-        matchesRuleExpression(media, readyRules, extraDataIndex, fieldValueKinds)
+        readyGroups.some(group => (
+            group.every(({ rule }) => matchesRule(media, rule, extraDataIndex, fieldValueKinds))
+        ))
     ));
 }

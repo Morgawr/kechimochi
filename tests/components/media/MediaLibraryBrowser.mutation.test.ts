@@ -35,8 +35,8 @@ function createState(mediaList: Media[]) {
     return {
         mediaList,
         searchQuery: '',
-        typeFilters: [],
-        statusFilters: [],
+        hiddenTypes: new Set<string>(),
+        hiddenStatuses: new Set<string>(),
         hideArchived: false,
         preferredLayout: 'grid' as LibraryLayoutMode,
         gridZoom: 100,
@@ -151,7 +151,7 @@ describe('MediaLibraryBrowser context menu resolution and in-place mutation', ()
         const onFilterChange = vi.fn();
         const component = new MediaLibraryBrowser(
             container,
-            { ...createState(mediaList), typeFilters: ['Anime', 'Manga'] },
+            { ...createState(mediaList), hiddenTypes: new Set(['Anime', 'Manga']) },
             vi.fn(),
             vi.fn(),
             { onFilterChange },
