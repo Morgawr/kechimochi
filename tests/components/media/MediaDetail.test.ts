@@ -10,6 +10,7 @@ vi.mock('../../../src/api', () => ({
     readFileBytes: vi.fn(),
     updateMedia: vi.fn(),
     getLogsForMedia: vi.fn(() => Promise.resolve([])),
+    getAllMedia: vi.fn(() => Promise.resolve([])),
     getSetting: vi.fn(),
     deleteMedia: vi.fn(),
     addMilestone: vi.fn(),
@@ -1185,6 +1186,21 @@ describe('MediaDetail', () => {
         logBtn.click();
 
         await vi.waitFor(() => expect(modals.showLogActivityModal).toHaveBeenCalledWith(mockMedia.id));
+    });
+
+    it('should show archived media as unarchived once a new log reactivates it', async () => {
+        const archivedMedia = { ...mockMedia, status: 'Archived' };
+        vi.mocked(modals.showLogActivityModal).mockResolvedValue(true);
+        vi.mocked(api.getAllMedia).mockResolvedValue([{ ...archivedMedia, status: 'Active' }] as unknown as Media[]);
+        const component = new MediaDetail(container, { ...archivedMedia } as unknown as Media, [], [archivedMedia as unknown as Media], 0, mockCallbacks);
+        component.triggerMount();
+        component.render();
+        const archiveToggle = () => container.querySelector('#btn-toggle-archive');
+        expect(archiveToggle()?.getAttribute('aria-pressed')).toBe('true');
+
+        (container.querySelector('#btn-new-media-entry') as HTMLElement).click();
+
+        await vi.waitFor(() => expect(archiveToggle()?.getAttribute('aria-pressed')).toBe('false'));
     });
 
     it('should handle milestone deletion error', async () => {
