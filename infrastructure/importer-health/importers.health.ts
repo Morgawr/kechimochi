@@ -10,7 +10,6 @@ import { BookwalkerImporter } from '../../src/importers/bookwalker';
 import { BookmeterImporter } from '../../src/importers/bookmeter';
 import { ShonenjumpplusImporter } from '../../src/importers/shonenjumpplus';
 import { JitenImporter } from '../../src/importers/jiten';
-import { DmmImporter } from '../../src/importers/dmm';
 
 type FieldRule =
     | { kind: 'empty' }
@@ -156,17 +155,7 @@ const samples: HealthSample[] = [
             'Jiten difficulty': { kind: 'number', minimum: 0, maximum: 5 },
         },
     }),
-    sample('DMM Games', new DmmImporter(), 'https://dlsoft.dmm.com/detail/falcom_0002/', {
-        title: EMPTY,
-        description: DESCRIPTION,
-        coverImageUrl: EMPTY,
-        extraData: {
-            Developer: TEXT,
-            Genre: TEXT,
-            'Release date': TEXT,
-            Platform: TEXT,
-        },
-    }),
+    // DMM Games blocks the GitHub-hosted health runner because it operates outside Japan.
 ];
 
 const healthResults: HealthResult[] = [];
