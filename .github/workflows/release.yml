@@ -426,7 +426,7 @@ jobs:
         uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: stable
-          targets: aarch64-linux-android
+          targets: aarch64-linux-android, armv7-linux-androideabi, i686-linux-android, x86_64-linux-android
 
       - name: cache rust dependencies
         uses: swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
@@ -453,7 +453,15 @@ jobs:
           VITE_RELEASE_STAGE: ${{ needs.validate-release.outputs.release_stage }}
         run: npm run tauri -- android build --apk --ci --target aarch64
 
-      - name: sign android apk
+      - name: build android app bundle
+        env:
+          KECHIMOCHI_GOOGLE_ANDROID_CLIENT_ID: ${{ secrets.KECHIMOCHI_GOOGLE_ANDROID_RELEASE_CLIENT_ID }}
+          VITE_APP_VERSION: ${{ needs.validate-release.outputs.version }}
+          VITE_APP_CHANNEL: release
+          VITE_RELEASE_STAGE: ${{ needs.validate-release.outputs.release_stage }}
+        run: npm run tauri -- android build --aab --ci
+
+      - name: sign android packages
         shell: bash
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -465,7 +473,10 @@ jobs:
           test -n "$ANDROID_KEYSTORE_PASSWORD"
           test -n "$ANDROID_KEY_ALIAS"
           test -n "$ANDROID_KEY_PASSWORD"
-          APK=$(find src-tauri/gen/android/app/build/outputs/apk/universal/release -maxdepth 1 -type f -name '*.apk' | head -n 1)
+          APK=$(find src-tauri/gen/android/app/build/outputs/apk/universal/release -maxdepth 1 -type f -name '*.apk' -print -quit)
+          AAB=$(find src-tauri/gen/android/app/build/outputs/bundle -type f -name '*.aab' -print -quit)
+          test -n "$APK"
+          test -n "$AAB"
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > /tmp/kechimochi-release.jks
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" sign \
             --ks /tmp/kechimochi-release.jks \
@@ -475,19 +486,38 @@ jobs:
             --out /tmp/kechimochi-android-release-signed.apk \
             "$APK"
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs /tmp/kechimochi-android-release-signed.apk
+          jarsigner \
+            -keystore /tmp/kechimochi-release.jks \
+            -storepass:env ANDROID_KEYSTORE_PASSWORD \
+            -keypass:env ANDROID_KEY_PASSWORD \
+            -signedjar /tmp/kechimochi-android-release-signed.aab \
+            "$AAB" \
+            "$ANDROID_KEY_ALIAS"
+          jarsigner -verify /tmp/kechimochi-android-release-signed.aab
+          AAB_CERT_SHA1=$(keytool -printcert -jarfile /tmp/kechimochi-android-release-signed.aab | awk -F'SHA1: ' '/SHA1:/{print $2; exit}')
+          test "$AAB_CERT_SHA1" = "24:BE:4A:D4:79:9F:37:80:45:54:29:01:1C:A3:BF:C7:FC:8A:3F:67"
 
-      - name: rename APK asset
+      - name: prepare android artifacts
         shell: bash
         run: |
           VERSION="${{ needs.validate-release.outputs.version }}"
           mkdir -p release-mobile
           cp /tmp/kechimochi-android-release-signed.apk "release-mobile/kechimochi-android-${VERSION}.apk"
+          cp /tmp/kechimochi-android-release-signed.aab "release-mobile/kechimochi-android-${VERSION}.aab"
 
-      - name: upload release asset
+      - name: upload android APK release asset
         uses: actions/upload-artifact@v4
         with:
           name: release-android
           path: release-mobile/kechimochi-android-${{ needs.validate-release.outputs.version }}.apk
+
+      - name: upload Play Store app bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: play-store-android-${{ needs.validate-release.outputs.version }}
+          path: release-mobile/kechimochi-android-${{ needs.validate-release.outputs.version }}.aab
+          if-no-files-found: error
+          retention-days: 14
 
   publish-release:
     runs-on: ubuntu-latest
