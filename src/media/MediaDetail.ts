@@ -6,6 +6,7 @@ import {
     clearMilestones,
     deleteMilestone,
     downloadAndSaveImage,
+    getAllMedia,
     getLogsForMedia,
     getMilestones,
     getSetting,
@@ -194,6 +195,18 @@ export class MediaDetail extends Component<MediaDetailState> {
             this.renderStats(this.container);
             new MediaLog(logsContainer, logs).render();
         } else {
+            this.render();
+        }
+        return true;
+    }
+
+    private async reloadLogsAndStatus(mediaId: number): Promise<boolean> {
+        const [logs, allMedia] = await Promise.all([getLogsForMedia(mediaId), getAllMedia()]);
+        if (!this.updateLogs(mediaId, logs)) return false;
+
+        const freshStatus = allMedia.find(media => media.id === mediaId)?.status;
+        if (freshStatus !== undefined && freshStatus !== this.state.media.status) {
+            this.state.media.status = freshStatus;
             this.render();
         }
         return true;
@@ -640,9 +653,8 @@ export class MediaDetail extends Component<MediaDetailState> {
         new MediaLog(logsContainer, logs).render();
 
         logsContainer.addEventListener('activity-updated', async () => {
-            if (this.state.media.id) {
-                const updatedLogs = await getLogsForMedia(this.state.media.id);
-                if (this.updateLogs(this.state.media.id, updatedLogs)) notifyLocalDataChanged();
+            if (this.state.media.id && await this.reloadLogsAndStatus(this.state.media.id)) {
+                notifyLocalDataChanged();
             }
         });
     }
@@ -1267,8 +1279,7 @@ export class MediaDetail extends Component<MediaDetailState> {
         root.querySelector('#btn-new-media-entry')?.addEventListener('click', async () => {
             const outcome = await addLogForMedia(this.state.media);
             if (outcome.committed) {
-                const logs = await getLogsForMedia(this.state.media.id!);
-                this.updateLogs(this.state.media.id!, logs);
+                await this.reloadLogsAndStatus(this.state.media.id!);
             }
         });
     }

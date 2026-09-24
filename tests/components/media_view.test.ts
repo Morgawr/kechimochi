@@ -621,7 +621,7 @@ describe('MediaView', () => {
 
         component.state.viewMode = 'detail';
         detailCallbacks.onDelete();
-        await vi.waitFor(() => expect(api.getAllMedia).toHaveBeenCalledTimes(3));
+        await vi.waitFor(() => expect(api.getAllMedia).toHaveBeenCalledTimes(4));
         await vi.waitFor(() => expect(component.state.viewMode).toBe('grid'));
     });
 
@@ -1060,6 +1060,52 @@ describe('MediaView', () => {
                 'MediaLibraryBrowser onActionCommitted callback',
             );
         }
+
+        async function openDetailThenReturnToLibrary(
+            media: Record<string, unknown>,
+            changeBackendWhileInDetail: () => void,
+        ): Promise<void> {
+            vi.mocked(api.getAllMedia).mockResolvedValue([media] as unknown as Media[]);
+            vi.mocked(api.getLogsForMedia).mockResolvedValue([]);
+            const component = new MediaView(container);
+            await renderAndWaitForBrowser(component);
+
+            const onSelect = vi.mocked(MediaLibraryBrowser).mock.calls[0][2];
+            onSelect({ mediaId: media.id as number, navigationIds: [media.id as number] });
+            await vi.waitFor(() => expect(MediaDetail).toHaveBeenCalled());
+
+            changeBackendWhileInDetail();
+            const detailCallbacks = lastMockCallArguments(vi.mocked(MediaDetail).mock.calls, 'MediaDetail')[5];
+            detailCallbacks.onBackToLibrary();
+        }
+
+        it('delivers activity metrics logged in the detail view to the library after returning', async () => {
+            const media = { id: 1, title: 'Logged in detail', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' };
+            await openDetailThenReturnToLibrary(media, () => {
+                vi.mocked(api.getLogs).mockResolvedValue([
+                    { media_id: 1, date: '2026-01-01', duration_minutes: 10, characters: 1000 },
+                ] as unknown as Awaited<ReturnType<typeof api.getLogs>>);
+            });
+
+            await vi.waitFor(() => expect(browserInstance().applyLibraryMutation).toHaveBeenCalledWith(
+                { kind: 'updated', mediaId: 1, media: expect.objectContaining({ id: 1 }) },
+                expect.anything(),
+                expect.objectContaining({ 1: expect.objectContaining({ lastActivitySortKey: '2026-01-01' }) }),
+            ));
+        });
+
+        it('delivers a status changed while in the detail view to the library after returning', async () => {
+            const media = { id: 1, title: 'Reactivated', status: 'Archived', content_type: 'Anime', tracking_status: 'Complete' };
+            await openDetailThenReturnToLibrary(media, () => {
+                vi.mocked(api.getAllMedia).mockResolvedValue([{ ...media, status: 'Active' }] as unknown as Media[]);
+            });
+
+            await vi.waitFor(() => expect(browserInstance().applyLibraryMutation).toHaveBeenCalledWith(
+                { kind: 'updated', mediaId: 1, media: expect.objectContaining({ status: 'Active' }) },
+                expect.anything(),
+                expect.anything(),
+            ));
+        });
 
         it('drives the update from the snapshot diff, not from the media that was right-clicked', async () => {
             const mediaA = { id: 1, title: 'Right-clicked', status: 'Active', content_type: 'Anime', tracking_status: 'Ongoing' };

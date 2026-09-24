@@ -14,6 +14,8 @@ The format is based on Keep a Changelog, with one section per released version.
  - Media details no longer show an empty stats box for media with no logged activity
  - Imdb importer works again
  - Disabled primary buttons no longer lift or change color on hover
+ - Fixed media data sometimes not being updated correctly on logging and archival, leading to all kinds of stale data quirks
+ - Logging activity on an archived media now updates its "Archive" button (in the media's detail page) right away
 
 ## [0.3.3] - 2026-09-22
 
