@@ -16,6 +16,8 @@ The format is based on Keep a Changelog, with one section per released version.
  - Disabled primary buttons no longer lift or change color on hover
  - Fixed media data sometimes not being updated correctly on logging and archival, leading to all kinds of stale data quirks
  - Logging activity on an archived media now updates its "Archive" button (in the media's detail page) right away
+ - Dashboard chart tooltips no longer list entries with 0 minutes/characters, and disappear once the cursor leaves a bar, slice or dot.
+ - Activity Visualization legend color boxes are now the same size in bar and line mode.
 
 ## [0.3.3] - 2026-09-22
 

@@ -1,3 +1,4 @@
+import type { ChartType, Plugin } from 'chart.js';
 import { ActivitySummary, Media } from '../api';
 
 const DISPLAY_FRAME_MS = 1000 / 60;
@@ -120,4 +121,49 @@ export function toDatasets(
             fill: chartType === 'line' ? false : undefined,
             tension: 0.3
         }));
+}
+
+interface ChartElementReference {
+    datasetIndex: number;
+    index: number;
+}
+
+export function selectVisibleTooltipElements<T extends ChartElementReference>(
+    activeElements: T[],
+    datasets: { data: unknown[] }[],
+    inChartArea: boolean,
+    hideZeroValues: boolean,
+): T[] {
+    if (!inChartArea) return [];
+    if (!hideZeroValues) return activeElements;
+    return activeElements.filter(({ datasetIndex, index }) => {
+        const value = datasets[datasetIndex]?.data[index];
+        return typeof value === 'number' && value > 0;
+    });
+}
+
+export function createTooltipVisibilityPlugin<TType extends ChartType>(hideZeroValues: boolean): Plugin<TType> {
+    return {
+        id: 'tooltipVisibility',
+        // Fixing Chart.js deliberately keeping the last active elements while the pointer is outside the chart area, for some reason..
+        afterEvent(chart, args) {
+            const { tooltip } = chart;
+            if (!tooltip) return;
+            const { datasets } = chart.data;
+
+            const tooltipElements = tooltip.getActiveElements();
+            const visibleTooltipElements = selectVisibleTooltipElements(tooltipElements, datasets, args.inChartArea, hideZeroValues);
+            if (visibleTooltipElements.length !== tooltipElements.length) {
+                tooltip.setActiveElements(visibleTooltipElements, { x: args.event.x ?? 0, y: args.event.y ?? 0 });
+                args.changed = true;
+            }
+
+            const hoverElements = chart.getActiveElements();
+            const visibleHoverElements = selectVisibleTooltipElements(hoverElements, datasets, args.inChartArea, hideZeroValues);
+            if (visibleHoverElements.length !== hoverElements.length) {
+                chart.setActiveElements(visibleHoverElements);
+                args.changed = true;
+            }
+        },
+    };
 }
