@@ -2,7 +2,7 @@
  * Dashboard-specific helpers.
  */
 import { clickTopmostOverlayChild, confirmAction, performActivityEdit, safeClick, getTopmostVisibleOverlay, waitForNoActiveOverlays, selectActivityDate } from './common.js';
-import { setText, setSelect } from './form-controls.js';
+import { pressEnter, setText, setSelect } from './form-controls.js';
 
 export function dashboardCardSelector(id: string): string {
     return `[data-dashboard-card="${id}"]`;
@@ -76,18 +76,7 @@ async function selectExistingActivityMedia(title: string, variant?: string): Pro
     }
 }
 
-/**
- * High-level helper to log an activity from the dashboard
- */
-export async function logActivity(
-    title: string,
-    duration: string,
-    characters: string = "0",
-    date?: string,
-    activityType?: string,
-    notes?: string,
-    mediaVariant?: string,
-): Promise<void> {
+async function openActivityFormWithAmounts(title: string, duration: string, characters: string, mediaVariant?: string) {
     await waitForNoActiveOverlays();
     const addActivityBtn = $('#btn-add-activity');
     await addActivityBtn.waitForClickable({ timeout: 5000 });
@@ -106,6 +95,25 @@ export async function logActivity(
     if (await overlay.$('#activity-characters').isExisting()) {
         await setText('#activity-characters', characters);
     }
+
+    return overlay;
+}
+
+export async function submitIncompleteActivity(title: string, duration: string, characters: string): Promise<void> {
+    await openActivityFormWithAmounts(title, duration, characters);
+    await pressEnter('#activity-characters');
+}
+
+export async function logActivity(
+    title: string,
+    duration: string,
+    characters: string = "0",
+    date?: string,
+    activityType?: string,
+    notes?: string,
+    mediaVariant?: string,
+): Promise<void> {
+    const overlay = await openActivityFormWithAmounts(title, duration, characters, mediaVariant);
 
     if (activityType) {
         if (await overlay.$('#activity-type').isExisting()) {

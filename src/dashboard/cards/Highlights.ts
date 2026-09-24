@@ -1,7 +1,7 @@
 import { Component } from '../../component';
 import { ActivitySummary, DashboardMedia, DashboardRangeResponse, Media } from '../../api';
 import { escapeHTML } from '../../html';
-import { formatCount, formatOptionalCount } from '../../count_formatting';
+import { formatCount, formatOptionalCount } from '../../counts';
 import { formatOptionalStatsDuration, formatStatsDuration, formatWeekdayDate } from '../../time';
 import type { Totals } from '../range_context';
 import { MediaCoverLoader } from '../../media/cover_loader';

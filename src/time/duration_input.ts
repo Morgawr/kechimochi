@@ -19,11 +19,12 @@ function errorMessageFor(failure: DurationParseFailure): string {
 }
 
 /**
- * Wires a free-form duration input to a hint element and a confirm button: parses on
- * every keystroke, disables the confirm button while the input is unparseable, and
- * shows a live "parsed to" hint otherwise. `getDurationMinutes` returns `null` for input
- * that cannot be parsed, so callers reached by other means than the confirm button (the
- * Enter key, say) cannot mistake a rejected duration for zero.
+ * Wires a free-form duration input to a hint element: parses on every keystroke, shows a
+ * live "parsed to" hint, and calls `onChange` after each edit so the caller can decide
+ * whether its confirm button is usable. `onChange` is not called while wiring, because the
+ * caller does not have `getDurationMinutes` yet. `getDurationMinutes` returns `null` for
+ * input that cannot be parsed, so callers reached by other means than the confirm button
+ * (the Enter key, say) cannot mistake a rejected duration for zero.
  *
  * Rejection is reported only once typing pauses or focus leaves. Validating on every
  * keystroke but reporting immediately would flash an error while "5h12m" is still being
@@ -32,7 +33,7 @@ function errorMessageFor(failure: DurationParseFailure): string {
 export function wireDurationInput(
     inputElement: HTMLInputElement,
     hintElement: HTMLElement,
-    confirmButton: HTMLButtonElement
+    onChange: () => void
 ): { getDurationMinutes: () => number | null } {
     let pendingErrorTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -57,12 +58,10 @@ export function wireDurationInput(
             hintElement.textContent = '';
             hintElement.hidden = true;
             hintElement.classList.remove(DURATION_HINT_INVALID_CLASS);
-            confirmButton.disabled = false;
             return;
         }
 
         const result = parseDuration(inputElement.value);
-        confirmButton.disabled = result.status !== 'parsed';
 
         if (result.status === 'parsed') {
             hintElement.hidden = false;
@@ -84,7 +83,10 @@ export function wireDurationInput(
         showError(errorMessageFor(result));
     };
 
-    inputElement.addEventListener('input', update);
+    inputElement.addEventListener('input', () => {
+        update();
+        onChange();
+    });
     inputElement.addEventListener('blur', flushError);
     update();
 

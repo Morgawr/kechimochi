@@ -108,6 +108,50 @@ describe('modals/milestone.ts', () => {
         expect(confirmed).toBe(false);
     });
 
+    it('should open with an empty characters field and a disabled confirm button that explains why', async () => {
+        void showAddMilestoneModal('Test Media', 'uid-test-media', { duration: 0, characters: 0 });
+        await vi.waitFor(() => document.querySelector('#milestone-confirm'));
+
+        const charactersInput = document.querySelector('#milestone-characters') as HTMLInputElement;
+        const confirmButton = document.querySelector('#milestone-confirm') as HTMLButtonElement;
+        expect(charactersInput.value).toBe('');
+        expect(charactersInput.placeholder).toBe('e.g. 1500');
+        expect(confirmButton.disabled).toBe(true);
+        expect(confirmButton.title).toBe('Please enter a milestone name, and also a duration, a character count, or both.');
+    });
+
+    it('should enable the confirm button once a name and a character count are entered', async () => {
+        void showAddMilestoneModal('Test Media', 'uid-test-media');
+        await vi.waitFor(() => document.querySelector('#milestone-confirm'));
+
+        const nameInput = document.querySelector('#milestone-name') as HTMLInputElement;
+        nameInput.value = 'Route A';
+        nameInput.dispatchEvent(new Event('input'));
+        const confirmButton = document.querySelector('#milestone-confirm') as HTMLButtonElement;
+        expect(confirmButton.title).toBe('Please enter a duration, a character count, or both.');
+
+        const charactersInput = document.querySelector('#milestone-characters') as HTMLInputElement;
+        charactersInput.value = '12,000';
+        charactersInput.dispatchEvent(new Event('input'));
+
+        expect(charactersInput.value).toBe('12000');
+        expect(confirmButton.disabled).toBe(false);
+    });
+
+    it('should list every missing input and not confirm when Enter is pressed in an empty modal', async () => {
+        const promise = showAddMilestoneModal('Test Media', 'uid-test-media');
+        let confirmed = false;
+        promise.then(() => { confirmed = true; });
+        await vi.waitFor(() => document.querySelector('#milestone-name'));
+
+        document.querySelector('#milestone-name')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(confirmed).toBe(false);
+        expect(document.body.textContent).toContain('Please enter a milestone name, and also a duration, a character count, or both.');
+    });
+
     it('should prefill and update existing milestone in edit mode', async () => {
         const existing = {
             id: 7,

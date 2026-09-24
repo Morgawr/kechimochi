@@ -16,7 +16,7 @@ import type {
     TimelineEventKind,
     TimelineSummary,
 } from '../types';
-import { formatOptionalCount, formatOptionalNumber } from '../count_formatting';
+import { formatOptionalCount, formatOptionalNumber } from '../counts';
 import { formatOptionalStatsDuration, formatStatsDuration } from '../time';
 import { MediaCoverLoader } from '../media/cover_loader';
 import { CoverVisibilityController } from '../media/cover_visibility';

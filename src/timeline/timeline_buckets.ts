@@ -2,7 +2,7 @@
  * Pure bucket-row formatting for the `month` / `year` timeline zoom levels. No DOM.
  */
 import type { TimelineBucket, TimelineBucketGranularity, TimelineEventKind, TimelineSummary } from '../types';
-import { formatOptionalCount } from '../count_formatting';
+import { formatOptionalCount } from '../counts';
 import { formatOptionalStatsDuration } from '../time';
 
 export const EMPTY_TIMELINE_SUMMARY: TimelineSummary = {

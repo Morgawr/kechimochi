@@ -30,6 +30,13 @@ import {
     type DateKey,
     type DateScope,
 } from './time';
+import { COUNT_INPUT_PLACEHOLDER, readCount, wireDigitsOnlyInput } from './counts';
+import {
+    MISSING_INPUTS_ALERT_TITLE,
+    describeMissingAmount,
+    formatMissingInputsMessage,
+    syncConfirmButton,
+} from './log_entry_validation';
 
 type ActivityType = typeof ACTIVITY_TYPES[number];
 
@@ -244,7 +251,7 @@ export async function showLogActivityModal(prefillMediaId?: number, editLog?: Ac
                         </div>
                         <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.5rem;">
                             <label style="font-size: 0.85rem; color: var(--text-secondary);">Characters</label>
-                            <input type="number" id="activity-characters" value="${editLog?.characters || 0}" min="0" step="1" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); width: 100%;" />
+                            <input type="text" id="activity-characters" inputmode="numeric" autocomplete="off" placeholder="${escapeAttribute(COUNT_INPUT_PLACEHOLDER)}" value="${editLog?.characters ? String(editLog.characters) : ''}" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); width: 100%;" />
                         </div>
                     </div>
                     <div style="display: flex; gap: 1rem; width: 100%;">
@@ -424,9 +431,22 @@ export async function showLogActivityModal(prefillMediaId?: number, editLog?: Ac
         const durationInput = overlay.querySelector<HTMLInputElement>('#activity-duration')!;
         const durationHint = overlay.querySelector<HTMLElement>('#activity-duration-hint')!;
         const submitButton = overlay.querySelector<HTMLButtonElement>('#activity-submit')!;
-        const { getDurationMinutes } = wireDurationInput(durationInput, durationHint, submitButton);
-
+        const charactersInput = overlay.querySelector<HTMLInputElement>('#activity-characters')!;
         const titleInput = overlay.querySelector<HTMLInputElement>('#activity-media')!;
+        const listMissingInputs = (): string[] => {
+            const missingInputs: string[] = [];
+            if (!titleInput.value.trim() && !editLog) missingInputs.push('a media title');
+            const missingAmount = describeMissingAmount(getDurationMinutes(), readCount(charactersInput));
+            if (missingAmount) missingInputs.push(missingAmount);
+            return missingInputs;
+        };
+        const syncSubmitButton = () => syncConfirmButton(submitButton, listMissingInputs());
+        const { getDurationMinutes } = wireDurationInput(durationInput, durationHint, syncSubmitButton);
+        wireDigitsOnlyInput(charactersInput);
+        charactersInput.addEventListener('input', syncSubmitButton);
+        titleInput.addEventListener('input', syncSubmitButton);
+        syncSubmitButton();
+
         const suggestionList = overlay.querySelector<HTMLElement>('#activity-media-suggestions')!;
         const activityTypeSelect = overlay.querySelector<HTMLSelectElement>('#activity-type')!;
         const mediaVariantLabel = overlay.querySelector<HTMLElement>('#activity-media-variant')!;
@@ -457,6 +477,7 @@ export async function showLogActivityModal(prefillMediaId?: number, editLog?: Ac
         const selectMedia = (media: Media & { id: number }) => {
             selectedMediaId = media.id;
             titleInput.value = media.title;
+            syncSubmitButton();
             syncSelectedMediaContext(media, true);
             hideSuggestions();
             titleInput.focus({ preventScroll: true });
@@ -642,28 +663,24 @@ export async function showLogActivityModal(prefillMediaId?: number, editLog?: Ac
         };
 
         overlay.querySelector('#activity-cancel')!.addEventListener('click', dismiss);
-        overlay.querySelector('#add-activity-form')!.addEventListener('submit', async (e) => {
+        const form = overlay.querySelector<HTMLFormElement>('#add-activity-form')!;
+        // A disabled submit button blocks the browser's Enter-to-submit, so Enter would otherwise do nothing.
+        form.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' || event.defaultPrevented || !submitButton.disabled) return;
+            if (!(event.target instanceof HTMLInputElement)) return;
+            event.preventDefault();
+            void customAlert(MISSING_INPUTS_ALERT_TITLE, formatMissingInputsMessage(listMissingInputs()));
+        });
+        form.addEventListener('submit', async (e) => {
             e.preventDefault();
             const mediaTitleRaw = overlay.querySelector<HTMLInputElement>('#activity-media')!.value.trim();
             const mediaTitle = mediaTitleRaw || (editLog ? editLog.title : '');
             const duration = getDurationMinutes();
-            const characters = Number.parseInt(overlay.querySelector<HTMLInputElement>('#activity-characters')!.value, 10) || 0;
+            const characters = readCount(charactersInput);
             const dateToSave = selectedDate;
             const scopeToSave = scope;
 
-            if (!mediaTitle) {
-                await customAlert("Required Field", "Please enter a Media Title.");
-                return;
-            }
-            if (duration === null) return;
-            if (characters < 0) {
-                await customAlert("Invalid Characters", "Activity character count cannot be negative.");
-                return;
-            }
-            if (duration <= 0 && characters <= 0) {
-                await customAlert("Input Required", "Please enter either duration or characters.");
-                return;
-            }
+            if (duration === null || listMissingInputs().length > 0) return;
 
             try {
                 const activityType = overlay.querySelector<HTMLSelectElement>('#activity-type')!.value;
