@@ -146,7 +146,7 @@ describe('MediaLibraryBrowser context menu resolution and in-place mutation', ()
         expect(event.defaultPrevented).toBe(true);
     });
 
-    it('drops a type filter and its chip once the last media of that type is deleted', async () => {
+    it('drops a hidden type from the type multiselect once the last media of that type is deleted', async () => {
         const mediaList = [makeMedia(1, 'Alpha'), makeMedia(2, 'Beta', { content_type: 'Manga' })];
         const onFilterChange = vi.fn();
         const component = new MediaLibraryBrowser(
@@ -158,8 +158,11 @@ describe('MediaLibraryBrowser context menu resolution and in-place mutation', ()
         );
         component.render();
 
-        const mangaChip = () => container.querySelector('.media-filter-chip[data-filter-group="type"][data-filter-value="Manga"]');
-        expect(mangaChip()).not.toBeNull();
+        const typeTrigger = () => container.querySelector('#media-type-multiselect-trigger') as HTMLButtonElement;
+
+        typeTrigger().click();
+        expect(document.querySelector('.multi-select-panel input[value="Manga"]')).not.toBeNull();
+        typeTrigger().click();
 
         await component.applyLibraryMutation(
             { kind: 'deleted', mediaId: 2 },
@@ -167,8 +170,9 @@ describe('MediaLibraryBrowser context menu resolution and in-place mutation', ()
             {},
         );
 
-        expect(mangaChip()).toBeNull();
-        expect(onFilterChange).toHaveBeenCalledWith(expect.objectContaining({ typeFilters: ['Anime'] }));
+        typeTrigger().click();
+        expect(document.querySelector('.multi-select-panel input[value="Manga"]')).toBeNull();
+        expect(onFilterChange).toHaveBeenCalledWith(expect.objectContaining({ hiddenTypes: new Set(['Anime']) }));
     });
 
     it('closes an open context menu when the layout re-renders wholesale', () => {

@@ -219,8 +219,8 @@ describe('MediaView', () => {
 
         expect(vi.mocked(MediaLibraryBrowser).mock.calls[0][1]).toEqual(expect.objectContaining({
             searchQuery: '',
-            statusFilters: [],
-            typeFilters: [],
+            hiddenStatuses: new Set(),
+            hiddenTypes: new Set(),
             hideArchived: true,
             preferredLayout: 'list',
             gridZoom: 80,
@@ -317,8 +317,8 @@ describe('MediaView', () => {
         expect(MediaLibraryBrowser).toHaveBeenCalledTimes(2);
         expect(vi.mocked(MediaLibraryBrowser).mock.calls.at(-1)?.[1]).toEqual(expect.objectContaining({
             searchQuery: 'Filtered',
-            typeFilters: ['Anime'],
-            statusFilters: ['Ongoing'],
+            hiddenTypes: new Set(['Anime']),
+            hiddenStatuses: new Set(['Ongoing']),
             hideArchived: true,
         }));
     });
@@ -762,8 +762,8 @@ describe('MediaView', () => {
         expect(api.setSetting).toHaveBeenCalledWith(SETTING_KEYS.GRID_HIDE_ARCHIVED, 'true');
         expect(component.state.libraryFilters).toEqual({
             searchQuery: '',
-            statusFilters: ['Ongoing'],
-            typeFilters: ['Anime'],
+            hiddenStatuses: new Set(['Ongoing']),
+            hiddenTypes: new Set(['Anime']),
             hideArchived: true,
             filterRules: [],
             sortStages: [],

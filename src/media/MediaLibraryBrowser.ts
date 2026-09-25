@@ -3,6 +3,7 @@ import { html, escapeHTML, escapeAttribute, rawHtml } from '../html';
 import { Media, addMedia } from '../api';
 import { showAddMediaModal } from './modal';
 import { createCancelableOverlay, OVERLAY_FADE_OUT_MS, type CancelableOverlayHandle } from '../modal_base';
+import { captureHostFocusState, restoreHostFocusState } from '../focus_preservation';
 import { CONTENT_TYPES, EVENTS, TRACKING_STATUSES, MEDIA_STATUS } from '../constants';
 import { MediaGrid } from './MediaGrid';
 import { MediaList } from './MediaList';
@@ -251,52 +252,6 @@ function fromFilterSubjectOptionValue(optionValue: string): { kind: FilterSubjec
 
 function computeTypeOptionsKey(uniqueTypes: readonly string[]): string {
     return uniqueTypes.join('\u0000');
-}
-
-interface HostFocusState {
-    selector: string;
-    selectionStart: number | null;
-    selectionEnd: number | null;
-}
-
-function captureHostFocusState(host: HTMLElement): HostFocusState | null {
-    const activeElement = document.activeElement;
-    if (!(activeElement instanceof HTMLElement) || !host.contains(activeElement)) return null;
-
-    const structuralClass = activeElement.classList[0];
-    const index = activeElement.dataset.levelIndex ?? activeElement.dataset.ruleIndex;
-    if (!structuralClass || index === undefined) return null;
-    const indexAttribute = activeElement.dataset.levelIndex !== undefined ? 'data-level-index' : 'data-rule-index';
-    const direction = activeElement.dataset.direction;
-    const directionSelector = direction === undefined ? '' : `[data-direction="${direction}"]`;
-    const negated = activeElement.dataset.negated;
-    const negatedSelector = negated === undefined ? '' : `[data-negated="${negated}"]`;
-
-    const selectionStart = 'selectionStart' in activeElement ? (activeElement as HTMLInputElement).selectionStart : null;
-    const selectionEnd = 'selectionEnd' in activeElement ? (activeElement as HTMLInputElement).selectionEnd : null;
-
-    return {
-        selector: `.${structuralClass}[${indexAttribute}="${index}"]${directionSelector}${negatedSelector}`,
-        selectionStart,
-        selectionEnd,
-    };
-}
-
-function restoreHostFocusState(host: HTMLElement, state: HostFocusState | null): void {
-    if (!state) return;
-
-    const element = host.querySelector<HTMLElement>(state.selector);
-    if (!element) return;
-
-    element.focus({ preventScroll: true });
-    if (state.selectionStart === null || state.selectionEnd === null) return;
-    if (!('setSelectionRange' in element)) return;
-
-    try {
-        (element as HTMLInputElement).setSelectionRange(state.selectionStart, state.selectionEnd);
-    } catch {
-        // Some input types (e.g. number, email) do not support text selection.
-    }
 }
 
 export interface LibraryMediaSelection {
@@ -595,32 +550,33 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
     private renderFilterNegationToggle(rule: LibraryFilterRule, ruleIndex: number): string {
         return `
             <div class="media-filter-negation-toggle" role="group" aria-label="Rule ${ruleIndex + 1} match mode">
-                <button type="button" class="media-filter-negation-option ${!rule.negated ? 'is-active' : ''}" data-rule-index="${ruleIndex}" data-negated="false" aria-pressed="${!rule.negated}" aria-label="Switch rule ${ruleIndex + 1} to Match">Match</button>
-                <button type="button" class="media-filter-negation-option ${rule.negated ? 'is-active' : ''}" data-rule-index="${ruleIndex}" data-negated="true" aria-pressed="${rule.negated}" aria-label="Switch rule ${ruleIndex + 1} to Not">Not</button>
+                <button type="button" class="media-filter-negation-option ${!rule.negated ? 'is-active' : ''}" data-focus-key="filter-negation-option" data-rule-index="${ruleIndex}" data-negated="false" aria-pressed="${!rule.negated}" aria-label="Switch rule ${ruleIndex + 1} to Match">Match</button>
+                <button type="button" class="media-filter-negation-option ${rule.negated ? 'is-active' : ''}" data-focus-key="filter-negation-option" data-rule-index="${ruleIndex}" data-negated="true" aria-pressed="${rule.negated}" aria-label="Switch rule ${ruleIndex + 1} to Not">Not</button>
             </div>
         `;
     }
 
     private renderFilterOrDivider(ruleIndex: number): string {
-        return `<button type="button" class="media-filter-join-toggle media-filter-or-divider" data-rule-index="${ruleIndex}" aria-label="Switch to AND">or</button>`;
+        return `<button type="button" class="media-filter-join-toggle media-filter-or-divider" data-focus-key="filter-join-toggle" data-rule-index="${ruleIndex}" aria-label="Switch to AND">or</button>`;
     }
 
     private renderFilterConnectorCell(ruleIndex: number, isFirstInGroup: boolean): string {
         return isFirstInGroup
             ? '<div class="media-filter-connector media-filter-connector-label">Where</div>'
-            : `<button type="button" class="media-filter-join-toggle media-filter-connector media-filter-and-pill" data-rule-index="${ruleIndex}" aria-label="Switch to OR">and</button>`;
+            : `<button type="button" class="media-filter-join-toggle media-filter-connector media-filter-and-pill" data-focus-key="filter-join-toggle" data-rule-index="${ruleIndex}" aria-label="Switch to OR">and</button>`;
     }
 
     private renderExtraFilterConditionMarkup(rule: LibraryExtraFilterRule, ruleIndex: number): string {
         const valueKind = getLibraryExtraFieldValueKind(this.getExtraDataIndex(), rule.fieldName);
         const isNumeric = valueKind === 'numeric';
         return `
-            <select class="media-extra-filter-operator" data-rule-index="${ruleIndex}" aria-label="Field rule ${ruleIndex + 1} operator">
+            <select class="media-extra-filter-operator" data-focus-key="filter-operator" data-rule-index="${ruleIndex}" aria-label="Field rule ${ruleIndex + 1} operator">
                 ${this.renderExtraFilterOperatorOptions(rule)}
             </select>
             <input
                 type="text"
                 class="media-extra-filter-value"
+                data-focus-key="filter-value"
                 data-rule-index="${ruleIndex}"
                 aria-label="Field rule ${ruleIndex + 1} value"
                 aria-invalid="${!isLibraryFilterRuleReady(rule, this.getExtraDataIndex(), this.getExtraDataFacets())}"
@@ -645,11 +601,11 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
             <div class="media-extra-filter-rule" data-rule-kind="${rule.kind}" data-rule-index="${ruleIndex}">
                 ${this.renderFilterConnectorCell(ruleIndex, isFirstInGroup)}
                 ${this.renderFilterNegationToggle(rule, ruleIndex)}
-                <select class="media-extra-filter-field" data-rule-index="${ruleIndex}" aria-label="Rule ${ruleIndex + 1} field">
+                <select class="media-extra-filter-field" data-focus-key="filter-field" data-rule-index="${ruleIndex}" aria-label="Rule ${ruleIndex + 1} field">
                     ${this.renderFieldOrTagOptions(rule, valuedFieldNames, booleanTagNames)}
                 </select>
                 ${conditionMarkup}
-                <button type="button" class="media-filter-rule-remove" data-rule-index="${ruleIndex}" aria-label="Remove rule ${ruleIndex + 1}">×</button>
+                <button type="button" class="media-filter-rule-remove" data-focus-key="filter-rule-remove" data-rule-index="${ruleIndex}" aria-label="Remove rule ${ruleIndex + 1}">×</button>
             </div>
         `;
     }
@@ -707,14 +663,14 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         return `
             <div class="media-sort-level-row">
                 <div class="media-sort-level-label">${stageIndex === 0 ? 'Sort by' : 'Then by'}</div>
-                <select class="media-sort-level-select" data-level-index="${stageIndex}" aria-label="Sort level ${stageIndex + 1} field">
+                <select class="media-sort-level-select" data-focus-key="sort-level-select" data-level-index="${stageIndex}" aria-label="Sort level ${stageIndex + 1} field">
                     ${this.renderSortFieldOptions(stageIndex, extraFieldNames)}
                 </select>
                 <div class="media-sort-direction-toggle" role="group" aria-label="Sort level ${stageIndex + 1} direction">
-                    <button type="button" class="media-sort-direction-option ${stage.direction === 'ascending' ? 'is-active' : ''}" data-level-index="${stageIndex}" data-direction="ascending" ${isDefaultField ? 'disabled' : ''}>Ascending</button>
-                    <button type="button" class="media-sort-direction-option ${stage.direction === 'descending' ? 'is-active' : ''}" data-level-index="${stageIndex}" data-direction="descending" ${isDefaultField ? 'disabled' : ''}>Descending</button>
+                    <button type="button" class="media-sort-direction-option ${stage.direction === 'ascending' ? 'is-active' : ''}" data-focus-key="sort-direction-option" data-level-index="${stageIndex}" data-direction="ascending" ${isDefaultField ? 'disabled' : ''}>Ascending</button>
+                    <button type="button" class="media-sort-direction-option ${stage.direction === 'descending' ? 'is-active' : ''}" data-focus-key="sort-direction-option" data-level-index="${stageIndex}" data-direction="descending" ${isDefaultField ? 'disabled' : ''}>Descending</button>
                 </div>
-                <button type="button" class="media-sort-level-remove" data-level-index="${stageIndex}" aria-label="Remove sort level ${stageIndex + 1}">×</button>
+                <button type="button" class="media-sort-level-remove" data-focus-key="sort-level-remove" data-level-index="${stageIndex}" aria-label="Remove sort level ${stageIndex + 1}">×</button>
             </div>
         `;
     }
