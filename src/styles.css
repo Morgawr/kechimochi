@@ -2809,11 +2809,9 @@ select:not(:where(.badge-select, #media-select)) {
   grid-template-areas: "connector toggle field field field remove";
 }
 
-.media-filter-connector { grid-area: connector; }
 .media-filter-negation-toggle { grid-area: toggle; }
 .media-extra-filter-field { grid-area: field; }
 .media-extra-filter-operator { grid-area: operator; }
-.media-extra-filter-value { grid-area: value; }
 .media-filter-rule-remove { grid-area: remove; }
 
 .media-extra-filter-field,
@@ -2827,6 +2825,7 @@ select:not(:where(.badge-select, #media-select)) {
 }
 
 .media-extra-filter-value {
+  grid-area: value;
   padding-right: 0.6rem;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
@@ -2852,6 +2851,7 @@ select:not(:where(.badge-select, #media-select)) {
 }
 
 .media-filter-connector {
+  grid-area: connector;
   width: var(--media-filter-connector-width);
   padding: 0.3rem 0;
   border-radius: var(--radius-full);
@@ -3200,11 +3200,11 @@ select:not(:where(.badge-select, #media-select)) {
   text-transform: uppercase;
 }
 
-.media-sort-level-select { grid-area: field; }
 .media-sort-level-row .media-sort-direction-toggle { grid-area: direction; }
 .media-sort-level-remove { grid-area: remove; }
 
 .media-sort-level-select {
+  grid-area: field;
   min-width: 0;
   padding-block: 0.38rem;
   padding-left: 0.6rem;

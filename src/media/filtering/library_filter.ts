@@ -259,8 +259,12 @@ export function groupLibraryFilterRules(rules: LibraryFilterRule[]): LibraryFilt
     const groups: LibraryFilterRuleGroup[] = [];
 
     rules.forEach((rule, ruleIndex) => {
-        if (rule.join === 'or' || groups.length === 0) groups.push([]);
-        groups[groups.length - 1].push({ rule, ruleIndex });
+        const currentGroup = groups.at(-1);
+        if (rule.join === 'or' || !currentGroup) {
+            groups.push([{ rule, ruleIndex }]);
+        } else {
+            currentGroup.push({ rule, ruleIndex });
+        }
     });
 
     return groups;
@@ -271,10 +275,10 @@ export function appendRuleToGroup(
     groupIndex: number,
     rule: LibraryFilterRule,
 ): LibraryFilterRule[] {
-    const group = groupLibraryFilterRules(rules)[groupIndex];
-    if (!group) return rules;
+    const lastEntry = groupLibraryFilterRules(rules)[groupIndex]?.at(-1);
+    if (!lastEntry) return rules;
 
-    const insertAt = group[group.length - 1].ruleIndex + 1;
+    const insertAt = lastEntry.ruleIndex + 1;
     const nextRules = [...rules];
     nextRules.splice(insertAt, 0, { ...rule, join: 'and' });
     return nextRules;
