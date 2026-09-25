@@ -2381,6 +2381,38 @@ select:not(:where(.badge-select, #media-select)) {
   flex-wrap: wrap;
 }
 
+@media (min-width: 1025px) {
+  .media-grid-toolbar-primary,
+  .media-grid-toolbar-controls {
+    flex: 0 0 auto;
+  }
+
+  .media-grid-toolbar-controls {
+    flex-wrap: nowrap;
+  }
+
+  .media-grid-toolbar-search {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+}
+
+@media (min-width: 769px) and (max-width: 1024px) {
+  .media-grid-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .media-grid-toolbar-controls {
+    flex-basis: 100%;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+  }
+
+  #btn-toggle-filters {
+    margin-left: auto;
+  }
+}
+
 .toggle-shell {
   display: flex;
   flex-direction: column;
@@ -3187,6 +3219,48 @@ select:not(:where(.badge-select, #media-select)) {
 
   .media-extra-filter-rule[data-rule-kind="booleanTag"] {
     grid-template-areas: "connector toggle field field remove";
+  }
+
+  .media-extra-filter-rule + .media-extra-filter-rule,
+  .media-filter-group-footer {
+    padding-top: 0.65rem;
+    border-top: 1px solid var(--media-pane-separator-color);
+  }
+
+  .media-pane-title {
+    flex-basis: 100%;
+    text-align: center;
+  }
+
+  .media-pane-header-controls {
+    flex-basis: 100%;
+  }
+
+  .media-grid-filter-field {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .media-grid-filter-trigger-slot {
+    flex: 1 1 auto;
+  }
+
+  .media-grid-filter-field .multi-select-trigger {
+    --multi-select-trigger-width: 100%;
+    width: 100%;
+  }
+
+  .media-sort-tray .media-pane-header-controls .media-sort-switch-group {
+    width: 100%;
+  }
+
+  #sort-keep-ongoing-first-switch {
+    margin-left: auto;
+    padding-left: 0;
+  }
+
+  #sort-keep-ongoing-first-switch::before {
+    content: none;
   }
 }
 
@@ -4127,23 +4201,6 @@ input:checked + .slider:before {
     height: 100%;
 }
 
-  .media-grid-toolbar {
-    flex-wrap: wrap;
-  }
-
-  .media-grid-toolbar-primary {
-    width: 100%;
-  }
-
-  .media-grid-toolbar-search {
-    flex: 1 1 0;
-    min-width: 0;
-  }
-
-  .media-grid-toolbar-controls {
-    flex-shrink: 0;
-  }
-
   #media-root {
     height: auto !important;
     min-height: 100%;
@@ -4643,6 +4700,11 @@ input:checked + .slider:before {
 
   .media-grid-toolbar-primary {
     width: 100%;
+  }
+
+  .media-grid-toolbar-search {
+    flex: 1 1 0;
+    min-width: 0;
   }
 
   .toggle-shell {
