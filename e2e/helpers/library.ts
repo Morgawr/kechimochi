@@ -315,28 +315,55 @@ export async function setFiltersExpanded(expanded: boolean): Promise<void> {
     await waitForFilterPaneState(expanded);
 }
 
-async function setMultiSelectShownValues(triggerId: string, values: string[]): Promise<void> {
-    await setFiltersExpanded(true);
+const MULTI_SELECT_PANEL_SELECTOR = '.multi-select-panel';
+
+async function openMultiSelectPanel(triggerId: string): Promise<void> {
     await safeClickBySelector(`#${triggerId}`);
+    await $(MULTI_SELECT_PANEL_SELECTOR).waitForDisplayed({ timeout: 5000 });
+}
 
-    const panel = $('.multi-select-panel');
-    await panel.waitForDisplayed({ timeout: 5000 });
+async function closeMultiSelectPanel(): Promise<void> {
+    const panel = $(MULTI_SELECT_PANEL_SELECTOR);
+    if (await panel.isExisting()) await browser.keys('Escape');
+    await panel.waitForExist({ timeout: 5000, reverse: true });
+}
 
-    const checkboxes = await $$('.multi-select-panel .multi-select-option input[type="checkbox"]');
-    const checkboxCount = await checkboxes.length;
-    for (let index = 0; index < checkboxCount; index += 1) {
-        const checkbox = checkboxes[index];
-        const value = await checkbox.getAttribute('value');
-        const shouldBeChecked = values.length === 0 || values.includes(value ?? '');
-        if ((await checkbox.isSelected()) !== shouldBeChecked) {
-            await checkbox.click();
-            await waitForLibraryRefresh();
-        }
+async function readMultiSelectOptionStates(triggerId: string): Promise<{ value: string; isChecked: boolean }[]> {
+    await openMultiSelectPanel(triggerId);
+    const optionStates = await browser.execute((panelSelector) => Array.from(
+        document.querySelectorAll<HTMLInputElement>(`${panelSelector} .multi-select-option input[type="checkbox"]`),
+        checkbox => ({ value: checkbox.value, isChecked: checkbox.checked }),
+    ), MULTI_SELECT_PANEL_SELECTOR);
+    await closeMultiSelectPanel();
+    return optionStates;
+}
+
+// The multiselect closes on any page scroll (including the browser clamping the scroll position
+// when a toggle shortens the library), so each toggle is its own open → click → close, and nothing
+// that scrolls runs while the panel is open: Escape closes it, and the fixed panel is never scrolled to.
+async function setMultiSelectShownValues(triggerId: string, values: string[]): Promise<void> {
+    const shouldBeShown = (value: string) => values.length === 0 || values.includes(value);
+    await setFiltersExpanded(true);
+
+    for (const { value, isChecked } of await readMultiSelectOptionStates(triggerId)) {
+        if (isChecked === shouldBeShown(value)) continue;
+
+        await openMultiSelectPanel(triggerId);
+        await safeClickBySelector(
+            `${MULTI_SELECT_PANEL_SELECTOR} input[type="checkbox"][value="${value}"]`,
+            5000,
+            { skipScrollIntoView: true },
+        );
+        await waitForLibraryRefresh();
+        await closeMultiSelectPanel();
     }
 
-    // Close the popup so it doesn't shadow subsequent selectors.
-    await safeClickBySelector(`#${triggerId}`);
-    await panel.waitForExist({ timeout: 5000, reverse: true });
+    const mismatchedValues = (await readMultiSelectOptionStates(triggerId))
+        .filter(({ value, isChecked }) => isChecked !== shouldBeShown(value))
+        .map(({ value }) => value);
+    if (mismatchedValues.length > 0) {
+        throw new Error(`[E2E] Multiselect options not in the requested state: ${mismatchedValues.join(', ')}`);
+    }
 }
 
 async function addFilterRuleToLastGroup(): Promise<number> {
