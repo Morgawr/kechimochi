@@ -18,7 +18,6 @@ The format is based on Keep a Changelog, with one section per released version.
  - Fixed media data sometimes not being updated correctly on logging and archival, leading to all kinds of stale data quirks
  - Logging activity on an archived media now updates its "Archive" button (in the media's detail page) right away
  - Library filter rules now group correctly: a non-ready rule starting an OR group no longer erases the group boundary
- - The library's Filters and Sort panes now stay open when the window crosses the grid/list layout breakpoint
 
 ## [0.3.3] - 2026-09-22
 

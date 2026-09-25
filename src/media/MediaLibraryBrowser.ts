@@ -2,6 +2,7 @@ import { Component } from '../component';
 import { html, escapeHTML, escapeAttribute, rawHtml } from '../html';
 import { Media, addMedia } from '../api';
 import { showAddMediaModal } from './modal';
+import { createCancelableOverlay, OVERLAY_FADE_OUT_MS, type CancelableOverlayHandle } from '../modal_base';
 import { CONTENT_TYPES, EVENTS, TRACKING_STATUSES, MEDIA_STATUS } from '../constants';
 import { MediaGrid } from './MediaGrid';
 import { MediaList } from './MediaList';
@@ -206,6 +207,25 @@ function renderPanelStyleAttribute(isExpanded: boolean): string {
         : 'style="height: 0; opacity: 0; transform: translateY(-8px); pointer-events: none;"';
 }
 
+type LibraryPaneKind = 'filter' | 'sort';
+
+const LIBRARY_PANE_CONFIGS: Record<LibraryPaneKind, { panelId: string; buttonId: string; title: string; modalTitleId: string }> = {
+    filter: { panelId: 'media-grid-filter-panel', buttonId: 'btn-toggle-filters', title: 'Filter', modalTitleId: 'media-filter-modal-title' },
+    sort: { panelId: 'media-sort-panel', buttonId: 'btn-toggle-sort', title: 'Sort', modalTitleId: 'media-sort-modal-title' },
+};
+
+function applyPanelExpansion(panel: HTMLElement, button: HTMLButtonElement, isExpanded: boolean): void {
+    button.setAttribute('aria-expanded', String(isExpanded));
+    panel.setAttribute('aria-hidden', String(!isExpanded));
+    panel.classList.toggle('is-expanded', isExpanded);
+    panel.classList.toggle('is-collapsed', !isExpanded);
+    panel.style.height = isExpanded ? 'auto' : '0px';
+    panel.style.opacity = isExpanded ? '1' : '0';
+    panel.style.transform = isExpanded ? 'translateY(0)' : 'translateY(-8px)';
+    panel.style.overflow = isExpanded ? 'visible' : 'hidden';
+    panel.style.pointerEvents = isExpanded ? 'auto' : 'none';
+}
+
 const VISIBILITY_SUMMARY_LABELS: Pick<MultiSelectFieldOptions<string>, 'noneLabel' | 'allLabel' | 'partialLabel'> = {
     noneLabel: 'None shown',
     allLabel: ({ totalCount }) => ({ value: `All ${totalCount} shown` }),
@@ -304,6 +324,9 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
     private contextMenuHandle: PopupMenuHandle | null = null;
     private shellRendered = false;
     private headerElement: HTMLElement | null = null;
+    private filterCardElement: HTMLElement | null = null;
+    private sortCardElement: HTMLElement | null = null;
+    private openPaneModal: { kind: LibraryPaneKind; handle: CancelableOverlayHandle } | null = null;
     private statusMultiSelectField: MultiSelectField | null = null;
     private typeMultiSelectField: MultiSelectField | null = null;
     private renderedTypeOptionsKey: string | null = null;
@@ -361,6 +384,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
             globalThis.clearTimeout(this.searchRenderTimer);
             this.searchRenderTimer = null;
         }
+        this.openPaneModal?.handle.dismiss();
         this.closeContextMenu();
         this.statusMultiSelectField?.close();
         this.typeMultiSelectField?.close();
@@ -923,6 +947,8 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
 
         container.appendChild(header);
         this.headerElement = header;
+        this.filterCardElement = header.querySelector<HTMLElement>('#media-grid-filter-tray');
+        this.sortCardElement = header.querySelector<HTMLElement>('.media-sort-tray');
         this.bindShellListeners(header);
     }
 
@@ -967,7 +993,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
             this.toggleSortPanel();
         });
 
-        const hideArchived = header.querySelector<HTMLInputElement>('#grid-hide-archived');
+        const hideArchived = this.filterCardElement?.querySelector<HTMLInputElement>('#grid-hide-archived');
         hideArchived?.addEventListener('change', () => {
             this.handleHideArchivedChange(hideArchived);
         });
@@ -993,17 +1019,17 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         });
 
         SORT_SWITCH_CONFIGS.forEach(({ id, stateKey }) => {
-            const switchInput = header.querySelector<HTMLInputElement>(`#${id}`);
+            const switchInput = this.sortCardElement?.querySelector<HTMLInputElement>(`#${id}`);
             switchInput?.addEventListener('change', () => {
                 this.state[stateKey] = switchInput.checked;
                 this.commitSortSwitchChange();
             });
         });
 
-        const sortLevelsHost = header.querySelector<HTMLElement>('#media-sort-levels');
+        const sortLevelsHost = this.sortCardElement?.querySelector<HTMLElement>('#media-sort-levels');
         if (sortLevelsHost) this.bindSortLevelsDelegation(sortLevelsHost);
 
-        const filterRuleStackHost = header.querySelector<HTMLElement>('#media-filter-rule-stack');
+        const filterRuleStackHost = this.filterCardElement?.querySelector<HTMLElement>('#media-filter-rule-stack');
         if (filterRuleStackHost) this.bindFilterRuleStackDelegation(filterRuleStackHost);
     }
 
@@ -1259,7 +1285,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
     }
 
     private commitSortLevelsChange(): void {
-        this.patchHost('media-sort-levels', () => this.renderSortLevelsMarkup());
+        this.patchHost(this.sortCardElement, 'media-sort-levels', () => this.renderSortLevelsMarkup());
         const header = this.container.querySelector<HTMLElement>('#media-library-header');
         if (header) this.updateSortCountBadge(header);
         this.renderContent(this.container.querySelector<HTMLElement>('#media-library-content')!);
@@ -1267,7 +1293,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
     }
 
     private commitFilterRuleStackChange(): void {
-        this.patchHost('media-filter-rule-stack', () => {
+        this.patchHost(this.filterCardElement, 'media-filter-rule-stack', () => {
             const { valuedFieldNames, booleanTagNames } = this.getExtraDataFacets();
             return this.renderFilterRuleStackContents(valuedFieldNames, booleanTagNames);
         });
@@ -1282,8 +1308,8 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         this.notifyFilterChange();
     }
 
-    private patchHost(hostId: string, renderInner: () => string): void {
-        const host = this.container.querySelector<HTMLElement>(`#${hostId}`);
+    private patchHost(root: HTMLElement | null, hostId: string, renderInner: () => string): void {
+        const host = root?.querySelector<HTMLElement>(`#${hostId}`);
         if (!host) return;
 
         const focusState = captureHostFocusState(host);
@@ -1301,12 +1327,9 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
     }
 
     private updateKeepArchivedLastVisibility(): void {
-        const header = this.container.querySelector<HTMLElement>('#media-library-header');
-        if (!header) return;
-
         const isHidden = this.state.hideArchived;
-        const switchLabel = header.querySelector<HTMLElement>(`#${KEEP_ARCHIVED_LAST_SWITCH_ID}-switch`);
-        const checkbox = header.querySelector<HTMLInputElement>(`#${KEEP_ARCHIVED_LAST_SWITCH_ID}`);
+        const switchLabel = this.sortCardElement?.querySelector<HTMLElement>(`#${KEEP_ARCHIVED_LAST_SWITCH_ID}-switch`);
+        const checkbox = this.sortCardElement?.querySelector<HTMLInputElement>(`#${KEEP_ARCHIVED_LAST_SWITCH_ID}`);
         if (switchLabel) switchLabel.hidden = isHidden;
         if (checkbox) checkbox.disabled = isHidden;
     }
@@ -1540,17 +1563,17 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         const uniqueTypes = this.getUniqueTypes();
         const typeOptionsKey = computeTypeOptionsKey(uniqueTypes);
         if (typeOptionsKey !== this.renderedTypeOptionsKey) {
-            this.rebuildTypeMultiSelectField(header, uniqueTypes, typeOptionsKey);
+            this.rebuildTypeMultiSelectField(uniqueTypes, typeOptionsKey);
         }
 
-        this.patchHost('media-sort-levels', () => this.renderSortLevelsMarkup());
-        this.reconcileFilterRuleSection(header);
+        this.patchHost(this.sortCardElement, 'media-sort-levels', () => this.renderSortLevelsMarkup());
+        this.reconcileFilterRuleSection();
         this.updateFilterCountBadge(header);
         this.updateSortCountBadge(header);
     }
 
-    private rebuildTypeMultiSelectField(header: HTMLElement, uniqueTypes: string[], typeOptionsKey: string): void {
-        const slot = header.querySelector<HTMLElement>('#media-type-multiselect-slot');
+    private rebuildTypeMultiSelectField(uniqueTypes: string[], typeOptionsKey: string): void {
+        const slot = this.filterCardElement?.querySelector<HTMLElement>('#media-type-multiselect-slot');
         if (!slot) return;
 
         this.typeMultiSelectField?.close();
@@ -1560,9 +1583,9 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         this.renderedTypeOptionsKey = typeOptionsKey;
     }
 
-    private reconcileFilterRuleSection(header: HTMLElement): void {
-        const section = header.querySelector<HTMLElement>('#media-filter-rule-section');
-        const stack = header.querySelector<HTMLElement>('#media-filter-rule-stack');
+    private reconcileFilterRuleSection(): void {
+        const section = this.filterCardElement?.querySelector<HTMLElement>('#media-filter-rule-section');
+        const stack = this.filterCardElement?.querySelector<HTMLElement>('#media-filter-rule-stack');
         if (!section || !stack) return;
 
         const { valuedFieldNames, booleanTagNames } = this.getExtraDataFacets();
@@ -1641,9 +1664,28 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
         if (this.state.isGridSupported === isGridSupported) return;
 
         this.state.isGridSupported = isGridSupported;
+        if (isGridSupported) {
+            this.openPaneModal?.handle.dismiss();
+        } else {
+            this.collapseInlinePanels();
+        }
         this.updateLayoutToggleControls();
         this.updateCompactLayoutHint();
         this.renderContent(this.container.querySelector<HTMLElement>('#media-library-content')!);
+    }
+
+    private collapseInlinePanels(): void {
+        const header = this.container.querySelector<HTMLElement>('#media-library-header');
+        if (!header) return;
+
+        Object.values(LIBRARY_PANE_CONFIGS).forEach(({ panelId, buttonId }) => {
+            const panel = header.querySelector<HTMLElement>(`#${panelId}`);
+            const button = header.querySelector<HTMLButtonElement>(`#${buttonId}`);
+            if (panel && button) applyPanelExpansion(panel, button, false);
+        });
+
+        this.state.filtersExpanded = false;
+        this.state.sortExpanded = false;
     }
 
     private updateCompactLayoutHint(): void {
@@ -1727,15 +1769,76 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
     }
 
     private toggleFiltersPanel() {
+        if (!this.state.isGridSupported) {
+            this.togglePaneModal('filter');
+            return;
+        }
+
         this.togglePanel('media-grid-filter-panel', 'btn-toggle-filters', this.state.filtersExpanded, (nextExpanded) => {
             this.state.filtersExpanded = nextExpanded;
         });
     }
 
     private toggleSortPanel() {
+        if (!this.state.isGridSupported) {
+            this.togglePaneModal('sort');
+            return;
+        }
+
         this.togglePanel('media-sort-panel', 'btn-toggle-sort', this.state.sortExpanded, (nextExpanded) => {
             this.state.sortExpanded = nextExpanded;
         });
+    }
+
+    private togglePaneModal(kind: LibraryPaneKind): void {
+        if (this.openPaneModal?.kind === kind) {
+            this.openPaneModal.handle.dismiss();
+            return;
+        }
+
+        this.openPaneModal?.handle.dismiss();
+        this.openPaneModalFor(kind);
+    }
+
+    private openPaneModalFor(kind: LibraryPaneKind): void {
+        const { buttonId, title, modalTitleId } = LIBRARY_PANE_CONFIGS[kind];
+        const header = this.container.querySelector<HTMLElement>('#media-library-header');
+        const card = kind === 'filter' ? this.filterCardElement : this.sortCardElement;
+        const button = header?.querySelector<HTMLButtonElement>(`#${buttonId}`);
+        if (!header || !card || !button) return;
+
+        const handle = createCancelableOverlay(() => {
+            this.closePaneModal(kind, card, header, handle.overlay);
+        }, { closeOnEscape: true });
+
+        handle.overlay.innerHTML = `
+            <div class="modal-content media-pane-modal-content" role="dialog" aria-modal="true" aria-labelledby="${modalTitleId}">
+                <div class="media-pane-modal-title-row">
+                    <h2 class="media-pane-modal-title" id="${modalTitleId}">${title}</h2>
+                </div>
+                <div class="media-pane-modal-body"></div>
+                <div class="media-pane-modal-footer">
+                    <button type="button" class="btn btn-ghost media-pane-modal-done">Done</button>
+                </div>
+            </div>
+        `;
+
+        handle.overlay.querySelector<HTMLElement>('.media-pane-modal-body')!.appendChild(card);
+        handle.overlay.querySelector('.media-pane-modal-done')?.addEventListener('click', () => handle.dismiss());
+
+        button.setAttribute('aria-expanded', 'true');
+        this.openPaneModal = { kind, handle };
+    }
+
+    private closePaneModal(kind: LibraryPaneKind, card: HTMLElement, header: HTMLElement, overlay: HTMLElement): void {
+        const { panelId, buttonId } = LIBRARY_PANE_CONFIGS[kind];
+        header.querySelector<HTMLButtonElement>(`#${buttonId}`)?.setAttribute('aria-expanded', 'false');
+        if (this.openPaneModal?.kind === kind) this.openPaneModal = null;
+
+        setTimeout(() => {
+            if (!overlay.contains(card)) return;
+            header.querySelector<HTMLElement>(`#${panelId} .media-grid-filter-panel-body`)?.appendChild(card);
+        }, OVERLAY_FADE_OUT_MS);
     }
 
     private togglePanel(panelId: string, buttonId: string, isExpanded: boolean, setExpanded: (nextExpanded: boolean) => void) {
@@ -1746,24 +1849,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
 
         const nextExpanded = !isExpanded;
         setExpanded(nextExpanded);
-        button.setAttribute('aria-expanded', String(nextExpanded));
-        panel.setAttribute('aria-hidden', String(!nextExpanded));
-        panel.classList.toggle('is-expanded', nextExpanded);
-        panel.classList.toggle('is-collapsed', !nextExpanded);
-
-        if (nextExpanded) {
-            panel.style.height = 'auto';
-            panel.style.opacity = '1';
-            panel.style.transform = 'translateY(0)';
-            panel.style.overflow = 'visible';
-            panel.style.pointerEvents = 'auto';
-        } else {
-            panel.style.height = '0px';
-            panel.style.opacity = '0';
-            panel.style.transform = 'translateY(-8px)';
-            panel.style.overflow = 'hidden';
-            panel.style.pointerEvents = 'none';
-        }
+        applyPanelExpansion(panel, button, nextExpanded);
     }
 
     private notifyFilterChange() {
