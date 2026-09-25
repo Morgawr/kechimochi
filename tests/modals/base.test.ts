@@ -313,6 +313,23 @@ describe('modals/base.ts', () => {
             expect(event.defaultPrevented).toBe(false);
             cleanup();
         });
+
+        it('should leave Escape to focus in an element appended to the body after the overlay', () => {
+            const onDismiss = vi.fn();
+            const { cleanup } = base.createCancelableOverlay(onDismiss, { closeOnEscape: true });
+
+            const laterElement = document.createElement('input');
+            document.body.appendChild(laterElement);
+            laterElement.focus();
+
+            const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+            laterElement.dispatchEvent(event);
+
+            expect(onDismiss).not.toHaveBeenCalled();
+            expect(event.defaultPrevented).toBe(false);
+            cleanup();
+            laterElement.remove();
+        });
     });
 
     describe('showBlockingStatus', () => {

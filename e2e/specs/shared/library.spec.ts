@@ -256,19 +256,11 @@ describe('CUJ: Library Exploration (Search & Filter)', () => {
     await resetLibraryFilters();
 
     try {
-      const booleanTagChoices = await browser.execute(() => {
-        const select = document.querySelector<HTMLSelectElement>('#media-boolean-tag-add');
-        return select ? Array.from(select.options, option => option.textContent?.trim() || '') : [];
-      });
-      expect(booleanTagChoices).toContain('amazing');
-      expect(booleanTagChoices).not.toContain('Platform');
-      expect(await $$('.media-filter-chip[data-filter-group="booleanTag"]').length).toBe(0);
-
       await setBooleanTagFilters(['amazing']);
       await waitForLibraryItemCount(4, {
         timeoutMsg: 'Boolean tag filter did not show the four tagged fixture entries',
       });
-      expect(await $('#media-boolean-tag-add').isExisting()).toBe(false);
+      expect(await $('.media-extra-filter-rule[data-rule-kind="booleanTag"]').isExisting()).toBe(true);
       expect(await isMediaVisible('ハイキュー!!')).toBe(true);
       expect(await isMediaNotVisible('STEINS;GATE')).toBe(true);
 
@@ -279,15 +271,15 @@ describe('CUJ: Library Exploration (Search & Filter)', () => {
         value: '60000',
       });
 
-      const valuedFieldChoices = await browser.execute(() => {
+      const fieldAndTagChoices = await browser.execute(() => {
         const select = document.querySelector<HTMLSelectElement>(
           '.media-extra-filter-field[data-rule-index="0"]',
         );
         return select ? Array.from(select.options, option => option.textContent?.trim() || '') : [];
       });
-      expect(valuedFieldChoices).toContain('Character Count');
-      expect(valuedFieldChoices).toContain('Platform');
-      expect(valuedFieldChoices).not.toContain('amazing');
+      expect(fieldAndTagChoices).toContain('Character Count');
+      expect(fieldAndTagChoices).toContain('Platform');
+      expect(fieldAndTagChoices).toContain('#amazing');
 
       await waitForLibraryItemCount(2, {
         timeoutMsg: 'Numeric extra field rule did not keep the two entries over 60,000',

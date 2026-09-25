@@ -113,10 +113,6 @@ export const CONTENT_TYPE_TO_ACTIVITY_TYPE: Record<string, string> = {
     'Youtube Video': 'Watching',
 };
 
-export const FILTERS = {
-    ALL: 'All',
-} as const;
-
 export const EXTRA_FIELD_LABELS = {
     CHARACTER_COUNT: 'Character count',
     READING_SPEED: 'Reading speed',
