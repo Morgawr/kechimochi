@@ -6,7 +6,7 @@ import { logPerformance, measureSynchronous, performanceNow } from '../../perfor
 import { loadChartConstructor, type ChartConstructor } from '../../chart_loader';
 import type { DashboardCardDescriptor } from '../dashboard_layout';
 import { renderDashboardCardShell, renderNoPeriodDataMessage } from '../card_shell';
-import { CHART_RESIZE_DEBOUNCE_MS, getActiveGroups, getChartColors, getGroupForLog, toDatasets, type BarChartDataset } from '../chart_runtime';
+import { CHART_RESIZE_DEBOUNCE_MS, createTooltipVisibilityPlugin, getActiveGroups, getChartColors, getGroupForLog, toDatasets, type BarChartDataset } from '../chart_runtime';
 import { ChartCard, type ChartCardState } from '../chart_card';
 import { formatStatsDuration } from '../../time';
 
@@ -256,6 +256,7 @@ export class ActivityFlow extends ChartCard<ActivityFlowState> {
                 labels: timeRange.unit === 'day' ? labels.map(label => this.formatDailyDateLabel(label)) : labels,
                 datasets: datasets
             },
+            plugins: [createTooltipVisibilityPlugin(chartType === 'bar')],
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
@@ -278,7 +279,15 @@ export class ActivityFlow extends ChartCard<ActivityFlowState> {
                     }
                 },
                 plugins: {
-                    legend: { display: datasets.length <= 6, position: 'top', labels: { color: secondaryColor } },
+                    legend: {
+                        display: datasets.length <= 6,
+                        position: 'top',
+                        labels: {
+                            color: secondaryColor,
+                            generateLabels: (chart) => Chart.defaults.plugins.legend.labels.generateLabels(chart)
+                                .map(item => ({ ...item, lineWidth: 0 })),
+                        },
+                    },
                     tooltip: {
                         callbacks: {
                             label: (context) => {
