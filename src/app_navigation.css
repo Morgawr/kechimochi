@@ -457,11 +457,11 @@
 
     .nav-link[data-view='dashboard'] { order: 1; }
     .nav-link[data-view='media'] { order: 2; }
-    #btn-add-activity { order: 3; }
     .nav-link[data-view='timeline'] { order: 4; }
     .nav-link[data-view='profile'] { order: 5; }
 
     #btn-add-activity {
+      order: 3;
       background: transparent;
       box-shadow: none;
       color: var(--text-secondary);
