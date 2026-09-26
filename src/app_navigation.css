@@ -1,0 +1,478 @@
+/* ============================================================================
+ * The five viewport tiers — the single source of truth for every breakpoint
+ * in this file. Every media query below must key off these exact numbers
+ * rather than a nearby one.
+ *
+ *   wide        >= 1366px    tabs (Profile tab = name, ≤15ch) · chip · sync · +Log · avatar (if image)
+ *   medium+     1025-1365px  same
+ *   medium       769-1024px  same, tab gap 1.25rem → 0.9rem
+ *   mobile       341-768px   top bar (chip ··· sync); footer = 5 equal cells, Log in the middle
+ *   supernarrow  <= 340px    top bar; footer = 4 cells; Log floats above the footer's right end
+ * ============================================================================ */
+
+.app-nav-bar {
+  display: flex;
+  align-items: center;
+  padding: 0 1.5rem;
+  height: 60px;
+  background-color: var(--bg-card);
+  border-bottom: 1px solid var(--border-color);
+  gap: 0.75rem;
+}
+
+.activity-btn-icon { display: none; }
+
+#nav-spacer {
+  flex: 1;
+}
+
+#nav-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.nav-sync-status-btn {
+  position: relative;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 2.15rem;
+  height: 2.15rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--bg-card) 90%, black 10%);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: transform var(--transition-fast), background-color var(--transition-fast), border-color var(--transition-fast), opacity var(--transition-fast);
+}
+
+.nav-sync-status-btn[data-sync-state='idle'],
+.nav-sync-status-btn:not([data-sync-state]) {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.nav-sync-status-btn[data-visible='true'] {
+  display: inline-flex !important;
+}
+
+.nav-sync-status-btn:hover,
+.nav-sync-status-btn:focus-visible {
+  background: color-mix(in srgb, var(--bg-card-hover) 88%, transparent);
+  border-color: color-mix(in srgb, var(--accent-blue) 30%, var(--border-color));
+  transform: translateY(-1px);
+}
+
+.sync-status-dot {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.3rem;
+  width: 0.52rem;
+  height: 0.52rem;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+}
+
+#nav-profile-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.topbar-nav {
+  display: flex;
+  gap: 1.25rem;
+}
+
+.nav-link {
+  color: var(--text-secondary);
+  font-weight: 500;
+  cursor: pointer;
+  transition: color var(--transition-fast), background-color 0.4s ease;
+  position: relative;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.nav-link:active {
+  background-color: color-mix(in srgb, var(--text-primary) 12%, transparent);
+  border-radius: var(--radius-md);
+}
+
+.nav-link-icon {
+  display: none;
+}
+
+.nav-link-label {
+  display: inline;
+}
+
+.nav-link:hover, .nav-link.active {
+  color: var(--text-primary);
+}
+
+.nav-link.active::after {
+  content: '';
+  position: absolute;
+  bottom: -15px;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background-color: var(--text-primary);
+}
+
+.mobile-top-bar {
+  display: none;
+}
+
+
+
+.mobile-sync-status-btn {
+
+  top: calc(0.75rem + env(safe-area-inset-top));
+  right: 0.9rem;
+  z-index: 85;
+  width: 2rem;
+  height: 1.5rem;
+  border-radius: 999px;
+  border: none;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: opacity var(--transition-fast);
+  display: flex;
+  position:relative;
+
+}
+.mobile-sync-status-btn:not([data-sync-state='idle']):hover{
+  background: var(--bg-card-hover);
+}
+.mobile-sync-status-btn:active{
+  background: var(--bg-card-hover);
+}
+
+.mobile-sync-status-btn[data-sync-state='idle'],
+.mobile-sync-status-btn:not([data-sync-state]) {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.mobile-sync-status-btn svg {
+  width: 14px;
+  height: 14px;
+  transition: transform var(--transition-fast), color var(--transition-fast);
+}
+
+
+.mobile-sync-status-btn .sync-status-dot {
+  top: 0.2rem;
+  right: 0.1rem;
+  width: 0.42rem;
+  height: 0.42rem;
+}
+
+.mobile-sync-status-btn[data-sync-state='syncing'] svg {
+  animation: app-loader-spin 0.85s linear infinite;
+}
+
+.nav-sync-status-btn[data-sync-state='dirty'] .sync-status-dot,
+.mobile-sync-status-btn[data-sync-state='dirty'] .sync-status-dot {
+  background: var(--warning);
+}
+
+.nav-sync-status-btn[data-sync-state='conflict'] .sync-status-dot,
+.nav-sync-status-btn[data-sync-state='error'] .sync-status-dot,
+.mobile-sync-status-btn[data-sync-state='conflict'] .sync-status-dot,
+.mobile-sync-status-btn[data-sync-state='error'] .sync-status-dot {
+  background: var(--danger);
+}
+
+.nav-sync-status-btn[data-sync-state='syncing'] .sync-status-dot,
+.mobile-sync-status-btn[data-sync-state='syncing'] .sync-status-dot {
+  background: var(--accent-blue);
+}
+
+.dev-build-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem 0.75rem;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background-color: var(--accent-red);
+  color: var(--text-on-fill);
+  box-shadow: var(--shadow-sm);
+  user-select: none;
+  border: 1px solid color-mix(in srgb, var(--tint-light) 10%, transparent);
+  position: relative;
+}
+
+[data-theme='light'] .dev-build-label,
+[data-theme='pastel-pink'] .dev-build-label {
+    color: var(--accent-text);
+}
+
+.update-available-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem 0.8rem;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  background: color-mix(in srgb, var(--accent-blue) 22%, var(--bg-card));
+  color: var(--text-primary);
+  border: 1px solid color-mix(in srgb, var(--accent-blue) 55%, transparent);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: transform var(--transition-fast), filter var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.update-available-badge:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+  box-shadow: var(--shadow-md);
+}
+
+.update-available-badge:disabled {
+  cursor: default;
+  opacity: 0.7;
+  transform: none;
+}
+
+@media (max-width: 768px) {
+  .mobile-top-bar {
+    display: flex;
+    padding: 0.2rem 0;
+    gap:0.5rem;
+    z-index: 84;
+    height: calc(env(safe-area-inset-top) + 2rem);
+    background: var(--bg-dark);
+    justify-content:space-between;
+  }
+
+  body[data-runtime='desktop'] .mobile-top-bar {
+    top: 32px;
+    height: 2rem;
+  }
+
+  .mobile-build-badge {
+    display: inline-flex !important;
+    top: 0.2rem;
+    left: 0.75rem;
+    z-index: 85;
+    max-width: calc(100vw - 5rem);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    height: 1.5rem;
+  }
+
+  .mobile-sync-status-btn[data-visible='true'] {
+    display: flex !important;
+  }
+
+  .mobile-sync-status-btn {
+    top: 0;
+  }
+
+
+
+  /* Push floating overlays below safe-area on mobile */
+  body[data-runtime='mobile-app'] .mobile-build-badge {
+    top: calc(0.2rem + env(safe-area-inset-top));
+  }
+  body[data-runtime='mobile-app'] .mobile-sync-status-btn {
+    top: calc(0.2rem + env(safe-area-inset-top));
+  }
+
+  .app-nav-bar {
+    order:2;
+    z-index: 60;
+    height: auto;
+    min-height: 0;
+    padding: 0.2rem 0.5rem calc(0.15rem + env(safe-area-inset-bottom));
+    justify-content: center;
+    border-top: 1px solid var(--border-color);
+    border-bottom: none;
+    box-shadow: 0 -10px 30px color-mix(in srgb, var(--tint-dark) 22%, transparent);
+  }
+
+  #nav-spacer,
+  #nav-controls-row,
+  #nav-profile-controls,
+  #nav-sync-status-btn,
+  #update-available-badge,
+  #dev-build-badge {
+    display: none !important;
+  }
+
+  .topbar-nav {
+    flex: 1 1 100%;
+    width: 100%;
+    gap: 0;
+    align-items: stretch;
+  }
+
+  .nav-link {
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    gap: 0.18rem;
+    padding: 0.3rem 0.2rem 0.35rem;
+    text-align: center;
+    font-size: 0.7rem;
+  }
+
+  .nav-link.active::after {
+    display: none;
+  }
+
+  .nav-link-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.65rem;
+    height: 1.65rem;
+    color: currentColor;
+  }
+
+  .nav-link-icon--profile {
+    width: auto;
+    height: auto;
+    transform: translateY(0.14rem);
+  }
+
+  #nav-profile-tab-avatar {
+    width: 1.6rem;
+    height: 1.6rem;
+  }
+
+  #nav-profile-tab-avatar .profile-avatar-fallback {
+    font-size: 0.68rem;
+  }
+
+  .nav-link-label {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .nav-link.active .nav-link-label::after {
+    content: '';
+    position: absolute;
+    left: 10%;
+    right: 10%;
+    bottom: -0.28rem;
+    height: 2px;
+    border-radius: 999px;
+    background-color: currentColor;
+  }
+
+  /* Layout where the Log activity button is
+   in the middle when its large enough*/
+  #btn-add-activity {
+    position: fixed;
+
+    bottom: calc(1.5rem + env(safe-area-inset-bottom));
+    z-index: 70;
+    width: 2.2rem;
+    height: 2rem;
+
+
+    box-shadow: 0 16px 28px color-mix(in srgb, var(--tint-dark) 28%, transparent);
+    display: grid;
+    justify-items: center;
+
+  }
+  #btn-add-activity:active{
+    background-color: color-mix(in srgb, var(--text-primary) 12%, transparent);
+    border-radius: var(--radius-md);
+  }
+
+  .activity-btn-text {
+    display: flex;
+    order:2;
+    font-size: 0.7rem;
+    width: max-content;
+    margin-top: 0.7rem;
+    color:var(--text-secondary);
+  }
+
+  .activity-btn-icon {
+    display: flex;
+    font-size: 1.7rem;
+    font-weight: 300;
+    line-height: 1;
+  }
+/*Empty Space in the middle for the add button only between 750 and 340 */
+/*there may be a better way*/
+@media (min-width : 341px) {
+    .topbar-nav{
+      display: grid;
+      grid-template-columns: repeat(5,1fr);
+    }
+    .nav-link[data-view="dashboard"]{
+      grid-column: 1;
+    }
+    .nav-link[data-view="media"]{
+      grid-column: 2;
+    }
+    .nav-link[data-view="timeline"]{
+      grid-column: 4;
+    }
+    .nav-link[data-view="profile"]{
+      grid-column: 5;
+    }
+  }
+}
+
+@media(max-width: 340px){
+  /* Layout for very thin that extracts the Log activity button
+  from the navbar to put it in the corner*/
+#btn-add-activity {
+    position: fixed;
+    right: 1rem;
+    bottom: calc(4.2rem + env(safe-area-inset-bottom));
+    z-index: 70;
+    width: 3.2rem;
+    height: 3.2rem;
+    padding: 0;
+    border-radius: 999px;
+    box-shadow: 0 16px 28px color-mix(in srgb, var(--tint-dark) 28%, transparent);
+    -webkit-tap-highlight-color: transparent;
+    display: flex;
+    font-family: initial; /*so it's centered vertically*/
+  }
+
+
+  #btn-add-activity:active{
+    background-color: color-mix(in srgb, var(--text-primary) 12%, transparent);
+    border-radius: var(--radius-md);
+  }
+
+  .activity-btn-text {
+    display: none !important;
+  }
+
+
+}
+
+body[data-theme='eink'] .update-available-badge:disabled {
+  opacity: 1;
+}
+
+body[data-theme='eink'] .activity-btn-icon {
+  font-weight: 400;
+}
