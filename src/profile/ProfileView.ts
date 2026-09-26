@@ -40,7 +40,7 @@ import { showActivityCsvConflictModal, showExportCsvModal } from '../activity_mo
 import { showMediaCsvConflictModal } from '../media/modal';
 import { getServices } from '../services';
 import { MediaCoverLoader } from '../media/cover_loader';
-import { formatProductVersionLabel, getAppVersionInfo } from '../app_version';
+import { formatProductVersionLabel, getAppVersionInfo, ISSUES_URL } from '../app_version';
 import type {
     ActivitySummary,
     Media,
@@ -741,7 +741,7 @@ export class ProfileView extends Component<ProfileState> {
                 <div style="text-align: center; margin-top: 1rem; font-size: 0.8rem; color: var(--text-secondary); opacity: 0.7;">
                     <div>${formatProductVersionLabel({ ...getAppVersionInfo(), version: appVersion })}</div>
                     <div style="margin-top: 0.4rem;">
-                        Found a bug? File an issue on <a href="https://github.com/Morgawr/kechimochi/issues" target="_blank" style="color: var(--text-secondary); text-decoration: underline;">github</a>
+                        Found a bug? File an issue on <a href="${ISSUES_URL}" target="_blank" style="color: var(--text-secondary); text-decoration: underline;">github</a>
                     </div>
                 </div>
             </div>

@@ -1,0 +1,530 @@
+/* ============================================================================
+ * The five viewport tiers — the single source of truth for every breakpoint
+ * in this file. Every media query below must key off these exact numbers
+ * rather than a nearby one.
+ *
+ *   wide        >= 1366px    tabs (Profile tab = name, ≤20ch) · chip · sync · +Log · avatar (if image)
+ *   medium+     1025-1365px  same
+ *   medium       769-1024px  name ≤10ch, tab gap 1.25rem → 0.9rem, side padding 1.5rem → 1rem
+ *   mobile       341-768px   top bar (chip ··· sync); footer = 5 equal cells, Log in the middle
+ *   supernarrow  <= 340px    top bar; footer = 4 cells; Log floats above the footer's right end
+ * ============================================================================ */
+
+:root {
+  --nav-control-height: 2.15rem;
+  --mobile-nav-control-height: 1.5rem;
+  --supernarrow-log-gap: 0.75rem;}
+
+.app-nav-bar {
+  display: flex;
+  align-items: center;
+  padding: 0 1.5rem;
+  height: 60px;
+  background-color: var(--bg-card);
+  border-bottom: 1px solid var(--border-color);
+  gap: 0.75rem;
+}
+
+#nav-spacer {
+  flex: 1;
+}
+
+#nav-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+#nav-controls-row > *,
+#btn-add-activity {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+#btn-add-activity {
+  gap: 0.35rem;
+}
+
+.app-version-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--nav-control-height);
+  padding: 0 0.75rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-dark);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.app-version-button:hover {
+  background-color: var(--bg-card-hover);
+}
+
+.app-version-button[data-update-available='true'] {
+  gap: 0.35rem;
+  background-color: var(--accent-red);
+  border-color: color-mix(in srgb, var(--accent-red) 60%, transparent);
+  color: var(--text-on-fill);
+  transition: background-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.app-version-button[data-update-available='true']:hover {
+  background-color: color-mix(in srgb, var(--accent-red) 90%, white);
+  box-shadow: var(--shadow-md);
+}
+
+[data-theme='light'] .app-version-button[data-update-available='true'],
+[data-theme='pastel-pink'] .app-version-button[data-update-available='true'] {
+  color: var(--accent-text);
+}
+
+.version-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: min(92vw, 360px);
+}
+
+.version-modal-title {
+  margin: 0;
+}
+
+.version-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.version-modal-body p {
+  margin: 0;
+}
+
+.version-modal-body a {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+
+.version-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.nav-sync-status-btn {
+  position: relative;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  height: var(--nav-control-height);
+  padding: 0 0.75rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-dark);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.nav-sync-status-btn[data-visible='true'] {
+  display: inline-flex !important;
+}
+
+.nav-sync-status-btn:hover,
+.nav-sync-status-btn:focus-visible {
+  background-color: var(--bg-card-hover);
+}
+
+.sync-status-dot {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.3rem;
+  width: 0.52rem;
+  height: 0.52rem;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+}
+
+.topbar-nav {
+  display: flex;
+  gap: 1.25rem;
+}
+
+.nav-link {
+  color: var(--text-secondary);
+  font-weight: 500;
+  cursor: pointer;
+  transition: color var(--transition-fast), background-color 0.4s ease;
+  position: relative;
+  white-space: nowrap;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.nav-link:active {
+  background-color: color-mix(in srgb, var(--text-primary) 12%, transparent);
+  border-radius: var(--radius-md);
+}
+
+.nav-link-icon {
+  display: none;
+}
+
+.nav-link-label {
+  display: inline;
+}
+
+.nav-link:hover, .nav-link.active {
+  color: var(--text-primary);
+}
+
+.nav-link.active::after {
+  content: '';
+  position: absolute;
+  bottom: -15px;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  border-radius: var(--radius-full);
+  background-color: var(--text-primary);
+}
+
+.nav-link-profile-name {
+  display: none;
+}
+
+.activity-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@media (min-width: 769px) {
+  #btn-add-activity {
+    height: var(--nav-control-height);
+    padding-block: 0;
+  }
+
+  .nav-link[data-view='profile'] .nav-link-label {
+    display: none;
+  }
+
+  .nav-link-profile-name {
+    display: inline-block;
+    max-width: 20ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
+  }
+
+  #nav-user-avatar {
+    width: 2rem;
+    height: 2rem;
+    border: none;
+    box-shadow: none;
+    cursor: default;
+  }
+
+  #nav-user-avatar[data-has-image='false'] {
+    display: none;
+  }
+}
+
+@media (max-width: 1024px) {
+  .app-nav-bar {
+    padding: 0 1rem;
+  }
+
+  .topbar-nav {
+    gap: 0.9rem;
+  }
+
+  .nav-link-profile-name {
+    max-width: 10ch;
+  }
+}
+
+.mobile-top-bar {
+  display: none;
+}
+
+.mobile-sync-status-btn {
+  position: relative;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  height: var(--mobile-nav-control-height);
+  padding: 0 0.5rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-dark);
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.mobile-sync-status-btn:hover,
+.mobile-sync-status-btn:active {
+  background-color: var(--bg-card-hover);
+}
+
+.mobile-sync-status-btn svg,
+#mobile-app-version-button svg {
+  width: 12px;
+  height: 12px;
+  transition: transform var(--transition-fast), color var(--transition-fast);
+}
+
+.mobile-sync-status-btn .sync-status-dot {
+  top: 0.2rem;
+  right: 0.1rem;
+  width: 0.42rem;
+  height: 0.42rem;
+}
+
+.nav-sync-status-btn[data-sync-state='syncing'] svg,
+.mobile-sync-status-btn[data-sync-state='syncing'] svg {
+  animation: app-loader-spin 0.85s linear infinite;
+}
+
+.nav-sync-status-btn[data-sync-state='dirty'] .sync-status-dot,
+.mobile-sync-status-btn[data-sync-state='dirty'] .sync-status-dot {
+  background: var(--warning);
+}
+
+.nav-sync-status-btn[data-sync-state='conflict'] .sync-status-dot,
+.nav-sync-status-btn[data-sync-state='error'] .sync-status-dot,
+.mobile-sync-status-btn[data-sync-state='conflict'] .sync-status-dot,
+.mobile-sync-status-btn[data-sync-state='error'] .sync-status-dot {
+  background: var(--danger);
+}
+
+.nav-sync-status-btn[data-sync-state='syncing'] .sync-status-dot,
+.mobile-sync-status-btn[data-sync-state='syncing'] .sync-status-dot {
+  background: var(--accent-blue);
+}
+
+#mobile-app-version-button {
+  height: var(--mobile-nav-control-height);
+  padding: 0 0.5rem;
+  font-size: 0.7rem;
+}
+
+@media (max-width: 768px) {
+  .mobile-top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.2rem 0.75rem;
+    gap: 0.5rem;
+    height: calc(env(safe-area-inset-top) + 2rem);
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  body[data-runtime='desktop'] .mobile-top-bar {
+    height: 2rem;
+  }
+
+  .mobile-sync-status-btn[data-visible='true'] {
+    display: flex !important;
+  }
+
+  .app-nav-bar {
+    order: 2;
+    z-index: 60;
+    height: auto;
+    min-height: 0;
+    padding: 0.2rem 0.5rem calc(0.15rem + env(safe-area-inset-bottom));
+    justify-content: center;
+    border-top: 1px solid var(--border-color);
+    border-bottom: none;
+    box-shadow: 0 -10px 30px color-mix(in srgb, var(--tint-dark) 22%, transparent);
+  }
+
+  #nav-spacer,
+  #nav-controls-row,
+  #nav-user-avatar,
+  #nav-sync-status-btn,
+  #app-version-button {
+    display: none !important;
+  }
+
+  .topbar-nav {
+    flex: 1 1 100%;
+    width: 100%;
+    gap: 0;
+    align-items: stretch;
+  }
+
+  .nav-link {
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    gap: 0.18rem;
+    padding: 0.3rem 0.2rem 0.35rem;
+    text-align: center;
+    font-size: 0.7rem;
+  }
+
+  .nav-link.active::after {
+    display: none;
+  }
+
+  .nav-link-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.65rem;
+    height: 1.65rem;
+    color: currentColor;
+  }
+
+  .nav-link-icon--profile {
+    width: auto;
+    height: auto;
+    transform: translateY(0.14rem);
+  }
+
+  #nav-profile-tab-avatar {
+    width: 1.6rem;
+    height: 1.6rem;
+  }
+
+  #nav-profile-tab-avatar .profile-avatar-fallback {
+    font-size: 0.68rem;
+  }
+
+  .nav-link-label {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .nav-link.active .nav-link-label::after {
+    content: '';
+    position: absolute;
+    left: 10%;
+    right: 10%;
+    bottom: -0.28rem;
+    height: 2px;
+    border-radius: 999px;
+    background-color: currentColor;
+  }
+
+  .activity-btn-icon {
+    width: 1.65rem;
+    height: 1.65rem;
+    border-radius: var(--radius-md);
+    background-color: var(--accent-green);
+    color: var(--accent-text);
+  }
+
+  .activity-btn-text {
+    font-size: 0.7rem;
+  }
+
+  @media (min-width: 341px) {
+    .app-nav-bar {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: 1fr;
+    }
+
+    .topbar-nav {
+      display: contents;
+    }
+
+    .nav-link[data-view='dashboard'] { order: 1; }
+    .nav-link[data-view='media'] { order: 2; }
+    .nav-link[data-view='timeline'] { order: 4; }
+    .nav-link[data-view='profile'] { order: 5; }
+
+    #btn-add-activity {
+      order: 3;
+      background: transparent;
+      box-shadow: none;
+      color: var(--text-secondary);
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.18rem;
+      padding: 0.3rem 0.2rem 0.35rem;
+      font-size: 0.7rem;
+      min-width: 0;
+      transition: color var(--transition-fast), background-color 0.4s ease;
+    }
+
+    #btn-add-activity .activity-btn-icon {
+      transition: background-color var(--transition-fast);
+    }
+
+    #btn-add-activity:hover:not(:disabled) {
+      background-color: transparent;
+      color: var(--text-primary);
+      transform: none;
+    }
+
+    #btn-add-activity:hover:not(:disabled) .activity-btn-icon {
+      background-color: color-mix(in srgb, var(--accent-green) 65%, var(--text-primary));
+    }
+
+    #btn-add-activity:active:not(:disabled) {
+      background-color: color-mix(in srgb, var(--text-primary) 12%, transparent);
+      border-radius: var(--radius-md);
+    }
+  }
+}
+
+@media (max-width: 340px) {
+  .app-nav-bar {
+    position: relative;
+  }
+
+  #btn-add-activity {
+    position: absolute;
+    right: var(--supernarrow-log-gap);
+    bottom: calc(100% + var(--supernarrow-log-gap));
+    width: 2.75rem;
+    height: 2.75rem;
+    padding: 0;
+    border-radius: var(--radius-md);
+    background-color: var(--accent-green);
+    color: var(--accent-text);
+    box-shadow: 0 16px 28px color-mix(in srgb, var(--tint-dark) 28%, transparent);
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  #btn-add-activity:active {
+    background-color: color-mix(in srgb, var(--text-primary) 12%, transparent);
+  }
+
+  .activity-btn-icon {
+    width: 1.5rem;
+    height: 1.5rem;
+  }
+
+  .activity-btn-text {
+    display: none !important;
+  }
+}

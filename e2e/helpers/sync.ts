@@ -1,5 +1,5 @@
 import { dismissAlert, confirmAction, findTopmostVisibleOverlay, getTopmostVisibleOverlay, safeClick, waitForNoActiveOverlays } from './common.js';
-import { navigateTo, verifyActiveView } from './navigation.js';
+import { getHeaderProfileName, navigateTo, verifyActiveView } from './navigation.js';
 
 const SYNC_ALERT_TIMEOUT_MS = 20_000;
 const SYNC_OVERLAY_TIMEOUT_MS = 6_000;
@@ -75,7 +75,7 @@ export async function completeFirstRunSyncImport(expectedProfileName: string): P
     await waitForNoActiveOverlays(SYNC_OVERLAY_TIMEOUT_MS);
 
     await browser.waitUntil(async () => {
-        const headerName = await $('#nav-user-name').getText().catch(() => '');
+        const headerName = await getHeaderProfileName().catch(() => '');
         const dashboardVisible = await $('.dashboard-root').isDisplayed().catch(() => false);
         return dashboardVisible && headerName === expectedProfileName;
     }, {
