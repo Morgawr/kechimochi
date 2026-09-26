@@ -650,6 +650,10 @@ a {
   color: var(--text-primary);
 }
 
+.icon-secondary {
+  opacity: 0.35;
+}
+
 /* Layout Classes */
 #app {
   display: flex;
@@ -2803,6 +2807,10 @@ select:not(:where(.badge-select, #media-select)) {
   color: var(--text-secondary);
   font-size: 0.76rem;
   font-style: italic;
+}
+
+#profile-sync-card {
+  scroll-margin-top: 4rem;
 }
 
 .profile-order-list {

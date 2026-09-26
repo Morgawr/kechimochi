@@ -6,6 +6,13 @@ import { waitForSelectorDisplayed } from './common.js';
 
 export type ViewName = 'dashboard' | 'media' | 'timeline' | 'profile';
 
+export async function getHeaderProfileName(): Promise<string> {
+  const headerName = $('#nav-user-name');
+  if (!(await headerName.isDisplayed())) return '';
+  const textContent = await headerName.getProperty('textContent') as string | null;
+  return textContent?.trim() ?? '';
+}
+
 function getRootSelector(view: ViewName): string {
   if (view === 'dashboard') return '.dashboard-root';
   if (view === 'media') return '#media-root';

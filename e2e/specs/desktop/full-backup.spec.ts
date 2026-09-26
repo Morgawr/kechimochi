@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { waitForAppReady } from '../../helpers/setup.js';
-import { navigateTo, verifyActiveView } from '../../helpers/navigation.js';
+import { getHeaderProfileName, navigateTo, verifyActiveView } from '../../helpers/navigation.js';
 import {
   confirmAction,
   dismissAlert,
@@ -28,10 +28,9 @@ const FIDELITY_NOTE = 'Exact note restored from the full backup';
 const FIDELITY_MILESTONE = 'Exact milestone restored';
 
 async function expectProfileName(name: string): Promise<void> {
-  const headerName = $('#nav-user-name');
   const profileName = $('#profile-name');
 
-  await browser.waitUntil(async () => (await headerName.getText()) === name, {
+  await browser.waitUntil(async () => (await getHeaderProfileName()) === name, {
     timeout: 5000,
     timeoutMsg: `Header profile name did not become ${name}`,
   });
@@ -41,7 +40,7 @@ async function expectProfileName(name: string): Promise<void> {
     timeoutMsg: `Profile heading did not become ${name}`,
   });
 
-  expect(await headerName.getText()).toBe(name);
+  expect(await getHeaderProfileName()).toBe(name);
   expect(await profileName.getText()).toBe(name);
 }
 

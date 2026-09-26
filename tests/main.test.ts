@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { onBackButtonPress } from '@tauri-apps/api/app';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import * as api from '../src/api';
+import { formatShortVersion } from '../src/app_version';
+import { openVersionModal } from '../src/version_modal';
 import { EVENTS, SETTING_KEYS } from '../src/constants';
 import { Logger } from '../src/logger';
 
@@ -59,6 +61,10 @@ vi.mock('../src/modal_base', async () => {
         showBlockingStatus: mocks.showBlockingStatus,
     };
 });
+
+vi.mock('../src/version_modal', () => ({
+    openVersionModal: vi.fn(() => Promise.resolve()),
+}));
 
 vi.mock('../src/profile/modal', async () => {
     const { getMainModalMock } = await import('./helpers/main_harness');
@@ -230,19 +236,32 @@ describe('main.ts initialization', () => {
         expect(requestedSettings).not.toContain(SETTING_KEYS.LIBRARY_LAYOUT_MODE);
     });
 
-    it('should show the dev build badge by default', async () => {
+    it('should show the dev version chip by default', async () => {
         await bootApp();
-        expect(document.getElementById('dev-build-badge')?.textContent).toBe('DEV BUILD 0.1.0-dev.test');
-        expect(document.getElementById('mobile-build-badge')?.textContent).toBe('DEV BUILD 0.1.0-dev.test');
+        expect(document.getElementById('app-version-button')?.textContent).toBe('v0.1.0-dev');
+        expect(document.getElementById('mobile-app-version-button')?.textContent).toBe('v0.1.0-dev');
     });
 
-    it('should show the beta release badge for release builds', async () => {
+    it('should show the beta version chip for release builds', async () => {
         setBuildGlobals('0.1.0', 'release', 'beta');
 
         await bootApp();
 
-        expect(document.getElementById('dev-build-badge')?.textContent).toBe('BETA VERSION 0.1.0');
-        expect(document.getElementById('mobile-build-badge')?.textContent).toBe('BETA VERSION 0.1.0');
+        expect(document.getElementById('app-version-button')?.textContent).toBe('v0.1.0-beta');
+        expect(document.getElementById('mobile-app-version-button')?.textContent).toBe('v0.1.0-beta');
+    });
+
+    it('marks the version chip as having no update available and opens the About modal when clicked', async () => {
+        vi.mocked(openVersionModal).mockClear();
+        await bootApp();
+
+        const button = document.getElementById('app-version-button') as HTMLButtonElement;
+        expect(button.textContent).toBe(formatShortVersion());
+        expect(button.dataset.updateAvailable).toBe('false');
+
+        button.click();
+
+        await vi.waitFor(() => expect(openVersionModal).toHaveBeenCalledTimes(1));
     });
 
     it('should run sync from the mobile sync button when changes are pending', async () => {
@@ -373,6 +392,55 @@ describe('main.ts initialization', () => {
 
         const profileLink = document.querySelector('[data-view="profile"]');
         await vi.waitFor(() => expect(profileLink?.classList.contains('active')).toBe(true));
+    });
+
+    it('marks sync chrome as unconfigured when no sync profile id is set', async () => {
+        vi.mocked(api.getSyncStatus).mockResolvedValue(createSyncStatusMock({
+            sync_profile_id: null,
+            google_authenticated: false,
+            state: 'disconnected',
+        }));
+
+        await bootApp();
+
+        const navSyncButton = document.getElementById('nav-sync-status-btn') as HTMLButtonElement;
+        await vi.waitFor(() => expect(navSyncButton.dataset.syncState).toBe('unconfigured'));
+        expect(navSyncButton.title).toBe('Set up cloud sync');
+    });
+
+    it('marks sync chrome as idle when configured and up to date', async () => {
+        vi.mocked(api.getSyncStatus).mockResolvedValue(createSyncStatusMock({
+            state: 'connected_clean',
+        }));
+
+        await bootApp();
+
+        const navSyncButton = document.getElementById('nav-sync-status-btn') as HTMLButtonElement;
+        await vi.waitFor(() => expect(navSyncButton.dataset.syncState).toBe('idle'));
+        expect(navSyncButton.title).toBe('Cloud sync');
+    });
+
+    it('scrolls the profile sync card into view when clicking the sync button while unconfigured', async () => {
+        const scrolledElementIds: string[] = [];
+        const scrollIntoViewSpy = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (this: Element) {
+            scrolledElementIds.push(this.id);
+        });
+
+        try {
+            vi.mocked(api.getSyncStatus).mockResolvedValue(createSyncStatusMock({
+                sync_profile_id: null,
+                google_authenticated: false,
+                state: 'disconnected',
+            }));
+
+            await bootApp();
+
+            (document.getElementById('nav-sync-status-btn') as HTMLButtonElement).click();
+
+            await vi.waitFor(() => expect(scrolledElementIds).toContain('profile-sync-card'));
+        } finally {
+            scrollIntoViewSpy.mockRestore();
+        }
     });
 
     it('refreshes the active view after running sync from shell chrome', async () => {
@@ -730,6 +798,7 @@ describe('main.ts initialization', () => {
         const img = document.getElementById('nav-user-avatar-image') as HTMLImageElement;
         await vi.waitFor(() => expect(img.style.display).toBe('block'));
         expect(img.src).toContain('data:image/png;base64,YWJj');
+        expect(document.getElementById('nav-user-avatar')?.dataset.hasImage).toBe('true');
     });
 
     it('should fall back to initials when profile picture loading fails', async () => {
@@ -740,6 +809,7 @@ describe('main.ts initialization', () => {
         const fallback = document.getElementById('nav-user-avatar-fallback');
         const currentName = document.getElementById('nav-user-name')?.textContent ?? '';
         await vi.waitFor(() => expect(fallback?.textContent).toBe(currentName.slice(0, 2).toUpperCase()));
+        expect(document.getElementById('nav-user-avatar')?.dataset.hasImage).toBe('false');
     });
 
     it('should handle window controls', async () => {

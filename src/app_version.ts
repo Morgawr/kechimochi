@@ -67,6 +67,40 @@ export function formatProductVersionLabel(versionInfo: AppVersionInfo = getAppVe
     return `Kechimochi ${formatBuildBadge(versionInfo)}`;
 }
 
+type VersionSuffixKind = 'dev' | 'beta' | 'stable';
+
+const VERSION_SUFFIXES: Record<VersionSuffixKind, string> = {
+    dev: '-dev',
+    beta: '-beta',
+    stable: '',
+};
+
+function resolveVersionSuffixKind(versionInfo: AppVersionInfo): VersionSuffixKind {
+    if (versionInfo.channel === 'dev') return 'dev';
+    if (versionInfo.releaseStage === 'beta') return 'beta';
+    return 'stable';
+}
+
+const VERSION_KIND_DESCRIPTIONS: Record<VersionSuffixKind, string | null> = {
+    dev: 'a development build',
+    beta: 'a beta release',
+    stable: null,
+};
+
+export function formatShortVersion(versionInfo: AppVersionInfo = getAppVersionInfo()): string {
+    const semverCore = versionInfo.version.split('-')[0];
+    const suffix = VERSION_SUFFIXES[resolveVersionSuffixKind(versionInfo)];
+    return `v${semverCore}${suffix}`;
+}
+
+export function formatRunningVersionSentence(versionInfo: AppVersionInfo = getAppVersionInfo()): string {
+    const kindDescription = VERSION_KIND_DESCRIPTIONS[resolveVersionSuffixKind(versionInfo)];
+    const runningVersion = `You're running Kechimochi v${versionInfo.version}`;
+    return kindDescription ? `${runningVersion}, ${kindDescription}.` : `${runningVersion}.`;
+}
+
+export const ISSUES_URL = 'https://github.com/Morgawr/kechimochi/issues';
+
 export function getBundledReleaseNotes(): string {
     return readBuildString('__APP_RELEASE_NOTES__', __APP_RELEASE_NOTES__, '');
 }
