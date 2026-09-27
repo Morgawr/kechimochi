@@ -38,6 +38,12 @@ import {
 } from './sync_enablement';
 import {applyTheme, resolveEffectiveTheme} from "./theme.ts";
 import {applyFont, resolveEffectiveFont} from "./fonts.ts";
+import {
+    applyLibraryCardDisplay,
+    normalizeLibraryContentTypeTagMode,
+    normalizeLibraryStatusBorderMode,
+    normalizeLibraryStatusDotStyle,
+} from './media/library_card_display';
 import { renderDatabaseRecoveryScreen } from './database_recovery';
 
 // Support global date mocking for E2E tests
@@ -471,12 +477,20 @@ export class App {
     }
 
     private async loadAppearance() {
-        const [syncedTheme, syncedFont] = await Promise.all([
+        const [syncedTheme, syncedFont, storedLibraryStatusBorder, storedLibraryStatusDot, storedLibraryContentTypeTag] = await Promise.all([
             getSetting(SETTING_KEYS.THEME),
             getSetting(SETTING_KEYS.FONT_FAMILY),
+            getSetting(SETTING_KEYS.LIBRARY_STATUS_BORDER),
+            getSetting(SETTING_KEYS.LIBRARY_STATUS_DOT),
+            getSetting(SETTING_KEYS.LIBRARY_CONTENT_TYPE_TAG),
         ]);
         applyTheme(resolveEffectiveTheme(syncedTheme || DEFAULTS.THEME));
         applyFont(resolveEffectiveFont(syncedFont || DEFAULTS.FONT));
+        applyLibraryCardDisplay({
+            statusBorder: normalizeLibraryStatusBorderMode(storedLibraryStatusBorder),
+            statusDot: normalizeLibraryStatusDotStyle(storedLibraryStatusDot),
+            contentTypeTag: normalizeLibraryContentTypeTagMode(storedLibraryContentTypeTag),
+        });
     }
 
     private async refreshProfileChrome() {

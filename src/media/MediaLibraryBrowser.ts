@@ -798,6 +798,7 @@ export class MediaLibraryBrowser extends Component<MediaLibraryBrowserState> {
 
         const layoutRoot = document.createElement('div');
         layoutRoot.className = 'media-library-layout-root';
+        layoutRoot.dataset.groupedByType = String(this.state.groupByType);
         // Flex children default to min-width:auto, which can prevent shrinking and create
         // horizontal overflow (then clipped by the app shell). Allow the library layouts
         // to shrink properly at narrow window widths.

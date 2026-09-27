@@ -55,12 +55,18 @@ export const SETTING_KEYS = {
     UPDATES_LAST_SEEN_RELEASE_VERSION: 'updates_last_seen_release_version',
     UPDATES_E2E_RELEASE_VERSION: 'updates_e2e_release_version',
     TIMELINE_ZOOM_LEVEL: 'timeline_zoom_level',
+    LIBRARY_STATUS_BORDER: 'library_status_border',
+    LIBRARY_STATUS_DOT: 'library_status_dot',
+    LIBRARY_CONTENT_TYPE_TAG: 'library_content_type_tag',
 } as const;
 
 export const DEFAULTS = {
     THEME: 'pastel-pink',
     FONT: 'inter',
     PROFILE: 'default',
+    LIBRARY_STATUS_BORDER: 'hover',
+    LIBRARY_STATUS_DOT: 'default',
+    LIBRARY_CONTENT_TYPE_TAG: 'always',
 } as const;
 
 export const THEME_MODES: Record<string, 'light' | 'dark'> = {

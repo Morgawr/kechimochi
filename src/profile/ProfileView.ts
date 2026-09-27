@@ -98,6 +98,17 @@ import {
     type FontChoice,
 } from "../fonts.ts";
 import { normalizeWeekStartDay as normalizeWeekStartDayValue } from '../calendar';
+import {
+    LIBRARY_CONTENT_TYPE_TAG_OPTIONS,
+    LIBRARY_STATUS_DOT_OPTIONS,
+    applyLibraryCardDisplay,
+    normalizeLibraryContentTypeTagMode,
+    normalizeLibraryStatusBorderMode,
+    normalizeLibraryStatusDotStyle,
+    type LibraryContentTypeTagMode,
+    type LibraryStatusBorderMode,
+    type LibraryStatusDotStyle,
+} from '../media/library_card_display';
 
 const THEME_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
     { value: 'pastel-pink', label: 'Pastel Pink (Default)' },
@@ -179,6 +190,9 @@ interface ProfileState {
     weekStartDay: string;
     contentTypeOrder: string[];
     trackingStatusOrder: string[];
+    libraryStatusBorder: LibraryStatusBorderMode;
+    libraryStatusDot: LibraryStatusDotStyle;
+    libraryContentTypeTag: LibraryContentTypeTagMode;
 }
 
 function stringifyError(error: unknown): string {
@@ -373,6 +387,9 @@ export class ProfileView extends Component<ProfileState> {
             weekStartDay: '1',
             contentTypeOrder: [...CONTENT_TYPES],
             trackingStatusOrder: [...TRACKING_STATUSES],
+            libraryStatusBorder: DEFAULTS.LIBRARY_STATUS_BORDER,
+            libraryStatusDot: DEFAULTS.LIBRARY_STATUS_DOT,
+            libraryContentTypeTag: DEFAULTS.LIBRARY_CONTENT_TYPE_TAG,
         });
     }
 
@@ -409,6 +426,9 @@ export class ProfileView extends Component<ProfileState> {
             weekStartDay,
             contentTypeOrderStr,
             trackingStatusOrderStr,
+            libraryStatusBorder,
+            libraryStatusDot,
+            libraryContentTypeTag,
             syncState,
             localHttpApiStatus,
             loadedLogs,
@@ -422,6 +442,9 @@ export class ProfileView extends Component<ProfileState> {
             getSetting(SETTING_KEYS.WEEK_START_DAY),
             getSetting(SETTING_KEYS.CONTENT_TYPE_ORDER),
             getSetting(SETTING_KEYS.TRACKING_STATUS_ORDER),
+            getSetting(SETTING_KEYS.LIBRARY_STATUS_BORDER),
+            getSetting(SETTING_KEYS.LIBRARY_STATUS_DOT),
+            getSetting(SETTING_KEYS.LIBRARY_CONTENT_TYPE_TAG),
             syncStatePromise,
             localHttpApiStatusPromise,
             // Report-card data is non-essential to the rest of the profile page, so a
@@ -459,6 +482,9 @@ export class ProfileView extends Component<ProfileState> {
             weekStartDay: this.normalizeWeekStartDay(weekStartDay),
             contentTypeOrder: reconcileEnumOrder(contentTypeOrderStr, CONTENT_TYPES),
             trackingStatusOrder: reconcileEnumOrder(trackingStatusOrderStr, TRACKING_STATUSES),
+            libraryStatusBorder: normalizeLibraryStatusBorderMode(libraryStatusBorder),
+            libraryStatusDot: normalizeLibraryStatusDotStyle(libraryStatusDot),
+            libraryContentTypeTag: normalizeLibraryContentTypeTagMode(libraryContentTypeTag),
             profilePicture,
             report,
             logs,
@@ -574,9 +600,10 @@ export class ProfileView extends Component<ProfileState> {
         }
 
         this.clear();
-        const { currentProfile, theme, font, profilePicture, appVersion, themeOverrideEnabled, themeOverrideValue, fontOverrideValue, weekStartDay } = this.state;
+        const { currentProfile, theme, font, profilePicture, appVersion, themeOverrideEnabled, themeOverrideValue, fontOverrideValue, weekStartDay, libraryStatusBorder, libraryStatusDot, libraryContentTypeTag } = this.state;
         applyTheme(themeOverrideEnabled ? themeOverrideValue : theme);
         applyFont(themeOverrideEnabled ? fontOverrideValue : font);
+        applyLibraryCardDisplay({ statusBorder: libraryStatusBorder, statusDot: libraryStatusDot, contentTypeTag: libraryContentTypeTag });
         const profilePictureSrc = profilePictureToDataUrl(profilePicture);
         const initials = getProfileInitials(currentProfile);
         const hasLoggedTime = this.state.logs.some(log => log.duration_minutes > 0);
@@ -817,15 +844,44 @@ export class ProfileView extends Component<ProfileState> {
         return String(normalizeWeekStartDayValue(value));
     }
 
+    private renderOptionList<TValue extends string>(options: ReadonlyArray<{ value: TValue; label: string }>, currentValue: TValue) {
+        const optionsHtml = options.map(({ value, label }) => {
+            const selected = value === currentValue ? ' selected' : '';
+            return `<option value="${escapeHTML(value)}"${selected}>${escapeHTML(label)}</option>`;
+        }).join('');
+        return rawHtml(optionsHtml);
+    }
+
     private renderLibraryOrderingCard() {
+        const { libraryStatusBorder, libraryStatusDot, libraryContentTypeTag } = this.state;
         const sectionsHtml = LIBRARY_ORDER_DESCRIPTORS
             .map(descriptor => this.renderLibraryOrderSection(descriptor))
             .join('');
 
         return html`
             <div class="card" style="display: flex; flex-direction: column; gap: 1rem;">
-                <h3>Library Ordering</h3>
-                <p style="color: var(--text-secondary); font-size: 0.9rem;">Set a custom order for content types and tracking statuses. Applies when sorting the library by these fields, and content type order also controls section order when grouping the library by media type.</p>
+                <h3>Library</h3>
+                <p style="color: var(--text-secondary); font-size: 0.9rem;">Control how library grid cards show status and content type, and set a custom order for content types and tracking statuses.</p>
+
+                <div class="profile-setting-checkbox-row">
+                    <input id="profile-checkbox-library-status-border" type="checkbox" ${libraryStatusBorder === 'always' ? 'checked' : ''} />
+                    <label for="profile-checkbox-library-status-border">Always show status hover borders</label>
+                </div>
+
+                <div class="profile-setting-field">
+                    <span id="profile-select-library-status-dot-label" class="profile-setting-label">Status dot</span>
+                    <select id="profile-select-library-status-dot" aria-labelledby="profile-select-library-status-dot-label">
+                        ${this.renderOptionList(LIBRARY_STATUS_DOT_OPTIONS, libraryStatusDot)}
+                    </select>
+                </div>
+
+                <div class="profile-setting-field">
+                    <span id="profile-select-library-content-type-tag-label" class="profile-setting-label">Content type tag</span>
+                    <select id="profile-select-library-content-type-tag" aria-labelledby="profile-select-library-content-type-tag-label">
+                        ${this.renderOptionList(LIBRARY_CONTENT_TYPE_TAG_OPTIONS, libraryContentTypeTag)}
+                    </select>
+                </div>
+
                 ${rawHtml(sectionsHtml)}
             </div>
         `;
@@ -1568,6 +1624,24 @@ export class ProfileView extends Component<ProfileState> {
             await setSetting(SETTING_KEYS.WEEK_START_DAY, weekStartDay);
             this.setState({ weekStartDay });
             globalThis.dispatchEvent(new CustomEvent(EVENTS.LOCAL_DATA_CHANGED));
+        });
+
+        root.querySelector('#profile-checkbox-library-status-border')?.addEventListener('change', async (e) => {
+            const libraryStatusBorder: LibraryStatusBorderMode = (e.target as HTMLInputElement).checked ? 'always' : 'hover';
+            await setSetting(SETTING_KEYS.LIBRARY_STATUS_BORDER, libraryStatusBorder);
+            this.setState({ libraryStatusBorder });
+        });
+
+        root.querySelector('#profile-select-library-status-dot')?.addEventListener('change', async (e) => {
+            const libraryStatusDot = normalizeLibraryStatusDotStyle((e.target as HTMLSelectElement).value);
+            await setSetting(SETTING_KEYS.LIBRARY_STATUS_DOT, libraryStatusDot);
+            this.setState({ libraryStatusDot });
+        });
+
+        root.querySelector('#profile-select-library-content-type-tag')?.addEventListener('change', async (e) => {
+            const libraryContentTypeTag = normalizeLibraryContentTypeTagMode((e.target as HTMLSelectElement).value);
+            await setSetting(SETTING_KEYS.LIBRARY_CONTENT_TYPE_TAG, libraryContentTypeTag);
+            this.setState({ libraryContentTypeTag });
         });
 
         root.querySelectorAll<HTMLButtonElement>('.profile-order-move-button').forEach((button) => {

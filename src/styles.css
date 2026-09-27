@@ -2299,6 +2299,11 @@ select:not(:where(.badge-select, #media-select)) {
   white-space: nowrap;
 }
 
+body[data-library-content-type-tag='never'] .grid-item-type-badge,
+body[data-library-content-type-tag='hide-when-grouped'] .media-library-layout-root[data-grouped-by-type='true'] .grid-item-type-badge {
+  display: none;
+}
+
 .grid-item-variant {
   max-width: 100%;
   font-size: 0.78rem;
@@ -2879,6 +2884,10 @@ select:not(:where(.badge-select, #media-select)) {
 .media-grid-item[data-tracking-status='Dropped'] { --library-hover-border-color: var(--status-dropped-led); }
 .media-grid-item[data-tracking-status='Not Started'] { --library-hover-border-color: var(--status-not-started-led); }
 
+body[data-library-status-border='always'] .grid-item-overlay {
+  border-color: var(--library-hover-border-color, var(--border-color));
+}
+
 .media-library-section-header {
   display: flex;
   align-items: center;
@@ -3041,6 +3050,31 @@ select:not(:where(.badge-select, #media-select)) {
   color: var(--text-secondary);
   font-size: 0.76rem;
   font-style: italic;
+}
+
+.profile-setting-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.profile-setting-field select {
+  width: 100%;
+}
+
+.profile-setting-label {
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.profile-setting-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.profile-setting-checkbox-row label {
+  cursor: pointer;
 }
 
 .profile-order-list {
@@ -3356,6 +3390,20 @@ select:not(:where(.badge-select, #media-select)) {
 .status-led.status-paused { background-color: var(--status-paused-led) !important; }
 .status-led.status-dropped { background-color: var(--status-dropped-led) !important; }
 .status-led.status-not-started { background-color: var(--status-not-started-led) !important; }
+
+body[data-library-status-dot='contrast'] .status-led {
+    width: 16px;
+    height: 16px;
+    top: 7px;
+    right: 7px;
+    border: 2px solid color-mix(in srgb, var(--tint-light) 85%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--tint-dark) 70%, transparent),
+                0 0 4px color-mix(in srgb, var(--tint-dark) 50%, transparent);
+}
+
+body[data-library-status-dot='none'] .status-led {
+    display: none;
+}
 
 /* Ensure the LED stands out in all themes */
 [data-theme='light'] .status-led {
