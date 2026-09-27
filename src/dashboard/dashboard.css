@@ -10,6 +10,10 @@
  *   supernarrow  <= 340px    side panel folded, grid 1-across
  *
  * `medium+` and `medium` differ only in whether the side panel exists.
+ *
+ * Floor: 320px, the narrowest width Android guarantees (CDD 7.1.1.1 / 7.1.1.3) and the WCAG 1.4.10
+ * reflow width. Enforced by `#app` min-width (`styles.css`) and the desktop window `minWidth`
+ * (`tauri.conf.json`).
  * ============================================================================ */
 
 .dashboard-media-link:hover {

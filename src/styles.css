@@ -576,6 +576,12 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+@media (width < 320px) {
+  body {
+    overflow-x: auto;
+  }
+}
+
 /* Typography */
 button, input, select, textarea {
   font-family: inherit;
@@ -655,6 +661,7 @@ a {
   flex-direction: column;
   /* Avoid 100vw subtle overflow when scrollbars are present (can clip right edge). */
   width: 100%;
+  min-width: 320px;
   height: 100dvh;
   position: relative;
 }
