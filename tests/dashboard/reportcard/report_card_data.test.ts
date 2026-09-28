@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { aggregateCategorySlices, formatCharacters, formatDurationHm } from '../../../src/profile/reportcard/report_card_data';
+import { aggregateCategorySlices, formatCharacters, formatDurationHm } from '../../../src/dashboard/reportcard/report_card_data';
 import type { ActivitySummary, Media } from '../../../src/types';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────

@@ -196,6 +196,7 @@ pub struct DashboardSnapshotRequest {
     pub heatmap_year: i32,
     pub recent_offset: i64,
     pub recent_limit: i64,
+    pub reading_report_cache_keys: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -391,11 +392,44 @@ pub struct DashboardSettings {
 pub struct DashboardSnapshot {
     pub request_id: u64,
     pub settings: DashboardSettings,
+    pub reading_report_cache: std::collections::HashMap<String, String>,
     pub summary: DashboardSummary,
     pub quick_log_media: Vec<DashboardMedia>,
     pub recent_logs: DashboardRecentPage,
     pub heatmap: DashboardHeatmapYearResponse,
     pub weekday_distribution: DashboardWeekdayDistribution,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ReadingReportInputsRequest {
+    pub cutoff: String,
+    pub today: String,
+    pub content_types: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MediaReadingAggregate {
+    pub media_id: i64,
+    pub content_type: String,
+    pub tracking_status: String,
+    pub extra_data: String,
+    pub immersion_minutes: i64,
+    pub has_dual: bool,
+    pub has_characters_only: bool,
+    pub window_dual_characters: i64,
+    pub window_dual_minutes: i64,
+    pub window_timed_minutes: i64,
+    pub window_characters_only_characters: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ReadingReportInputsResponse {
+    pub aggregates: Vec<MediaReadingAggregate>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SaveLocalSettingValuesRequest {
+    pub values: std::collections::HashMap<String, String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

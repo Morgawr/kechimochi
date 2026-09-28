@@ -44,6 +44,14 @@ import {
     type DashboardCardId,
 } from './dashboard_cards';
 import { reconcileDashboardCards, type DashboardCardDescriptor } from './dashboard_layout';
+import {
+    DEFAULT_READING_REPORT_METRIC,
+    parseReadingReportMetric,
+    READING_REPORT_CACHE_SETTING_KEYS,
+    readingReportWindow,
+    type ReadingReportMetric,
+} from '../stats/reading_speed';
+import { getReadingReportService } from '../stats/reading_report_service';
 
 const RECENT_LOGS_PER_PAGE = 15;
 const SIDE_PANEL_HIDE_LABEL = 'Collapse sidebar';
@@ -69,6 +77,7 @@ interface DashboardState {
     recentPage: DashboardRecentPage | null;
     currentHeatmapYear: number;
     chartParams: ChartParams;
+    readingReportMetric: ReadingReportMetric;
     isInitialized: boolean;
 }
 
@@ -125,6 +134,7 @@ export class Dashboard extends Component<DashboardState> {
                 metric: 'minutes',
                 weekStartDay: 1,
             },
+            readingReportMetric: DEFAULT_READING_REPORT_METRIC,
             isInitialized: false,
         });
     }
@@ -152,6 +162,7 @@ export class Dashboard extends Component<DashboardState> {
                     heatmap_year: heatmapYear,
                     recent_offset: 0,
                     recent_limit: RECENT_LOGS_PER_PAGE,
+                    reading_report_cache_keys: [...READING_REPORT_CACHE_SETTING_KEYS],
                 }),
                 this.readHiddenCardsSetting(),
             ]);
@@ -163,6 +174,7 @@ export class Dashboard extends Component<DashboardState> {
                 this.hiddenCards = parseHiddenDashboardCards(hiddenCardsSetting);
             }
             this.controlsComponent?.refreshCardsSummary();
+            getReadingReportService().hydrateFromCache(snapshot.reading_report_cache);
 
             this.state = {
                 ...this.state,
@@ -186,6 +198,7 @@ export class Dashboard extends Component<DashboardState> {
                         : snapshot.settings.metric,
                     timeRangeOffset: 0,
                 },
+                readingReportMetric: parseReadingReportMetric(snapshot.reading_report_cache[SETTING_KEYS.DASHBOARD_READING_REPORT_METRIC]),
                 isInitialized: true,
             };
 
@@ -355,6 +368,7 @@ export class Dashboard extends Component<DashboardState> {
                     this.requestRange().catch(error => Logger.error('Unexpected dashboard range failure', error));
                 } else {
                     this.publishControlsRequestId(this.activeSnapshotRequest);
+                    this.triggerReadingReportRecompute();
                 }
             });
         });
@@ -426,10 +440,11 @@ export class Dashboard extends Component<DashboardState> {
 
     private updateStats(): void {
         if (!this.containers.stats || !this.state.summary) return;
+        const componentState = { summary: this.state.summary, readingReportMetric: this.state.readingReportMetric };
         if (this.statsComponent) {
-            this.statsComponent.setState({ summary: this.state.summary });
+            this.statsComponent.setState(componentState);
         } else {
-            this.statsComponent = new StatsCard(this.containers.stats, { summary: this.state.summary });
+            this.statsComponent = new StatsCard(this.containers.stats, componentState);
             this.statsComponent.render();
         }
     }
@@ -705,8 +720,21 @@ export class Dashboard extends Component<DashboardState> {
         } finally {
             if (this.isLiveRangeRequest(generation, requestId)) {
                 for (const host of rangeHosts) host.removeAttribute('aria-busy');
+                this.triggerReadingReportRecompute();
             }
         }
+    }
+
+    private triggerReadingReportRecompute(): void {
+        const summary = this.state.summary;
+        if (!summary) return;
+        getReadingReportService().checkAndRecompute({
+            day: readingReportWindow(new Date()).today,
+            totalLogs: summary.total_logs,
+            totalMinutes: summary.total_minutes,
+            totalCharacters: summary.total_characters,
+            totalMedia: summary.total_media,
+        });
     }
 
     private publishControlsRange(range: ActivityRange): void {

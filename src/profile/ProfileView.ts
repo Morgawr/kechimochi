@@ -2,8 +2,6 @@ import { Logger } from '../logger';
 import { Component } from '../component';
 import { html, rawHtml, escapeHTML, escapeAttribute } from '../html';
 import {
-    getAllMedia,
-    getLogs,
     clearActivities,
     wipeEverything,
     applyMediaImport,
@@ -42,8 +40,6 @@ import { getServices } from '../services';
 import { MediaCoverLoader } from '../media/cover_loader';
 import { formatProductVersionLabel, getAppVersionInfo } from '../app_version';
 import type {
-    ActivitySummary,
-    Media,
     MergeSide,
     LocalHttpApiConfig,
     LocalHttpApiStatus,
@@ -59,18 +55,7 @@ import type {
     UpdateState,
 } from '../types';
 import { getProfileInitials, profilePictureToDataUrl } from './profile_picture';
-import {
-    renderReportCardButtons,
-    wireReportCardButtons,
-} from './reportcard/report_card_controls';
 import { STORAGE_KEYS, SETTING_KEYS, DEFAULTS, EVENTS, CONTENT_TYPES, TRACKING_STATUSES } from '../constants';
-import {
-    calculateTypeReadingSpeeds,
-    READING_CONTENT_TYPES,
-    READING_SPEED_SETTING_KEY_BY_CONTENT_TYPE,
-    ReadingContentType,
-    TypeReadingSpeed
-} from '../stats/reading_speed';
 import { reconcileEnumOrder } from '../media/sorting';
 import type { UpdateManager } from '../update/manager';
 import {
@@ -160,9 +145,6 @@ interface ProfileState {
     theme: string;
     font: FontChoice;
     profilePicture: ProfilePicture | null;
-    report: Record<ReadingContentType, TypeReadingSpeed>;
-    logs: ActivitySummary[];
-    mediaList: Media[];
     appVersion: string;
     isInitialized: boolean;
     updateState: UpdateState;
@@ -317,12 +299,6 @@ function formatBytes(bytes: number, decimals = 1): string {
     return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 }
 
-function defaultReadingReport(): Record<ReadingContentType, TypeReadingSpeed> {
-    return Object.fromEntries(
-        READING_CONTENT_TYPES.map(contentType => [contentType, { charactersPerHour: 0, hours: 0 }]),
-    ) as Record<ReadingContentType, TypeReadingSpeed>;
-}
-
 function defaultLocalHttpApiStatus(): LocalHttpApiStatus {
     return {
         supported: false,
@@ -348,9 +324,6 @@ export class ProfileView extends Component<ProfileState> {
             theme: localStorage.getItem(STORAGE_KEYS.THEME_CACHE) || DEFAULTS.THEME,
             font: getCachedFont(),
             profilePicture: null,
-            report: defaultReadingReport(),
-            logs: [],
-            mediaList: [],
             appVersion: '',
             isInitialized: false,
             updateState: updateManager?.getState() ?? {
@@ -411,8 +384,6 @@ export class ProfileView extends Component<ProfileState> {
             trackingStatusOrderStr,
             syncState,
             localHttpApiStatus,
-            loadedLogs,
-            loadedMediaList,
         ] = await Promise.all([
             getSetting(SETTING_KEYS.THEME),
             getSetting(SETTING_KEYS.FONT_FAMILY),
@@ -424,32 +395,11 @@ export class ProfileView extends Component<ProfileState> {
             getSetting(SETTING_KEYS.TRACKING_STATUS_ORDER),
             syncStatePromise,
             localHttpApiStatusPromise,
-            // Report-card data is non-essential to the rest of the profile page, so a
-            // fetch failure just disables the report card rather than blanking the view.
-            getLogs().catch((error: unknown) => {
-                Logger.error('[report-card] failed to load logs:', error);
-                return null;
-            }),
-            getAllMedia().catch((error: unknown) => {
-                Logger.error('[report-card] failed to load media:', error);
-                return null;
-            }),
         ]);
 
         const resolvedTheme = theme || DEFAULTS.THEME;
         const resolvedFont = font && isValidFontChoice(font) ? font : DEFAULTS.FONT;
         const resolvedProfileName = currentProfile || DEFAULTS.PROFILE;
-        const logs = loadedLogs ?? [];
-        const mediaList = loadedMediaList ?? [];
-
-        const report = calculateTypeReadingSpeeds(logs, mediaList, this.readingReportCutoffDate());
-        // An empty list from a failed fetch is indistinguishable from a genuinely empty library,
-        // and persisting it would erase the cached speeds MediaDetail falls back on.
-        if (loadedLogs !== null && loadedMediaList !== null) {
-            this.persistReadingReport(report).catch((error: unknown) => {
-                Logger.error('[report-card] failed to persist reading speeds:', error);
-            });
-        }
 
         localStorage.setItem(STORAGE_KEYS.THEME_CACHE, resolvedTheme);
         this.setState({
@@ -460,9 +410,6 @@ export class ProfileView extends Component<ProfileState> {
             contentTypeOrder: reconcileEnumOrder(contentTypeOrderStr, CONTENT_TYPES),
             trackingStatusOrder: reconcileEnumOrder(trackingStatusOrderStr, TRACKING_STATUSES),
             profilePicture,
-            report,
-            logs,
-            mediaList,
             appVersion,
             isInitialized: true,
             syncSupported,
@@ -472,29 +419,6 @@ export class ProfileView extends Component<ProfileState> {
             showSyncConflicts: syncState.syncConflicts.length > 0 && this.state.showSyncConflicts,
             localHttpApiStatus,
         });
-    }
-
-    private readingReportCutoffDate(): string {
-        const cutoff = new Date();
-        cutoff.setFullYear(cutoff.getFullYear() - 1);
-        const month = `${cutoff.getMonth() + 1}`.padStart(2, '0');
-        const day = `${cutoff.getDate()}`.padStart(2, '0');
-        return `${cutoff.getFullYear()}-${month}-${day}`;
-    }
-
-    private async persistReadingReport(report: Record<ReadingContentType, TypeReadingSpeed>): Promise<void> {
-        const entries = READING_CONTENT_TYPES.map(contentType => ({
-            key: READING_SPEED_SETTING_KEY_BY_CONTENT_TYPE[contentType],
-            speedValue: Math.round(report[contentType].charactersPerHour).toString(),
-        }));
-
-        const previousValues = await Promise.all(entries.map(entry => getSetting(entry.key)));
-
-        await Promise.all(
-            entries
-                .filter((entry, index) => previousValues[index] !== entry.speedValue)
-                .map(entry => setSetting(entry.key, entry.speedValue)),
-        );
     }
 
     private async loadProfilePicture(): Promise<ProfilePicture | null> {
@@ -579,7 +503,6 @@ export class ProfileView extends Component<ProfileState> {
         applyFont(themeOverrideEnabled ? fontOverrideValue : font);
         const profilePictureSrc = profilePictureToDataUrl(profilePicture);
         const initials = getProfileInitials(currentProfile);
-        const hasLoggedTime = this.state.logs.some(log => log.duration_minutes > 0);
 
         const content = html`
             <div id="profile-root" class="animate-fade-in" style="display: flex; flex-direction: column; gap: 2rem; max-width: 600px; margin: 0 auto; padding-top: 1rem; padding-bottom: 2rem;">
@@ -596,20 +519,6 @@ export class ProfileView extends Component<ProfileState> {
                     <h2 id="profile-name" title="Double click to rename" style="margin: 0; font-size: 2rem; color: var(--text-primary); cursor: pointer; transition: opacity 0.2s;">${currentProfile}</h2>
                     <p style="color: var(--text-secondary); margin-top: 0.5rem;">Manage your profile and data</p>
                 </div>
-
-                ${getServices().supportsReportCardExport() ? renderReportCardButtons(hasLoggedTime) : ''}
-
-                ${this.hasReadingReportData() ? html`
-                    <div class="card" id="profile-report-card" style="display: flex; flex-direction: column; gap: 1rem;">
-                        <h3 style="margin: 0;">Reading Report Card</h3>
-                        <p style="color: var(--text-secondary); font-size: 0.9rem;">Average reading speed by content type, pooled from your data.</p>
-
-                        <div id="profile-report-card-content">
-                            ${this.renderReportContent()}
-                        </div>
-                        ${this.renderReportWindowNote()}
-                    </div>
-                ` : ''}
 
                 <div class="card" style="display: flex; flex-direction: column; gap: 1rem;">
                     <h3>Appearance</h3>
@@ -770,25 +679,6 @@ export class ProfileView extends Component<ProfileState> {
         `;
     }
 
-    private hasReadingReportData(): boolean {
-        return READING_CONTENT_TYPES.some(contentType => this.state.report[contentType].charactersPerHour > 0);
-    }
-
-    private renderReportContent() {
-        const { report } = this.state;
-        const rows = READING_CONTENT_TYPES
-            .filter(contentType => report[contentType].charactersPerHour > 0)
-            .map(contentType => html`
-                <div class="profile-report-row">
-                    <span>${contentType}</span>
-                    <strong class="profile-report-row-speed">${Math.round(report[contentType].charactersPerHour).toLocaleString()} char/hr</strong>
-                    <span class="profile-report-row-hours">${report[contentType].hours.toFixed(1)} hours</span>
-                </div>
-            `);
-
-        return html`<div class="profile-report-row-list">${rows}</div>`;
-    }
-
     private renderThemeOptions(currentValue: string) {
         const optionsHtml = THEME_OPTIONS.map(({ value, label }) => {
             const selected = value === currentValue ? ' selected' : '';
@@ -877,22 +767,6 @@ export class ProfileView extends Component<ProfileState> {
         this.setState({ [descriptor.stateField]: nextOrder } as Partial<ProfileState>);
 
         globalThis.dispatchEvent(new CustomEvent(EVENTS.LIBRARY_PREFERENCES_CHANGED));
-    }
-
-    private renderReportWindowNote() {
-        const { logs } = this.state;
-        if (logs.length === 0) return '';
-
-        const earliestLogDate = logs.reduce((earliest, log) => log.date < earliest ? log.date : earliest, logs[0].date);
-        const windowText = earliestLogDate >= this.readingReportCutoffDate()
-            ? `Since ${earliestLogDate}`
-            : 'Over the last year';
-
-        return html`
-            <div id="profile-report-window-note" class="profile-report-window-note">
-                ${windowText}
-            </div>
-        `;
     }
 
     private renderUpdatesCard() {
@@ -1843,13 +1717,6 @@ export class ProfileView extends Component<ProfileState> {
                 globalThis.location.reload();
             }
         });
-
-        wireReportCardButtons(root, () => ({
-            profileName: this.state.currentProfile,
-            profilePicture: this.state.profilePicture,
-            logs: this.state.logs,
-            mediaList: this.state.mediaList,
-        }));
     }
 
     private readLocalHttpApiConfig(root: HTMLElement, enabled: boolean): LocalHttpApiConfig | null {

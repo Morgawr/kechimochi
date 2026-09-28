@@ -187,7 +187,7 @@ describe('WebServices', () => {
 
     it('posts dashboard requests with request tokens and parses measured response bodies', async () => {
         fetchMock.mockResolvedValue(okJson({ request_id: 1 }));
-        const snapshotRequest = { request_id: 1, today: '2026-07-21', heatmap_year: 2026, recent_offset: 0, recent_limit: 15 };
+        const snapshotRequest = { request_id: 1, today: '2026-07-21', heatmap_year: 2026, recent_offset: 0, recent_limit: 15, reading_report_cache_keys: [] };
         const rangeRequest = { request_id: 2, start_date: '2026-07-20', end_date: '2026-07-26', bucket: 'day' as const, group_by: 'activity_type' as const };
         const yearRequest = { request_id: 3, year: 2025 };
         const recentRequest = { request_id: 4, offset: 15, limit: 15 };

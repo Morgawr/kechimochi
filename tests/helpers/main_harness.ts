@@ -49,6 +49,7 @@ function defaultDashboardSnapshot(request: DashboardSnapshotRequest) {
             time_range_days: 7,
             metric: 'minutes' as const,
         },
+        reading_report_cache: {},
         summary: {
             total_logs: 1,
             total_media: 0,
@@ -145,6 +146,8 @@ export function createMainApiMock() {
         })),
         getDashboardHeatmapYear: vi.fn((request: DashboardHeatmapYearRequest) => Promise.resolve({ request_id: request.request_id, year: request.year, days: [] })),
         getDashboardRecentLogs: vi.fn((request: DashboardRecentLogsRequest) => Promise.resolve({ request_id: request.request_id, offset: request.offset, limit: request.limit, total_count: 0, items: [] })),
+        getReadingReportInputs: vi.fn(() => Promise.resolve({ aggregates: [] })),
+        saveLocalSettingValues: vi.fn(() => Promise.resolve()),
         getMilestones: vi.fn(() => Promise.resolve([])),
         getAppVersion: vi.fn(() => Promise.resolve('1.0.0')),
         isDesktop: vi.fn(() => true),

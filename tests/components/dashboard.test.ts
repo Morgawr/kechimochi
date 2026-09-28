@@ -23,6 +23,8 @@ vi.mock('../../src/api', () => ({
     getDashboardRange: vi.fn(),
     getDashboardHeatmapYear: vi.fn(),
     getDashboardRecentLogs: vi.fn(),
+    getReadingReportInputs: vi.fn(() => Promise.resolve({ aggregates: [] })),
+    saveLocalSettingValues: vi.fn(() => Promise.resolve()),
     deleteLog: vi.fn(),
     setSetting: vi.fn(),
     getSetting: vi.fn(),
@@ -156,6 +158,7 @@ function snapshot(request: DashboardSnapshotRequest, overrides: Partial<Dashboar
             time_range_days: 7,
             metric: 'minutes',
         },
+        reading_report_cache: {},
         summary: {
             total_logs: 0,
             total_media: 0,

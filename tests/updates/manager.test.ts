@@ -41,6 +41,8 @@ function createServices(): TestServices {
         getLogs: vi.fn(),
         getHeatmap: vi.fn(),
         getDashboardSnapshot: vi.fn(),
+        getReadingReportInputs: vi.fn(),
+        saveLocalSettingValues: vi.fn(),
         getDashboardRange: vi.fn(),
         getDashboardHeatmapYear: vi.fn(),
         getDashboardRecentLogs: vi.fn(),

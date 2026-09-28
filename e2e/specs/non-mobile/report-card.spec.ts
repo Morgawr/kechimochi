@@ -4,7 +4,9 @@ import os from "node:os";
 import { waitForAppReady } from '../../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../../helpers/navigation.js';
 import { dismissAlert } from '../../helpers/common.js';
+import { clickBusinessCardMenuItem } from '../../helpers/dashboard.js';
 import { isDesktop, isWeb } from '../../config/platform.js';
+import type { BusinessCardActionId } from '../../../src/dashboard/reportcard/report_card_controls';
 
 // The 8-byte PNG file signature (see e2e/fixtures/seed.ts for the same constant).
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -24,43 +26,31 @@ async function applyDialogMock(savePath: string) {
   }, savePath);
 }
 
-async function clickSaveCardButton(buttonSelector: string): Promise<void> {
-  const button = $(buttonSelector);
-  await button.waitForClickable({ timeout: 10000 });
-  await button.click();
-}
-
-async function setMetricToggle(useCharacters: boolean): Promise<void> {
-  const option = $(useCharacters ? '#report-card-metric-characters' : '#report-card-metric-time');
-  await option.waitForClickable({ timeout: 5000 });
-  await option.click();
-}
-
-async function saveCardToDisk(buttonSelector: string, savePath: string): Promise<void> {
+async function saveCardToDisk(actionId: BusinessCardActionId, savePath: string): Promise<void> {
   await applyDialogMock(savePath);
-  await clickSaveCardButton(buttonSelector);
+  await clickBusinessCardMenuItem(actionId);
 
   await browser.waitUntil(() => fs.existsSync(savePath), {
     timeout: 15000,
-    timeoutMsg: `Report card PNG was not written to disk within 15s (${buttonSelector})`,
+    timeoutMsg: `Report card PNG was not written to disk within 15s (${actionId})`,
   });
 
   await dismissAlert('Report card image saved.');
 }
 
-async function saveCardToWebGlobal(buttonSelector: string): Promise<Buffer> {
+async function saveCardToWebGlobal(actionId: BusinessCardActionId): Promise<Buffer> {
   await applyDialogMock('web-capture');
   await browser.execute(() => {
     delete (globalThis as unknown as Record<string, unknown>).__lastSavedReportCard;
   });
-  await clickSaveCardButton(buttonSelector);
+  await clickBusinessCardMenuItem(actionId);
 
   await browser.waitUntil(async () => {
     const value = await browser.execute(() => (globalThis as unknown as Record<string, unknown>).__lastSavedReportCard);
     return typeof value === 'string' && value.length > 0;
   }, {
     timeout: 15000,
-    timeoutMsg: `Report card PNG was not captured within 15s (${buttonSelector})`,
+    timeoutMsg: `Report card PNG was not captured within 15s (${actionId})`,
   });
 
   await dismissAlert('Report card image saved.');
@@ -107,40 +97,37 @@ describe('CUJ: Report Card (shareable PNG export)', () => {
   });
 
   it('saves the activity-breakdown card as a valid PNG', async () => {
-    await navigateTo('profile');
-    expect(await verifyActiveView('profile')).toBe(true);
+    await navigateTo('dashboard');
+    expect(await verifyActiveView('dashboard')).toBe(true);
 
     if (isDesktop()) {
-      await saveCardToDisk('#profile-btn-save-card-activity', activityCardPath);
+      await saveCardToDisk('activity-time', activityCardPath);
       activityCardBytes = expectValidPng(activityCardPath);
     } else if (isWeb()) {
-      activityCardBytes = await saveCardToWebGlobal('#profile-btn-save-card-activity');
+      activityCardBytes = await saveCardToWebGlobal('activity-time');
       expectValidPngBytes(activityCardBytes);
     }
   });
 
   it('saves the content-breakdown card as a valid PNG for both the time and characters metrics', async () => {
-    if (!(await verifyActiveView('profile'))) {
-      await navigateTo('profile');
+    if (!(await verifyActiveView('dashboard'))) {
+      await navigateTo('dashboard');
     }
 
-    // Default metric (time).
-    await setMetricToggle(false);
     if (isDesktop()) {
-      await saveCardToDisk('#profile-btn-save-card-content', contentCardPath);
+      await saveCardToDisk('content-time', contentCardPath);
       contentCardBytes = expectValidPng(contentCardPath);
     } else if (isWeb()) {
-      contentCardBytes = await saveCardToWebGlobal('#profile-btn-save-card-content');
+      contentCardBytes = await saveCardToWebGlobal('content-time');
       expectValidPngBytes(contentCardBytes);
     }
 
-    await setMetricToggle(true);
     if (isDesktop()) {
-      await saveCardToDisk('#profile-btn-save-card-content', charactersContentCardPath);
+      await saveCardToDisk('content-characters', charactersContentCardPath);
       const charactersCardBytes = expectValidPng(charactersContentCardPath);
       expect(charactersCardBytes.equals(contentCardBytes)).toBe(false);
     } else if (isWeb()) {
-      const charactersCardBytes = await saveCardToWebGlobal('#profile-btn-save-card-content');
+      const charactersCardBytes = await saveCardToWebGlobal('content-characters');
       expectValidPngBytes(charactersCardBytes);
       expect(charactersCardBytes.equals(contentCardBytes)).toBe(false);
     }

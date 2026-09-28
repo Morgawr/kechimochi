@@ -12,6 +12,9 @@ import type {
     DashboardRecentPage,
     DashboardSnapshot,
     DashboardSnapshotRequest,
+    ReadingReportInputsRequest,
+    ReadingReportInputsResponse,
+    SaveLocalSettingValuesRequest,
     LibrarySnapshot,
     LibrarySnapshotRequest,
     TimelineEvent,
@@ -57,6 +60,9 @@ export type {
     DashboardRecentPage,
     DashboardSnapshot,
     DashboardSnapshotRequest,
+    ReadingReportInputsRequest,
+    ReadingReportInputsResponse,
+    SaveLocalSettingValuesRequest,
     LibrarySnapshot,
     LibrarySnapshotRequest,
     TimelineEvent,
@@ -113,6 +119,8 @@ export interface AppServices {
     getDashboardRange(request: DashboardRangeRequest): Promise<DashboardRangeResponse>;
     getDashboardHeatmapYear(request: DashboardHeatmapYearRequest): Promise<DashboardHeatmapYearResponse>;
     getDashboardRecentLogs(request: DashboardRecentLogsRequest): Promise<DashboardRecentPage>;
+    getReadingReportInputs(request: ReadingReportInputsRequest): Promise<ReadingReportInputsResponse>;
+    saveLocalSettingValues(request: SaveLocalSettingValuesRequest): Promise<void>;
     getLibrarySnapshot(request: LibrarySnapshotRequest): Promise<LibrarySnapshot>;
     getLogsForMedia(mediaId: number): Promise<ActivitySummary[]>;
     getTimelineEvents(): Promise<TimelineEvent[]>;

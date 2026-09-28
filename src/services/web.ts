@@ -20,6 +20,9 @@ import type {
     DashboardRecentPage,
     DashboardSnapshot,
     DashboardSnapshotRequest,
+    ReadingReportInputsRequest,
+    ReadingReportInputsResponse,
+    SaveLocalSettingValuesRequest,
     LibrarySnapshot,
     LibrarySnapshotRequest,
     TimelineEvent,
@@ -226,6 +229,12 @@ export class WebServices implements AppServices {
     }
     getDashboardRecentLogs(request: DashboardRecentLogsRequest): Promise<DashboardRecentPage> {
         return postMeasured('/dashboard/recent-logs', request, 'dashboard_recent_logs');
+    }
+    getReadingReportInputs(request: ReadingReportInputsRequest): Promise<ReadingReportInputsResponse> {
+        return postMeasured('/reading-report/inputs', request, 'reading_report_inputs');
+    }
+    saveLocalSettingValues(request: SaveLocalSettingValuesRequest): Promise<void> {
+        return post('/settings/local-values', request);
     }
     getLibrarySnapshot(request: LibrarySnapshotRequest): Promise<LibrarySnapshot> {
         return postMeasured('/library/snapshot', request, 'library_snapshot');

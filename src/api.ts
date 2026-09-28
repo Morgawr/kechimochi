@@ -22,6 +22,9 @@ export type {
   DashboardRecentPage,
   DashboardSnapshot,
   DashboardSnapshotRequest,
+  ReadingReportInputsRequest,
+  ReadingReportInputsResponse,
+  SaveLocalSettingValuesRequest,
   DashboardSummary,
   DashboardMedia,
   LibrarySnapshot,
@@ -77,6 +80,9 @@ import type {
   DashboardRecentPage,
   DashboardSnapshot,
   DashboardSnapshotRequest,
+  ReadingReportInputsRequest,
+  ReadingReportInputsResponse,
+  SaveLocalSettingValuesRequest,
   LibrarySnapshot,
   LibrarySnapshotRequest,
   GoogleDriveAuthSession,
@@ -141,6 +147,12 @@ export function getDashboardHeatmapYear(request: DashboardHeatmapYearRequest): P
 }
 export function getDashboardRecentLogs(request: DashboardRecentLogsRequest): Promise<DashboardRecentPage> {
   return getServices().getDashboardRecentLogs(request);
+}
+export function getReadingReportInputs(request: ReadingReportInputsRequest): Promise<ReadingReportInputsResponse> {
+  return getServices().getReadingReportInputs(request);
+}
+export function saveLocalSettingValues(request: SaveLocalSettingValuesRequest): Promise<void> {
+  return getServices().saveLocalSettingValues(request);
 }
 export function getLibrarySnapshot(request: LibrarySnapshotRequest): Promise<LibrarySnapshot> {
   return getServices().getLibrarySnapshot(request);

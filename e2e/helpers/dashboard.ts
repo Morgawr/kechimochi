@@ -3,6 +3,7 @@
  */
 import { clickTopmostOverlayChild, confirmAction, performActivityEdit, safeClick, getTopmostVisibleOverlay, waitForNoActiveOverlays, selectActivityDate } from './common.js';
 import { pressEnter, setText, setSelect } from './form-controls.js';
+import type { BusinessCardActionId } from '../../src/dashboard/reportcard/report_card_controls';
 
 export function dashboardCardSelector(id: string): string {
     return `[data-dashboard-card="${id}"]`;
@@ -463,6 +464,16 @@ export async function getActivityChartRangeMetadata(): Promise<{
             timeRangeOffset: controls?.dataset.timeRangeOffset ?? ''
         };
     });
+}
+
+export async function clickBusinessCardMenuItem(actionId: BusinessCardActionId): Promise<void> {
+    const trigger = $('#dashboard-business-card-button');
+    await trigger.waitForClickable({ timeout: 10000 });
+    await trigger.click();
+
+    const item = $(`.popup-menu [data-action-id="${actionId}"]`);
+    await item.waitForClickable({ timeout: 5000 });
+    await item.click();
 }
 
 /**

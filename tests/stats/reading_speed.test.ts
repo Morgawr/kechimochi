@@ -1,12 +1,16 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
     calculateTypeReadingSpeeds,
     classifySessionEvidence,
     estimateMediaReadingSpeed,
     isEstimatableImmersionSession,
+    isInReadingReportWindow,
     isReadingContentType,
+    poolTypeReadingSpeeds,
     READING_CONTENT_TYPES,
+    readingReportWindow,
 } from '../../src/stats/reading_speed';
+import type { MediaReadingAggregate, ReadingReportWindow } from '../../src/stats/reading_speed';
 import type { ActivitySummary, Media } from '../../src/types';
 import { TRACKING_STATUSES } from '../../src/constants';
 
@@ -106,6 +110,99 @@ describe('reading_speed.ts', () => {
 
         it.each(['Anime', 'Movie', 'Videogame', 'Audio', 'Drama', 'Livestream', 'Youtube Video', 'Unknown'])('rejects %s', (contentType) => {
             expect(isReadingContentType(contentType)).toBe(false);
+        });
+    });
+
+    describe('readingReportWindow', () => {
+        it('derives cutoff as the same calendar day one year before now', () => {
+            const window = readingReportWindow(new Date(2026, 5, 15, 14, 30));
+            expect(window).toEqual({ cutoff: '2025-06-15', today: '2026-06-15' });
+        });
+
+        it('ignores the time of day, including 23:59', () => {
+            const window = readingReportWindow(new Date(2026, 5, 15, 23, 59));
+            expect(window).toEqual({ cutoff: '2025-06-15', today: '2026-06-15' });
+        });
+
+        it('rolls a 29 Feb cutoff to 1 Mar of the prior non-leap year', () => {
+            const window = readingReportWindow(new Date(2024, 1, 29));
+            expect(window).toEqual({ cutoff: '2023-03-01', today: '2024-02-29' });
+        });
+
+        it('derives both bounds only from the given now, never from the real clock', () => {
+            const fixedNow = new Date(2026, 5, 15, 12, 0);
+            vi.useFakeTimers();
+            try {
+                vi.setSystemTime(new Date(2030, 0, 1));
+                const windowAtOneRealTime = readingReportWindow(fixedNow);
+                vi.setSystemTime(new Date(2010, 0, 1));
+                const windowAtAnotherRealTime = readingReportWindow(fixedNow);
+                expect(windowAtOneRealTime).toEqual(windowAtAnotherRealTime);
+                expect(windowAtOneRealTime).toEqual({ cutoff: '2025-06-15', today: '2026-06-15' });
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+    });
+
+    describe('isInReadingReportWindow', () => {
+        const window: ReadingReportWindow = { cutoff: '2024-01-01', today: '2024-06-30' };
+
+        it('admits a day log dated exactly at the cutoff', () => {
+            expect(isInReadingReportWindow({ date: '2024-01-01', date_precision: 'day' }, window)).toBe(true);
+        });
+
+        it('excludes a day log dated before the cutoff', () => {
+            expect(isInReadingReportWindow({ date: '2023-12-31', date_precision: 'day' }, window)).toBe(false);
+        });
+
+        it('admits a day log dated exactly at today', () => {
+            expect(isInReadingReportWindow({ date: '2024-06-30', date_precision: 'day' }, window)).toBe(true);
+        });
+
+        it('excludes a future-dated day log', () => {
+            expect(isInReadingReportWindow({ date: '2024-07-01', date_precision: 'day' }, window)).toBe(false);
+        });
+
+        it('admits a month log starting exactly on the cutoff day', () => {
+            expect(isInReadingReportWindow({ date: '2024-01-01', date_precision: 'month' }, window)).toBe(true);
+        });
+
+        it('excludes a month log that only contains the cutoff day without starting on/after it', () => {
+            const midMonthCutoffWindow: ReadingReportWindow = { cutoff: '2024-01-15', today: '2024-06-30' };
+            expect(isInReadingReportWindow({ date: '2024-01-01', date_precision: 'month' }, midMonthCutoffWindow)).toBe(false);
+        });
+
+        it('admits a month log fully inside the window', () => {
+            expect(isInReadingReportWindow({ date: '2024-03-01', date_precision: 'month' }, window)).toBe(true);
+        });
+
+        it('excludes the current, still-unfinished month', () => {
+            const midMonthTodayWindow: ReadingReportWindow = { cutoff: '2024-01-01', today: '2024-06-15' };
+            expect(isInReadingReportWindow({ date: '2024-06-01', date_precision: 'month' }, midMonthTodayWindow)).toBe(false);
+        });
+
+        it('admits a month log whose period ends exactly on today', () => {
+            expect(isInReadingReportWindow({ date: '2024-06-01', date_precision: 'month' }, window)).toBe(true);
+        });
+
+        it('always excludes a year-scoped log, even one dated exactly at the cutoff', () => {
+            expect(isInReadingReportWindow({ date: '2024-01-01', date_precision: 'year' }, window)).toBe(false);
+        });
+
+        it('excludes a year-scoped log spanning exactly 1 January of a cutoff year', () => {
+            const janCutoffWindow: ReadingReportWindow = { cutoff: '2023-01-01', today: '2023-12-31' };
+            expect(isInReadingReportWindow({ date: '2023-01-01', date_precision: 'year' }, janCutoffWindow)).toBe(false);
+        });
+
+        it('admits a day log anchored at the 9999 sentinel year', () => {
+            const farFutureWindow: ReadingReportWindow = { cutoff: '9998-12-31', today: '9999-12-31' };
+            expect(isInReadingReportWindow({ date: '9999-12-31', date_precision: 'day' }, farFutureWindow)).toBe(true);
+        });
+
+        it('admits a month log anchored at the 9999 sentinel year', () => {
+            const farFutureWindow: ReadingReportWindow = { cutoff: '9998-12-31', today: '9999-12-31' };
+            expect(isInReadingReportWindow({ date: '9999-12-01', date_precision: 'month' }, farFutureWindow)).toBe(true);
         });
     });
 
@@ -391,6 +488,7 @@ describe('reading_speed.ts', () => {
 
     describe('calculateTypeReadingSpeeds', () => {
         const cutoffDate = '2024-01-01';
+        const window: ReadingReportWindow = { cutoff: cutoffDate, today: '2024-12-31' };
 
         it('pools dual sessions within the cutoff window for a work resolved to workSessions', () => {
             const media = buildMedia({ id: 1, content_type: 'Novel', tracking_status: 'Ongoing' });
@@ -398,7 +496,7 @@ describe('reading_speed.ts', () => {
                 buildLog({ media_id: 1, date: '2024-06-01', duration_minutes: 60, characters: 3000 }),
                 buildLog({ media_id: 1, date: '2023-01-01', duration_minutes: 60, characters: 1000 }),
             ];
-            const result = calculateTypeReadingSpeeds(logs, [media], cutoffDate);
+            const result = calculateTypeReadingSpeeds(logs, [media], window);
             expect(result.Novel.charactersPerHour).toBe(3000);
             expect(result.Novel.hours).toBe(1);
         });
@@ -406,7 +504,7 @@ describe('reading_speed.ts', () => {
         it('contributes only the anchor figures for a work resolved to completedAnchor, even with dual sessions too', () => {
             const media = buildMedia({ id: 1, content_type: 'Manga', tracking_status: 'Complete', extra_data: characterCountExtraData(10000) });
             const logs = [buildLog({ media_id: 1, date: '2024-06-01', duration_minutes: 60, characters: 3000 })];
-            const result = calculateTypeReadingSpeeds(logs, [media], cutoffDate);
+            const result = calculateTypeReadingSpeeds(logs, [media], window);
             expect(result.Manga.charactersPerHour).toBe(10000);
             expect(result.Manga.hours).toBe(1);
         });
@@ -417,7 +515,7 @@ describe('reading_speed.ts', () => {
                 buildLog({ media_id: 1, date: '2024-06-01', duration_minutes: 120, characters: 1000 }),
                 buildLog({ media_id: 1, date: '2023-01-01', duration_minutes: 600, characters: 0 }),
             ];
-            const result = calculateTypeReadingSpeeds(logs, [media], cutoffDate);
+            const result = calculateTypeReadingSpeeds(logs, [media], window);
             expect(result.Novel.charactersPerHour).toBe(6000);
             expect(result.Novel.hours).toBe(2);
         });
@@ -425,7 +523,7 @@ describe('reading_speed.ts', () => {
         it('weights an overridden work with untimed sessions by the hours the override implies', () => {
             const media = buildMedia({ id: 1, content_type: 'Novel', extra_data: readingSpeedExtraData(6000) });
             const logs = [buildLog({ media_id: 1, date: '2024-06-01', duration_minutes: 0, characters: 12000 })];
-            const result = calculateTypeReadingSpeeds(logs, [media], cutoffDate);
+            const result = calculateTypeReadingSpeeds(logs, [media], window);
             expect(result.Novel.charactersPerHour).toBe(6000);
             expect(result.Novel.hours).toBe(2);
         });
@@ -433,7 +531,7 @@ describe('reading_speed.ts', () => {
         it('excludes a completedAnchor work whose newest immersion log falls outside the cutoff', () => {
             const media = buildMedia({ id: 1, content_type: 'Manga', tracking_status: 'Complete', extra_data: characterCountExtraData(10000) });
             const logs = [buildLog({ media_id: 1, date: '2022-01-01', duration_minutes: 60, characters: 0 })];
-            const result = calculateTypeReadingSpeeds(logs, [media], cutoffDate);
+            const result = calculateTypeReadingSpeeds(logs, [media], window);
             expect(result.Manga.hours).toBe(0);
             expect(result.Manga.charactersPerHour).toBe(0);
         });
@@ -444,7 +542,7 @@ describe('reading_speed.ts', () => {
                 buildLog({ media_id: 1, date: '2022-01-01', duration_minutes: 60, characters: 0 }),
                 buildLog({ media_id: 1, date: '2024-06-01', duration_minutes: 0, characters: 0 }),
             ];
-            const result = calculateTypeReadingSpeeds(logs, [media], cutoffDate);
+            const result = calculateTypeReadingSpeeds(logs, [media], window);
             expect(result.Manga.hours).toBe(0);
             expect(result.Manga.charactersPerHour).toBe(0);
         });
@@ -455,7 +553,7 @@ describe('reading_speed.ts', () => {
                 buildLog({ media_id: 1, date: '2024-02-01', duration_minutes: 60, characters: 0 }),
                 buildLog({ media_id: 1, date: '2024-06-01', duration_minutes: 0, characters: 0 }),
             ];
-            const result = calculateTypeReadingSpeeds(logs, [media], cutoffDate);
+            const result = calculateTypeReadingSpeeds(logs, [media], window);
             expect(result.Manga.hours).toBe(1);
             expect(result.Manga.charactersPerHour).toBe(10000);
         });
@@ -463,7 +561,7 @@ describe('reading_speed.ts', () => {
         it('excludes a work that resolves to no speed source', () => {
             const media = buildMedia({ id: 1, content_type: 'Novel', tracking_status: 'Ongoing' });
             const logs = [buildLog({ media_id: 1, date: '2024-06-01', duration_minutes: 30, characters: 0 })];
-            const result = calculateTypeReadingSpeeds(logs, [media], cutoffDate);
+            const result = calculateTypeReadingSpeeds(logs, [media], window);
             expect(result.Novel.hours).toBe(0);
         });
 
@@ -475,7 +573,7 @@ describe('reading_speed.ts', () => {
                 buildLog({ media_id: 2, date: '2024-06-01', duration_minutes: 60, characters: 10000 }),
             ];
 
-            const result = calculateTypeReadingSpeeds(logs, [longSlowWork, shortFastWork], cutoffDate);
+            const result = calculateTypeReadingSpeeds(logs, [longSlowWork, shortFastWork], window);
 
             // 30,000 characters over 11 hours. Averaging the works' own speeds would give 6,000.
             expect(result.Novel.charactersPerHour).toBeCloseTo(30000 / 11);
@@ -490,7 +588,7 @@ describe('reading_speed.ts', () => {
                 buildLog({ media_id: 2, date: '2024-06-01', duration_minutes: 60, characters: 4000 }),
             ];
 
-            const result = calculateTypeReadingSpeeds(logs, [completedWork, ongoingWork], cutoffDate);
+            const result = calculateTypeReadingSpeeds(logs, [completedWork, ongoingWork], window);
 
             expect(result.Novel.charactersPerHour).toBe(7000);
             expect(result.Novel.hours).toBe(2);
@@ -504,7 +602,7 @@ describe('reading_speed.ts', () => {
                 buildLog({ media_id: 2, date: '2024-06-01', duration_minutes: 60, characters: 9000 }),
             ];
 
-            const result = calculateTypeReadingSpeeds(logs, [novel, manga], cutoffDate);
+            const result = calculateTypeReadingSpeeds(logs, [novel, manga], window);
 
             expect(result.Novel.charactersPerHour).toBe(3000);
             expect(result.Manga.charactersPerHour).toBe(9000);
@@ -518,9 +616,107 @@ describe('reading_speed.ts', () => {
                 buildLog({ media_id: 1, date: '2024-06-01', activity_type: 'Playing', duration_minutes: 60, characters: 3000 }),
                 buildLog({ media_id: 1, date: '2024-06-02', activity_type: 'Watching', duration_minutes: 60, characters: 3000 }),
             ];
-            const result = calculateTypeReadingSpeeds(logs, [media], cutoffDate);
+            const result = calculateTypeReadingSpeeds(logs, [media], window);
             expect(result['Visual Novel'].charactersPerHour).toBe(3000);
             expect(result['Visual Novel'].hours).toBe(1);
+        });
+    });
+
+    describe('poolTypeReadingSpeeds', () => {
+        function buildAggregate(overrides: Partial<MediaReadingAggregate> = {}): MediaReadingAggregate {
+            return {
+                mediaId: 1,
+                contentType: 'Novel',
+                trackingStatus: 'Ongoing',
+                extraData: '{}',
+                immersionMinutes: 0,
+                hasDual: false,
+                hasCharactersOnly: false,
+                windowDualCharacters: 0,
+                windowDualMinutes: 0,
+                windowTimedMinutes: 0,
+                windowCharactersOnlyCharacters: 0,
+                ...overrides,
+            };
+        }
+
+        it('weights an override by its own timed minutes when there are no characters-only sessions', () => {
+            const result = poolTypeReadingSpeeds([
+                buildAggregate({ extraData: readingSpeedExtraData(4000), windowTimedMinutes: 120 }),
+            ]);
+            expect(result.Novel.charactersPerHour).toBe(4000);
+            expect(result.Novel.hours).toBe(2);
+        });
+
+        it('weights an override by the hours its own rate implies for characters-only sessions', () => {
+            const result = poolTypeReadingSpeeds([
+                buildAggregate({
+                    extraData: readingSpeedExtraData(6000),
+                    windowTimedMinutes: 60,
+                    windowCharactersOnlyCharacters: 6000,
+                }),
+            ]);
+            expect(result.Novel.charactersPerHour).toBe(6000);
+            expect(result.Novel.hours).toBe(2);
+        });
+
+        it('contributes only the completed-anchor figures, ignoring dual sessions on the same aggregate', () => {
+            const result = poolTypeReadingSpeeds([
+                buildAggregate({
+                    contentType: 'Manga',
+                    trackingStatus: 'Complete',
+                    extraData: characterCountExtraData(9000),
+                    immersionMinutes: 180,
+                    hasDual: true,
+                    windowDualCharacters: 999999,
+                    windowDualMinutes: 999,
+                }),
+            ]);
+            expect(result.Manga.charactersPerHour).toBe(3000);
+            expect(result.Manga.hours).toBe(3);
+        });
+
+        it('contributes an ongoing work\'s window-scoped dual sums when it has no override or anchor', () => {
+            const result = poolTypeReadingSpeeds([
+                buildAggregate({
+                    contentType: 'Visual Novel',
+                    hasDual: true,
+                    windowDualCharacters: 5000,
+                    windowDualMinutes: 60,
+                }),
+            ]);
+            expect(result['Visual Novel'].charactersPerHour).toBe(5000);
+            expect(result['Visual Novel'].hours).toBe(1);
+        });
+
+        it('contributes nothing for an aggregate with no override, no anchor and no dual evidence', () => {
+            const result = poolTypeReadingSpeeds([buildAggregate({ contentType: 'WebNovel' })]);
+            expect(result.WebNovel.charactersPerHour).toBe(0);
+            expect(result.WebNovel.hours).toBe(0);
+        });
+
+        it('ignores an aggregate whose content type is not a reading type', () => {
+            const result = poolTypeReadingSpeeds([
+                buildAggregate({
+                    contentType: 'Anime',
+                    hasDual: true,
+                    windowDualCharacters: 5000,
+                    windowDualMinutes: 60,
+                }),
+            ]);
+            for (const contentType of READING_CONTENT_TYPES) {
+                expect(result[contentType].charactersPerHour).toBe(0);
+                expect(result[contentType].hours).toBe(0);
+            }
+        });
+
+        it('sums characters and hours across aggregates before dividing, not averaging their individual rates', () => {
+            const result = poolTypeReadingSpeeds([
+                buildAggregate({ mediaId: 1, hasDual: true, windowDualCharacters: 20000, windowDualMinutes: 600 }),
+                buildAggregate({ mediaId: 2, hasDual: true, windowDualCharacters: 10000, windowDualMinutes: 60 }),
+            ]);
+            expect(result.Novel.charactersPerHour).toBeCloseTo(30000 / 11);
+            expect(result.Novel.hours).toBeCloseTo(11);
         });
     });
 });

@@ -937,3 +937,107 @@
     font-size: 1rem!important;
   }
 }
+
+.dashboard-reading-speed-panel {
+  background: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.dashboard-reading-speed-tabs {
+  display: flex;
+}
+
+.dashboard-reading-speed-tab {
+  flex: 1 1 0;
+  padding: 0.5rem 0.5rem 0.3rem;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.dashboard-reading-speed-tab-label {
+  position: relative;
+}
+
+.dashboard-reading-speed-tab.is-active {
+  color: var(--text-primary);
+  cursor: default;
+}
+
+.dashboard-reading-speed-tab.is-active .dashboard-reading-speed-tab-label::after {
+  content: '';
+  position: absolute;
+  bottom: -0.3rem;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background-color: var(--text-primary);
+}
+
+.dashboard-reading-speed-tab:not(.is-active):hover {
+  color: var(--text-primary);
+}
+
+.dashboard-reading-speed-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.4rem;
+}
+
+.dashboard-reading-speed-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+}
+
+.dashboard-reading-speed-row.is-top {
+  font-size: 0.85rem;
+}
+
+.dashboard-reading-speed-row-label {
+  color: var(--text-secondary);
+}
+
+.dashboard-reading-speed-row-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: bold;
+  color: var(--text-secondary);
+  min-width: 6ch;
+  text-align: right;
+}
+
+.dashboard-reading-speed-row.is-top .dashboard-reading-speed-row-value {
+  color: var(--text-primary);
+}
+
+.dashboard-reading-speed-caption {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.3rem;
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  opacity: 0.8;
+}
+
+.dashboard-business-card-button {
+  width: 100%;
+  gap: 0.4rem;
+}
+
+@media (min-width: 769px) and (max-width: 1024px) {
+  .dashboard-business-card-button {
+    align-self: flex-end;
+    width: auto;
+  }
+}

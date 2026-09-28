@@ -35,13 +35,20 @@ const MAX_DAY_BUCKETS: i64 = 62;
 const MAX_MONTH_BUCKET_DAYS: i64 = 731;
 const MAX_YEAR_BUCKETS: i32 = 1_000;
 const WEEKDAY_DISTRIBUTION_DAYS: u64 = 183;
+const MAX_READING_REPORT_CACHE_KEYS: usize = 44;
 
 pub fn validate_snapshot_request(
     request: &DashboardSnapshotRequest,
 ) -> std::result::Result<(), String> {
     parse_iso_date(&request.today, "today")?;
     validate_year(request.heatmap_year)?;
-    validate_recent_page(request.recent_offset, request.recent_limit)
+    validate_recent_page(request.recent_offset, request.recent_limit)?;
+    if request.reading_report_cache_keys.len() > MAX_READING_REPORT_CACHE_KEYS {
+        return Err(format!(
+            "reading_report_cache_keys is limited to {MAX_READING_REPORT_CACHE_KEYS} entries"
+        ));
+    }
+    Ok(())
 }
 
 pub fn validate_range_request(request: &DashboardRangeRequest) -> std::result::Result<(), String> {
@@ -99,7 +106,7 @@ fn validate_year(year: i32) -> std::result::Result<(), String> {
     Ok(())
 }
 
-fn parse_iso_date(value: &str, field: &str) -> std::result::Result<NaiveDate, String> {
+pub(crate) fn parse_iso_date(value: &str, field: &str) -> std::result::Result<NaiveDate, String> {
     NaiveDate::parse_from_str(value, "%Y-%m-%d")
         .map_err(|_| format!("{field} must be a valid YYYY-MM-DD date"))
 }
@@ -111,7 +118,11 @@ pub fn get_dashboard_snapshot(
     let mut timings = Timings::default();
     let transaction = timings.query(|| conn.unchecked_transaction())?;
 
-    let settings = query_dashboard_settings(&transaction, &mut timings)?;
+    let (settings, reading_report_cache) = query_dashboard_settings(
+        &transaction,
+        &mut timings,
+        &request.reading_report_cache_keys,
+    )?;
     let summary = query_summary(&transaction, &request.today, &mut timings)?;
     let quick_log_media = query_quick_log_media(&transaction, &mut timings)?;
     let recent_logs = query_recent_logs(
@@ -136,6 +147,7 @@ pub fn get_dashboard_snapshot(
     Ok(timings.finish(DashboardSnapshot {
         request_id: request.request_id,
         settings,
+        reading_report_cache,
         summary,
         quick_log_media,
         recent_logs,
@@ -264,21 +276,32 @@ pub fn get_dashboard_recent_logs(
     Ok(timings.finish(value))
 }
 
-fn query_dashboard_settings(conn: &Connection, timings: &mut Timings) -> Result<DashboardSettings> {
+fn query_dashboard_settings(
+    conn: &Connection,
+    timings: &mut Timings,
+    reading_report_cache_keys: &[String],
+) -> Result<(DashboardSettings, HashMap<String, String>)> {
+    let cache_keys_json =
+        serde_json::to_string(reading_report_cache_keys).expect("cache keys serialize");
     let values = timings.query(|| {
         let mut statement = conn.prepare(
             "SELECT key, value
              FROM main.settings
              WHERE key IN ('dashboard_chart_type', 'dashboard_group_by', 'week_start_day',
-                           'dashboard_time_range_days', 'dashboard_metric')",
+                           'dashboard_time_range_days', 'dashboard_metric')
+                OR key IN (SELECT value FROM json_each(?1))",
         )?;
-        let rows = statement.query_map([], |row| {
+        let rows = statement.query_map(params![cache_keys_json], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?;
         rows.collect::<Result<HashMap<_, _>>>()
     })?;
 
     Ok(timings.aggregate(|| {
+        let reading_report_cache = reading_report_cache_keys
+            .iter()
+            .filter_map(|key| values.get(key).map(|value| (key.clone(), value.clone())))
+            .collect();
         let chart_type = match values.get("dashboard_chart_type").map(String::as_str) {
             Some("line") => "line",
             _ => "bar",
@@ -310,14 +333,17 @@ fn query_dashboard_settings(conn: &Connection, timings: &mut Timings) -> Result<
         }
         .to_string();
 
-        DashboardSettings {
-            chart_type,
-            group_by,
-            week_start_day,
-            migrate_legacy_group_by,
-            time_range_days,
-            metric,
-        }
+        (
+            DashboardSettings {
+                chart_type,
+                group_by,
+                week_start_day,
+                migrate_legacy_group_by,
+                time_range_days,
+                metric,
+            },
+            reading_report_cache,
+        )
     }))
 }
 
@@ -1259,6 +1285,34 @@ mod tests {
     }
 
     #[test]
+    fn validates_bounded_requests_with_ok_reading_report_cache_keys() {
+        let request = DashboardSnapshotRequest {
+            request_id: 1,
+            today: "2026-06-30".to_string(),
+            heatmap_year: 2026,
+            recent_offset: 0,
+            recent_limit: 15,
+            reading_report_cache_keys: vec!["stats_novel_speed".to_string()],
+        };
+        assert!(validate_snapshot_request(&request).is_ok());
+    }
+
+    #[test]
+    fn rejects_more_reading_report_cache_keys_than_the_cap() {
+        let request = DashboardSnapshotRequest {
+            request_id: 1,
+            today: "2026-06-30".to_string(),
+            heatmap_year: 2026,
+            recent_offset: 0,
+            recent_limit: 15,
+            reading_report_cache_keys: (0..=MAX_READING_REPORT_CACHE_KEYS)
+                .map(|n| format!("key_{n}"))
+                .collect(),
+        };
+        assert!(validate_snapshot_request(&request).is_err());
+    }
+
+    #[test]
     fn validates_bounded_requests() {
         assert!(validate_recent_page(0, MAX_RECENT_LOG_PAGE_SIZE).is_ok());
         assert!(validate_recent_page(0, MAX_RECENT_LOG_PAGE_SIZE + 1).is_err());
@@ -1307,6 +1361,7 @@ mod tests {
             heatmap_year: 2026,
             recent_offset: 0,
             recent_limit: 15,
+            reading_report_cache_keys: vec![],
         };
         let snapshot = get_dashboard_snapshot(&conn, &request).unwrap().value;
 
@@ -1353,6 +1408,7 @@ mod tests {
                 heatmap_year: 2026,
                 recent_offset: 0,
                 recent_limit: 15,
+                reading_report_cache_keys: vec![],
             },
         )
         .unwrap()
@@ -1595,7 +1651,7 @@ mod tests {
     fn dashboard_settings_fall_back_to_defaults_for_missing_keys() {
         let (_directory, conn) = test_connection();
         let mut timings = Timings::default();
-        let settings = query_dashboard_settings(&conn, &mut timings).unwrap();
+        let (settings, _) = query_dashboard_settings(&conn, &mut timings, &[]).unwrap();
 
         assert_eq!(settings.time_range_days, 7);
         assert_eq!(settings.metric, "minutes");
@@ -1607,7 +1663,7 @@ mod tests {
         db::set_setting(&conn, "dashboard_time_range_days", "14").unwrap();
         db::set_setting(&conn, "dashboard_metric", "duration").unwrap();
         let mut timings = Timings::default();
-        let settings = query_dashboard_settings(&conn, &mut timings).unwrap();
+        let (settings, _) = query_dashboard_settings(&conn, &mut timings, &[]).unwrap();
 
         assert_eq!(settings.time_range_days, 7);
         assert_eq!(settings.metric, "minutes");
@@ -1619,7 +1675,7 @@ mod tests {
         db::set_setting(&conn, "dashboard_time_range_days", "30").unwrap();
         db::set_setting(&conn, "dashboard_metric", "characters").unwrap();
         let mut timings = Timings::default();
-        let settings = query_dashboard_settings(&conn, &mut timings).unwrap();
+        let (settings, _) = query_dashboard_settings(&conn, &mut timings, &[]).unwrap();
 
         assert_eq!(settings.time_range_days, 30);
         assert_eq!(settings.metric, "characters");
