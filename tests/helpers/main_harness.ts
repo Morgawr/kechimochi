@@ -386,16 +386,12 @@ export function renderMainAppShell() {
         <div id="app" data-boot-state="loading">
             <div id="desktop-title-bar"></div>
             <header>
-                <div id="nav-user-avatar"></div>
-                <img id="nav-user-avatar-image" />
-                <span id="nav-user-avatar-fallback"></span>
                 <div id="nav-profile-tab-avatar"></div>
                 <img id="nav-profile-tab-avatar-image" />
                 <span id="nav-profile-tab-avatar-fallback"></span>
                 <span id="nav-user-name"></span>
-                <div id="dev-build-badge"></div>
-                <div id="mobile-build-badge"></div>
-                <button id="update-available-badge"></button>
+                <button id="app-version-button"></button>
+                <button id="mobile-app-version-button"></button>
                 <button id="nav-sync-status-btn"><span id="nav-sync-status-dot"></span></button>
                 <button id="mobile-sync-status-btn"><span id="mobile-sync-status-dot"></span></button>
                 <div class="nav-link" data-view="dashboard"></div>

@@ -9,6 +9,7 @@ The format is based on Keep a Changelog, with one section per released version.
 ### Changed
  - Selects now match multiselects through a forced Kechimochi theme. Mobile keeps its native picker.
  - Characters fields in the log and milestone modals start empty instead of 0 and accept only digits.
+ - General UIUX overhaul of the nav header / footer elements.
 
 ### Fixed
  - Media details no longer show an empty stats box for media with no logged activity

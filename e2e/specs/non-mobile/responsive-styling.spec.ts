@@ -62,6 +62,107 @@ describe('Responsive Styling CUJ', () => {
 
   });
 
+  it('should place Profile after Log in the header and as the last footer cell', async () => {
+    const NAVIGATION_SELECTORS = {
+      dashboard: '[data-view="dashboard"]',
+      media: '[data-view="media"]',
+      log: 'button[aria-label="Log activity"]',
+      timeline: '[data-view="timeline"]',
+      profile: '[data-view="profile"]',
+    } as const;
+    type NavigationItem = keyof typeof NAVIGATION_SELECTORS;
+
+    const readNavigationRects = () => browser.execute((selectors: Record<NavigationItem, string>) => {
+      const rects: Partial<Record<NavigationItem, { left: number; top: number; bottom: number; width: number }>> = {};
+      for (const [item, selector] of Object.entries(selectors) as Array<[NavigationItem, string]>) {
+        const rect = document.querySelector(selector)?.getBoundingClientRect();
+        if (rect) rects[item] = { left: rect.left, top: rect.top, bottom: rect.bottom, width: rect.width };
+      }
+      return rects;
+    }, NAVIGATION_SELECTORS);
+
+    const isLeftToRight = (rects: Awaited<ReturnType<typeof readNavigationRects>>, order: NavigationItem[]) =>
+      order.every((item, index) => index === 0 || (rects[order[index - 1]]?.left ?? Infinity) < (rects[item]?.left ?? -Infinity));
+
+    const shareRow = (rects: Awaited<ReturnType<typeof readNavigationRects>>, items: NavigationItem[]) => {
+      const first = rects[items[0]];
+      return items.every(item => {
+        const rect = rects[item];
+        return Boolean(first && rect && rect.top < first.bottom && first.top < rect.bottom);
+      });
+    };
+
+    const haveEqualWidths = (rects: Awaited<ReturnType<typeof readNavigationRects>>, items: NavigationItem[]) => {
+      const widths = items.map(item => rects[item]?.width ?? 0);
+      return Math.min(...widths) > 0 && Math.max(...widths) - Math.min(...widths) <= 1;
+    };
+
+    await browser.setWindowSize(1280, 1200);
+    const headerOrder: NavigationItem[] = ['dashboard', 'media', 'timeline', 'log', 'profile'];
+    await browser.waitUntil(async () => isLeftToRight(await readNavigationRects(), headerOrder), {
+      timeout: 3000,
+      timeoutMsg: 'Header order was not tabs, then Log, then Profile',
+    });
+
+    await browser.setWindowSize(500, 1200);
+    const footerOrder: NavigationItem[] = ['dashboard', 'media', 'log', 'timeline', 'profile'];
+    await browser.waitUntil(async () => {
+      const rects = await readNavigationRects();
+      return isLeftToRight(rects, footerOrder) && shareRow(rects, footerOrder) && haveEqualWidths(rects, footerOrder);
+    }, { timeout: 3000, timeoutMsg: 'Mobile footer was not one row of equal cells with Log in the middle and Profile last' });
+
+    await browser.setWindowSize(340, 1200);
+    const supernarrowOrder: NavigationItem[] = ['dashboard', 'media', 'timeline', 'profile'];
+    await browser.waitUntil(async () => {
+      const rects = await readNavigationRects();
+      return isLeftToRight(rects, supernarrowOrder) && shareRow(rects, supernarrowOrder)
+        && haveEqualWidths(rects, supernarrowOrder)
+        && (rects.log?.bottom ?? Infinity) <= (rects.profile?.top ?? -Infinity);
+    }, { timeout: 3000, timeoutMsg: 'Supernarrow footer was not one row of equal cells ending in Profile with Log floating above' });
+  });
+
+  it('should show Sync and Log as icon-only squares that keep their accessible names at the medium tier', async () => {
+    const readHeaderButtons = () => browser.execute(() => {
+      const describe = (button: HTMLElement | null) => {
+        if (!button || getComputedStyle(button).display === 'none') return null;
+        const rect = button.getBoundingClientRect();
+        return {
+          visibleText: button.innerText.trim(),
+          accessibleName: button.getAttribute('aria-label'),
+          width: rect.width,
+          height: rect.height,
+        };
+      };
+      return {
+        log: describe(document.querySelector<HTMLElement>('button[aria-label="Log activity"]')),
+        sync: describe(document.getElementById('nav-sync-status-btn')),
+      };
+    });
+
+    await browser.setWindowSize(900, 1200);
+    await browser.waitUntil(async () => (await readHeaderButtons()).log?.visibleText === '', {
+      timeout: 3000,
+      timeoutMsg: 'Log button kept its text at the medium tier',
+    });
+
+    const medium = await readHeaderButtons();
+    expect(medium.log?.accessibleName).toBe('Log activity');
+    expect(Math.abs(medium.log!.width - medium.log!.height)).toBeLessThanOrEqual(1);
+
+    // The sync button is only shown by the desktop runtime.
+    if (medium.sync) {
+      expect(medium.sync.visibleText).toBe('');
+      expect(medium.sync.accessibleName).toBe('Sync status');
+      expect(Math.abs(medium.sync.width - medium.sync.height)).toBeLessThanOrEqual(1);
+    }
+
+    await browser.setWindowSize(1280, 1200);
+    await browser.waitUntil(async () => (await readHeaderButtons()).log?.visibleText === 'Log', {
+      timeout: 3000,
+      timeoutMsg: 'Log button did not restore its text above the medium tier',
+    });
+  });
+
   it('should stack dashboard stats and charts vertically on tablet width', async () => {
     await navigateTo('dashboard');
     expect(await verifyActiveView('dashboard')).toBe(true);
