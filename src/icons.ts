@@ -12,3 +12,15 @@ const ICON_VIEWBOX = '0 0 24 24';
 export function renderIcon(iconMarkup: string, sizePx: number): string {
     return `<svg width="${sizePx}" height="${sizePx}" viewBox="${ICON_VIEWBOX}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${iconMarkup}</svg>`;
 }
+
+const NAVIGATION_CHEVRON_PATHS = {
+    previous: 'M10 4l-4 4 4 4',
+    next: 'M6 4l4 4-4 4',
+} as const;
+
+export type NavigationDirection = keyof typeof NAVIGATION_CHEVRON_PATHS;
+
+export function renderNavigationChevron(direction: NavigationDirection): string {
+    return `<svg class="nav-svg" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">`
+        + `<path d="${NAVIGATION_CHEVRON_PATHS[direction]}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}

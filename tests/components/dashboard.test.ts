@@ -10,7 +10,7 @@ import type {
     DashboardSnapshotRequest,
 } from '../../src/types';
 import { customConfirm } from '../../src/modal_base';
-import { Heatmap } from '../../src/dashboard/cards/Heatmap';
+import { Heatmap } from '../../src/dashboard/cards/heatmap/Heatmap';
 import { ActivityFlow } from '../../src/dashboard/cards/ActivityFlow';
 import { ActivityMix } from '../../src/dashboard/cards/ActivityMix';
 import { WeekdayRhythm } from '../../src/dashboard/cards/WeekdayRhythm';
@@ -41,14 +41,16 @@ const { stubComponentClass } = vi.hoisted(() => ({
         syncControlState: vi.fn(),
         setRangeLabel: vi.fn(),
         closeCardsPanel: vi.fn(),
+        setSelection: vi.fn(),
+        applySnapshot: vi.fn(),
     })),
 }));
 
 vi.mock('../../src/dashboard/StatsCard');
 vi.mock('../../src/dashboard/QuickLog');
 
-vi.mock('../../src/dashboard/cards/Heatmap', async importOriginal => ({
-    ...await importOriginal<typeof import('../../src/dashboard/cards/Heatmap')>(),
+vi.mock('../../src/dashboard/cards/heatmap/Heatmap', async importOriginal => ({
+    ...await importOriginal<typeof import('../../src/dashboard/cards/heatmap/Heatmap')>(),
     Heatmap: stubComponentClass(),
 }));
 
@@ -619,6 +621,76 @@ describe('Dashboard', () => {
 
         expect(api.getDashboardRange).toHaveBeenCalledTimes(1);
         expect(dashboard.state.chartParams).toMatchObject({ timeRangeDays: 0, timeRangeOffset: 0 });
+    });
+
+    describe('heatmap selection and reloads', () => {
+        const MONTHLY_SETTINGS = {
+            chart_type: 'bar' as const,
+            group_by: 'activity_type' as const,
+            week_start_day: 1,
+            migrate_legacy_group_by: false,
+            time_range_days: 30,
+            metric: 'minutes' as const,
+        };
+
+        beforeEach(() => {
+            vi.useFakeTimers();
+            vi.setSystemTime(new Date('2026-01-15T12:00:00'));
+            vi.mocked(api.getDashboardSnapshot).mockImplementation(async request => snapshot(request, { settings: MONTHLY_SETTINGS }));
+        });
+
+        const heatmapStub = () => vi.mocked(Heatmap).mock.results[0].value as { setSelection: ReturnType<typeof vi.fn>; displayedYear?: number };
+        const onDateSelect = () => vi.mocked(Heatmap).mock.calls[0]?.[3] as ((date: string) => void);
+
+        it('gives the heatmap the selected period when it mounts', async () => {
+            await loadDashboard();
+
+            expect(vi.mocked(Heatmap).mock.calls[0][1].selection).toEqual({
+                period: 'month', start: '2026-01-01', end: '2026-01-31', weekStartDay: 1,
+            });
+        });
+
+        it('tells the heatmap about a newly selected period', async () => {
+            await loadDashboard();
+
+            onDateSelect()('2025-12-10');
+
+            expect(heatmapStub().setSelection).toHaveBeenCalledWith({
+                period: 'month', start: '2025-12-01', end: '2025-12-31', weekStartDay: 1,
+            });
+        });
+
+        it('does not tell the heatmap about changes that keep the period', async () => {
+            const dashboard = await loadDashboard();
+
+            (container.querySelector('#toggle-metric-characters') as HTMLElement).click();
+
+            expect(dashboard.state.chartParams.metric).toBe('characters');
+            expect(heatmapStub().setSelection).not.toHaveBeenCalled();
+        });
+
+        it('keeps the selected period and the heatmap year when the dashboard reloads', async () => {
+            const dashboard = await loadDashboard();
+            onDateSelect()('2025-12-10');
+            heatmapStub().displayedYear = 2025;
+
+            await dashboard.loadData();
+
+            expect(vi.mocked(api.getDashboardSnapshot).mock.calls.at(-1)![0].heatmap_year).toBe(2025);
+            expect(dashboard.state.chartParams).toMatchObject({ timeRangeDays: 30, timeRangeOffset: 1 });
+        });
+
+        it('goes back to the current period on reload when the saved time range changed', async () => {
+            const dashboard = await loadDashboard();
+            onDateSelect()('2025-12-10');
+            vi.mocked(api.getDashboardSnapshot).mockImplementation(async request => snapshot(request, {
+                settings: { ...MONTHLY_SETTINGS, time_range_days: 7 },
+            }));
+
+            await dashboard.loadData();
+
+            expect(dashboard.state.chartParams).toMatchObject({ timeRangeDays: 7, timeRangeOffset: 0 });
+        });
     });
 
     it('rejects an older snapshot so profile data cannot blend after a refresh', async () => {

@@ -9,6 +9,7 @@ The format is based on Keep a Changelog, with one section per released version.
 ### Changed
  - Selects now match multiselects through a forced Kechimochi theme. Mobile keeps its native picker.
  - Characters fields in the log and milestone modals start empty instead of 0 and accept only digits.
+ - Dashboard heatmap now has a mobile version, shows month labels above the year grid, outlines the selected week or month, follows the selected period, and respects the week start day.
 
 ### Fixed
  - Media details no longer show an empty stats box for media with no logged activity
@@ -18,6 +19,8 @@ The format is based on Keep a Changelog, with one section per released version.
  - Logging activity on an archived media now updates its "Archive" button (in the media's detail page) right away
  - Dashboard chart tooltips no longer list entries with 0 minutes/characters, and disappear once the cursor leaves a bar, slice or dot.
  - Activity Visualization legend color boxes are now the same size in bar and line mode.
+ - Logging activity or returning to the dashboard no longer resets the dashboard's selected period and heatmap year to today.
+ - The heatmap is now actually usable on the E-ink theme instead of nigh invisible
 
 ## [0.3.3] - 2026-09-22
 

@@ -301,7 +301,8 @@ describe('Responsive Styling CUJ', () => {
 
     const alignment = await browser.execute(() => {
       const heatmapCard = document.querySelector('#heatmap-container .card') as HTMLElement | null;
-      const heatmapTitleControls = document.querySelector('.heatmap-title-controls') as HTMLElement | null;
+      const heatmapTitleControls = Array.from(document.querySelectorAll<HTMLElement>('.heatmap-title-controls'))
+        .find(element => element.getClientRects().length > 0) ?? null;
       const chartCard = document.querySelector('[data-dashboard-card="controls"] .card') as HTMLElement | null;
       const chartTitleControls = document.querySelector('.activity-charts-title-controls') as HTMLElement | null;
       const controlsFields = document.querySelector('[data-dashboard-controls-fields]') as HTMLElement | null;
@@ -402,7 +403,8 @@ describe('Responsive Styling CUJ', () => {
 
     const overflow = await browser.execute(() => {
       const heatmapCard = document.querySelector('#heatmap-container .card') as HTMLElement | null;
-      const heatmapTitleControls = document.querySelector('.heatmap-title-controls') as HTMLElement | null;
+      const heatmapTitleControls = Array.from(document.querySelectorAll<HTMLElement>('.heatmap-title-controls'))
+        .find(element => element.getClientRects().length > 0) ?? null;
       const chartCard = document.querySelector('[data-dashboard-card="controls"] .card') as HTMLElement | null;
       const controlsFields = document.querySelector('[data-dashboard-controls-fields]') as HTMLElement | null;
 
