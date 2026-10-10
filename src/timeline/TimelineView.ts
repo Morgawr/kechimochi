@@ -9,15 +9,17 @@ import { SETTING_KEYS, VIEW_NAMES, EVENTS } from '../constants';
 import { Component } from '../component';
 import { captureFocusState, restoreFocusState } from '../focus_preservation';
 import { html, escapeHTML } from '../html';
+import { CHECKMARK, CROSS, FLAG, FORK, PAUSE, PLAY, renderIcon } from '../icons';
 import { Logger } from '../logger';
 import type {
     TimelineBucket,
     TimelineBucketGranularity,
+    TimelineBucketHighlight,
     TimelineEventKind,
     TimelineSummary,
 } from '../types';
-import { formatOptionalCount, formatOptionalNumber } from '../counts';
-import { formatOptionalStatsDuration, formatStatsDuration } from '../time';
+import { formatOptionalCount } from '../counts';
+import { formatOptionalAlignedStatsDuration, formatStatsDuration } from '../time';
 import { MediaCoverLoader } from '../media/cover_loader';
 import { CoverVisibilityController } from '../media/cover_visibility';
 import { measureSynchronous } from '../performance';
@@ -38,9 +40,9 @@ import {
     fitTimelineBucketCovers,
     formatTimelineBucketCoverOverflowLabel,
     formatTimelineBucketLabel,
-    buildTimelineBucketTotalsParts,
-    getTimelineBucketDominantKind,
-    getTimelineBucketPips,
+    getTimelineBucketCoverColumnCount,
+    getTimelineBucketKindCounts,
+    getTimelineBucketTotals,
 } from './timeline_buckets';
 import {
     WAVE_RESIZE_DEBOUNCE_MS,
@@ -48,6 +50,12 @@ import {
     getBucketWaveMetric,
     getWaveMetric,
 } from './timeline_wave';
+import {
+    buildTimelineCardStats,
+    getTimelineCardVariantLabel,
+    getTimelineDisambiguationLabel,
+    getTimelineEventProgress,
+} from './timeline_card';
 
 interface TimelineState {
     events: TimelineEvent[];
@@ -96,6 +104,10 @@ interface TimelineBucketCoverStrip {
     overflowTile: HTMLElement;
 }
 
+type TimelineSublineKind = 'variant' | 'milestone';
+
+type TimelineCoverElement = 'div' | 'button';
+
 const MONTH_FORMATTER = new Intl.DateTimeFormat('en-US', {
     month: 'long',
     year: 'numeric',
@@ -115,12 +127,25 @@ const COMPACT_DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
     timeZone: 'UTC',
 });
 
-const TIMELINE_METRIC_SEPARATOR = '·';
+const BUCKET_KIND_ICONS: Record<TimelineEventKind, string> = {
+    started: PLAY,
+    finished: CHECKMARK,
+    paused: PAUSE,
+    dropped: CROSS,
+    milestone: FLAG,
+};
+const MILESTONE_FALLBACK_NAME = 'Milestone';
+const NO_COVER_LABEL = 'No Image';
+const SUBLINE_ICON_SIZE_PX = 14;
+const EMPTY_METRIC_LABEL = '–';
 const SMALL_TIMELINE_MEDIA_QUERY = '(max-width: 1024px)';
+const FINE_POINTER_MEDIA_QUERY = '(hover: hover) and (pointer: fine)';
 const TIMELINE_PAGE_SIZE = 40;
 const TIMELINE_SEARCH_DEBOUNCE_MS = 180;
 const COVER_PRELOAD_ROOT_MARGIN = '420px 0px';
 const BUCKET_COVER_PRELOAD_ROOT_MARGIN = '240px 0px';
+const BUCKET_COVER_MIN_WIDTH_PROPERTY = '--timeline-bucket-cover-min-width';
+const BUCKET_COVER_COLUMNS_PROPERTY = '--timeline-bucket-cover-columns';
 const COVER_EAGER_LOAD_COUNT = 4;
 const PAGINATION_ROOT_MARGIN = '800px 0px';
 const PAGINATION_THRESHOLD = 0.01;
@@ -139,7 +164,7 @@ const KIND_SUMMARY_LABELS: Record<TimelineEventKind, string> = {
     finished: 'Completed titles',
     paused: 'Paused titles',
     dropped: 'Dropped titles',
-    milestone: 'Titles with milestones',
+    milestone: 'Milestone titles',
 };
 
 export class TimelineView extends Component<TimelineState> {
@@ -503,34 +528,36 @@ export class TimelineView extends Component<TimelineState> {
         }
 
         const maxRows = TIMELINE_BUCKET_COVER_ROWS[granularity];
-        const coverGap = Number.parseFloat(globalThis.getComputedStyle(strips[0].strip).columnGap) || 0;
 
         const fits = strips.map(({ strip, covers, overflowTile }) => {
             const distinctMediaCount = Number(strip.dataset.distinctMedia ?? covers.length);
-            if (covers.length === 0) {
-                return { covers, overflowTile, visibleCount: 0, overflowCount: distinctMediaCount };
-            }
-            const availableWidth = strip.clientWidth;
-            const coverWidth = covers[0].getBoundingClientRect().width;
-            if (availableWidth === 0 || coverWidth === 0) {
+            if (strip.clientWidth === 0) {
                 return null;
             }
+            const stripStyle = globalThis.getComputedStyle(strip);
+            const perRow = getTimelineBucketCoverColumnCount(
+                strip.clientWidth,
+                Number.parseFloat(stripStyle.getPropertyValue(BUCKET_COVER_MIN_WIDTH_PROPERTY)) || 0,
+                Number.parseFloat(stripStyle.columnGap) || 0,
+            );
+            if (covers.length === 0) {
+                return { strip, covers, overflowTile, perRow, visibleCount: 0, overflowCount: distinctMediaCount };
+            }
             const fit = fitTimelineBucketCovers({
-                availableWidth,
-                coverWidth,
-                coverGap,
+                perRow,
                 maxRows,
                 renderedCount: covers.length,
                 distinctMediaCount,
             });
-            return { covers, overflowTile, ...fit };
+            return { strip, covers, overflowTile, perRow, ...fit };
         });
 
         for (const entry of fits) {
             if (!entry) {
                 continue;
             }
-            const { covers, overflowTile, visibleCount, overflowCount } = entry;
+            const { strip, covers, overflowTile, perRow, visibleCount, overflowCount } = entry;
+            strip.style.setProperty(BUCKET_COVER_COLUMNS_PROPERTY, String(perRow));
             covers.forEach((cover, index) => {
                 cover.hidden = index >= visibleCount;
             });
@@ -585,6 +612,10 @@ export class TimelineView extends Component<TimelineState> {
         const yearOptions = this.getYearOptions();
         const level = this.state.zoomLevel;
         const isCompact = level === 'compact';
+        const selectFields = [
+            level !== 'year' ? this.renderYearFilterField(yearOptions) : '',
+            !isTimelineBucketLevel(level) ? this.renderKindFilterField() : '',
+        ].join('');
 
         let timelineContent: string;
         let hasRows: boolean;
@@ -602,8 +633,13 @@ export class TimelineView extends Component<TimelineState> {
         } else {
             const hasAnyEvents = this.state.allEventCount > 0;
             hasRows = hasAnyEvents && visibleEvents.length > 0;
+            let firstEventIndex = 0;
             timelineContent = groups
-                .map((group, groupIndex) => (isCompact ? this.renderCompactGroup(group) : this.renderGroup(group, groupIndex)))
+                .map(group => {
+                    const markup = isCompact ? this.renderCompactGroup(group) : this.renderGroup(group, firstEventIndex);
+                    firstEventIndex += group.events.length;
+                    return markup;
+                })
                 .join('');
 
             if (!hasAnyEvents) {
@@ -642,8 +678,8 @@ export class TimelineView extends Component<TimelineState> {
                         .map(
                             item => `
                                 <div class="timeline-summary-item">
-                                    <span class="timeline-summary-value">${escapeHTML(item.value)}</span>
                                     <span class="timeline-summary-label">${escapeHTML(item.label)}</span>
+                                    <span class="timeline-summary-value">${escapeHTML(item.value)}</span>
                                 </div>
                             `,
                         )
@@ -653,8 +689,7 @@ export class TimelineView extends Component<TimelineState> {
                 <section class="card timeline-filter-card">
                     <div class="timeline-filter-row">
                         ${this.renderSearchFilterField()}
-                        ${level !== 'year' ? this.renderYearFilterField(yearOptions) : ''}
-                        ${!isTimelineBucketLevel(level) ? this.renderKindFilterField() : ''}
+                        ${selectFields ? `<div class="timeline-filter-selects">${selectFields}</div>` : ''}
                         ${this.renderZoomControl()}
                     </div>
                 </section>
@@ -668,12 +703,12 @@ export class TimelineView extends Component<TimelineState> {
 
     private renderSearchFilterField(): string {
         return `
-            <label class="timeline-filter-field">
+            <label class="timeline-filter-field timeline-filter-field-search">
                 <span class="timeline-filter-label">Search</span>
                 <input
                     id="timeline-search"
                     type="search"
-                    placeholder="Search titles or milestones"
+                    placeholder="Search titles"
                     value="${escapeHTML(this.state.searchQuery)}"
                 />
             </label>
@@ -765,7 +800,7 @@ export class TimelineView extends Component<TimelineState> {
             .join('');
     }
 
-    private renderGroup(group: TimelineGroup, groupIndex: number): string {
+    private renderGroup(group: TimelineGroup, firstEventIndex: number): string {
         return `
             <section
                 class="timeline-group"
@@ -774,7 +809,7 @@ export class TimelineView extends Component<TimelineState> {
             >
                 ${this.renderMonthMarker(group.label)}
                 ${group.events
-                    .map((event, eventIndex) => this.renderEvent(event, (groupIndex + eventIndex) % 2 === 0))
+                    .map((event, eventIndex) => this.renderEvent(event, (firstEventIndex + eventIndex) % 2 === 0))
                     .join('')}
             </section>
         `;
@@ -804,10 +839,9 @@ export class TimelineView extends Component<TimelineState> {
     }
 
     private renderEvent(event: TimelineEvent, alignLeft: boolean): string {
-        const copy = this.renderEventCopy(event);
-        const metaItems = this.renderMetaItems(event);
         const accentClass = `kind-${event.kind}`;
-        const cover = this.renderCover(event);
+        const variantLabel = getTimelineCardVariantLabel(event, this.state.ambiguousTitles);
+        const stats = buildTimelineCardStats(event, this.formatDate(event.date));
 
         return `
             <article
@@ -818,85 +852,112 @@ export class TimelineView extends Component<TimelineState> {
                     <span class="timeline-node-core"></span>
                 </div>
                 <div class="timeline-card">
-                    <div class="timeline-card-layout ${cover ? 'has-cover' : ''}">
-                        <div class="timeline-card-content">
-                            <div class="timeline-card-header">
-                                <div class="timeline-card-header-main">
-                                    <span class="timeline-kind-pill">${escapeHTML(this.getKindLabel(event.kind))}</span>
-                                    ${
-                                        event.contentType
-                                            ? `<span class="timeline-tag timeline-tag-inline">${escapeHTML(
-                                                  event.contentType,
-                                              )}</span>`
-                                            : ''
-                                    }
-                                </div>
-                                <span class="timeline-date-pill">${escapeHTML(this.formatDate(event.date))}</span>
-                            </div>
-                            <div class="timeline-card-copy">${copy}</div>
-                            ${
-                                metaItems.length > 0
-                                    ? `<div class="timeline-card-meta">${metaItems.join('')}</div>`
-                                    : ''
-                            }
-                        </div>
-                        ${cover}
+                    <span class="timeline-kind-pill">${escapeHTML(this.getKindLabel(event.kind))}</span>
+                    <div class="timeline-card-heading">
+                        <h3 class="timeline-card-title">
+                            <button
+                                type="button"
+                                class="timeline-media-link"
+                                data-media-id="${event.mediaId}"
+                            ><span class="timeline-card-title-text" title="${escapeHTML(event.mediaTitle)}">${escapeHTML(event.mediaTitle)}</span></button>
+                        </h3>
+                        ${variantLabel === null ? '' : this.renderSubline(event.mediaId, 'variant', variantLabel, 'timeline-card-subline')}
+                        ${
+                            event.kind === 'milestone'
+                                ? this.renderSubline(
+                                      event.mediaId,
+                                      'milestone',
+                                      event.milestoneName ?? MILESTONE_FALLBACK_NAME,
+                                      'timeline-card-subline',
+                                  )
+                                : ''
+                        }
                     </div>
+                    ${this.renderCover(event, 'timeline-card-cover')}
+                    <dl class="timeline-card-stats">
+                        ${stats
+                            .map(
+                                stat => `
+                                    <div class="timeline-card-stat" data-timeline-stat="${stat.key}">
+                                        <dt>${escapeHTML(stat.label)}</dt>
+                                        <dd>${escapeHTML(stat.value)}</dd>
+                                    </div>
+                                `,
+                            )
+                            .join('')}
+                    </dl>
                 </div>
             </article>
         `;
     }
 
+    private renderSubline(mediaId: number, sublineKind: TimelineSublineKind, text: string, className: string): string {
+        const iconMarkup = sublineKind === 'variant' ? FORK : FLAG;
+        return `
+            <p class="${className} is-${sublineKind}" data-media-id="${mediaId}" title="${escapeHTML(text)}">
+                <span class="${className}-icon" aria-hidden="true">${renderIcon(iconMarkup, SUBLINE_ICON_SIZE_PX)}</span>
+                <span class="${className}-text">${escapeHTML(text)}</span>
+            </p>
+        `;
+    }
+
     private renderCompactEvent(event: TimelineEvent): string {
         const accentClass = `kind-${event.kind}`;
-        const mediaLabel = this.getMediaDisplayTitle(event);
-        const metricParts = this.getCompactMetricParts(event);
-        const isMilestone = event.kind === 'milestone';
+        const variantLabel = getTimelineCardVariantLabel(event, this.state.ambiguousTitles);
+        const progress = getTimelineEventProgress(event);
 
         return `
             <article class="timeline-compact-row ${accentClass}" data-timeline-date="${escapeHTML(event.date)}">
-                <span class="timeline-compact-detail">
-                    <button type="button" class="timeline-media-link" data-media-id="${event.mediaId}">
-                        ${escapeHTML(mediaLabel)}
-                    </button>
-                </span>
                 <span class="timeline-compact-node" aria-hidden="true"></span>
-                <span class="timeline-compact-meta${isMilestone ? ' is-milestone' : ''}">
-                    <span class="timeline-compact-kind">${escapeHTML(this.getKindLabel(event.kind))}</span>
-                    ${
-                        isMilestone
-                            ? `<span class="timeline-compact-milestone">${escapeHTML(
-                                  event.milestoneName ?? 'Milestone',
-                              )}</span>`
-                            : `<span class="timeline-compact-date">${escapeHTML(
-                                  COMPACT_DATE_FORMATTER.format(this.toUtcDate(event.date)),
-                              )}</span>
-                               ${this.renderSeparatedParts(metricParts, 'timeline-compact-metric', true)}`
-                    }
-                </span>
+                <div class="timeline-compact-card">
+                    <span class="timeline-compact-cell timeline-compact-date">${escapeHTML(
+                        COMPACT_DATE_FORMATTER.format(this.toUtcDate(event.date)),
+                    )}</span>
+                    <span class="timeline-compact-cell timeline-compact-kind">${escapeHTML(this.getKindLabel(event.kind))}</span>
+                    <div class="timeline-compact-cell timeline-compact-title">
+                        <button
+                            type="button"
+                            class="timeline-media-link timeline-compact-link"
+                            data-media-id="${event.mediaId}"
+                        ><span class="timeline-compact-title-text" title="${escapeHTML(event.mediaTitle)}">${escapeHTML(event.mediaTitle)}</span></button>
+                        ${this.renderCompactSublines(event, variantLabel)}
+                    </div>
+                    ${this.renderMetric(
+                        progress ? formatOptionalAlignedStatsDuration(progress.minutes) : '',
+                        'timeline-compact-cell timeline-compact-metric timeline-compact-time',
+                    )}
+                    ${this.renderMetric(
+                        progress ? formatOptionalCount(progress.characters, 'char') : '',
+                        'timeline-compact-cell timeline-compact-metric timeline-compact-characters',
+                    )}
+                </div>
             </article>
         `;
     }
 
-    private renderSeparatedParts(parts: string[], partClassName: string, leadingSeparator = false): string {
-        if (parts.length === 0) {
+    private renderCompactSublines(event: TimelineEvent, variantLabel: string | null): string {
+        const sublines = [
+            variantLabel === null ? '' : this.renderSubline(event.mediaId, 'variant', variantLabel, 'timeline-compact-subline'),
+            event.kind === 'milestone'
+                ? this.renderSubline(
+                      event.mediaId,
+                      'milestone',
+                      event.milestoneName ?? MILESTONE_FALLBACK_NAME,
+                      'timeline-compact-subline',
+                  )
+                : '',
+        ].join('');
+        if (sublines.length === 0) {
             return '';
         }
-        const separator = `<span class="timeline-separator" aria-hidden="true">${TIMELINE_METRIC_SEPARATOR}</span>`;
-        const spans = parts
-            .map(part => `<span class="${partClassName}">${escapeHTML(part)}</span>`)
-            .join(separator);
-        return leadingSeparator ? `${separator}${spans}` : spans;
+        return `<div class="timeline-compact-sublines">${sublines}</div>`;
     }
 
-    private getCompactMetricParts(event: TimelineEvent): string[] {
-        if (!this.isTerminalEvent(event.kind)) {
-            return [];
-        }
-        return [
-            formatOptionalStatsDuration(event.totalMinutes),
-            formatOptionalCount(event.totalCharacters, 'char'),
-        ].filter(part => part.length > 0);
+    private renderMetric(value: string, classNames: string): string {
+        const isEmpty = value.length === 0;
+        return `<span class="${classNames}${isEmpty ? ' is-empty' : ''}">${
+            escapeHTML(isEmpty ? EMPTY_METRIC_LABEL : value)
+        }</span>`;
     }
 
     private renderBuckets(buckets: TimelineBucket[], granularity: TimelineBucketGranularity): string {
@@ -919,36 +980,44 @@ export class TimelineView extends Component<TimelineState> {
 
     private renderBucketRow(bucket: TimelineBucket, granularity: TimelineBucketGranularity): string {
         const label = formatTimelineBucketLabel(bucket, granularity);
-        const totalsParts = buildTimelineBucketTotalsParts(bucket);
-        const pips = getTimelineBucketPips(bucket);
-        const dominantKind = getTimelineBucketDominantKind(bucket);
-        const dominantKindClass = dominantKind ? ` kind-${dominantKind}` : '';
+        const totals = getTimelineBucketTotals(bucket);
 
         return `
             <article
-                class="timeline-bucket-row card${dominantKindClass}"
+                class="timeline-bucket-row"
                 data-timeline-date="${escapeHTML(bucket.startDate)}"
                 data-bucket-key="${escapeHTML(bucket.key)}"
             >
-                <div class="timeline-bucket-node" aria-hidden="true"></div>
-                <div class="timeline-bucket-content">
+                <span class="timeline-bucket-node" aria-hidden="true"></span>
+                <div class="timeline-bucket-card">
                     <div class="timeline-bucket-header">
                         <h3 class="timeline-bucket-label">${escapeHTML(label)}</h3>
-                        <span class="timeline-bucket-totals">${this.renderSeparatedParts(totalsParts, 'timeline-bucket-total')}</span>
+                        <div class="timeline-bucket-totals">
+                            ${this.renderMetric(totals.time, 'timeline-bucket-metric timeline-bucket-time')}
+                            ${this.renderMetric(totals.characters, 'timeline-bucket-metric timeline-bucket-characters')}
+                        </div>
                     </div>
-                    ${
-                        pips.length > 0
-                            ? `<div class="timeline-bucket-pips">
-                                ${pips
-                                    .map(pip => `<span class="timeline-bucket-pip kind-${pip.kind}">${escapeHTML(pip.label)}</span>`)
-                                    .join('')}
-                            </div>`
-                            : ''
-                    }
+                    ${this.renderBucketKindStrip(bucket)}
                     ${this.renderBucketCovers(bucket)}
                 </div>
             </article>
         `;
+    }
+
+
+    private renderBucketKindStrip(bucket: TimelineBucket): string {
+        const slots = getTimelineBucketKindCounts(bucket)
+            .map(entry => `
+                <li class="timeline-bucket-kind kind-${entry.kind}${entry.count === 0 ? ' is-zero' : ''}" title="${escapeHTML(entry.label)}">
+                    <span class="timeline-bucket-kind-label">
+                        <span class="timeline-bucket-kind-icon" aria-hidden="true">${renderIcon(BUCKET_KIND_ICONS[entry.kind], SUBLINE_ICON_SIZE_PX)}</span>
+                        <span class="timeline-bucket-kind-noun">${escapeHTML(entry.noun)}</span>
+                    </span>
+                    <span class="timeline-bucket-kind-count">${entry.count}</span>
+                </li>
+            `)
+            .join('');
+        return `<ul class="timeline-bucket-kinds">${slots}</ul>`;
     }
 
     private renderBucketCovers(bucket: TimelineBucket): string {
@@ -957,7 +1026,7 @@ export class TimelineView extends Component<TimelineState> {
         }
 
         const covers = bucket.highlights
-            .map(highlight => this.renderCover(highlight, 'timeline-bucket-cover', true))
+            .map(highlight => this.renderBucketCover(highlight))
             .join('');
         return `
             <div class="timeline-bucket-covers" data-distinct-media="${bucket.distinctMediaCount}">
@@ -967,119 +1036,49 @@ export class TimelineView extends Component<TimelineState> {
         `;
     }
 
-    private renderCover(source: TimelineCoverSource, extraClassName = '', showTitleTooltip = false): string {
+    private renderBucketCover(highlight: TimelineBucketHighlight): string {
+        const mediaLabel = escapeHTML(this.getMediaDisplayTitle(highlight));
+        return this.renderCover(
+            highlight,
+            'timeline-bucket-cover',
+            'button',
+            `type="button" data-media-id="${highlight.mediaId}" title="${mediaLabel}" aria-label="${mediaLabel}"`,
+        );
+    }
+
+    private renderCover(
+        source: TimelineCoverSource,
+        className: string,
+        element: TimelineCoverElement = 'div',
+        attributes = '',
+    ): string {
         if (!source.coverImage || source.coverImage.trim().length === 0) {
-            return '';
+            return `
+                <${element} class="timeline-cover-shell ${className} is-empty" ${attributes}>
+                    <span class="timeline-cover-empty-label">${NO_COVER_LABEL}</span>
+                </${element}>
+            `;
         }
 
         const coverUrl = MediaCoverLoader.getCached(source.coverImage);
-        const mediaLabel = this.getMediaDisplayTitle(source);
+        const coverAlt = escapeHTML(`${this.getMediaDisplayTitle(source)} cover`);
+        const content = coverUrl
+            ? `<img class="timeline-cover-image progressive-cover-image is-loaded" src="${escapeHTML(coverUrl)}" alt="${coverAlt}" loading="lazy" decoding="async" />`
+            : '<span class="timeline-cover-placeholder"></span>';
         return `
-            <div
-                class="timeline-cover-shell${extraClassName ? ` ${extraClassName}` : ''}"
+            <${element}
+                class="timeline-cover-shell ${className}"
                 data-cover-media-id="${source.mediaId}"
                 data-cover-ref="${escapeHTML(source.coverImage)}"
-                data-cover-alt="${escapeHTML(`${mediaLabel} cover`)}"
-                ${showTitleTooltip ? `title="${escapeHTML(mediaLabel)}"` : ''}
-            >
-                ${
-                    coverUrl
-                        ? `<img class="timeline-cover-image progressive-cover-image is-loaded" src="${escapeHTML(coverUrl)}" alt="${escapeHTML(
-                              mediaLabel,
-                          )} cover" loading="lazy" decoding="async" />`
-                        : '<span class="timeline-cover-placeholder"></span>'
-                }
-            </div>
+                data-cover-alt="${coverAlt}"
+                ${attributes}
+            >${content}</${element}>
         `;
-    }
-
-    private renderEventCopy(event: TimelineEvent): string {
-        const mediaLabel = this.getMediaDisplayTitle(event);
-        const mediaButton = `
-            <button type="button" class="timeline-media-link" data-media-id="${event.mediaId}">
-                ${escapeHTML(mediaLabel)}
-            </button>
-        `;
-        const action = this.getActivityAction(event.activityType);
-        const completedAction = this.getCompletedAction(event.activityType);
-
-        switch (event.kind) {
-            case 'started':
-                return action
-                    ? `Started ${escapeHTML(action)} ${mediaButton}`
-                    : `Started ${mediaButton}`;
-            case 'finished':
-                if (event.sameDayTerminal) {
-                    return completedAction
-                        ? `${escapeHTML(completedAction)} ${mediaButton}`
-                        : `Completed ${mediaButton}`;
-                }
-                return action
-                    ? `Finished ${escapeHTML(action)} ${mediaButton}`
-                    : `Finished ${mediaButton}`;
-            case 'paused':
-                return `Put ${mediaButton} on pause`;
-            case 'dropped':
-                return `Dropped ${mediaButton}`;
-            case 'milestone':
-                return `Reached "${escapeHTML(event.milestoneName ?? 'Milestone')}" in ${mediaButton}`;
-        }
     }
 
     private getMediaDisplayTitle(entity: TimelineMediaDisplayEntity): string {
-        if (!this.state.ambiguousTitles.includes(entity.mediaTitle)) {
-            return entity.mediaTitle;
-        }
-
-        const variant = entity.mediaVariant.trim();
-        return `${entity.mediaTitle} — ${variant || '(no variant)'}`;
-    }
-
-    private renderMetaItems(event: TimelineEvent): string[] {
-        const isTerminal = this.isTerminalEvent(event.kind);
-        const isMilestone = event.kind === 'milestone';
-
-        return [
-            { label: 'Total time', value: isTerminal ? formatOptionalStatsDuration(event.totalMinutes) : '' },
-            { label: 'Total characters', value: isTerminal ? formatOptionalNumber(event.totalCharacters) : '' },
-            { label: 'Time', value: isMilestone ? formatOptionalStatsDuration(event.milestoneMinutes) : '' },
-            { label: 'Characters', value: isMilestone ? formatOptionalNumber(event.milestoneCharacters) : '' },
-        ]
-            .filter(item => item.value.length > 0)
-            .map(
-                item =>
-                    `<span class="timeline-meta-item">${item.label}: <strong>${escapeHTML(item.value)}</strong></span>`,
-            );
-    }
-
-    private getActivityAction(activityType: string): string | null {
-        switch (activityType) {
-            case 'Reading':
-                return 'reading';
-            case 'Watching':
-                return 'watching';
-            case 'Playing':
-                return 'playing';
-            case 'Listening':
-                return 'listening';
-            default:
-                return null;
-        }
-    }
-
-    private getCompletedAction(activityType: string): string | null {
-        switch (activityType) {
-            case 'Reading':
-                return 'Read';
-            case 'Watching':
-                return 'Watched';
-            case 'Playing':
-                return 'Played';
-            case 'Listening':
-                return 'Listened to';
-            default:
-                return null;
-        }
+        const variantLabel = getTimelineDisambiguationLabel(entity, this.state.ambiguousTitles);
+        return variantLabel === null ? entity.mediaTitle : `${entity.mediaTitle} — ${variantLabel}`;
     }
 
     private getKindLabel(kind: TimelineEventKind): string {
@@ -1097,10 +1096,6 @@ export class TimelineView extends Component<TimelineState> {
             default:
                 return 'Event';
         }
-    }
-
-    private isTerminalEvent(kind: TimelineEventKind): boolean {
-        return kind === 'finished' || kind === 'paused' || kind === 'dropped';
     }
 
     private formatDate(date: string): string {
@@ -1169,10 +1164,19 @@ export class TimelineView extends Component<TimelineState> {
 
         this.attachZoomGestures(root);
 
-        root.querySelectorAll<HTMLButtonElement>('.timeline-media-link').forEach(button => {
+        root.querySelectorAll<HTMLButtonElement>('.timeline-media-link, .timeline-bucket-cover').forEach(button => {
             button.addEventListener('click', () => {
                 const mediaId = Number.parseInt(button.dataset.mediaId || '', 10);
                 if (Number.isFinite(mediaId)) {
+                    this.navigateToMedia(mediaId);
+                }
+            });
+        });
+
+        root.querySelectorAll<HTMLElement>('.timeline-card-subline, .timeline-compact-subline').forEach(subline => {
+            subline.addEventListener('click', () => {
+                const mediaId = Number.parseInt(subline.dataset.mediaId || '', 10);
+                if (Number.isFinite(mediaId) && this.isFinePointerLayout()) {
                     this.navigateToMedia(mediaId);
                 }
             });
@@ -1242,7 +1246,7 @@ export class TimelineView extends Component<TimelineState> {
 
         if (this.state.summary.total_characters > 0) {
             items.push({
-                label: 'Characters tracked',
+                label: 'Characters',
                 value: this.state.summary.total_characters.toLocaleString(),
             });
         }
@@ -1408,7 +1412,18 @@ export class TimelineView extends Component<TimelineState> {
         return globalThis.matchMedia(SMALL_TIMELINE_MEDIA_QUERY).matches;
     }
 
+    private isFinePointerLayout(): boolean {
+        if (typeof globalThis.matchMedia !== 'function') {
+            return false;
+        }
+
+        return globalThis.matchMedia(FINE_POINTER_MEDIA_QUERY).matches;
+    }
+
     private isWaveSuppressed(): boolean {
+        if (this.state.zoomLevel === 'compact') {
+            return true;
+        }
         return this.state.zoomLevel === 'detailed' && this.isSmallTimelineLayout();
     }
 

@@ -72,6 +72,14 @@ export function formatOptionalStatsDuration(totalMinutes: number): string {
     return totalMinutes > 0 ? formatStatsDuration(totalMinutes) : '';
 }
 
+export function formatOptionalAlignedStatsDuration(totalMinutes: number): string {
+    if (totalMinutes <= 0) {
+        return '';
+    }
+    const { hours, minutes } = toTimeParts(totalMinutes);
+    return hours > 0 ? `${hours}h ${minutes.toString().padStart(2, '0')}m` : `${minutes}m`;
+}
+
 /**
  * Formats duration for activity logs: "X minutes (HhMmin)" if >= 60, otherwise "X minutes".
  */

@@ -3,6 +3,7 @@ export {
     formatHhMm,
     formatStatsDuration,
     formatOptionalStatsDuration,
+    formatOptionalAlignedStatsDuration,
     formatLoggedDuration,
     formatCompactDuration,
     formatDayMonth,

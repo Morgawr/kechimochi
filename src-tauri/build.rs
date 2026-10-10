@@ -38,10 +38,8 @@ fn main() {
         DESKTOP_CLIENT_ID_ENV
     };
 
-    for (source_key, bundled_key) in [(source_client_id_env, BUNDLED_CLIENT_ID_ENV)] {
-        if let Some(value) = resolve_env_value(&local_env_paths, source_key) {
-            println!("cargo:rustc-env={bundled_key}={value}");
-        }
+    if let Some(value) = resolve_env_value(&local_env_paths, source_client_id_env) {
+        println!("cargo:rustc-env={BUNDLED_CLIENT_ID_ENV}={value}");
     }
 
     if source_client_id_env != ANDROID_CLIENT_ID_ENV {
