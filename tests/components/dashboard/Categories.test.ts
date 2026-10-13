@@ -48,7 +48,7 @@ describe('Categories', () => {
     });
 
     it('renders an empty state instead of vanishing when there are no visible totals', () => {
-        const component = new Categories(container, { categoryTotals: [], isTodayInRange: true });
+        const component = new Categories(container, { categoryTotals: [], elapsedPeriodDays: 3 });
 
         component.render();
 
@@ -67,14 +67,14 @@ describe('Categories', () => {
             makeMedia({ id: 1, title: 'Novel A', default_activity_type: 'Reading', content_type: 'Novel' }),
             makeMedia({ id: 2, title: 'Anime B', default_activity_type: 'Watching', content_type: 'Anime' }),
         ];
-        const { categoryTotals, isTodayInRange } = computeRangeContext({
+        const { categoryTotals, elapsedPeriodDays } = computeRangeContext({
             logs,
             mediaList,
             timeRangeDays: 7,
             timeRangeOffset: 0,
             weekStartDay: 1,
         });
-        const component = new Categories(container, { categoryTotals, isTodayInRange });
+        const component = new Categories(container, { categoryTotals, elapsedPeriodDays });
 
         component.render();
 
@@ -89,7 +89,7 @@ describe('Categories', () => {
     it('renders characters-only category totals without hour columns', () => {
         const component = new Categories(container, {
             categoryTotals: [['Novel', { minutes: 0, characters: 2501 }]],
-            isTodayInRange: true,
+            elapsedPeriodDays: 3,
         });
 
         component.render();

@@ -445,6 +445,26 @@
     font-weight: 600;
 }
 
+.dashboard-card-empty-prompt[data-immerse-intensity="1"] {
+    font-size: 1.1em;
+}
+
+.dashboard-card-empty-prompt[data-immerse-intensity="2"] {
+    font-size: 1.2em;
+    font-weight: 700;
+}
+
+.dashboard-card-empty-prompt[data-immerse-intensity="3"] {
+    font-size: 1.3em;
+    font-weight: 700;
+}
+
+.dashboard-card-empty-prompt[data-immerse-intensity="4"] {
+    font-size: 1.45em;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
 .dashboard-highlights-card {
     display: flex;
     flex-direction: column;

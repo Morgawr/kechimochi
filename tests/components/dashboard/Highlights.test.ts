@@ -76,7 +76,7 @@ function weeklyLogs(): ActivitySummary[] {
 }
 
 function weeklyHighlightsState(logs: ActivitySummary[], mediaList: Media[]) {
-    const { categoryTotals, isTodayInRange, range } = computeRangeContext({
+    const { categoryTotals, elapsedPeriodDays, range } = computeRangeContext({
         logs,
         mediaList,
         timeRangeDays: 7,
@@ -87,7 +87,7 @@ function weeklyHighlightsState(logs: ActivitySummary[], mediaList: Media[]) {
         logs,
         mediaList,
         categoryTotals,
-        isTodayInRange,
+        elapsedPeriodDays,
         validStart: range.validStart,
         validEnd: range.validEnd,
     };
@@ -137,7 +137,7 @@ describe('Highlights', () => {
     it('renders an empty state instead of vanishing when there are no highlights', () => {
         const component = new Highlights(container, {
             categoryTotals: [],
-            isTodayInRange: true,
+            elapsedPeriodDays: 3,
             validStart: '2026-06-08',
             validEnd: '2026-06-14',
         });
@@ -180,7 +180,7 @@ describe('Highlights', () => {
                 }],
             },
             categoryTotals: [],
-            isTodayInRange: true,
+            elapsedPeriodDays: 3,
             validStart: '2026-06-08',
             validEnd: '2026-06-14',
         });
@@ -266,7 +266,7 @@ describe('Highlights', () => {
                 ['Novel', { minutes: 90, characters: 500 }],
                 ['Manga', { minutes: 60, characters: 200 }],
             ],
-            isTodayInRange: true,
+            elapsedPeriodDays: 3,
             validStart: '2026-06-08',
             validEnd: '2026-06-14',
         });
@@ -326,7 +326,7 @@ describe('Highlights', () => {
                 }],
             },
             categoryTotals: [['Anime', { minutes: 45, characters: 0 }]],
-            isTodayInRange: true,
+            elapsedPeriodDays: 3,
             validStart: '2026-06-08',
             validEnd: '2026-06-14',
         });

@@ -26,7 +26,7 @@ interface HighlightsState {
     categoryTotals: ReadonlyArray<[string, Totals]>;
     validStart: string;
     validEnd: string;
-    isTodayInRange: boolean;
+    elapsedPeriodDays: number | null;
 }
 
 type MediaTotalsEntry = {
@@ -89,7 +89,7 @@ export class Highlights extends Component<HighlightsState> {
     render() {
         this.clear();
         const highlights = this.getHighlights(this.state.validStart, this.state.validEnd, this.state.categoryTotals);
-        this.container.insertAdjacentHTML('beforeend', this.renderHighlightsPanel(highlights, this.state.isTodayInRange));
+        this.container.insertAdjacentHTML('beforeend', this.renderHighlightsPanel(highlights, this.state.elapsedPeriodDays));
         this.setupHighlights(highlights);
         this.onCardsRendered();
     }
@@ -113,11 +113,11 @@ export class Highlights extends Component<HighlightsState> {
         });
     }
 
-    private renderHighlightsPanel(highlights: HighlightCard[], isTodayInRange: boolean): string {
+    private renderHighlightsPanel(highlights: HighlightCard[], elapsedPeriodDays: number | null): string {
         if (highlights.length === 0) {
             return renderDashboardCardShell({
                 title: HIGHLIGHTS_CARD.label,
-                body: renderNoPeriodDataEmptyState(isTodayInRange),
+                body: renderNoPeriodDataEmptyState(elapsedPeriodDays),
                 cardClasses: ['dashboard-highlights-card'],
             });
         }

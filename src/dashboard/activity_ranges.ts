@@ -56,6 +56,17 @@ export function getLocalISODate(d: Date): string {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+function getUtcDayStart(dateString: string): number {
+    const [year, month, day] = dateString.split('-').map(Number);
+    return Date.UTC(year, month - 1, day);
+}
+
+export function getElapsedPeriodDays(range: Pick<ActivityRange, 'validStart' | 'validEnd'>, today: string): number | null {
+    if (today < range.validStart || today > range.validEnd) return null;
+    const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+    return Math.round((getUtcDayStart(today) - getUtcDayStart(range.validStart)) / MILLISECONDS_PER_DAY) + 1;
+}
+
 function getWeeklyRange(timeRangeOffset: number, weekStartDay: number): ActivityRange {
     const labels: string[] = [];
     const targetDay = new Date();

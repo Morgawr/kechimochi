@@ -4,6 +4,7 @@ import {
     buildAllTimeRangeSeeds,
     getActivityRange,
     getDashboardBucket,
+    getElapsedPeriodDays,
     getOffsetForDate,
     getUtcWeekStart,
 } from '../../../src/dashboard/activity_ranges';
@@ -166,5 +167,29 @@ describe('getDashboardBucket', () => {
     it('maps year, and any other unit, to year', () => {
         expect(getDashboardBucket('year')).toBe('year');
         expect(getDashboardBucket('week')).toBe('year');
+    });
+});
+
+describe('getElapsedPeriodDays', () => {
+    const range = { validStart: '2026-01-01', validEnd: '2026-12-31' };
+
+    it('counts the first day of the period as one elapsed day', () => {
+        expect(getElapsedPeriodDays(range, '2026-01-01')).toBe(1);
+    });
+
+    it('counts every day from the period start through today', () => {
+        expect(getElapsedPeriodDays(range, '2026-11-15')).toBe(319);
+    });
+
+    it('counts across a daylight saving change without drifting', () => {
+        expect(getElapsedPeriodDays({ validStart: '2026-03-01', validEnd: '2026-03-31' }, '2026-03-31')).toBe(31);
+    });
+
+    it('returns null when today is before the period', () => {
+        expect(getElapsedPeriodDays(range, '2025-12-31')).toBeNull();
+    });
+
+    it('returns null when today is after the period', () => {
+        expect(getElapsedPeriodDays(range, '2027-01-01')).toBeNull();
     });
 });

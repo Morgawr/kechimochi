@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { PeriodStats } from '../../../src/dashboard/cards/PeriodStats';
 import { ActivitySummary } from '../../../src/api';
-import { getActivityRange, getLocalISODate, type ActivityRange } from '../../../src/dashboard/activity_ranges';
+import { getActivityRange, getElapsedPeriodDays, getLocalISODate, type ActivityRange } from '../../../src/dashboard/activity_ranges';
 
 function textContent(container: HTMLElement): string {
     return (container.textContent ?? '').replace(/\s+/g, ' ').trim();
@@ -36,10 +36,9 @@ function weeklyLogs(): ActivitySummary[] {
 
 function buildState(timeRangeDays: number, timeRangeOffset: number, weekStartDay: number, logs?: ActivitySummary[], rangeData?: import('../../../src/api').DashboardRangeResponse) {
     const range: ActivityRange = getActivityRange(timeRangeDays, timeRangeOffset, logs ?? [], weekStartDay);
-    const today = getLocalISODate(new Date());
     return {
         range,
-        isTodayInRange: today >= range.validStart && today <= range.validEnd,
+        elapsedPeriodDays: getElapsedPeriodDays(range, getLocalISODate(new Date())),
         rangeData,
         logs,
         timeRangeDays,

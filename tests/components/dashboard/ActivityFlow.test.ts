@@ -441,8 +441,8 @@ describe('ActivityFlow', () => {
         component.render();
 
         const message = container.querySelector('.chart-empty-message');
-        expect(message?.textContent).toBe('No data in this period. Go immerse!');
-        expect(message?.querySelector('.dashboard-card-empty-prompt')?.textContent).toBe('Go immerse!');
+        expect(message?.textContent).toBe('No data in this period. Go immerse!!');
+        expect(message?.querySelector<HTMLElement>('[data-immerse-intensity]')?.dataset.immerseIntensity).toBe('1');
     });
 
     it('should show the plain message when paged to a past empty period', () => {

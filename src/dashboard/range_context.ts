@@ -1,5 +1,5 @@
 import { ActivitySummary, DashboardRangeResponse, Media } from '../api';
-import { getActivityRange, getLocalISODate, resolveRangeLogs, type ActivityRange } from './activity_ranges';
+import { getActivityRange, getElapsedPeriodDays, getLocalISODate, resolveRangeLogs, type ActivityRange } from './activity_ranges';
 
 export interface Totals {
     minutes: number;
@@ -8,7 +8,7 @@ export interface Totals {
 
 export interface RangeContext {
     range: ActivityRange;
-    isTodayInRange: boolean;
+    elapsedPeriodDays: number | null;
     categoryTotals: Array<[string, Totals]>;
     timeRangeDays: number;
     timeRangeOffset: number;
@@ -31,13 +31,12 @@ export interface RangeContextParams {
 export function computeRangeContext(params: RangeContextParams): RangeContext {
     const rangeLogs = resolveRangeLogs(params.logs, params.rangeData);
     const range = getActivityRange(params.timeRangeDays, params.timeRangeOffset, rangeLogs, params.weekStartDay);
-    const today = getLocalISODate(new Date());
-    const isTodayInRange = today >= range.validStart && today <= range.validEnd;
+    const elapsedPeriodDays = getElapsedPeriodDays(range, getLocalISODate(new Date()));
     const categoryTotals = getCategoryTotals(range.validStart, range.validEnd, params.rangeData, params.mediaList, params.logs);
 
     return {
         range,
-        isTodayInRange,
+        elapsedPeriodDays,
         categoryTotals,
         timeRangeDays: params.timeRangeDays,
         timeRangeOffset: params.timeRangeOffset,

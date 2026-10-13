@@ -13,7 +13,7 @@ export const CATEGORIES_CARD = {
 
 interface CategoriesState {
     categoryTotals: ReadonlyArray<[string, Totals]>;
-    isTodayInRange: boolean;
+    elapsedPeriodDays: number | null;
 }
 
 export class Categories extends Component<CategoriesState> {
@@ -34,14 +34,14 @@ export class Categories extends Component<CategoriesState> {
             selectable: false,
         }));
 
-        this.container.insertAdjacentHTML('beforeend', this.renderCategoriesPanel(categoryRows, this.state.isTodayInRange));
+        this.container.insertAdjacentHTML('beforeend', this.renderCategoriesPanel(categoryRows, this.state.elapsedPeriodDays));
     }
 
-    private renderCategoriesPanel(categoryRows: BucketRow[], isTodayInRange: boolean): string {
+    private renderCategoriesPanel(categoryRows: BucketRow[], elapsedPeriodDays: number | null): string {
         const columns = getTotalsColumns(categoryRows);
         const body = hasVisibleTotals(columns)
             ? renderTotalsTable('Title', categoryRows, columns)
-            : renderNoPeriodDataEmptyState(isTodayInRange);
+            : renderNoPeriodDataEmptyState(elapsedPeriodDays);
 
         return renderDashboardCardShell({ title: CATEGORIES_CARD.label, body });
     }
