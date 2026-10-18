@@ -15,7 +15,7 @@ export async function showReadingSpeedOverrideModal(
         const { overlay, cleanup, dismiss } = createCancelableOverlay(() => resolve(null), { closeOnEscape: true });
 
         overlay.innerHTML = `
-            <div class="modal-content" style="max-width: 400px;">
+            <div class="modal-content">
                 <h3>Set Custom Reading Speed</h3>
                 <div style="margin-top: 1rem; display: flex; flex-direction: column; gap: 0.3rem;">
                     <label style="font-size: 0.85rem; color: var(--text-secondary);">Reading speed for "${escapeHTML(mediaTitle)}"</label>

@@ -9,7 +9,14 @@ export {
     formatWeekdayDate,
 } from './formatting';
 export type { TimeParts } from './formatting';
-export { parseDuration, DURATION_INPUT_PLACEHOLDER, DURATION_INPUT_TOOLTIP } from './duration_parsing';
+export {
+    parseDuration,
+    withEpisodeCount,
+    DURATION_INPUT_PLACEHOLDER,
+    DURATION_INPUT_TOOLTIP,
+    EPISODE_DURATION_INPUT_PLACEHOLDER,
+    EPISODE_DURATION_INPUT_TOOLTIP,
+} from './duration_parsing';
 export type { DurationParseResult } from './duration_parsing';
 export { wireDurationInput } from './duration_input';
 export {
@@ -23,6 +30,7 @@ export {
     isContainedInBucket,
     formatReducedDate,
     formatLogDate,
+    formatLogDateRelativeTo,
     formatUtcIsoDate,
     utcDateFromParts,
     localTodayAnchor,

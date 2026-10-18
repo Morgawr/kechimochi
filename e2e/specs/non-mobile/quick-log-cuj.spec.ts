@@ -4,6 +4,8 @@ import { addMedia } from '../../helpers/library.js';
 import { logActivityFromDetail } from '../../helpers/media-detail.js';
 import {
   getTopmostVisibleOverlay,
+  selectActivityDate,
+  setActivityNotes,
   waitForOverlayToDisappear,
   waitForSelectorDisplayed,
 } from '../../helpers/common.js';
@@ -38,11 +40,11 @@ describe('Desktop/Web CUJ: Quick Log', () => {
     expect(await overlay.$('#activity-media').getValue()).toBe(title);
     const modalVariant = overlay.$('#activity-media-variant');
     await modalVariant.waitForDisplayed({ timeout: 5000 });
-    expect(await modalVariant.getText()).toBe('Blu-ray');
+    expect(await modalVariant.getProperty('textContent')).toBe('Blu-ray');
     expect(await overlay.$('#activity-type').getValue()).toBe('Watching');
     await setText('#activity-duration', '19');
-    await setText('#activity-notes', 'Submitted from Quick Log');
-    await overlay.$(`.cal-day[data-date="${MOCK_DATE}"]`).click();
+    await setActivityNotes('Submitted from Quick Log');
+    await selectActivityDate(MOCK_DATE);
     await overlay.$('#add-activity-form button[type="submit"]').click();
     await waitForOverlayToDisappear(overlay);
 

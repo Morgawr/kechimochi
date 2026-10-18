@@ -1,6 +1,6 @@
 export { openPopupMenu } from './menu';
 export type { PopupMenuHandle, PopupMenuItem } from './menu';
-export { createMultiSelectField, openMultiSelect } from './multi_select';
+export { createMultiSelectField, openMultiSelect, SHEET_LAYOUT_MEDIA_QUERY } from './multi_select';
 export type {
     MultiSelectCounts,
     MultiSelectField,

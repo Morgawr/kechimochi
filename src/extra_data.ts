@@ -1,4 +1,6 @@
 import { EXTRA_FIELD_LABELS } from './constants';
+import { parseDuration } from './time/duration_parsing';
+import type { Media } from './types';
 
 export function findExtraDataKey(extraData: Record<string, string>, key: string): string | undefined {
     const normalizedKey = key.toLowerCase();
@@ -52,6 +54,14 @@ export function normalizeExtraData(extraData: unknown): Record<string, string> {
     }
 
     return normalized;
+}
+
+export function readMediaExtraData(media: Pick<Media, 'extra_data'>): Record<string, string> {
+    try {
+        return normalizeExtraData(JSON.parse(media.extra_data || '{}'));
+    } catch {
+        return normalizeExtraData({});
+    }
 }
 
 export function upsertExtraDataValue(extraData: Record<string, string>, key: string, value: string): Record<string, string> {
@@ -119,4 +129,12 @@ export function getReadingSpeedFromExtraData(extraData: Record<string, string>):
 
     const parsedValue = Number.parseInt(rawValue.replaceAll(/[^\d-]/g, ''), 10);
     return Number.isNaN(parsedValue) || parsedValue <= 0 ? null : parsedValue;
+}
+
+export function getEpisodeDurationFromExtraData(extraData: Record<string, string>): number | null {
+    const rawValue = getExtraDataValue(extraData, EXTRA_FIELD_LABELS.EPISODE_DURATION);
+    if (!rawValue) return null;
+
+    const parsedDuration = parseDuration(rawValue);
+    return parsedDuration.status === 'parsed' && parsedDuration.minutes > 0 ? parsedDuration.minutes : null;
 }

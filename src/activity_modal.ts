@@ -11,23 +11,24 @@ import {
     ActivityCsvConflictResolution,
 } from './api';
 import { ACTIVITY_TYPES, SETTING_KEYS } from './constants';
-import { buildCalendar, normalizeWeekStartDay, supportsNativeMonthInput, YEAR_BLOCK_SIZE, type BuildCalendarOptions, type DatePicker } from './calendar';
+import { buildCalendar, normalizeWeekStartDay, YEAR_BLOCK_SIZE, type DatePicker } from './calendar';
+import { SHEET_LAYOUT_MEDIA_QUERY } from './popups';
 import { customPrompt, customAlert, createCancelableOverlay } from './modal_base';
 import { Logger } from './logger';
 import { escapeHTML, escapeAttribute } from './html';
 import {
     DURATION_INPUT_PLACEHOLDER,
     DURATION_INPUT_TOOLTIP,
+    EPISODE_DURATION_INPUT_PLACEHOLDER,
+    EPISODE_DURATION_INPUT_TOOLTIP,
     wireDurationInput,
     canonicalAnchor,
-    formatLogDate,
+    formatLogDateRelativeTo,
     formatReducedDate,
     isContainedInBucket,
-    isDateScope,
     logDateKey,
     precisionKeyLength,
     type DateAnchor,
-    type DateKey,
     type DateScope,
 } from './time';
 import { COUNT_INPUT_PLACEHOLDER, readCount, wireDigitsOnlyInput } from './counts';
@@ -37,8 +38,13 @@ import {
     formatMissingInputsMessage,
     syncConfirmButton,
 } from './log_entry_validation';
+import { resolveEpisodeDurationMinutes, wireEpisodeStepper } from './media/episodes';
+import { setEpisodeDurationOverride } from './media/media_actions';
+import { FORK, MINUS, PENCIL, PLUS, renderIcon } from './icons';
 
 type ActivityType = typeof ACTIVITY_TYPES[number];
+
+const DATE_SCOPES: readonly DateScope[] = ['day', 'month', 'year'];
 
 const pad = (n: number) => n.toString().padStart(2, '0');
 const getTodayStr = (): DateAnchor => {
@@ -195,14 +201,17 @@ export async function showLogActivityModal(prefillMediaId?: number, editLog?: Ac
     ]);
     const weekStartDay = normalizeWeekStartDay(weekStartDaySetting);
     return new Promise((resolve) => {
-        const baseHandle = createCancelableOverlay(() => resolve(false), { closeOnEscape: true });
+        let hasSavedMediaChange = false;
+        const baseHandle = createCancelableOverlay(() => resolve(hasSavedMediaChange), { closeOnEscape: true });
         const { overlay } = baseHandle;
         let suggestionHideTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
+        let closeDateModal: (() => void) | null = null;
         const cleanup = () => {
             if (suggestionHideTimer) {
                 globalThis.clearTimeout(suggestionHideTimer);
                 suggestionHideTimer = null;
             }
+            closeDateModal?.();
             baseHandle.cleanup();
         };
         const dismiss = () => {
@@ -210,6 +219,7 @@ export async function showLogActivityModal(prefillMediaId?: number, editLog?: Ac
                 globalThis.clearTimeout(suggestionHideTimer);
                 suggestionHideTimer = null;
             }
+            closeDateModal?.();
             baseHandle.dismiss();
         };
         const activeMedia = mediaList.filter(m => m.status !== 'Archived' && m.tracking_status === 'Ongoing');
@@ -232,54 +242,70 @@ export async function showLogActivityModal(prefillMediaId?: number, editLog?: Ac
         // Determine the default activity type
         const defaultActivityType = editLog?.activity_type || getDefaultActivityType(initialMedia) || 'Reading';
         const initialScope: DateScope = editLog?.date_precision ?? 'day';
+        const hasInitialNotes = Boolean(editLog?.notes?.trim());
 
         overlay.innerHTML = `
-            <div class="modal-content" style="width: 450px;">
-                <h3>${editLog ? 'Edit Activity' : 'Log Activity'}</h3>
+            <div class="modal-content activity-modal-content" style="width: 450px;">
+                <div class="activity-modal-header">
+                    <h3>${editLog ? 'Edit Activity' : 'Log Activity'}</h3>
+                    <p id="activity-media-variant-row" class="activity-modal-variant" hidden>
+                        <span class="activity-modal-variant-icon" aria-hidden="true">${renderIcon(FORK)}</span>
+                        <span id="activity-media-variant" class="activity-modal-variant-text"></span>
+                    </p>
+                </div>
                 <form id="add-activity-form" style="margin-top: 1rem; display: flex; flex-direction: column; gap: 1rem;">
                     <div style="display: flex; flex-direction: column; gap: 0.5rem; position: relative; z-index: 2">
                         <label style="font-size: 0.85rem; color: var(--text-secondary);">Media Title</label>
                         <input type="text" id="activity-media" role="combobox" aria-autocomplete="list" aria-controls="activity-media-suggestions" aria-expanded="false" autocomplete="off" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm);" value="${escapedTitle}" ${editLog ? 'disabled' : ''} required oninvalid="this.setCustomValidity('Media Title is required')" oninput="this.setCustomValidity('')" />
-                        <div id="activity-media-variant" style="display: none; color: var(--text-secondary); font-size: 0.78rem;"></div>
                         <div id="activity-media-suggestions" role="listbox" style="display: none; margin-top: 0.35rem; max-height: 11rem; overflow-y: auto; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: color-mix(in srgb, var(--bg-card) 94%, black 6%); box-shadow: 0 14px 34px color-mix(in srgb, var(--tint-dark) 22%, transparent); position: absolute; top: 100%; left: 0; right: 0;"></div>
                     </div>
-                    <div style="display: flex; gap: 1rem; width: 100%;">
-                        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.5rem;">
-                            <label style="font-size: 0.85rem; color: var(--text-secondary);">Duration</label>
-                            <input type="text" id="activity-duration" autocomplete="off" placeholder="${escapeAttribute(DURATION_INPUT_PLACEHOLDER)}" title="${escapeAttribute(DURATION_INPUT_TOOLTIP)}" value="${editLog ? String(editLog.duration_minutes) : ''}" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); width: 100%;" />
-                            <div id="activity-duration-hint" class="duration-hint"></div>
+                    <div class="activity-modal-columns activity-amount-columns">
+                        <div class="activity-modal-field">
+                            <label id="activity-duration-label" class="activity-modal-label">Duration</label>
+                            <div id="activity-duration-field" class="inline-action-field">
+                                <button type="button" id="activity-episode-decrement" class="inline-action-button" aria-label="Remove one episode" hidden>${renderIcon(MINUS)}</button>
+                                <input type="text" id="activity-duration" class="inline-action-field-input" aria-labelledby="activity-duration-label" autocomplete="off" placeholder="${escapeAttribute(DURATION_INPUT_PLACEHOLDER)}" title="${escapeAttribute(DURATION_INPUT_TOOLTIP)}" value="${editLog ? String(editLog.duration_minutes) : ''}" />
+                                <button type="button" id="activity-episode-increment" class="inline-action-button" aria-label="Add one episode" hidden>${renderIcon(PLUS)}</button>
+                            </div>
+                            <div class="duration-hint-row">
+                                <div id="activity-duration-hint" class="duration-hint"></div>
+                                <span id="activity-episode-duration-hint" class="activity-episode-duration-hint" hidden>
+                                    <span aria-hidden="true">·</span>
+                                    <button type="button" id="activity-episode-edit" class="activity-episode-duration-link" aria-label="Change episode duration" aria-describedby="activity-episode-duration-value" title="Change episode duration"><span><span id="activity-episode-duration-value"></span>/ep</span>${renderIcon(PENCIL)}</button>
+                                </span>
+                            </div>
                         </div>
-                        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.5rem;">
-                            <label style="font-size: 0.85rem; color: var(--text-secondary);">Characters</label>
+                        <div class="activity-modal-field">
+                            <label class="activity-modal-label">Characters</label>
                             <input type="text" id="activity-characters" inputmode="numeric" autocomplete="off" placeholder="${escapeAttribute(COUNT_INPUT_PLACEHOLDER)}" value="${editLog?.characters ? String(editLog.characters) : ''}" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); width: 100%;" />
                         </div>
                     </div>
-                    <div style="display: flex; gap: 1rem; width: 100%;">
-                        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.5rem;">
-                            <span id="activity-type-label" style="font-size: 0.85rem; color: var(--text-secondary);">Activity Type</span>
-                            <select id="activity-type" aria-labelledby="activity-type-label" style="width: 100%;">
+                    <div class="activity-modal-columns">
+                        <div class="activity-modal-field">
+                            <span id="activity-type-label" class="activity-modal-label">Activity Type</span>
+                            <select id="activity-type" aria-labelledby="activity-type-label">
                                 ${ACTIVITY_TYPES.map(t => `<option value="${t}" ${t === defaultActivityType ? 'selected' : ''}>${t}</option>`).join('')}
                             </select>
                         </div>
-                        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.5rem;">
-                            <span id="activity-date-scope-label" style="font-size: 0.85rem; color: var(--text-secondary);">Date scope</span>
-                            <select id="activity-date-scope" aria-labelledby="activity-date-scope-label" style="width: 100%;">
-                                <option value="day" ${initialScope === 'day' ? 'selected' : ''}>Day</option>
-                                <option value="month" ${initialScope === 'month' ? 'selected' : ''}>Month</option>
-                                <option value="year" ${initialScope === 'year' ? 'selected' : ''}>Year</option>
-                            </select>
+                        <div class="activity-modal-field">
+                            <span id="activity-date-label" class="activity-modal-label">Date</span>
+                            <button type="button" id="activity-date-trigger" class="field-trigger" aria-labelledby="activity-date-label activity-date-trigger-value" aria-expanded="false" aria-controls="activity-date-panel">
+                                <span id="activity-date-trigger-value" class="field-trigger-value"></span>
+                                <span class="field-trigger-chevron" aria-hidden="true"></span>
+                            </button>
                         </div>
                     </div>
-                    <div class="activity-date-picker-row">
-                        <div class="activity-date-row-heading">
-                            <label id="activity-date-row-label" style="font-size: 0.85rem; color: var(--text-secondary);">Date</label>
-                            <span id="activity-date-selection"></span>
+                    <div id="activity-date-slot" class="activity-date-slot">
+                        <div id="activity-date-panel" class="activity-date-panel" hidden>
+                            <div id="activity-date-picker-content" class="activity-date-picker-content"></div>
                         </div>
-                        <div id="activity-date-picker-content" style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem;"></div>
                     </div>
-                    <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-                        <label style="font-size: 0.85rem; color: var(--text-secondary);">Notes</label>
-                        <textarea id="activity-notes" rows="3" placeholder="Optional notes or reminders…" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); width: 100%; box-sizing: border-box; height: 4.5rem; resize: none; overflow-y: auto; font: inherit;">${escapeHTML(editLog?.notes || '')}</textarea>
+                    <div class="activity-modal-field">
+                        <button type="button" id="activity-notes-toggle" class="activity-notes-toggle" aria-expanded="${hasInitialNotes}" aria-controls="activity-notes-section" ${hasInitialNotes ? 'hidden' : ''}>${renderIcon(PLUS)}<span>Add note</span></button>
+                        <div id="activity-notes-section" class="activity-modal-field" ${hasInitialNotes ? '' : 'hidden'}>
+                            <label id="activity-notes-label" class="activity-modal-label">Notes</label>
+                            <textarea id="activity-notes" aria-labelledby="activity-notes-label" rows="3" placeholder="Optional notes or reminders…" style="background: var(--bg-dark); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: var(--radius-sm); width: 100%; box-sizing: border-box; height: 4.5rem; resize: none; overflow-y: auto; font: inherit;">${escapeHTML(editLog?.notes || '')}</textarea>
+                        </div>
                     </div>
                     <div style="display: flex; justify-content: flex-end; gap: 1rem; margin-top: 0.5rem;">
                         <button type="button" class="btn btn-ghost" id="activity-cancel">Cancel</button>
@@ -295,25 +321,16 @@ export async function showLogActivityModal(prefillMediaId?: number, editLog?: Ac
         let hasUserPickedADate = editLog !== undefined;
 
         const pickerContent = overlay.querySelector<HTMLElement>('#activity-date-picker-content')!;
-        const dateScopeSelect = overlay.querySelector<HTMLSelectElement>('#activity-date-scope')!;
-        const dateRowLabel = overlay.querySelector<HTMLLabelElement>('#activity-date-row-label')!;
-        const selectionSummary = overlay.querySelector<HTMLElement>('#activity-date-selection')!;
-
-        const usesNativeMobileControl = (candidateScope: DateScope): boolean =>
-            candidateScope === 'day' || (candidateScope === 'month' && supportsNativeMonthInput());
-
-        const mountScopedCalendar = (
-            container: HTMLElement,
-            initialValue: DateKey,
-            onSelect: (value: DateKey) => void,
-            options: BuildCalendarOptions,
-        ): DatePicker => buildCalendar(container, initialValue, (value) => onSelect(value as DateKey), options);
+        const dateSlot = overlay.querySelector<HTMLElement>('#activity-date-slot')!;
+        const datePanel = overlay.querySelector<HTMLElement>('#activity-date-panel')!;
+        const dateTrigger = overlay.querySelector<HTMLButtonElement>('#activity-date-trigger')!;
+        const dateTriggerValue = overlay.querySelector<HTMLElement>('#activity-date-trigger-value')!;
 
         const handlePick = (value: DateAnchor): void => {
             selectedDate = value;
             hasUserPickedADate = true;
             lastPick = { scope, value };
-            renderSelectionSummary();
+            renderDateTrigger();
         };
 
         const isSelectionInView = (): boolean => {
@@ -329,8 +346,8 @@ export async function showLogActivityModal(prefillMediaId?: number, editLog?: Ac
             return isContainedInBucket({ date: selectedDate, date_precision: 'day' }, viewKey);
         };
 
-        const renderSelectionSummary = (): void => {
-            selectionSummary.textContent = `Selected: ${formatLogDate({ date: selectedDate, date_precision: scope })}`;
+        const renderDateTrigger = (): void => {
+            dateTriggerValue.textContent = formatLogDateRelativeTo({ date: selectedDate, date_precision: scope }, getTodayStr());
         };
 
         // Picks the anchor a scope switch lands on.
@@ -351,81 +368,82 @@ export async function showLogActivityModal(prefillMediaId?: number, editLog?: Ac
             return canonicalAnchor(containsToday ? todayStr : base, targetScope);
         };
 
-        const focusMountedPicker = (): void => {
-            const mobileField = pickerContent.querySelector<HTMLElement>('#mobile-date-field');
-            if (mobileField && globalThis.getComputedStyle(mobileField).display !== 'none') {
-                pickerContent.querySelector<HTMLInputElement>('#mobile-date-input')?.focus();
-                return;
-            }
-            activeDatePicker?.focus();
-        };
-
         const mountDatePicker = (shouldFocus: boolean, viewAnchor?: DateAnchor): void => {
             const nextContent = document.createElement('div');
-            let nextPicker: DatePicker;
-
-            if (usesNativeMobileControl(scope)) {
-                nextContent.innerHTML = `
-                    <div id="mobile-date-field" style="display: none; flex-direction: column; gap: 0.5rem; width: 100%;">
-                        <input id="mobile-date-input" type="${scope === 'day' ? 'date' : 'month'}" />
-                    </div>
-                    <div id="desktop-date-field" style="display: flex; flex-direction: column; gap: 0.5rem; align-items: center;">
-                        <div id="activity-cal-container"></div>
-                    </div>
-                `;
-                const mobileInput = nextContent.querySelector<HTMLInputElement>('#mobile-date-input')!;
-                mobileInput.value = logDateKey({ date: selectedDate, date_precision: scope });
-                nextPicker = mountScopedCalendar(
-                    nextContent.querySelector<HTMLElement>('#activity-cal-container')!,
-                    logDateKey({ date: selectedDate, date_precision: scope }),
-                    (picked) => {
-                        handlePick(canonicalAnchor(picked, scope));
-                        mobileInput.value = picked;
-                    },
-                    { scope, weekStartDay, viewAnchor },
-                );
-                mobileInput.addEventListener('change', () => {
-                    if (!mobileInput.value) return;
-                    const picked = scope === 'day' ? (mobileInput.value as DateAnchor) : canonicalAnchor(mobileInput.value, 'month');
-                    handlePick(picked);
-                    nextPicker.setValue(logDateKey({ date: picked, date_precision: scope }));
-                });
-            } else {
-                nextContent.innerHTML = '<div id="activity-cal-container"></div>';
-                nextPicker = mountScopedCalendar(
-                    nextContent.querySelector<HTMLElement>('#activity-cal-container')!,
-                    logDateKey({ date: selectedDate, date_precision: scope }),
-                    (picked) => handlePick(canonicalAnchor(picked, scope)),
-                    { scope, weekStartDay, viewAnchor },
-                );
-            }
+            nextContent.innerHTML = '<div id="activity-cal-container"></div>';
+            const nextPicker = buildCalendar(
+                nextContent.querySelector<HTMLElement>('#activity-cal-container')!,
+                logDateKey({ date: selectedDate, date_precision: scope }),
+                (picked) => handlePick(canonicalAnchor(picked, scope)),
+                { scope, scopes: DATE_SCOPES, onScopeSelect: switchDateScope, weekStartDay, viewAnchor },
+            );
 
             activeDatePicker?.destroy();
             pickerContent.replaceChildren(...nextContent.childNodes);
             activeDatePicker = nextPicker;
-            if (usesNativeMobileControl(scope)) {
-                dateRowLabel.setAttribute('for', 'mobile-date-input');
-            } else {
-                dateRowLabel.removeAttribute('for');
-            }
 
-            renderSelectionSummary();
-            if (shouldFocus) focusMountedPicker();
+            renderDateTrigger();
+            if (shouldFocus) activeDatePicker.focus();
         };
 
-        mountDatePicker(false);
-
-        dateScopeSelect.addEventListener('change', () => {
-            const nextScope = dateScopeSelect.value;
-            if (!isDateScope(nextScope)) return;
-            const focusWasInPicker = pickerContent.contains(document.activeElement);
+        function switchDateScope(nextScope: DateScope): void {
             const nextValue = lastPick?.scope === nextScope
                 ? lastPick.value
                 : deriveAnchorForScope(nextScope);
             const nextViewAnchor = isSelectionInView() ? nextValue : activeDatePicker?.getViewAnchor();
             scope = nextScope;
             selectedDate = nextValue;
-            mountDatePicker(focusWasInPicker, nextViewAnchor);
+            mountDatePicker(false, nextViewAnchor);
+            activeDatePicker?.focusScopeTab();
+        }
+
+        mountDatePicker(false);
+
+        const setDatePanelExpanded = (isExpanded: boolean): void => {
+            datePanel.hidden = !isExpanded;
+            dateTrigger.setAttribute('aria-expanded', String(isExpanded));
+        };
+
+        const isDateModalLayout = (): boolean => globalThis.matchMedia?.(SHEET_LAYOUT_MEDIA_QUERY).matches ?? false;
+
+        const openDateModal = (): void => {
+            const layoutQuery = globalThis.matchMedia?.(SHEET_LAYOUT_MEDIA_QUERY) ?? null;
+            const dateModalHandle = createCancelableOverlay(() => {
+                layoutQuery?.removeEventListener?.('change', closeOnLayoutChange);
+                closeDateModal = null;
+                dateSlot.appendChild(datePanel);
+                setDatePanelExpanded(false);
+                dateTrigger.focus();
+            }, { closeOnEscape: true });
+            const closeOnLayoutChange = () => dateModalHandle.dismiss();
+            dateModalHandle.overlay.innerHTML = '<div class="modal-content activity-date-modal-content" role="dialog" aria-modal="true" aria-label="Date"></div>';
+            dateModalHandle.overlay.querySelector('.activity-date-modal-content')!.appendChild(datePanel);
+            layoutQuery?.addEventListener?.('change', closeOnLayoutChange);
+            closeDateModal = () => dateModalHandle.dismiss();
+            setDatePanelExpanded(true);
+            activeDatePicker?.focus();
+        };
+
+        dateTrigger.addEventListener('click', () => {
+            if (isDateModalLayout()) {
+                openDateModal();
+                return;
+            }
+            setDatePanelExpanded(datePanel.hidden);
+        });
+        dateTrigger.addEventListener('keydown', (event) => {
+            if (event.key !== 'Escape' || datePanel.hidden) return;
+            event.preventDefault();
+            dismiss();
+        });
+
+        const notesToggle = overlay.querySelector<HTMLButtonElement>('#activity-notes-toggle')!;
+        const notesSection = overlay.querySelector<HTMLElement>('#activity-notes-section')!;
+        notesToggle.addEventListener('click', () => {
+            notesSection.hidden = false;
+            notesToggle.hidden = true;
+            notesToggle.setAttribute('aria-expanded', 'true');
+            overlay.querySelector<HTMLTextAreaElement>('#activity-notes')!.focus();
         });
 
         const durationInput = overlay.querySelector<HTMLInputElement>('#activity-duration')!;
@@ -441,22 +459,62 @@ export async function showLogActivityModal(prefillMediaId?: number, editLog?: Ac
             return missingInputs;
         };
         const syncSubmitButton = () => syncConfirmButton(submitButton, listMissingInputs());
-        const { getDurationMinutes } = wireDurationInput(durationInput, durationHint, syncSubmitButton);
+        const getEpisodeContextMedia = (): (Media & { id: number }) | undefined => {
+            if (editLog) return mediaById.get(editLog.media_id);
+            const media = selectedMediaId === null ? undefined : mediaById.get(selectedMediaId);
+            return media?.title === titleInput.value.trim() ? media : undefined;
+        };
+        const getEpisodeDurationMinutes = () => resolveEpisodeDurationMinutes(getEpisodeContextMedia());
+        const { getDurationMinutes, refresh: refreshDurationHint } = wireDurationInput(
+            durationInput,
+            durationHint,
+            syncSubmitButton,
+            { getEpisodeDurationMinutes },
+        );
+        const episodeEditButton = overlay.querySelector<HTMLButtonElement>('#activity-episode-edit')!;
+        const episodeStepper = wireEpisodeStepper({
+            durationField: overlay.querySelector<HTMLElement>('#activity-duration-field')!,
+            decrementButton: overlay.querySelector<HTMLButtonElement>('#activity-episode-decrement')!,
+            incrementButton: overlay.querySelector<HTMLButtonElement>('#activity-episode-increment')!,
+            episodeDurationHint: overlay.querySelector<HTMLElement>('#activity-episode-duration-hint')!,
+            episodeDurationLabel: overlay.querySelector<HTMLElement>('#activity-episode-duration-value')!,
+        }, durationInput, getEpisodeDurationMinutes);
+        const refreshEpisodeContext = () => {
+            const isEpisodic = getEpisodeDurationMinutes() !== null;
+            durationInput.placeholder = isEpisodic ? EPISODE_DURATION_INPUT_PLACEHOLDER : DURATION_INPUT_PLACEHOLDER;
+            durationInput.title = isEpisodic ? EPISODE_DURATION_INPUT_TOOLTIP : DURATION_INPUT_TOOLTIP;
+            refreshDurationHint();
+            episodeStepper.refresh();
+            syncSubmitButton();
+        };
+        episodeEditButton.addEventListener('click', async () => {
+            const media = getEpisodeContextMedia();
+            if (!media) return;
+            const outcome = await setEpisodeDurationOverride(media);
+            if (outcome.committed && outcome.updatedMedia) {
+                hasSavedMediaChange = true;
+                mediaById.set(media.id, { ...outcome.updatedMedia, id: media.id });
+                refreshEpisodeContext();
+            }
+            episodeEditButton.focus();
+        });
         wireDigitsOnlyInput(charactersInput);
         charactersInput.addEventListener('input', syncSubmitButton);
         titleInput.addEventListener('input', syncSubmitButton);
-        syncSubmitButton();
+        refreshEpisodeContext();
 
         const suggestionList = overlay.querySelector<HTMLElement>('#activity-media-suggestions')!;
         const activityTypeSelect = overlay.querySelector<HTMLSelectElement>('#activity-type')!;
         const mediaVariantLabel = overlay.querySelector<HTMLElement>('#activity-media-variant')!;
+        const mediaVariantRow = overlay.querySelector<HTMLElement>('#activity-media-variant-row')!;
         let suggestionMatches: Array<Media & { id: number }> = [];
         let highlightedSuggestionIndex = -1;
 
         const syncSelectedMediaContext = (media: Media | undefined, updateActivityType: boolean) => {
             const variant = media?.variant?.trim() || '';
             mediaVariantLabel.textContent = variant;
-            mediaVariantLabel.style.display = variant ? 'block' : 'none';
+            mediaVariantRow.title = `Variant: ${variant}`;
+            mediaVariantRow.hidden = !variant;
             if (updateActivityType) {
                 const mediaDefaultActivityType = getDefaultActivityType(media);
                 if (mediaDefaultActivityType) {
@@ -477,8 +535,8 @@ export async function showLogActivityModal(prefillMediaId?: number, editLog?: Ac
         const selectMedia = (media: Media & { id: number }) => {
             selectedMediaId = media.id;
             titleInput.value = media.title;
-            syncSubmitButton();
             syncSelectedMediaContext(media, true);
+            refreshEpisodeContext();
             hideSuggestions();
             titleInput.focus({ preventScroll: true });
         };
@@ -579,6 +637,7 @@ export async function showLogActivityModal(prefillMediaId?: number, editLog?: Ac
             titleInput.addEventListener('input', () => {
                 selectedMediaId = null;
                 syncSelectedMediaContext(undefined, false);
+                refreshEpisodeContext();
                 renderSuggestions();
             });
             titleInput.addEventListener('blur', () => {

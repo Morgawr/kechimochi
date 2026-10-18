@@ -142,3 +142,14 @@ export function formatReducedDate(reduced: string): string {
 export function formatLogDate(log: ScopedLogDate): string {
     return formatReducedDate(logDateKey(log));
 }
+
+const CURRENT_PERIOD_LABELS: Record<DateScope, string> = {
+    day: 'Today',
+    month: 'This month',
+    year: 'This year',
+};
+
+export function formatLogDateRelativeTo(log: ScopedLogDate, today: DateAnchor): string {
+    const isCurrentPeriod = logDateKey(log) === logDateKey({ date: today, date_precision: log.date_precision });
+    return isCurrentPeriod ? CURRENT_PERIOD_LABELS[log.date_precision] : formatLogDate(log);
+}

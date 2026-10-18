@@ -27,6 +27,7 @@ describe('AnilistImporter', () => {
                         description: '<i>Best anime ever.</i><br><br>Absolutely worth it.',
                         coverImage: { extraLarge: 'https://img.anilist.co/extralarge/123.jpg' },
                         episodes: 12,
+                        duration: 24,
                         season: 'SUMMER',
                         seasonYear: 2024,
                         startDate: { year: 2024, month: 7, day: 1 },
@@ -46,6 +47,7 @@ describe('AnilistImporter', () => {
             expect(result.description).toBe('Best anime ever.\n\nAbsolutely worth it.');
             expect(result.coverImageUrl).toBe('https://img.anilist.co/extralarge/123.jpg');
             expect(result.extraData['Episodes']).toBe('12');
+            expect(result.extraData['Episode duration']).toBe('24m');
             expect(result.extraData['Airing Season']).toBe('Summer 2024');
             expect(result.extraData['Anilist Score']).toBe('85%');
             expect(result.extraData['Source (Anilist)']).toBe('https://anilist.co/anime/123/');
@@ -102,6 +104,26 @@ describe('AnilistImporter', () => {
 
             expect(result.extraData['Total Volumes']).toBeUndefined();
             expect(result.extraData['Total Chapters']).toBe('10');
+        });
+
+        it('should write episode durations of an hour or more in compact notation', async () => {
+            vi.mocked(invoke).mockResolvedValue(JSON.stringify({
+                data: { Media: { title: { romaji: 'Long Special' }, coverImage: {}, duration: 95 } },
+            }));
+
+            const result = await importer.fetch('https://anilist.co/anime/789/');
+
+            expect(result.extraData['Episode duration']).toBe('1h 35m');
+        });
+
+        it('should omit the episode duration when Anilist reports none', async () => {
+            vi.mocked(invoke).mockResolvedValue(JSON.stringify({
+                data: { Media: { title: { romaji: 'Unknown Length' }, coverImage: {}, episodes: 12 } },
+            }));
+
+            const result = await importer.fetch('https://anilist.co/anime/790/');
+
+            expect(result.extraData['Episode duration']).toBeUndefined();
         });
 
         it('should throw error on invalid ID', async () => {

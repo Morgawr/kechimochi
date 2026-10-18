@@ -4,10 +4,12 @@ import {
     addMilestoneForMedia,
     canAddMilestone,
     canMarkComplete,
+    canSetEpisodeDurationOverride,
     canSetReadingSpeedOverride,
     createMediaVariant,
     deleteMediaWithConfirmation,
     markMediaComplete,
+    setEpisodeDurationOverride,
     setReadingSpeedOverride,
     toggleMediaArchived,
 } from '../../../src/media/media_actions';
@@ -17,6 +19,7 @@ import { showLogActivityModal } from '../../../src/activity_modal';
 import { showAddMilestoneModal } from '../../../src/milestone_modal';
 import { customAlert, customConfirm, customPrompt } from '../../../src/modal_base';
 import { showReadingSpeedOverrideModal } from '../../../src/media/reading_speed_modal';
+import { showEpisodeDurationOverrideModal } from '../../../src/media/episodes/episode_duration_modal';
 import { EVENTS } from '../../../src/constants';
 
 vi.mock('../../../src/api', () => ({
@@ -36,6 +39,10 @@ vi.mock('../../../src/milestone_modal', () => ({
 
 vi.mock('../../../src/media/reading_speed_modal', () => ({
     showReadingSpeedOverrideModal: vi.fn(),
+}));
+
+vi.mock('../../../src/media/episodes/episode_duration_modal', () => ({
+    showEpisodeDurationOverrideModal: vi.fn(),
 }));
 
 vi.mock('../../../src/modal_base', () => ({
@@ -138,6 +145,58 @@ describe('media actions', () => {
 
             expect(outcome.committed).toBe(false);
             expect(api.updateMedia).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('canSetEpisodeDurationOverride', () => {
+        it('is true only for anime', () => {
+            expect(canSetEpisodeDurationOverride(makeMedia({ content_type: 'Anime' }))).toBe(true);
+            expect(canSetEpisodeDurationOverride(makeMedia({ content_type: 'Manga' }))).toBe(false);
+        });
+    });
+
+    describe('setEpisodeDurationOverride', () => {
+        it('writes the entered duration with its unit into the Episode duration field, keeping other fields', async () => {
+            vi.mocked(showEpisodeDurationOverrideModal).mockResolvedValue({ episodeDurationMinutes: 65 });
+
+            const outcome = await setEpisodeDurationOverride(makeMedia({ content_type: 'Anime', extra_data: '{"Studio":"Studio Deen"}' }));
+
+            expect(outcome.committed).toBe(true);
+            expect(api.updateMedia).toHaveBeenCalledWith(expect.objectContaining({
+                extra_data: '{"Studio":"Studio Deen","Episode duration":"1h 5m"}',
+            }));
+        });
+
+        it('prefills the modal with the current override', async () => {
+            vi.mocked(showEpisodeDurationOverrideModal).mockResolvedValue(null);
+
+            await setEpisodeDurationOverride(makeMedia({ title: 'Higurashi', content_type: 'Anime', extra_data: '{"Episode duration":"25m"}' }));
+
+            expect(showEpisodeDurationOverrideModal).toHaveBeenCalledWith('Higurashi', 25);
+        });
+
+        it('removes the field when the modal returns an empty duration', async () => {
+            vi.mocked(showEpisodeDurationOverrideModal).mockResolvedValue({ episodeDurationMinutes: null });
+
+            await setEpisodeDurationOverride(makeMedia({ content_type: 'Anime', extra_data: '{"Episode duration":"25m"}' }));
+
+            expect(api.updateMedia).toHaveBeenCalledWith(expect.objectContaining({ extra_data: '{}' }));
+        });
+
+        it('does not write when the modal is dismissed', async () => {
+            vi.mocked(showEpisodeDurationOverrideModal).mockResolvedValue(null);
+
+            const outcome = await setEpisodeDurationOverride(makeMedia({ content_type: 'Anime' }));
+
+            expect(outcome.committed).toBe(false);
+            expect(api.updateMedia).not.toHaveBeenCalled();
+        });
+
+        it('does not open the modal for non-anime media', async () => {
+            const outcome = await setEpisodeDurationOverride(makeMedia({ content_type: 'Manga' }));
+
+            expect(outcome.committed).toBe(false);
+            expect(showEpisodeDurationOverrideModal).not.toHaveBeenCalled();
         });
     });
 

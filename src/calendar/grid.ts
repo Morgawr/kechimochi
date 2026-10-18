@@ -20,6 +20,7 @@ export interface CalendarGridColumnHeader {
 
 export interface CalendarGridOptions {
     ariaLabel: string;
+    gridClassName?: string;
     cellClassName: string;
     dataAttributeName: string;
     columnHeaders?: CalendarGridColumnHeader[];
@@ -53,7 +54,8 @@ export function renderCalendarGrid(container: HTMLElement, options: CalendarGrid
     const bodyHtml = options.rows
         .map(row => `<tr>${row.map(cell => buildBodyCell(cell, options)).join('')}</tr>`)
         .join('');
-    container.innerHTML = `<table class="calendar-grid" role="grid" aria-label="${escapeAttribute(options.ariaLabel)}">${headerHtml}<tbody>${bodyHtml}</tbody></table>`;
+    const tableClassName = ['calendar-grid', options.gridClassName].filter(Boolean).join(' ');
+    container.innerHTML = `<table class="${tableClassName}" role="grid" aria-label="${escapeAttribute(options.ariaLabel)}">${headerHtml}<tbody>${bodyHtml}</tbody></table>`;
 
     const dataAttribute = `data-${options.dataAttributeName}`;
     const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>('button[data-calendar-cell]'));

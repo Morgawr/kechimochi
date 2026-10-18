@@ -15,6 +15,7 @@
   --chevron-stroke-width: 0.1rem;
   --field-padding-inline: 0.75rem;
   --chevron-right-offset: 0.875rem;
+  --icon-button-size-small: 1.5rem;
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 12px;
@@ -649,6 +650,29 @@ a {
   color: var(--text-primary);
 }
 
+.btn-outline {
+  background-color: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.btn-outline:hover:not(:disabled) {
+  background-color: var(--bg-card-hover);
+}
+
+.btn.btn-icon-small {
+  flex-shrink: 0;
+  width: var(--icon-button-size-small);
+  height: var(--icon-button-size-small);
+  padding: 0;
+  border-radius: var(--radius-sm);
+}
+
+.btn.btn-icon-small:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 1px;
+}
+
 /* Layout Classes */
 #app {
   display: flex;
@@ -949,7 +973,7 @@ a {
 
 
 /* Forms & Inputs */
-input, select, .multi-select-trigger {
+input, select, .multi-select-trigger, .field-trigger {
   background-color: var(--bg-dark);
   color: var(--text-primary);
   border: 1px solid var(--border-color);
@@ -965,18 +989,99 @@ input:focus {
   border-color: var(--accent-green);
 }
 
+.inline-action-field {
+  --inline-action-button-size: var(--icon-button-size-small);
+  --inline-action-input-padding-block: 0.5rem;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  font-size: 0.9rem;
+  background-color: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+}
+
+.inline-action-field.has-inline-actions {
+  padding-inline: calc((1lh + 2 * var(--inline-action-input-padding-block) - var(--inline-action-button-size)) / 2);
+}
+
+@supports not (padding-inline: 1lh) {
+  .inline-action-field.has-inline-actions {
+    padding-inline: 5px;
+  }
+}
+
+.inline-action-field-input {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: var(--inline-action-input-padding-block) var(--field-padding-inline);
+  border: none;
+  border-radius: 0;
+  background-color: transparent;
+  cursor: text;
+}
+
+.has-inline-actions .inline-action-field-input {
+  padding-inline: 0.5rem;
+}
+
+.inline-action-button[hidden] {
+  display: none;
+}
+
+.inline-action-field-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.inline-action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--icon-button-size-small);
+  height: var(--icon-button-size-small);
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.inline-action-button:hover:not(:disabled),
+.inline-action-button:active:not(:disabled) {
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-card-hover);
+}
+
+.inline-action-button:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: -2px;
+}
+
+.inline-action-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .multi-select-trigger,
+.field-trigger,
 select:not(:where(.badge-select, #media-select)) {
   background-color: color-mix(in srgb, var(--bg-dark) 88%, transparent);
 }
 
 .multi-select-trigger:hover,
+.field-trigger:hover,
 select:not(:where(.badge-select, #media-select)):hover {
   border-color: color-mix(in srgb, var(--accent-green) 34%, var(--border-color) 66%);
 }
 
 .multi-select-trigger:focus-visible,
+.field-trigger:focus-visible,
 .multi-select-trigger[aria-expanded='true'],
+.field-trigger[aria-expanded='true'],
 select:not(:where(.badge-select, #media-select)):focus-visible,
 select:not(:where(.badge-select, #media-select))[aria-expanded='true'] {
   outline: none;
@@ -984,8 +1089,25 @@ select:not(:where(.badge-select, #media-select))[aria-expanded='true'] {
 }
 
 .multi-select-trigger[aria-expanded='true'],
+.field-trigger[aria-expanded='true'],
 select:not(:where(.badge-select, #media-select))[aria-expanded='true'] {
   background-color: color-mix(in srgb, var(--bg-card-hover) 82%, transparent);
+}
+
+.field-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 0;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.field-trigger-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /*
@@ -994,6 +1116,7 @@ select:not(:where(.badge-select, #media-select))[aria-expanded='true'] {
  * over 1px so they antialias softly. The multiselect's chevron span carries the same background.
  */
 .multi-select-trigger-chevron,
+.field-trigger-chevron,
 select:not(:where(.badge-select, #media-select)) {
   --chevron-tile: calc(var(--chevron-arm-length) * 0.7071);
   --chevron-band:
@@ -4670,24 +4793,188 @@ input:checked + .slider:before {
   }
 }
 
-.activity-date-picker-row {
+.activity-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 1.17em;
+}
+
+.activity-modal-header h3 {
+  flex: 0 0 auto;
+  font-size: inherit;
+}
+
+.activity-modal-variant {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  max-width: 50%;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.activity-modal-variant[hidden] {
+  display: none;
+}
+
+.activity-modal-variant-icon {
+  display: inline-flex;
+  flex: none;
+}
+
+.activity-modal-variant-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-modal-field {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  min-width: 0;
 }
 
-.activity-date-row-heading {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
+.activity-modal-field[hidden] {
+  display: none;
+}
+
+.activity-modal-field select {
+  width: 100%;
+}
+
+.activity-modal-label {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.activity-modal-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 1rem;
 }
 
-#activity-date-selection {
+.duration-hint-row {
+  margin-top: -0.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.activity-episode-duration-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.activity-episode-duration-hint[hidden] {
+  display: none;
+}
+
+.activity-date-slot {
+  display: contents;
+}
+
+.activity-date-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.activity-date-modal-content {
+  width: auto;
+  padding: 1.25rem;
+}
+
+.activity-date-panel[hidden] {
+  display: none;
+}
+
+.activity-notes-toggle,
+.activity-episode-duration-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.activity-notes-toggle:hover,
+.activity-episode-duration-link:hover {
+  color: var(--text-primary);
+}
+
+.activity-notes-toggle {
+  align-self: flex-start;
+  font-size: 0.85rem;
+}
+
+.activity-notes-toggle[hidden] {
+  display: none;
+}
+
+.activity-episode-duration-link {
+  gap: 0.25rem;
+}
+
+@media (max-width: 768px) {
+  .activity-modal-content {
+    padding: 1.25rem;
+  }
+
+  .activity-modal-variant {
+    max-width: 40%;
+  }
+
+  .activity-amount-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.episode-duration-modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 1rem;
+}
+
+.episode-duration-modal-label {
   font-size: 0.85rem;
   color: var(--text-secondary);
+}
+
+.episode-duration-modal-input {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-dark);
+  color: var(--text-primary);
+}
+
+.episode-duration-modal-note {
+  margin: 0.3rem 0 0;
+  font-size: 0.8rem;
   font-style: italic;
-  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
+.episode-duration-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  margin-top: 1.5rem;
 }
 
 @media (max-width: 750px) {
@@ -4724,13 +5011,6 @@ input:checked + .slider:before {
 
   .heatmap-title-controls {
     gap: 0.35rem;
-  }
-
-  #mobile-date-field{
-    display: flex!important;
-  }
-  #desktop-date-field{
-    display: none!important;
   }
 }
 

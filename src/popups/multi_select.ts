@@ -3,7 +3,7 @@ import { pushBackHandler } from '../back_stack';
 import { renderIcon } from '../icons';
 import { shouldCloseOnWindowBlur, positionPanelBelowAnchor } from './anchoring';
 
-const SHEET_LAYOUT_MEDIA_QUERY = '(max-width: 768px)';
+export const SHEET_LAYOUT_MEDIA_QUERY = '(max-width: 768px)';
 const TRIGGER_ICON_SIZE_PX = 16;
 
 export interface MultiSelectItem<Value extends string> {

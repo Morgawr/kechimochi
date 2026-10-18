@@ -84,7 +84,8 @@
   font-variant-numeric: tabular-nums;
 }
 
-.multi-select-trigger-chevron {
+.multi-select-trigger-chevron,
+.field-trigger-chevron {
   flex: 0 0 auto;
   width: calc(var(--chevron-tile) * 2);
   height: var(--chevron-tile);

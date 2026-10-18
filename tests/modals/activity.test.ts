@@ -5,6 +5,7 @@ import { ActivitySummary, Media } from '../../src/api';
 import { buildCalendar } from '../../src/calendar';
 import type { DateAnchor } from '../../src/time';
 import { Logger } from '../../src/logger';
+import { setEpisodeDurationOverride } from '../../src/media/media_actions';
 
 vi.mock('../../src/api', () => ({
     getAllMedia: vi.fn(),
@@ -18,7 +19,11 @@ vi.mock('../../src/api', () => ({
 vi.mock('../../src/calendar', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../../src/calendar')>()),
     buildCalendar: vi.fn(),
-    supportsNativeMonthInput: vi.fn(() => false),
+}));
+
+vi.mock('../../src/media/media_actions', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../../src/media/media_actions')>()),
+    setEpisodeDurationOverride: vi.fn(),
 }));
 
 vi.mock('../../src/modal_base', () => ({
@@ -64,6 +69,38 @@ function queryOrThrow(selector: string): Element {
     return element;
 }
 
+function makeMedia(overrides: Partial<Media> = {}): Media {
+    return {
+        id: 10,
+        title: 'Higurashi',
+        default_activity_type: 'Watching',
+        status: 'Active',
+        language: 'Japanese',
+        description: '',
+        cover_image: '',
+        extra_data: '{}',
+        content_type: 'Anime',
+        tracking_status: 'Ongoing',
+        ...overrides,
+    };
+}
+
+function getEpisodeElements() {
+    return {
+        durationField: document.querySelector<HTMLElement>('#activity-duration-field')!,
+        episodeDurationHint: document.querySelector<HTMLElement>('#activity-episode-duration-hint')!,
+        decrementButton: document.querySelector<HTMLButtonElement>('button[aria-label="Remove one episode"]')!,
+        incrementButton: document.querySelector<HTMLButtonElement>('button[aria-label="Add one episode"]')!,
+        editButton: document.querySelector<HTMLButtonElement>('button[aria-label="Change episode duration"]')!,
+        durationValue: document.querySelector<HTMLElement>('#activity-episode-duration-value')!,
+    };
+}
+
+function typeInto(input: HTMLInputElement, value: string): void {
+    input.value = value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
 describe('modals/activity.ts', () => {
     beforeEach(() => {
         document.body.innerHTML = '';
@@ -78,6 +115,7 @@ describe('modals/activity.ts', () => {
                 setValue: vi.fn(),
                 getViewAnchor: () => initialDate as DateAnchor,
                 focus: vi.fn(),
+                focusScopeTab: vi.fn(),
                 destroy: vi.fn(),
             };
         });
@@ -255,12 +293,62 @@ describe('modals/activity.ts', () => {
             const promise = showLogActivityModal(10);
             await vi.waitFor(() => queryOrThrow('#activity-media-variant'));
 
-            const variant = document.querySelector('#activity-media-variant') as HTMLElement;
-            expect(variant.textContent).toBe('Anime');
-            expect(variant.style.display).toBe('block');
+            const variantRow = document.querySelector('#activity-media-variant-row') as HTMLElement;
+            expect(document.querySelector('#activity-media-variant')!.textContent).toBe('Anime');
+            expect(variantRow.hidden).toBe(false);
+            expect(variantRow.title).toBe('Variant: Anime');
 
             (document.querySelector('#activity-cancel') as HTMLElement).click();
             await expect(promise).resolves.toBe(false);
+        });
+
+        it('should hide the variant when the selected media has none', async () => {
+            vi.mocked(api.getAllMedia).mockResolvedValue([makeMedia({ variant: '' })]);
+
+            void showLogActivityModal(10);
+            await vi.waitFor(() => queryOrThrow('#add-activity-form'));
+
+            expect((document.querySelector('#activity-media-variant-row') as HTMLElement).hidden).toBe(true);
+        });
+
+        it('should collapse notes behind a toggle that expands and focuses them', async () => {
+            vi.mocked(api.getAllMedia).mockResolvedValue([makeMedia()]);
+            void showLogActivityModal(10);
+            await vi.waitFor(() => queryOrThrow('#add-activity-form'));
+            const notesToggle = document.querySelector<HTMLButtonElement>('#activity-notes-toggle')!;
+            const notesSection = document.querySelector<HTMLElement>('#activity-notes-section')!;
+
+            expect(notesSection.hidden).toBe(true);
+            expect(notesToggle.getAttribute('aria-expanded')).toBe('false');
+
+            notesToggle.click();
+
+            expect(notesSection.hidden).toBe(false);
+            expect(notesToggle.hidden).toBe(true);
+            expect(document.activeElement).toBe(document.querySelector('#activity-notes'));
+        });
+
+        it('should show notes expanded when editing a log that has notes', async () => {
+            vi.mocked(api.getAllMedia).mockResolvedValue([makeMedia()]);
+            const editLog: ActivitySummary = {
+                id: 1,
+                media_id: 10,
+                title: 'Higurashi',
+                activity_type: 'Watching',
+                duration_minutes: 24,
+                characters: 0,
+                date: '2024-03-01',
+                date_precision: 'day',
+                language: 'Japanese',
+                notes: 'Rewatch',
+            };
+
+            void showLogActivityModal(undefined, editLog);
+            await vi.waitFor(() => queryOrThrow('#add-activity-form'));
+
+            expect((document.querySelector('#activity-notes-section') as HTMLElement).hidden).toBe(false);
+            expect((document.querySelector('#activity-notes-toggle') as HTMLElement).hidden).toBe(true);
+            expect((document.querySelector('#activity-notes') as HTMLTextAreaElement).value).toBe('Rewatch');
         });
 
         it('should create new media if it does not exist', async () => {
@@ -608,16 +696,25 @@ describe('modals/activity.ts', () => {
             });
         });
 
-        it('should save the date chosen in the native date input', async () => {
+        it('should save the date picked in the calendar', async () => {
             vi.mocked(api.getAllMedia).mockResolvedValue([{ id: 10, title: 'Mobile Item', status: 'Active', tracking_status: 'Ongoing' }] as unknown as Media[]);
+            let pickDate: (date: string) => void = () => {};
+            vi.mocked(buildCalendar).mockImplementation((_container: HTMLElement, initialDate: string, onSelect: (d: string) => void) => {
+                pickDate = onSelect;
+                return {
+                    setValue: vi.fn(),
+                    getViewAnchor: () => initialDate as DateAnchor,
+                    focus: vi.fn(),
+                    focusScopeTab: vi.fn(),
+                    destroy: vi.fn(),
+                };
+            });
 
             const promise = showLogActivityModal(10);
             await vi.waitFor(() => queryOrThrow('#add-activity-form'));
 
             (document.querySelector('#activity-duration') as HTMLInputElement).value = '30';
-            const mobileDateInput = document.querySelector('#mobile-date-input') as HTMLInputElement;
-            mobileDateInput.value = '2026-06-10';
-            mobileDateInput.dispatchEvent(new Event('change'));
+            pickDate('2026-06-10');
             document.querySelector('#add-activity-form')!.dispatchEvent(new Event('submit'));
 
             await expect(promise).resolves.toBe(true);
@@ -782,6 +879,296 @@ describe('modals/activity.ts', () => {
                 expect(customAlert).toHaveBeenCalledWith("Error", `Failed to save activity: ${error}`);
             });
             expect(document.querySelector('.modal-overlay')).not.toBeNull();
+        });
+    });
+
+    describe('showLogActivityModal episodes', () => {
+        const openModalFor = async (media: Media[], initialMediaId?: number, editLog?: ActivitySummary) => {
+            vi.mocked(api.getAllMedia).mockResolvedValue(media);
+            const result = showLogActivityModal(initialMediaId, editLog);
+            await vi.waitFor(() => queryOrThrow('#add-activity-form'));
+            return { result };
+        };
+
+        const submit = () => document.querySelector('#add-activity-form')!.dispatchEvent(new Event('submit'));
+        const durationInput = () => document.querySelector<HTMLInputElement>('#activity-duration')!;
+        const submitButton = () => document.querySelector<HTMLButtonElement>('#activity-submit')!;
+
+        const readEpisodeControlsVisibility = () => {
+            const { durationField, decrementButton, incrementButton } = getEpisodeElements();
+            return {
+                hasInlineActions: durationField.classList.contains('has-inline-actions'),
+                isDecrementShown: !decrementButton.hidden,
+                isIncrementShown: !incrementButton.hidden,
+            };
+        };
+        const EPISODE_CONTROLS_SHOWN = { hasInlineActions: true, isDecrementShown: true, isIncrementShown: true };
+        const EPISODE_CONTROLS_HIDDEN = { hasInlineActions: false, isDecrementShown: false, isIncrementShown: false };
+
+        it('should show the episode controls and episode duration only for anime', async () => {
+            await openModalFor([makeMedia()], 10);
+            expect(readEpisodeControlsVisibility()).toEqual(EPISODE_CONTROLS_SHOWN);
+            expect(getEpisodeElements().episodeDurationHint.hidden).toBe(false);
+            expect(getEpisodeElements().durationValue.textContent).toBe('24m');
+        });
+
+        it('should hide the episode controls for non-anime media', async () => {
+            await openModalFor([makeMedia({ content_type: 'Manga', default_activity_type: 'Reading' })], 10);
+            expect(readEpisodeControlsVisibility()).toEqual(EPISODE_CONTROLS_HIDDEN);
+            expect(getEpisodeElements().episodeDurationHint.hidden).toBe(true);
+        });
+
+        it('should hide the episode controls when no media is selected', async () => {
+            await openModalFor([makeMedia()]);
+            expect(readEpisodeControlsVisibility()).toEqual(EPISODE_CONTROLS_HIDDEN);
+        });
+
+        it('should save the default episode duration per added episode', async () => {
+            const { result: promise } = await openModalFor([makeMedia()], 10);
+            const { incrementButton } = getEpisodeElements();
+
+            incrementButton.click();
+            incrementButton.click();
+            incrementButton.click();
+
+            expect(durationInput().value).toBe('3ep');
+            submit();
+            await expect(promise).resolves.toBe(true);
+            expect(api.addLog).toHaveBeenCalledWith(expect.objectContaining({ media_id: 10, duration_minutes: 72 }));
+        });
+
+        it('should add episodes on top of a typed duration', async () => {
+            const { result: promise } = await openModalFor([makeMedia()], 10);
+            typeInto(durationInput(), '50m');
+
+            for (let episodeIndex = 0; episodeIndex < 5; episodeIndex++) {
+                getEpisodeElements().incrementButton.click();
+            }
+
+            expect(durationInput().value).toBe('5ep 50m');
+            submit();
+            await expect(promise).resolves.toBe(true);
+            expect(api.addLog).toHaveBeenCalledWith(expect.objectContaining({ duration_minutes: 170 }));
+        });
+
+        it('should use the media episode duration override', async () => {
+            const { result: promise } = await openModalFor([makeMedia({ extra_data: '{"Episode duration":"45m"}' })], 10);
+            const { incrementButton, durationValue } = getEpisodeElements();
+
+            expect(durationValue.textContent).toBe('45m');
+            incrementButton.click();
+            incrementButton.click();
+
+            submit();
+            await expect(promise).resolves.toBe(true);
+            expect(api.addLog).toHaveBeenCalledWith(expect.objectContaining({ duration_minutes: 90 }));
+        });
+
+        it('should show the compact total in the duration hint for anime', async () => {
+            await openModalFor([makeMedia()], 10);
+
+            getEpisodeElements().incrementButton.click();
+            getEpisodeElements().incrementButton.click();
+            getEpisodeElements().incrementButton.click();
+
+            expect(document.querySelector('#activity-duration-hint')!.textContent).toBe('1h 12m');
+        });
+
+        it('should keep the detailed duration hint for non-anime media', async () => {
+            await openModalFor([makeMedia({ content_type: 'Manga', default_activity_type: 'Reading' })], 10);
+
+            typeInto(durationInput(), '72');
+
+            expect(document.querySelector('#activity-duration-hint')!.textContent).toBe('72 minutes (1h 12m)');
+        });
+
+        it('should only touch the episodes when stepping a mixed duration', async () => {
+            await openModalFor([makeMedia()], 10);
+            typeInto(durationInput(), '1h');
+
+            getEpisodeElements().incrementButton.click();
+            getEpisodeElements().incrementButton.click();
+
+            expect(durationInput().value).toBe('2ep 1h');
+        });
+
+        it('should enable the decrement button for episodes typed into the duration field', async () => {
+            await openModalFor([makeMedia()], 10);
+
+            typeInto(durationInput(), '4ep 6m');
+
+            expect(getEpisodeElements().decrementButton.disabled).toBe(false);
+        });
+
+        it('should remove the episodes from the duration field when the count reaches zero', async () => {
+            await openModalFor([makeMedia()], 10);
+            typeInto(durationInput(), '1ep 6m');
+            const { decrementButton } = getEpisodeElements();
+
+            decrementButton.click();
+
+            expect(durationInput().value).toBe('6m');
+            expect(decrementButton.disabled).toBe(true);
+        });
+
+        it('should disable the decrement button at zero episodes', async () => {
+            await openModalFor([makeMedia()], 10);
+            const { decrementButton, incrementButton } = getEpisodeElements();
+
+            expect(decrementButton.disabled).toBe(true);
+            incrementButton.click();
+            expect(decrementButton.disabled).toBe(false);
+        });
+
+        it('should disable the episode controls while the duration cannot be parsed', async () => {
+            await openModalFor([makeMedia()], 10);
+
+            typeInto(durationInput(), '1x');
+
+            const { incrementButton, decrementButton, episodeDurationHint } = getEpisodeElements();
+            expect(incrementButton.disabled).toBe(true);
+            expect(decrementButton.disabled).toBe(true);
+            expect(episodeDurationHint.hidden).toBe(false);
+        });
+
+        it('should move focus to the duration field after a step with a precise pointer', async () => {
+            vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })));
+            await openModalFor([makeMedia()], 10);
+            const { incrementButton } = getEpisodeElements();
+            incrementButton.focus();
+
+            incrementButton.click();
+
+            expect(document.activeElement).toBe(durationInput());
+        });
+
+        it('should leave focus on the step button on touch screens', async () => {
+            vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })));
+            await openModalFor([makeMedia()], 10);
+            const { incrementButton } = getEpisodeElements();
+            incrementButton.focus();
+
+            incrementButton.click();
+
+            expect(document.activeElement).toBe(incrementButton);
+        });
+
+        it('should hide the episode field and reject episodes after switching to non-anime media', async () => {
+            const { result: promise } = await openModalFor([
+                makeMedia(),
+                makeMedia({ id: 11, title: 'Umineko', content_type: 'Visual Novel', default_activity_type: 'Reading' }),
+            ], 10);
+            typeInto(durationInput(), '3ep');
+
+            const titleInput = document.querySelector<HTMLInputElement>('#activity-media')!;
+            titleInput.focus();
+            typeInto(titleInput, 'Umineko');
+            document.querySelector<HTMLButtonElement>('[data-media-id="11"]')!.click();
+
+            expect(readEpisodeControlsVisibility()).toEqual(EPISODE_CONTROLS_HIDDEN);
+            expect(getEpisodeElements().episodeDurationHint.hidden).toBe(true);
+            expect(submitButton().disabled).toBe(true);
+            await vi.advanceTimersByTimeAsync(1000);
+            expect(document.querySelector('#activity-duration-hint')!.textContent).toBe('Pick an anime from the suggestions to log episodes.');
+
+            submit();
+            expect(api.addLog).not.toHaveBeenCalled();
+            (document.querySelector('#activity-cancel') as HTMLElement).click();
+            await expect(promise).resolves.toBe(false);
+        });
+
+        it('should hide the episode controls once the title no longer matches the selected anime', async () => {
+            await openModalFor([makeMedia()], 10);
+
+            typeInto(document.querySelector<HTMLInputElement>('#activity-media')!, 'Higurashi Kai');
+
+            expect(readEpisodeControlsVisibility()).toEqual(EPISODE_CONTROLS_HIDDEN);
+        });
+
+        it('should not count episodes for a title changed without an input event', async () => {
+            const { customPrompt } = await import('../../src/modal_base');
+            vi.mocked(customPrompt).mockResolvedValue('Anime');
+            vi.mocked(api.addMedia).mockResolvedValue(99);
+            const { result: promise } = await openModalFor([makeMedia()], 10);
+            typeInto(durationInput(), '3ep');
+
+            document.querySelector<HTMLInputElement>('#activity-media')!.value = 'Higurashi Kai';
+            submit();
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(customPrompt).not.toHaveBeenCalled();
+            expect(api.addMedia).not.toHaveBeenCalled();
+            expect(api.addLog).not.toHaveBeenCalled();
+            (document.querySelector('#activity-cancel') as HTMLElement).click();
+            await expect(promise).resolves.toBe(false);
+        });
+
+        it('should show the episode controls when editing an anime log, starting from the saved minutes', async () => {
+            const editLog: ActivitySummary = {
+                id: 123,
+                media_id: 10,
+                title: 'Higurashi',
+                activity_type: 'Watching',
+                duration_minutes: 72,
+                characters: 0,
+                date: '2024-03-01',
+                date_precision: 'day',
+                language: 'Japanese',
+                notes: '',
+            };
+            const { result: promise } = await openModalFor([makeMedia()], undefined, editLog);
+            const { decrementButton, incrementButton } = getEpisodeElements();
+
+            expect(readEpisodeControlsVisibility()).toEqual(EPISODE_CONTROLS_SHOWN);
+            expect(durationInput().value).toBe('72');
+            expect(decrementButton.disabled).toBe(true);
+
+            incrementButton.click();
+            expect(durationInput().value).toBe('1ep 72m');
+            submit();
+            await promise;
+            expect(api.updateLog).toHaveBeenCalledWith(expect.objectContaining({ id: 123, duration_minutes: 96 }));
+        });
+
+        it('should apply an episode duration saved from the edit button and report the media change on cancel', async () => {
+            const updatedMedia = makeMedia({ extra_data: '{"Episode duration":"30m"}' });
+            vi.mocked(setEpisodeDurationOverride).mockResolvedValue({ committed: true, updatedMedia });
+            const { result: promise } = await openModalFor([makeMedia()], 10);
+            const { editButton, durationValue, incrementButton } = getEpisodeElements();
+
+            editButton.click();
+            await vi.waitFor(() => expect(durationValue.textContent).toBe('30m'));
+            expect(document.activeElement).toBe(editButton);
+            incrementButton.click();
+
+            expect(setEpisodeDurationOverride).toHaveBeenCalledWith(expect.objectContaining({ id: 10 }));
+            expect(document.querySelector('#activity-duration-hint')!.textContent).toBe('30m');
+            (document.querySelector('#activity-cancel') as HTMLElement).click();
+            await expect(promise).resolves.toBe(true);
+        });
+
+        it('should keep the episode duration and report no change when the edit button is dismissed', async () => {
+            vi.mocked(setEpisodeDurationOverride).mockResolvedValue({ committed: false });
+            const { result: promise } = await openModalFor([makeMedia()], 10);
+            const { editButton, durationValue } = getEpisodeElements();
+
+            editButton.click();
+            await vi.waitFor(() => expect(setEpisodeDurationOverride).toHaveBeenCalled());
+
+            expect(durationValue.textContent).toBe('24m');
+            (document.querySelector('#activity-cancel') as HTMLElement).click();
+            await expect(promise).resolves.toBe(false);
+        });
+
+        it('should show a mixed episode placeholder and episode tooltip for anime', async () => {
+            await openModalFor([makeMedia()], 10);
+            expect(durationInput().placeholder).toBe('e.g. 2ep 1h');
+            expect(durationInput().title).toContain('"3ep"');
+        });
+
+        it('should show the time placeholder for non-anime media', async () => {
+            await openModalFor([makeMedia({ content_type: 'Manga', default_activity_type: 'Reading' })], 10);
+            expect(durationInput().placeholder).toBe('e.g. 1h30m');
         });
     });
 
