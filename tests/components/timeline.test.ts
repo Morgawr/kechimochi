@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as api from '../../src/api';
 import type {
     TimelineBucket,
+    TimelineBucketHighlight,
     TimelineBucketPage,
     TimelineBucketRequest,
     TimelineEvent,
@@ -253,12 +254,36 @@ describe('TimelineView', () => {
         expect(Array.from(container.querySelectorAll('.timeline-month-label')).map(node => node.textContent?.trim()))
             .toEqual(['March 2024', 'February 2024', 'January 2024']);
         const text = container.textContent?.replaceAll(/\s+/g, ' ') ?? '';
-        expect(text).toContain('Finished reading');
-        expect(text).toContain('Reached "Chapter 10"');
-        expect(text).toContain('Put Game B on pause');
+        expect(text).toContain('Completed Novel A');
+        expect(text).toContain('Milestone Novel A Chapter 10');
+        expect(text).toContain('Paused Game B');
         expect(text).toContain('Dropped Show C');
         expect(text).toContain('5h');
-        expect(text).toContain('Characters tracked');
+    });
+
+    it('renders the search input inside the search field with a "Search titles" placeholder', async () => {
+        const view = new TimelineView(container);
+        await renderAndLoad(view);
+        await vi.waitFor(() => expect(container.querySelector('#timeline-search')).not.toBeNull());
+
+        const searchInput = container.querySelector<HTMLInputElement>('.timeline-filter-field-search #timeline-search');
+        expect(searchInput?.placeholder).toBe('Search titles');
+    });
+
+    it('renders each summary item as its label followed by its value', async () => {
+        const view = new TimelineView(container);
+        await renderAndLoad(view);
+        await vi.waitFor(() => expect(container.querySelectorAll('.timeline-summary-item').length).toBeGreaterThan(0));
+
+        const items = Array.from(container.querySelectorAll('.timeline-summary-item'));
+        expect(items.map(item => Array.from(item.children).map(child => child.className))).toEqual(
+            items.map(() => ['timeline-summary-label', 'timeline-summary-value']),
+        );
+        expect(items.map(item => item.querySelector('.timeline-summary-label')?.textContent)).toEqual([
+            'Total time',
+            'Completed titles',
+            'Characters',
+        ]);
     });
 
     it('renders one staged loading shell before committing the initial page', async () => {
@@ -293,9 +318,99 @@ describe('TimelineView', () => {
         await vi.waitFor(() => expect(container.querySelectorAll('.timeline-entry')).toHaveLength(2));
 
         const text = container.textContent?.replaceAll(/\s+/g, ' ') ?? '';
-        expect(text).toContain('Horimiya — Manga');
-        expect(text).toContain('Unique title');
-        expect(text).not.toContain('Unique title — Light Novel');
+        expect(text).toContain('Horimiya Manga');
+        expect(text).toContain('Unique title Light Novel');
+    });
+
+    it('renders the detailed card title as a heading button carrying the full title', async () => {
+        vi.mocked(api.getTimelinePage).mockImplementation(async request => createPage(request, [
+            createEvent({ mediaTitle: 'A very long novel title' }),
+        ]));
+
+        const view = new TimelineView(container);
+        await renderAndLoad(view);
+        await vi.waitFor(() => expect(container.querySelectorAll('article')).toHaveLength(1));
+
+        const titleButton = container.querySelector<HTMLButtonElement>('article h3 button');
+        expect(titleButton?.querySelector<HTMLElement>('.timeline-card-title-text')?.title).toBe('A very long novel title');
+        expect(titleButton?.textContent?.trim()).toBe('A very long novel title');
+    });
+
+    it('renders no lifecycle sentence on detailed cards', async () => {
+        const view = new TimelineView(container);
+        await renderAndLoad(view);
+        await vi.waitFor(() => expect(container.querySelectorAll('article')).toHaveLength(5));
+
+        const text = container.textContent?.replaceAll(/\s+/g, ' ') ?? '';
+        expect(text).not.toContain('Finished reading');
+        expect(text).not.toContain('Reached "');
+        expect(text).not.toContain('on pause');
+    });
+
+    it('renders the variant and the milestone name as their own lines with full text in a tooltip', async () => {
+        vi.mocked(api.getTimelinePage).mockImplementation(async request => createPage(request, [
+            createEvent({ kind: 'milestone', mediaVariant: 'Web', milestoneName: 'Chapter 10' }),
+        ]));
+
+        const view = new TimelineView(container);
+        await renderAndLoad(view);
+        await vi.waitFor(() => expect(container.querySelectorAll('article')).toHaveLength(1));
+
+        const lines = Array.from(container.querySelectorAll<HTMLParagraphElement>('article p[title]'));
+        expect(lines.map(line => line.title)).toEqual(['Web', 'Chapter 10']);
+        expect(lines.map(line => line.textContent?.trim())).toEqual(['Web', 'Chapter 10']);
+        expect(lines.every(line => line.querySelector('svg') !== null)).toBe(true);
+    });
+
+    it('keeps alternating detailed cards across a month with an even number of events', async () => {
+        vi.mocked(api.getTimelinePage).mockImplementation(async request => createPage(request, [
+            createEvent({ date: '2024-03-20', mediaId: 1 }),
+            createEvent({ date: '2024-03-10', mediaId: 2 }),
+            createEvent({ date: '2024-02-15', mediaId: 3 }),
+        ]));
+
+        const view = new TimelineView(container);
+        await renderAndLoad(view);
+        await vi.waitFor(() => expect(container.querySelectorAll('.timeline-entry')).toHaveLength(3));
+
+        const sides = Array.from(container.querySelectorAll('.timeline-entry'))
+            .map(entry => (entry.classList.contains('is-left') ? 'left' : 'right'));
+        expect(sides).toEqual(['left', 'right', 'left']);
+    });
+
+    it('renders the detailed card stats as labelled rows keyed by stat', async () => {
+        vi.mocked(api.getTimelinePage).mockImplementation(async request => createPage(request, [createEvent()]));
+
+        const view = new TimelineView(container);
+        await renderAndLoad(view);
+        await vi.waitFor(() => expect(container.querySelectorAll('article')).toHaveLength(1));
+
+        const rows = Array.from(container.querySelectorAll<HTMLElement>('article dl [data-timeline-stat]'));
+        expect(rows.map(row => [
+            row.dataset.timelineStat,
+            row.querySelector('dt')?.textContent,
+            row.querySelector('dd')?.textContent,
+        ])).toEqual([
+            ['date', 'Date', 'Mar 15, 2024'],
+            ['time', 'Time', '5h'],
+            ['characters', 'Characters', '12,000'],
+            ['type', 'Type', 'Novel'],
+        ]);
+    });
+
+    it('renders a no-image placeholder that the cover loader ignores when the media has no cover', async () => {
+        vi.mocked(api.getTimelinePage).mockImplementation(async request => createPage(request, [
+            createEvent({ coverImage: '' }),
+        ]));
+
+        const view = new TimelineView(container);
+        await renderAndLoad(view);
+        await vi.waitFor(() => expect(container.querySelectorAll('article')).toHaveLength(1));
+
+        const article = container.querySelector('article');
+        expect(article?.textContent).toContain('No Image');
+        expect(article?.querySelector('[data-cover-ref]')).toBeNull();
+        expect(coverMocks.load).not.toHaveBeenCalled();
     });
 
     it('debounces search and sends year and kind filters to the backend', async () => {
@@ -513,15 +628,14 @@ describe('TimelineView', () => {
         expect(root.querySelector('.timeline-wave')?.innerHTML).toBe('');
     });
 
-    it('renders the decorative wave at the compact zoom level on a narrow viewport', () => {
-        stubNarrowViewport();
+    it('hides the decorative wave at the compact zoom level', () => {
         const view = new TestableTimelineView(container);
         view.state.zoomLevel = 'compact';
         const root = createWaveRoot();
 
         view.renderTimelineWave(root, [20, 20]);
 
-        expect(root.querySelector('.timeline-wave')?.innerHTML).toContain('timeline-wave-body');
+        expect(root.querySelector('.timeline-wave')?.innerHTML).toBe('');
     });
 
     it('renders a flat wave baseline when no rows are on screen', () => {
@@ -619,10 +733,10 @@ describe('TimelineView', () => {
             await zoomOutOnce(container);
 
             await vi.waitFor(() => expect(container.querySelectorAll('.timeline-bucket-row')).toHaveLength(2));
-            expect(container.querySelector('.timeline-bucket-label')?.textContent).toBe('March 2024');
+            expect(container.querySelector('.timeline-bucket-label')?.textContent).toBe('March');
         });
 
-        it('shows time and characters for a compact row and omits whichever is zero', async () => {
+        it('shows time and characters for a compact row and a dash for whichever is zero', async () => {
             vi.mocked(api.getTimelinePage).mockImplementation(async request => createPage(request, [
                 createEvent({ kind: 'finished', totalMinutes: 125, totalCharacters: 1234 }),
                 createEvent({
@@ -642,10 +756,10 @@ describe('TimelineView', () => {
             const metricsByRow = Array.from(container.querySelectorAll('.timeline-compact-row'))
                 .map(row => Array.from(row.querySelectorAll('.timeline-compact-metric'))
                     .map(node => node.textContent));
-            expect(metricsByRow).toEqual([['2h 5m', '1,234 chars'], ['2h'], ['500 chars']]);
+            expect(metricsByRow).toEqual([['2h 05m', '1,234 chars'], ['2h 00m', '–'], ['–', '500 chars']]);
         });
 
-        it('omits a bucket total whose value is zero', async () => {
+        it('shows a dash for a bucket total whose value is zero', async () => {
             vi.mocked(api.getTimelineBuckets).mockImplementation(async request => createBucketPage(request, [
                 createBucket({ key: '2024-03', startDate: '2024-03-01', loggedMinutes: 60, loggedCharacters: 0 }),
                 createBucket({ key: '2024-02', startDate: '2024-02-01', loggedMinutes: 0, loggedCharacters: 4200 }),
@@ -658,9 +772,9 @@ describe('TimelineView', () => {
             await vi.waitFor(() => expect(container.querySelectorAll('.timeline-bucket-row')).toHaveLength(3));
 
             const totalsByRow = Array.from(container.querySelectorAll('.timeline-bucket-row'))
-                .map(row => Array.from(row.querySelectorAll('.timeline-bucket-total'))
+                .map(row => Array.from(row.querySelectorAll('.timeline-bucket-metric'))
                     .map(node => node.textContent));
-            expect(totalsByRow).toEqual([['1h'], ['4,200 chars logged'], []]);
+            expect(totalsByRow).toEqual([['1h 00m', '–'], ['–', '4,200 chars'], ['–', '–']]);
         });
 
         it('renders no milestone name list on a bucket row', async () => {
@@ -675,9 +789,68 @@ describe('TimelineView', () => {
 
             const row = container.querySelector('.timeline-bucket-row');
             expect(row?.querySelector('.timeline-bucket-milestones')).toBeNull();
-            const pipLabels = Array.from(row?.querySelectorAll('.timeline-bucket-pip') ?? [])
-                .map(node => node.textContent);
-            expect(pipLabels).toContain('3 milestones');
+            const kindLabels = Array.from(row?.querySelectorAll('.timeline-bucket-kind') ?? [])
+                .map(node => node.getAttribute('title'));
+            expect(kindLabels).toContain('3 milestones');
+        });
+
+        async function renderMonthBuckets(buckets: TimelineBucket[]): Promise<void> {
+            vi.mocked(api.getTimelineBuckets).mockImplementation(async request => createBucketPage(request, buckets));
+            const view = new TimelineView(container);
+            await renderAndLoad(view);
+            await zoomOutOnce(container);
+            await zoomOutOnce(container);
+            await vi.waitFor(() => expect(container.querySelectorAll('.timeline-bucket-row')).toHaveLength(buckets.length));
+        }
+
+        function createHighlight(overrides: Partial<TimelineBucketHighlight> = {}): TimelineBucketHighlight {
+            return {
+                mediaId: 7,
+                mediaTitle: 'Novel A',
+                mediaVariant: '',
+                coverImage: 'cover.png',
+                ...overrides,
+            };
+        }
+
+        it('shows every kind on a bucket row in a fixed order and marks the zero counts', async () => {
+            await renderMonthBuckets([
+                createBucket({ startedCount: 2, finishedCount: 0, pausedCount: 1, droppedCount: 0, milestoneCount: 0 }),
+            ]);
+
+            const tiles = Array.from(container.querySelectorAll('.timeline-bucket-kind'));
+            expect(tiles.map(tile => tile.getAttribute('title'))).toEqual([
+                '2 started',
+                '0 completed',
+                '1 paused',
+                '0 dropped',
+                '0 milestones',
+            ]);
+            expect(tiles.map(tile => tile.classList.contains('is-zero'))).toEqual([false, true, false, true, true]);
+        });
+
+        it('opens the media from a bucket cover', async () => {
+            const navigate = vi.fn();
+            globalThis.addEventListener('app-navigate', navigate);
+            await renderMonthBuckets([
+                createBucket({ highlights: [createHighlight({ mediaId: 7 })], distinctMediaCount: 1 }),
+            ]);
+
+            container.querySelector<HTMLButtonElement>('button.timeline-bucket-cover')!.click();
+
+            expect((navigate.mock.calls[0][0] as CustomEvent).detail).toEqual({ view: 'media', focusMediaId: 7 });
+            globalThis.removeEventListener('app-navigate', navigate);
+        });
+
+        it('renders a No Image tile for a bucket title without a cover', async () => {
+            await renderMonthBuckets([
+                createBucket({ highlights: [createHighlight({ coverImage: '' })], distinctMediaCount: 1 }),
+            ]);
+
+            const tile = container.querySelector('.timeline-bucket-cover');
+            expect(tile?.classList.contains('is-empty')).toBe(true);
+            expect(tile?.textContent?.trim()).toBe('No Image');
+            expect(tile?.hasAttribute('data-cover-ref')).toBe(false);
         });
 
         it('scrolls back to the top when the zoom level changes', async () => {
@@ -696,7 +869,7 @@ describe('TimelineView', () => {
             expect(scrollTo).toHaveBeenCalledWith({ top: 0 });
         });
 
-        it('shows the milestone name instead of the date and metrics in a compact row', async () => {
+        it('shows the milestone name alongside the date and milestone metrics in a compact row', async () => {
             vi.mocked(api.getTimelinePage).mockImplementation(async request => createPage(request, [
                 createEvent({
                     kind: 'milestone',
@@ -711,13 +884,14 @@ describe('TimelineView', () => {
             await vi.waitFor(() => expect(container.querySelectorAll('.timeline-compact-row')).toHaveLength(1));
 
             const row = container.querySelector('.timeline-compact-row');
-            expect(row?.querySelector('.timeline-compact-milestone')?.textContent?.trim()).toBe('Chapter 10');
-            expect(row?.querySelector('.timeline-compact-date')).toBeNull();
-            expect(row?.querySelectorAll('.timeline-compact-metric')).toHaveLength(0);
+            expect(row?.querySelector('p[title]')?.textContent?.trim()).toBe('Chapter 10');
+            expect(row?.querySelector('.timeline-compact-date')?.textContent?.trim()).toBe('Mar 15');
+            expect(Array.from(row?.querySelectorAll('.timeline-compact-metric') ?? []).map(node => node.textContent))
+                .toEqual(['45m', '500 chars']);
             expect(row?.querySelector('.timeline-media-link')?.textContent?.trim()).toBe('Novel A');
         });
 
-        it('puts the title left of the axis and the state cluster right in a compact row', async () => {
+        it('orders a compact card as date, kind, title, time and characters', async () => {
             const view = new TimelineView(container);
             await renderAndLoad(view);
             await vi.waitFor(() => expect(container.querySelectorAll('.timeline-entry')).toHaveLength(5));
@@ -725,9 +899,68 @@ describe('TimelineView', () => {
             await zoomOutOnce(container); // detailed -> compact
             await vi.waitFor(() => expect(container.querySelectorAll('.timeline-compact-row')).toHaveLength(5));
 
-            const row = container.querySelector('.timeline-compact-row')!;
-            expect(row.firstElementChild?.className).toContain('timeline-compact-detail');
-            expect(row.lastElementChild?.className).toContain('timeline-compact-meta');
+            const card = container.querySelector('.timeline-compact-row .timeline-compact-card')!;
+            expect(Array.from(card.children).map(child => child.className.split(' ').find(name => name.startsWith('timeline-compact-') && name !== 'timeline-compact-cell' && name !== 'timeline-compact-metric')))
+                .toEqual([
+                    'timeline-compact-date',
+                    'timeline-compact-kind',
+                    'timeline-compact-title',
+                    'timeline-compact-time',
+                    'timeline-compact-characters',
+                ]);
+        });
+
+        it('shows the variant in a compact row even when the title is unique', async () => {
+            vi.mocked(api.getTimelinePage).mockImplementation(async request => createPage(request, [
+                createEvent({ kind: 'finished', mediaVariant: 'Web' }),
+            ]));
+            const view = new TimelineView(container);
+            await renderAndLoad(view);
+            await zoomOutOnce(container);
+            await vi.waitFor(() => expect(container.querySelectorAll('.timeline-compact-row')).toHaveLength(1));
+
+            const sublines = container.querySelector('.timeline-compact-row .timeline-compact-sublines');
+            expect(sublines?.querySelector('.is-variant')?.textContent?.trim()).toBe('Web');
+            expect(sublines?.querySelector('.is-milestone')).toBeNull();
+        });
+
+        it('puts the variant before the milestone name in a compact row', async () => {
+            vi.mocked(api.getTimelinePage).mockImplementation(async request => createPage(request, [
+                createEvent({ kind: 'milestone', mediaVariant: 'Web', milestoneName: 'Chapter 10' }),
+            ]));
+            const view = new TimelineView(container);
+            await renderAndLoad(view);
+            await zoomOutOnce(container);
+            await vi.waitFor(() => expect(container.querySelectorAll('.timeline-compact-row')).toHaveLength(1));
+
+            const sublines = container.querySelector('.timeline-compact-row .timeline-compact-sublines');
+            expect(Array.from(sublines?.children ?? []).map(child => child.textContent?.trim()))
+                .toEqual(['Web', 'Chapter 10']);
+        });
+
+        it('renders no sublines group in a compact row without variant or milestone', async () => {
+            vi.mocked(api.getTimelinePage).mockImplementation(async request => createPage(request, [
+                createEvent({ kind: 'finished', mediaVariant: '' }),
+            ]));
+            const view = new TimelineView(container);
+            await renderAndLoad(view);
+            await zoomOutOnce(container);
+            await vi.waitFor(() => expect(container.querySelectorAll('.timeline-compact-row')).toHaveLength(1));
+
+            expect(container.querySelector('.timeline-compact-row .timeline-compact-sublines')).toBeNull();
+        });
+
+        it('puts the full media title on the compact title button', async () => {
+            vi.mocked(api.getTimelinePage).mockImplementation(async request => createPage(request, [
+                createEvent({ kind: 'finished', mediaTitle: 'Novel A' }),
+            ]));
+            const view = new TimelineView(container);
+            await renderAndLoad(view);
+            await zoomOutOnce(container);
+            await vi.waitFor(() => expect(container.querySelectorAll('.timeline-compact-row')).toHaveLength(1));
+
+            expect(container.querySelector('.timeline-compact-row .timeline-compact-title-text')?.getAttribute('title'))
+                .toBe('Novel A');
         });
 
         it('groups month buckets under a year marker but emits none at year granularity', async () => {
@@ -755,6 +988,31 @@ describe('TimelineView', () => {
             await zoomOutOnce(container); // month -> year
             await vi.waitFor(() => expect(container.querySelectorAll('.timeline-bucket-row')).toHaveLength(2));
             expect(container.querySelectorAll('.timeline-month-marker')).toHaveLength(0);
+        });
+
+        it('groups the visible selects per zoom level and omits the group when no select is visible', async () => {
+            const view = new TimelineView(container);
+            await renderAndLoad(view);
+            await vi.waitFor(() => expect(container.querySelectorAll('.timeline-entry')).toHaveLength(5));
+
+            function selectIdsInGroup(): string[] | null {
+                const group = container.querySelector('.timeline-filter-row > .timeline-filter-selects');
+                return group ? Array.from(group.querySelectorAll('select')).map(select => select.id) : null;
+            }
+
+            expect(selectIdsInGroup()).toEqual(['timeline-year-filter', 'timeline-kind-filter']);
+
+            await zoomOutOnce(container);
+            await vi.waitFor(() => expect(container.querySelectorAll('.timeline-compact-row').length).toBeGreaterThan(0));
+            expect(selectIdsInGroup()).toEqual(['timeline-year-filter', 'timeline-kind-filter']);
+
+            await zoomOutOnce(container);
+            await vi.waitFor(() => expect(container.querySelectorAll('.timeline-bucket-row').length).toBeGreaterThan(0));
+            expect(selectIdsInGroup()).toEqual(['timeline-year-filter']);
+
+            await zoomOutOnce(container);
+            await vi.waitFor(() => expect(container.querySelectorAll('.timeline-bucket-row').length).toBeGreaterThan(0));
+            expect(selectIdsInGroup()).toBeNull();
         });
 
         it('shows a kind-specific summary label and count once the Kind filter is set, reverting at bucket levels', async () => {
@@ -787,6 +1045,20 @@ describe('TimelineView', () => {
 
             expect(summaryValueFor('Completed titles')).toBeDefined();
             expect(summaryValueFor('Paused titles')).toBeUndefined();
+        });
+
+        it('labels the kind-specific summary item "Milestone titles" for the milestone Kind filter', async () => {
+            const view = new TimelineView(container);
+            await renderAndLoad(view);
+            await vi.waitFor(() => expect(container.querySelector('#timeline-kind-filter')).not.toBeNull());
+
+            const kindFilter = container.querySelector<HTMLSelectElement>('#timeline-kind-filter')!;
+            kindFilter.value = 'milestone';
+            kindFilter.dispatchEvent(new Event('change'));
+
+            await vi.waitFor(() => expect(
+                Array.from(container.querySelectorAll('.timeline-summary-label')).map(label => label.textContent),
+            ).toContain('Milestone titles'));
         });
 
         it('hides Kind at month and year and hides Year only at year, preserving prior selections', async () => {

@@ -36,13 +36,23 @@ export function renderDashboardCardEmptyState(message: string): string {
 }
 
 const NO_PERIOD_DATA_MESSAGE = 'No data in this period.';
-const IMMERSE_PROMPT = 'Go immerse!';
+const IMMERSE_PROMPT = 'Go immerse';
+const MAXIMUM_IMMERSE_PROMPT_INTENSITY = 4;
 
-export function renderNoPeriodDataMessage(isTodayInRange: boolean): string {
-    if (!isTodayInRange) return NO_PERIOD_DATA_MESSAGE;
-    return `${NO_PERIOD_DATA_MESSAGE} <span class="dashboard-card-empty-prompt">${IMMERSE_PROMPT}</span>`;
+export function getImmersePromptIntensity(elapsedPeriodDays: number): number {
+    return Math.min(MAXIMUM_IMMERSE_PROMPT_INTENSITY, Math.floor(Math.log2(Math.max(1, elapsedPeriodDays))));
 }
 
-export function renderNoPeriodDataEmptyState(isTodayInRange: boolean): string {
-    return `<p class="dashboard-card-empty">${renderNoPeriodDataMessage(isTodayInRange)}</p>`;
+export function getImmersePromptText(intensity: number): string {
+    return `${IMMERSE_PROMPT}${'!'.repeat(intensity + 1)}`;
+}
+
+export function renderNoPeriodDataMessage(elapsedPeriodDays: number | null): string {
+    if (elapsedPeriodDays === null) return NO_PERIOD_DATA_MESSAGE;
+    const intensity = getImmersePromptIntensity(elapsedPeriodDays);
+    return `${NO_PERIOD_DATA_MESSAGE} <span class="dashboard-card-empty-prompt" data-immerse-intensity="${intensity}">${getImmersePromptText(intensity)}</span>`;
+}
+
+export function renderNoPeriodDataEmptyState(elapsedPeriodDays: number | null): string {
+    return `<p class="dashboard-card-empty">${renderNoPeriodDataMessage(elapsedPeriodDays)}</p>`;
 }

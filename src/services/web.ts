@@ -20,6 +20,9 @@ import type {
     DashboardRecentPage,
     DashboardSnapshot,
     DashboardSnapshotRequest,
+    ReadingReportInputsRequest,
+    ReadingReportInputsResponse,
+    SaveLocalSettingValuesRequest,
     LibrarySnapshot,
     LibrarySnapshotRequest,
     TimelineEvent,
@@ -226,6 +229,12 @@ export class WebServices implements AppServices {
     }
     getDashboardRecentLogs(request: DashboardRecentLogsRequest): Promise<DashboardRecentPage> {
         return postMeasured('/dashboard/recent-logs', request, 'dashboard_recent_logs');
+    }
+    getReadingReportInputs(request: ReadingReportInputsRequest): Promise<ReadingReportInputsResponse> {
+        return postMeasured('/reading-report/inputs', request, 'reading_report_inputs');
+    }
+    saveLocalSettingValues(request: SaveLocalSettingValuesRequest): Promise<void> {
+        return post('/settings/local-values', request);
     }
     getLibrarySnapshot(request: LibrarySnapshotRequest): Promise<LibrarySnapshot> {
         return postMeasured('/library/snapshot', request, 'library_snapshot');
@@ -444,12 +453,12 @@ export class WebServices implements AppServices {
         return res.path;
     }
 
-    async loadCoverImage(coverRef: string): Promise<string | null> {
-        if (!coverRef || coverRef.trim() === '') return null;
+    loadCoverImage(coverRef: string): Promise<string | null> {
+        if (!coverRef || coverRef.trim() === '') return Promise.resolve(null);
         // Extract filename from the absolute path stored in the DB
         const filename = coverRef.split(/[\\/]/).pop();
-        if (!filename) return null;
-        return `${API_BASE}/api/covers/file/${encodeURIComponent(filename)}`;
+        if (!filename) return Promise.resolve(null);
+        return Promise.resolve(`${API_BASE}/api/covers/file/${encodeURIComponent(filename)}`);
     }
 
     // ── External network ──────────────────────────────────────────────────────

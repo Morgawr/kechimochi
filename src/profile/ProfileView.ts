@@ -2,8 +2,6 @@ import { Logger } from '../logger';
 import { Component } from '../component';
 import { html, rawHtml, escapeHTML, escapeAttribute } from '../html';
 import {
-    getAllMedia,
-    getLogs,
     clearActivities,
     wipeEverything,
     applyMediaImport,
@@ -40,10 +38,8 @@ import { showActivityCsvConflictModal, showExportCsvModal } from '../activity_mo
 import { showMediaCsvConflictModal } from '../media/modal';
 import { getServices } from '../services';
 import { MediaCoverLoader } from '../media/cover_loader';
-import { formatProductVersionLabel, getAppVersionInfo } from '../app_version';
+import { formatProductVersionLabel, getAppVersionInfo, ISSUES_URL } from '../app_version';
 import type {
-    ActivitySummary,
-    Media,
     MergeSide,
     LocalHttpApiConfig,
     LocalHttpApiStatus,
@@ -59,18 +55,7 @@ import type {
     UpdateState,
 } from '../types';
 import { getProfileInitials, profilePictureToDataUrl } from './profile_picture';
-import {
-    renderReportCardButtons,
-    wireReportCardButtons,
-} from './reportcard/report_card_controls';
 import { STORAGE_KEYS, SETTING_KEYS, DEFAULTS, EVENTS, CONTENT_TYPES, TRACKING_STATUSES } from '../constants';
-import {
-    calculateTypeReadingSpeeds,
-    READING_CONTENT_TYPES,
-    READING_SPEED_SETTING_KEY_BY_CONTENT_TYPE,
-    ReadingContentType,
-    TypeReadingSpeed
-} from '../stats/reading_speed';
 import { reconcileEnumOrder } from '../media/sorting';
 import type { UpdateManager } from '../update/manager';
 import {
@@ -98,6 +83,17 @@ import {
     type FontChoice,
 } from "../fonts.ts";
 import { normalizeWeekStartDay as normalizeWeekStartDayValue } from '../calendar';
+import {
+    LIBRARY_CONTENT_TYPE_TAG_OPTIONS,
+    LIBRARY_STATUS_DOT_OPTIONS,
+    applyLibraryCardDisplay,
+    normalizeLibraryContentTypeTagMode,
+    normalizeLibraryStatusBorderMode,
+    normalizeLibraryStatusDotStyle,
+    type LibraryContentTypeTagMode,
+    type LibraryStatusBorderMode,
+    type LibraryStatusDotStyle,
+} from '../media/library_card_display';
 
 const THEME_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
     { value: 'pastel-pink', label: 'Pastel Pink (Default)' },
@@ -160,9 +156,6 @@ interface ProfileState {
     theme: string;
     font: FontChoice;
     profilePicture: ProfilePicture | null;
-    report: Record<ReadingContentType, TypeReadingSpeed>;
-    logs: ActivitySummary[];
-    mediaList: Media[];
     appVersion: string;
     isInitialized: boolean;
     updateState: UpdateState;
@@ -179,6 +172,9 @@ interface ProfileState {
     weekStartDay: string;
     contentTypeOrder: string[];
     trackingStatusOrder: string[];
+    libraryStatusBorder: LibraryStatusBorderMode;
+    libraryStatusDot: LibraryStatusDotStyle;
+    libraryContentTypeTag: LibraryContentTypeTagMode;
 }
 
 function stringifyError(error: unknown): string {
@@ -317,12 +313,6 @@ function formatBytes(bytes: number, decimals = 1): string {
     return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 }
 
-function defaultReadingReport(): Record<ReadingContentType, TypeReadingSpeed> {
-    return Object.fromEntries(
-        READING_CONTENT_TYPES.map(contentType => [contentType, { charactersPerHour: 0, hours: 0 }]),
-    ) as Record<ReadingContentType, TypeReadingSpeed>;
-}
-
 function defaultLocalHttpApiStatus(): LocalHttpApiStatus {
     return {
         supported: false,
@@ -348,9 +338,6 @@ export class ProfileView extends Component<ProfileState> {
             theme: localStorage.getItem(STORAGE_KEYS.THEME_CACHE) || DEFAULTS.THEME,
             font: getCachedFont(),
             profilePicture: null,
-            report: defaultReadingReport(),
-            logs: [],
-            mediaList: [],
             appVersion: '',
             isInitialized: false,
             updateState: updateManager?.getState() ?? {
@@ -373,6 +360,9 @@ export class ProfileView extends Component<ProfileState> {
             weekStartDay: '1',
             contentTypeOrder: [...CONTENT_TYPES],
             trackingStatusOrder: [...TRACKING_STATUSES],
+            libraryStatusBorder: DEFAULTS.LIBRARY_STATUS_BORDER,
+            libraryStatusDot: DEFAULTS.LIBRARY_STATUS_DOT,
+            libraryContentTypeTag: DEFAULTS.LIBRARY_CONTENT_TYPE_TAG,
         });
     }
 
@@ -409,10 +399,11 @@ export class ProfileView extends Component<ProfileState> {
             weekStartDay,
             contentTypeOrderStr,
             trackingStatusOrderStr,
+            libraryStatusBorder,
+            libraryStatusDot,
+            libraryContentTypeTag,
             syncState,
             localHttpApiStatus,
-            loadedLogs,
-            loadedMediaList,
         ] = await Promise.all([
             getSetting(SETTING_KEYS.THEME),
             getSetting(SETTING_KEYS.FONT_FAMILY),
@@ -422,34 +413,16 @@ export class ProfileView extends Component<ProfileState> {
             getSetting(SETTING_KEYS.WEEK_START_DAY),
             getSetting(SETTING_KEYS.CONTENT_TYPE_ORDER),
             getSetting(SETTING_KEYS.TRACKING_STATUS_ORDER),
+            getSetting(SETTING_KEYS.LIBRARY_STATUS_BORDER),
+            getSetting(SETTING_KEYS.LIBRARY_STATUS_DOT),
+            getSetting(SETTING_KEYS.LIBRARY_CONTENT_TYPE_TAG),
             syncStatePromise,
             localHttpApiStatusPromise,
-            // Report-card data is non-essential to the rest of the profile page, so a
-            // fetch failure just disables the report card rather than blanking the view.
-            getLogs().catch((error: unknown) => {
-                Logger.error('[report-card] failed to load logs:', error);
-                return null;
-            }),
-            getAllMedia().catch((error: unknown) => {
-                Logger.error('[report-card] failed to load media:', error);
-                return null;
-            }),
         ]);
 
         const resolvedTheme = theme || DEFAULTS.THEME;
         const resolvedFont = font && isValidFontChoice(font) ? font : DEFAULTS.FONT;
         const resolvedProfileName = currentProfile || DEFAULTS.PROFILE;
-        const logs = loadedLogs ?? [];
-        const mediaList = loadedMediaList ?? [];
-
-        const report = calculateTypeReadingSpeeds(logs, mediaList, this.readingReportCutoffDate());
-        // An empty list from a failed fetch is indistinguishable from a genuinely empty library,
-        // and persisting it would erase the cached speeds MediaDetail falls back on.
-        if (loadedLogs !== null && loadedMediaList !== null) {
-            this.persistReadingReport(report).catch((error: unknown) => {
-                Logger.error('[report-card] failed to persist reading speeds:', error);
-            });
-        }
 
         localStorage.setItem(STORAGE_KEYS.THEME_CACHE, resolvedTheme);
         this.setState({
@@ -459,10 +432,10 @@ export class ProfileView extends Component<ProfileState> {
             weekStartDay: this.normalizeWeekStartDay(weekStartDay),
             contentTypeOrder: reconcileEnumOrder(contentTypeOrderStr, CONTENT_TYPES),
             trackingStatusOrder: reconcileEnumOrder(trackingStatusOrderStr, TRACKING_STATUSES),
+            libraryStatusBorder: normalizeLibraryStatusBorderMode(libraryStatusBorder),
+            libraryStatusDot: normalizeLibraryStatusDotStyle(libraryStatusDot),
+            libraryContentTypeTag: normalizeLibraryContentTypeTagMode(libraryContentTypeTag),
             profilePicture,
-            report,
-            logs,
-            mediaList,
             appVersion,
             isInitialized: true,
             syncSupported,
@@ -472,29 +445,6 @@ export class ProfileView extends Component<ProfileState> {
             showSyncConflicts: syncState.syncConflicts.length > 0 && this.state.showSyncConflicts,
             localHttpApiStatus,
         });
-    }
-
-    private readingReportCutoffDate(): string {
-        const cutoff = new Date();
-        cutoff.setFullYear(cutoff.getFullYear() - 1);
-        const month = `${cutoff.getMonth() + 1}`.padStart(2, '0');
-        const day = `${cutoff.getDate()}`.padStart(2, '0');
-        return `${cutoff.getFullYear()}-${month}-${day}`;
-    }
-
-    private async persistReadingReport(report: Record<ReadingContentType, TypeReadingSpeed>): Promise<void> {
-        const entries = READING_CONTENT_TYPES.map(contentType => ({
-            key: READING_SPEED_SETTING_KEY_BY_CONTENT_TYPE[contentType],
-            speedValue: Math.round(report[contentType].charactersPerHour).toString(),
-        }));
-
-        const previousValues = await Promise.all(entries.map(entry => getSetting(entry.key)));
-
-        await Promise.all(
-            entries
-                .filter((entry, index) => previousValues[index] !== entry.speedValue)
-                .map(entry => setSetting(entry.key, entry.speedValue)),
-        );
     }
 
     private async loadProfilePicture(): Promise<ProfilePicture | null> {
@@ -574,12 +524,12 @@ export class ProfileView extends Component<ProfileState> {
         }
 
         this.clear();
-        const { currentProfile, theme, font, profilePicture, appVersion, themeOverrideEnabled, themeOverrideValue, fontOverrideValue, weekStartDay } = this.state;
+        const { currentProfile, theme, font, profilePicture, appVersion, themeOverrideEnabled, themeOverrideValue, fontOverrideValue, weekStartDay, libraryStatusBorder, libraryStatusDot, libraryContentTypeTag } = this.state;
         applyTheme(themeOverrideEnabled ? themeOverrideValue : theme);
         applyFont(themeOverrideEnabled ? fontOverrideValue : font);
+        applyLibraryCardDisplay({ statusBorder: libraryStatusBorder, statusDot: libraryStatusDot, contentTypeTag: libraryContentTypeTag });
         const profilePictureSrc = profilePictureToDataUrl(profilePicture);
         const initials = getProfileInitials(currentProfile);
-        const hasLoggedTime = this.state.logs.some(log => log.duration_minutes > 0);
 
         const content = html`
             <div id="profile-root" class="animate-fade-in" style="display: flex; flex-direction: column; gap: 2rem; max-width: 600px; margin: 0 auto; padding-top: 1rem; padding-bottom: 2rem;">
@@ -596,20 +546,6 @@ export class ProfileView extends Component<ProfileState> {
                     <h2 id="profile-name" title="Double click to rename" style="margin: 0; font-size: 2rem; color: var(--text-primary); cursor: pointer; transition: opacity 0.2s;">${currentProfile}</h2>
                     <p style="color: var(--text-secondary); margin-top: 0.5rem;">Manage your profile and data</p>
                 </div>
-
-                ${getServices().supportsReportCardExport() ? renderReportCardButtons(hasLoggedTime) : ''}
-
-                ${this.hasReadingReportData() ? html`
-                    <div class="card" id="profile-report-card" style="display: flex; flex-direction: column; gap: 1rem;">
-                        <h3 style="margin: 0;">Reading Report Card</h3>
-                        <p style="color: var(--text-secondary); font-size: 0.9rem;">Average reading speed by content type, pooled from your data.</p>
-
-                        <div id="profile-report-card-content">
-                            ${this.renderReportContent()}
-                        </div>
-                        ${this.renderReportWindowNote()}
-                    </div>
-                ` : ''}
 
                 <div class="card" style="display: flex; flex-direction: column; gap: 1rem;">
                     <h3>Appearance</h3>
@@ -741,7 +677,7 @@ export class ProfileView extends Component<ProfileState> {
                 <div style="text-align: center; margin-top: 1rem; font-size: 0.8rem; color: var(--text-secondary); opacity: 0.7;">
                     <div>${formatProductVersionLabel({ ...getAppVersionInfo(), version: appVersion })}</div>
                     <div style="margin-top: 0.4rem;">
-                        Found a bug? File an issue on <a href="https://github.com/Morgawr/kechimochi/issues" target="_blank" style="color: var(--text-secondary); text-decoration: underline;">github</a>
+                        Found a bug? File an issue on <a href="${ISSUES_URL}" target="_blank" style="color: var(--text-secondary); text-decoration: underline;">github</a>
                     </div>
                 </div>
             </div>
@@ -768,25 +704,6 @@ export class ProfileView extends Component<ProfileState> {
                 }
             </div>
         `;
-    }
-
-    private hasReadingReportData(): boolean {
-        return READING_CONTENT_TYPES.some(contentType => this.state.report[contentType].charactersPerHour > 0);
-    }
-
-    private renderReportContent() {
-        const { report } = this.state;
-        const rows = READING_CONTENT_TYPES
-            .filter(contentType => report[contentType].charactersPerHour > 0)
-            .map(contentType => html`
-                <div class="profile-report-row">
-                    <span>${contentType}</span>
-                    <strong class="profile-report-row-speed">${Math.round(report[contentType].charactersPerHour).toLocaleString()} char/hr</strong>
-                    <span class="profile-report-row-hours">${report[contentType].hours.toFixed(1)} hours</span>
-                </div>
-            `);
-
-        return html`<div class="profile-report-row-list">${rows}</div>`;
     }
 
     private renderThemeOptions(currentValue: string) {
@@ -817,15 +734,44 @@ export class ProfileView extends Component<ProfileState> {
         return String(normalizeWeekStartDayValue(value));
     }
 
+    private renderOptionList<TValue extends string>(options: ReadonlyArray<{ value: TValue; label: string }>, currentValue: TValue) {
+        const optionsHtml = options.map(({ value, label }) => {
+            const selected = value === currentValue ? ' selected' : '';
+            return `<option value="${escapeHTML(value)}"${selected}>${escapeHTML(label)}</option>`;
+        }).join('');
+        return rawHtml(optionsHtml);
+    }
+
     private renderLibraryOrderingCard() {
+        const { libraryStatusBorder, libraryStatusDot, libraryContentTypeTag } = this.state;
         const sectionsHtml = LIBRARY_ORDER_DESCRIPTORS
             .map(descriptor => this.renderLibraryOrderSection(descriptor))
             .join('');
 
         return html`
             <div class="card" style="display: flex; flex-direction: column; gap: 1rem;">
-                <h3>Library Ordering</h3>
-                <p style="color: var(--text-secondary); font-size: 0.9rem;">Set a custom order for content types and tracking statuses. Applies when sorting the library by these fields, and content type order also controls section order when grouping the library by media type.</p>
+                <h3>Library</h3>
+                <p style="color: var(--text-secondary); font-size: 0.9rem;">Control how library grid cards show status and content type, and set a custom order for content types and tracking statuses.</p>
+
+                <div class="profile-setting-checkbox-row">
+                    <input id="profile-checkbox-library-status-border" type="checkbox" ${libraryStatusBorder === 'always' ? 'checked' : ''} />
+                    <label for="profile-checkbox-library-status-border">Always show status hover borders</label>
+                </div>
+
+                <div class="profile-setting-field">
+                    <span id="profile-select-library-status-dot-label" class="profile-setting-label">Status dot</span>
+                    <select id="profile-select-library-status-dot" aria-labelledby="profile-select-library-status-dot-label">
+                        ${this.renderOptionList(LIBRARY_STATUS_DOT_OPTIONS, libraryStatusDot)}
+                    </select>
+                </div>
+
+                <div class="profile-setting-field">
+                    <span id="profile-select-library-content-type-tag-label" class="profile-setting-label">Content type tag</span>
+                    <select id="profile-select-library-content-type-tag" aria-labelledby="profile-select-library-content-type-tag-label">
+                        ${this.renderOptionList(LIBRARY_CONTENT_TYPE_TAG_OPTIONS, libraryContentTypeTag)}
+                    </select>
+                </div>
+
                 ${rawHtml(sectionsHtml)}
             </div>
         `;
@@ -877,22 +823,6 @@ export class ProfileView extends Component<ProfileState> {
         this.setState({ [descriptor.stateField]: nextOrder } as Partial<ProfileState>);
 
         globalThis.dispatchEvent(new CustomEvent(EVENTS.LIBRARY_PREFERENCES_CHANGED));
-    }
-
-    private renderReportWindowNote() {
-        const { logs } = this.state;
-        if (logs.length === 0) return '';
-
-        const earliestLogDate = logs.reduce((earliest, log) => log.date < earliest ? log.date : earliest, logs[0].date);
-        const windowText = earliestLogDate >= this.readingReportCutoffDate()
-            ? `Since ${earliestLogDate}`
-            : 'Over the last year';
-
-        return html`
-            <div id="profile-report-window-note" class="profile-report-window-note">
-                ${windowText}
-            </div>
-        `;
     }
 
     private renderUpdatesCard() {
@@ -1570,6 +1500,24 @@ export class ProfileView extends Component<ProfileState> {
             globalThis.dispatchEvent(new CustomEvent(EVENTS.LOCAL_DATA_CHANGED));
         });
 
+        root.querySelector('#profile-checkbox-library-status-border')?.addEventListener('change', async (e) => {
+            const libraryStatusBorder: LibraryStatusBorderMode = (e.target as HTMLInputElement).checked ? 'always' : 'hover';
+            await setSetting(SETTING_KEYS.LIBRARY_STATUS_BORDER, libraryStatusBorder);
+            this.setState({ libraryStatusBorder });
+        });
+
+        root.querySelector('#profile-select-library-status-dot')?.addEventListener('change', async (e) => {
+            const libraryStatusDot = normalizeLibraryStatusDotStyle((e.target as HTMLSelectElement).value);
+            await setSetting(SETTING_KEYS.LIBRARY_STATUS_DOT, libraryStatusDot);
+            this.setState({ libraryStatusDot });
+        });
+
+        root.querySelector('#profile-select-library-content-type-tag')?.addEventListener('change', async (e) => {
+            const libraryContentTypeTag = normalizeLibraryContentTypeTagMode((e.target as HTMLSelectElement).value);
+            await setSetting(SETTING_KEYS.LIBRARY_CONTENT_TYPE_TAG, libraryContentTypeTag);
+            this.setState({ libraryContentTypeTag });
+        });
+
         root.querySelectorAll<HTMLButtonElement>('.profile-order-move-button').forEach((button) => {
             button.addEventListener('click', () => {
                 const descriptor = LIBRARY_ORDER_DESCRIPTORS.find(candidate => candidate.kind === button.dataset.orderKind);
@@ -1843,13 +1791,6 @@ export class ProfileView extends Component<ProfileState> {
                 globalThis.location.reload();
             }
         });
-
-        wireReportCardButtons(root, () => ({
-            profileName: this.state.currentProfile,
-            profilePicture: this.state.profilePicture,
-            logs: this.state.logs,
-            mediaList: this.state.mediaList,
-        }));
     }
 
     private readLocalHttpApiConfig(root: HTMLElement, enabled: boolean): LocalHttpApiConfig | null {

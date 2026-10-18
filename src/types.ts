@@ -139,6 +139,7 @@ export interface DashboardSnapshotRequest {
     heatmap_year: number;
     recent_offset: number;
     recent_limit: number;
+    reading_report_cache_keys: string[];
 }
 
 export interface DashboardRangeRequest {
@@ -298,11 +299,40 @@ export interface DashboardSettings {
 export interface DashboardSnapshot {
     request_id: number;
     settings: DashboardSettings;
+    reading_report_cache: Record<string, string>;
     summary: DashboardSummary;
     quick_log_media: DashboardMedia[];
     recent_logs: DashboardRecentPage;
     heatmap: DashboardHeatmapYearResponse;
     weekday_distribution: DashboardWeekdayDistribution;
+}
+
+export interface ReadingReportInputsRequest {
+    cutoff: string;
+    today: string;
+    content_types: string[];
+}
+
+export interface MediaReadingAggregateDto {
+    media_id: number;
+    content_type: string;
+    tracking_status: string;
+    extra_data: string;
+    immersion_minutes: number;
+    has_dual: boolean;
+    has_characters_only: boolean;
+    window_dual_characters: number;
+    window_dual_minutes: number;
+    window_timed_minutes: number;
+    window_characters_only_characters: number;
+}
+
+export interface ReadingReportInputsResponse {
+    aggregates: MediaReadingAggregateDto[];
+}
+
+export interface SaveLocalSettingValuesRequest {
+    values: Record<string, string>;
 }
 
 export interface LibrarySnapshotRequest {

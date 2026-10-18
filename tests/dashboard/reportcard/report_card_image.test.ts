@@ -3,8 +3,8 @@ import {
     buildReportCardFileName,
     renderReportCardImage,
     resolveReportCardThemeColors,
-} from '../../../src/profile/reportcard/report_card_image';
-import type { ReportCardImageOptions } from '../../../src/profile/reportcard/report_card_image';
+} from '../../../src/dashboard/reportcard/report_card_image';
+import type { ReportCardImageOptions } from '../../../src/dashboard/reportcard/report_card_image';
 import { applyThemePalette } from '../../helpers/theme_palette';
 
 const chartMocks = vi.hoisted(() => ({

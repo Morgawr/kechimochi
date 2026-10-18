@@ -61,7 +61,7 @@ export async function getTimelineEntrySnapshots(limit?: number): Promise<Timelin
             .slice(0, typeof maxEntries === 'number' ? maxEntries : Number.MAX_SAFE_INTEGER)
             .map(entry => ({
                 kind: entry.querySelector('.timeline-kind-pill')?.textContent?.trim() ?? '',
-                date: entry.querySelector('.timeline-date-pill')?.textContent?.trim() ?? '',
+                date: entry.querySelector('[data-timeline-stat="date"] dd')?.textContent?.trim() ?? '',
                 text: entry.textContent?.replaceAll(/\s+/g, ' ').trim() ?? '',
             }));
     }, limit);

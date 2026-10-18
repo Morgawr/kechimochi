@@ -2,7 +2,7 @@ export { Dashboard } from './Dashboard';
 export { QuickLog } from './QuickLog';
 export { StatsCard } from './StatsCard';
 
-export { Heatmap } from './cards/Heatmap';
+export { Heatmap } from './cards/heatmap/Heatmap';
 export { ActivityFlow } from './cards/ActivityFlow';
 export { ActivityMix } from './cards/ActivityMix';
 export { WeekdayRhythm } from './cards/WeekdayRhythm';

@@ -29,8 +29,8 @@ use tower_http::cors::{Any, CorsLayer};
 
 use kechimochi_lib::{
     csv_import, dashboard_data, database_recovery, db, get_username_logic, instance_lock,
-    library_data, models, profile_picture, read_performance, remote_fetch, sync_state,
-    timeline_data,
+    library_data, models, profile_picture, read_performance, reading_report_data, remote_fetch,
+    sync_state, timeline_data,
 };
 
 // ── Error handling ────────────────────────────────────────────────────────────
@@ -261,6 +261,10 @@ fn build_app_router(state: Shared) -> Router {
             "/api/dashboard/recent-logs",
             post(get_dashboard_recent_logs_handler),
         )
+        .route(
+            "/api/reading-report/inputs",
+            post(get_reading_report_inputs_handler),
+        )
         .route("/api/library/snapshot", post(get_library_snapshot_handler))
         .route("/api/timeline", get(get_timeline_events_handler))
         .route("/api/timeline/page", post(get_timeline_page_handler))
@@ -285,6 +289,10 @@ fn build_app_router(state: Shared) -> Router {
                 .layer(DefaultBodyLimit::max(PROFILE_UPLOAD_LIMIT)),
         )
         // Settings
+        .route(
+            "/api/settings/local-values",
+            post(save_local_setting_values_handler),
+        )
         .route("/api/settings/:key", get(get_setting).put(set_setting))
         // Utility
         .route("/api/username", get(get_username))
@@ -714,6 +722,17 @@ async fn get_dashboard_recent_logs_handler(
     Ok(Json(measured.value))
 }
 
+async fn get_reading_report_inputs_handler(
+    State(s): State<Shared>,
+    Json(request): Json<models::ReadingReportInputsRequest>,
+) -> HandlerResult<Json<models::ReadingReportInputsResponse>> {
+    reading_report_data::validate_reading_report_request(&request).map_err(AppError::BadRequest)?;
+    let conn = s.conn.lock().await;
+    let measured = reading_report_data::get_reading_report_inputs(&conn, &request).ae()?;
+    read_performance::log_measured_response("reading_report_inputs", &measured);
+    Ok(Json(measured.value))
+}
+
 async fn get_library_snapshot_handler(
     State(s): State<Shared>,
     Json(request): Json<models::LibrarySnapshotRequest>,
@@ -884,6 +903,17 @@ async fn set_setting(
 ) -> HandlerResult<Json<()>> {
     let conn = s.conn.lock().await;
     db::set_setting(&conn, &key, &body.value)
+        .ae()
+        .map(|_| Json(()))
+}
+
+async fn save_local_setting_values_handler(
+    State(s): State<Shared>,
+    Json(request): Json<models::SaveLocalSettingValuesRequest>,
+) -> HandlerResult<Json<()>> {
+    db::validate_local_setting_values(&request.values).map_err(AppError::BadRequest)?;
+    let conn = s.conn.lock().await;
+    db::save_local_setting_values(&conn, &request.values)
         .ae()
         .map(|_| Json(()))
 }

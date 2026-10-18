@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { resolve } from 'node:path';
 import { ProfileView } from '../../src/profile/ProfileView';
 import * as api from '../../src/api';
-import { Media } from '../../src/api';
 import type { SyncConflictMediaAggregate } from '../../src/types';
 import { STORAGE_KEYS, SETTING_KEYS, CONTENT_TYPES, TRACKING_STATUSES } from '../../src/constants';
 import { Logger } from '../../src/logger';
@@ -756,76 +755,6 @@ describe('ProfileView', () => {
             'Continue'
         ));
         expect(container.querySelector('input[type="text"]')).not.toBeNull();
-    });
-
-    it('should compute the reading report automatically on load', async () => {
-        vi.mocked(api.getSetting).mockResolvedValue('0');
-        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
-        const today = new Date().toISOString().split('T')[0];
-        vi.mocked(api.getAllMedia).mockResolvedValue([{
-            id: 1, title: 'M1', tracking_status: 'Complete', content_type: 'Novel', extra_data: '{"Character count":"10,000"}'
-        }] as unknown as Media[]);
-        vi.mocked(api.getLogs).mockResolvedValue([{
-            id: 1, media_id: 1, title: 'M1', activity_type: 'Reading', language: 'Japanese', date: today, duration_minutes: 60, characters: 0
-        }] as unknown as api.ActivitySummary[]);
-
-        const view = new ProfileView(container);
-        view.render();
-
-        await vi.waitFor(() => expect(api.setSetting).toHaveBeenCalledWith(SETTING_KEYS.STATS_NOVEL_SPEED, '10000'));
-        await vi.waitFor(() => expect(container.querySelector('#profile-report-card')).not.toBeNull());
-        expect(container.textContent).toContain('10,000 char/hr');
-    });
-
-    it('should not overwrite cached reading speeds when the report data fails to load', async () => {
-        vi.mocked(api.getSetting).mockImplementation(async (key: string) =>
-            key === SETTING_KEYS.STATS_NOVEL_SPEED ? '5000' : '0');
-        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
-        vi.mocked(api.getLogs).mockRejectedValue(new Error('backend unavailable'));
-        vi.mocked(api.getAllMedia).mockResolvedValue([]);
-
-        const view = new ProfileView(container);
-        view.render();
-
-        await vi.waitFor(() => expect(container.querySelector('#profile-name')).not.toBeNull());
-        expect(api.setSetting).not.toHaveBeenCalledWith(SETTING_KEYS.STATS_NOVEL_SPEED, expect.anything());
-        expect(api.setSetting).not.toHaveBeenCalledWith(SETTING_KEYS.STATS_MANGA_SPEED, expect.anything());
-        expect(api.setSetting).not.toHaveBeenCalledWith(SETTING_KEYS.STATS_VN_SPEED, expect.anything());
-    });
-
-    it('should hide the report card entirely when no reading speed can be computed', async () => {
-        vi.mocked(api.getSetting).mockResolvedValue('0');
-        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
-        vi.mocked(api.getAllMedia).mockResolvedValue([]);
-        vi.mocked(api.getLogs).mockResolvedValue([]);
-
-        const view = new ProfileView(container);
-        view.render();
-
-        await vi.waitFor(() => expect(container.querySelector('#profile-name')).not.toBeNull());
-        expect(container.querySelector('#profile-report-card')).toBeNull();
-    });
-
-    it('should only show report rows for content types with a computed speed', async () => {
-        vi.mocked(api.getSetting).mockResolvedValue('0');
-        vi.mocked(api.getAppVersion).mockResolvedValue('1.0.0');
-        const today = new Date().toISOString().split('T')[0];
-        vi.mocked(api.getAllMedia).mockResolvedValue([
-            { id: 1, title: 'M1', tracking_status: 'Complete', content_type: 'Manga', extra_data: '{"Character count":"100"}' },
-            { id: 2, title: 'M2', tracking_status: 'Ongoing', content_type: 'Novel', extra_data: '{}' },
-        ] as unknown as Media[]);
-        vi.mocked(api.getLogs).mockResolvedValue([
-            { id: 1, media_id: 1, title: 'M1', activity_type: 'Reading', language: 'Japanese', date: today, duration_minutes: 60, characters: 0 },
-            { id: 2, media_id: 2, title: 'M2', activity_type: 'Reading', language: 'Japanese', date: today, duration_minutes: 30, characters: 0 },
-        ] as unknown as api.ActivitySummary[]);
-
-        const view = new ProfileView(container);
-        view.render();
-
-        await vi.waitFor(() => expect(container.querySelector('#profile-report-card')).not.toBeNull());
-        const rows = Array.from(container.querySelectorAll('.profile-report-row')).map(row => row.textContent);
-        expect(rows.some(text => text?.includes('Manga'))).toBe(true);
-        expect(rows.some(text => text?.includes('Novel'))).toBe(false);
     });
 
     it('should clear activities on confirm', async () => {

@@ -40,7 +40,7 @@ struct TimelineMediaContext {
     same_day_terminal: bool,
 }
 
-struct TimelineBucketMediaCover {
+struct TimelineBucketHighlightSource {
     media_title: String,
     media_variant: String,
     cover_image: String,
@@ -625,17 +625,14 @@ fn build_bucket_page(
     let ambiguous_titles =
         compute_bucket_ambiguous_titles(&contexts, &search_matched_media);
 
-    let mut media_covers = HashMap::<i64, TimelineBucketMediaCover>::new();
+    let mut highlight_sources = HashMap::<i64, TimelineBucketHighlightSource>::new();
     for media_id in &search_matched_media {
         let Some(context) = contexts.get(media_id) else {
             continue;
         };
-        if context.cover_image.is_empty() {
-            continue;
-        }
-        media_covers.insert(
+        highlight_sources.insert(
             *media_id,
-            TimelineBucketMediaCover {
+            TimelineBucketHighlightSource {
                 media_title: context.media_title.clone(),
                 media_variant: context.media_variant.clone(),
                 cover_image: context.cover_image.clone(),
@@ -739,10 +736,7 @@ fn build_bucket_page(
 
         bucket_distinct_media[index].insert(event.media_id);
 
-        if matches!(
-            event.kind,
-            TimelineEventKind::Started | TimelineEventKind::Finished
-        ) && media_covers.contains_key(&event.media_id)
+        if highlight_sources.contains_key(&event.media_id)
             && bucket_highlight_seen[index].insert(event.media_id)
         {
             bucket_highlight_candidates[index].push(event.media_id);
@@ -755,7 +749,7 @@ fn build_bucket_page(
             .keys()
             .copied()
             .filter(|media_id| {
-                media_covers.contains_key(media_id)
+                highlight_sources.contains_key(media_id)
                     && !bucket_highlight_seen[index].contains(media_id)
             })
             .collect::<Vec<_>>();
@@ -774,13 +768,13 @@ fn build_bucket_page(
             buckets[index].highlights = candidates
                 .into_iter()
                 .filter_map(|media_id| {
-                    media_covers
+                    highlight_sources
                         .get(&media_id)
-                        .map(|cover| TimelineBucketHighlight {
+                        .map(|source| TimelineBucketHighlight {
                             media_id,
-                            media_title: cover.media_title.clone(),
-                            media_variant: cover.media_variant.clone(),
-                            cover_image: cover.cover_image.clone(),
+                            media_title: source.media_title.clone(),
+                            media_variant: source.media_variant.clone(),
+                            cover_image: source.cover_image.clone(),
                         })
                 })
                 .collect();
@@ -1445,6 +1439,106 @@ mod tests {
             vec!["Serial"]
         );
         assert_eq!(march.distinct_media_count, 1);
+    }
+
+    #[test]
+    fn highlights_include_a_title_without_a_cover() {
+        let directory = tempfile::tempdir().unwrap();
+        let conn = db::init_db(directory.path().to_path_buf(), Some("bucket-coverless")).unwrap();
+        let media_id = db::add_media_with_id(&conn, &media("Coverless", "Ongoing")).unwrap();
+        db::add_log(
+            &conn,
+            &ActivityLog {
+                id: None,
+                media_id,
+                duration_minutes: 30,
+                characters: 0,
+                date: "2026-03-10".to_string(),
+                date_precision: db::DatePrecision::Day,
+                activity_type: "Reading".to_string(),
+                notes: String::new(),
+            },
+        )
+        .unwrap();
+
+        let buckets = get_timeline_buckets(
+            &conn,
+            &bucket_request(TimelineBucketGranularity::Month, None, ""),
+        )
+        .unwrap()
+        .value;
+        let march = buckets
+            .buckets
+            .iter()
+            .find(|bucket| bucket.key == "2026-03")
+            .expect("a bucket exists for the month with logged time");
+        assert_eq!(
+            march
+                .highlights
+                .iter()
+                .map(|highlight| (
+                    highlight.media_title.as_str(),
+                    highlight.cover_image.as_str()
+                ))
+                .collect::<Vec<_>>(),
+            vec![("Coverless", "")]
+        );
+    }
+
+    #[test]
+    fn highlights_include_a_title_whose_only_event_in_the_bucket_is_a_milestone() {
+        let directory = tempfile::tempdir().unwrap();
+        let conn = db::init_db(
+            directory.path().to_path_buf(),
+            Some("bucket-milestone-only"),
+        )
+        .unwrap();
+        let media_id = db::add_media_with_id(
+            &conn,
+            &media_with_cover("Milestoned", "Ongoing", "milestoned.png"),
+        )
+        .unwrap();
+        let media_uid = db::get_all_media(&conn)
+            .unwrap()
+            .into_iter()
+            .find(|item| item.id == Some(media_id))
+            .unwrap()
+            .uid;
+        db::add_milestone(
+            &conn,
+            &Milestone {
+                id: None,
+                media_uid,
+                media_title: String::new(),
+                name: "Halfway".to_string(),
+                duration: 45,
+                characters: 0,
+                date: Some("2026-10-09".to_string()),
+            },
+        )
+        .unwrap();
+
+        let buckets = get_timeline_buckets(
+            &conn,
+            &bucket_request(TimelineBucketGranularity::Month, None, ""),
+        )
+        .unwrap()
+        .value;
+        let october = buckets
+            .buckets
+            .iter()
+            .find(|bucket| bucket.key == "2026-10")
+            .expect("a bucket exists for the month with the milestone");
+        assert_eq!(october.milestone_count, 1);
+        assert_eq!(
+            october
+                .highlights
+                .iter()
+                .map(|highlight| highlight.media_title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Milestoned"]
+        );
+        assert_eq!(october.distinct_media_count, 1);
     }
 
     #[test]

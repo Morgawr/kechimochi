@@ -6,6 +6,7 @@ import {
     isContainedInBucket,
     formatReducedDate,
     formatLogDate,
+    formatLogDateRelativeTo,
     type DateAnchor,
     type DateScope,
 } from '../../src/time';
@@ -127,6 +128,22 @@ describe('log_date.ts', () => {
             expect(formatLogDate({ date: '2026-08-03', date_precision: 'day' })).toBe('August 3, 2026');
             expect(formatLogDate({ date: '2026-08-01', date_precision: 'month' })).toBe('August 2026');
             expect(formatLogDate({ date: '2026-01-01', date_precision: 'year' })).toBe('2026');
+        });
+    });
+
+    describe('formatLogDateRelativeTo', () => {
+        const today = '2026-08-03' as DateAnchor;
+
+        it('should name the period containing today relatively', () => {
+            expect(formatLogDateRelativeTo({ date: '2026-08-03', date_precision: 'day' }, today)).toBe('Today');
+            expect(formatLogDateRelativeTo({ date: '2026-08-01', date_precision: 'month' }, today)).toBe('This month');
+            expect(formatLogDateRelativeTo({ date: '2026-01-01', date_precision: 'year' }, today)).toBe('This year');
+        });
+
+        it('should format any other period in full', () => {
+            expect(formatLogDateRelativeTo({ date: '2026-08-02', date_precision: 'day' }, today)).toBe('August 2, 2026');
+            expect(formatLogDateRelativeTo({ date: '2026-07-01', date_precision: 'month' }, today)).toBe('July 2026');
+            expect(formatLogDateRelativeTo({ date: '2025-01-01', date_precision: 'year' }, today)).toBe('2025');
         });
     });
 

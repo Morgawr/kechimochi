@@ -53,6 +53,23 @@ describe('formatting.ts', () => {
         });
     });
 
+    describe('formatOptionalAlignedStatsDuration', () => {
+        it('should pad the minutes to two digits once there are hours', () => {
+            expect(formatting.formatOptionalAlignedStatsDuration(600)).toBe('10h 00m');
+            expect(formatting.formatOptionalAlignedStatsDuration(485)).toBe('8h 05m');
+            expect(formatting.formatOptionalAlignedStatsDuration(2980)).toBe('49h 40m');
+        });
+
+        it('should leave a minutes-only duration unpadded', () => {
+            expect(formatting.formatOptionalAlignedStatsDuration(5)).toBe('5m');
+            expect(formatting.formatOptionalAlignedStatsDuration(12)).toBe('12m');
+        });
+
+        it('should render nothing at zero', () => {
+            expect(formatting.formatOptionalAlignedStatsDuration(0)).toBe('');
+        });
+    });
+
     describe('formatCompactDuration', () => {
         it('should use the largest units available and omit empty ones', () => {
             expect(formatting.formatCompactDuration(0)).toBe('0m');

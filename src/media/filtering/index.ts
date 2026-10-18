@@ -1,13 +1,20 @@
 export {
+    appendRuleGroup,
+    appendRuleToGroup,
     filterMediaByExtraData,
     getDefaultLibraryExtraFilterOperator,
     getLibraryExtraDataFacets,
     getLibraryExtraFieldValueKind,
+    groupLibraryFilterRules,
     isLibraryExtraFilterOperatorValid,
     isLibraryFilterRuleReady,
     LIBRARY_NUMERIC_FILTER_OPERATORS,
     LIBRARY_TEXT_FILTER_OPERATORS,
+    removeLibraryFilterRule,
+    removeLibraryFilterRuleGroup,
     revalidateLibraryFilterRules,
+    stripNonNumericFilterValueCharacters,
+    toggleLibraryFilterRuleJoin,
 } from './library_filter';
 export type {
     LibraryBooleanTagFilterRule,
@@ -16,6 +23,8 @@ export type {
     LibraryExtraFilterRule,
     LibraryFilterJoin,
     LibraryFilterRule,
+    LibraryFilterRuleGroup,
+    LibraryFilterRuleGroupEntry,
     LibraryNumericFilterOperator,
     LibraryTextFilterOperator,
 } from './library_filter';

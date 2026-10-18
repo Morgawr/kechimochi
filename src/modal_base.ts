@@ -4,6 +4,7 @@ import { pushBackHandler } from './back_stack';
 const MODAL_VIEWPORT_PADDING = 16;
 const KEYBOARD_OPEN_HEIGHT_DELTA = 80;
 const DEFERRED_DATALIST_TIMEOUT_MS = 700;
+export const OVERLAY_FADE_OUT_MS = 300;
 
 function sanitizeButtonClass(input: string): string {
     if (/^[a-zA-Z0-9\-_\s]+$/.test(input)) {
@@ -14,6 +15,25 @@ function sanitizeButtonClass(input: string): string {
 
 let openOverlayCount = 0;
 let stopBlockingBackgroundScroll: (() => void) | null = null;
+const overlayStack: HTMLDivElement[] = [];
+
+function pushOverlay(overlay: HTMLDivElement): void {
+    const previousTopOverlay = overlayStack.at(-1);
+    if (previousTopOverlay) previousTopOverlay.inert = true;
+    overlayStack.push(overlay);
+}
+
+function removeOverlay(overlay: HTMLDivElement): void {
+    const index = overlayStack.indexOf(overlay);
+    if (index === -1) return;
+    overlayStack.splice(index, 1);
+    const topOverlay = overlayStack.at(-1);
+    if (topOverlay) topOverlay.inert = false;
+}
+
+function isTopmostOverlay(overlay: HTMLDivElement): boolean {
+    return overlayStack.at(-1) === overlay;
+}
 
 function blockScrollOutsideOverlays(event: Event): void {
     const target = event.target;
@@ -57,13 +77,15 @@ export function createOverlay(): { overlay: HTMLDivElement, cleanup: () => void 
     overlay.classList.add('active');
     const cleanupViewportPlacement = bindOverlayToVisualViewport(overlay);
     const restoreBackgroundScroll = suppressBackgroundScroll();
+    pushOverlay(overlay);
 
     const cleanup = () => {
+        removeOverlay(overlay);
         restoreBackgroundScroll();
         cleanupViewportPlacement();
         overlay.classList.remove('active');
         delete overlay.dataset.modalId;
-        setTimeout(() => overlay.remove(), 300);
+        setTimeout(() => overlay.remove(), OVERLAY_FADE_OUT_MS);
     };
 
     return { overlay, cleanup };
@@ -239,9 +261,14 @@ export function createCancelableOverlay(onDismiss: () => void, options: { closeO
 
     if (options.closeOnEscape) {
         const handleEscape = (event: KeyboardEvent) => {
-            // A focused control with its popup open (e.g. a select) owns Escape; this window-capture
-            // listener would otherwise run first and dismiss the whole modal instead.
-            if (event.key === 'Escape' && document.activeElement?.getAttribute('aria-expanded') !== 'true') {
+            // A focused control with its popup open (e.g. a select), or focus inside something layered
+            // above this overlay (a popup panel appended to body later, e.g. a multiselect), owns
+            // Escape; this window-capture listener would otherwise run first and dismiss the whole modal.
+            const activeElement = document.activeElement;
+            const isFocusInLaterLayer = activeElement !== null
+                && !overlay.contains(activeElement)
+                && Boolean(overlay.compareDocumentPosition(activeElement) & Node.DOCUMENT_POSITION_FOLLOWING);
+            if (event.key === 'Escape' && isTopmostOverlay(overlay) && activeElement?.getAttribute('aria-expanded') !== 'true' && !isFocusInLaterLayer) {
                 event.preventDefault();
                 event.stopPropagation();
                 dismiss();

@@ -49,6 +49,7 @@ function defaultDashboardSnapshot(request: DashboardSnapshotRequest) {
             time_range_days: 7,
             metric: 'minutes' as const,
         },
+        reading_report_cache: {},
         summary: {
             total_logs: 1,
             total_media: 0,
@@ -145,6 +146,8 @@ export function createMainApiMock() {
         })),
         getDashboardHeatmapYear: vi.fn((request: DashboardHeatmapYearRequest) => Promise.resolve({ request_id: request.request_id, year: request.year, days: [] })),
         getDashboardRecentLogs: vi.fn((request: DashboardRecentLogsRequest) => Promise.resolve({ request_id: request.request_id, offset: request.offset, limit: request.limit, total_count: 0, items: [] })),
+        getReadingReportInputs: vi.fn(() => Promise.resolve({ aggregates: [] })),
+        saveLocalSettingValues: vi.fn(() => Promise.resolve()),
         getMilestones: vi.fn(() => Promise.resolve([])),
         getAppVersion: vi.fn(() => Promise.resolve('1.0.0')),
         isDesktop: vi.fn(() => true),
@@ -386,16 +389,12 @@ export function renderMainAppShell() {
         <div id="app" data-boot-state="loading">
             <div id="desktop-title-bar"></div>
             <header>
-                <div id="nav-user-avatar"></div>
-                <img id="nav-user-avatar-image" />
-                <span id="nav-user-avatar-fallback"></span>
                 <div id="nav-profile-tab-avatar"></div>
                 <img id="nav-profile-tab-avatar-image" />
                 <span id="nav-profile-tab-avatar-fallback"></span>
                 <span id="nav-user-name"></span>
-                <div id="dev-build-badge"></div>
-                <div id="mobile-build-badge"></div>
-                <button id="update-available-badge"></button>
+                <button id="app-version-button"></button>
+                <button id="mobile-app-version-button"></button>
                 <button id="nav-sync-status-btn"><span id="nav-sync-status-dot"></span></button>
                 <button id="mobile-sync-status-btn"><span id="mobile-sync-status-dot"></span></button>
                 <div class="nav-link" data-view="dashboard"></div>

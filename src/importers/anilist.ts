@@ -1,12 +1,15 @@
 import { BaseImporter } from './base';
 import type { ScrapedMetadata } from './types';
 import { fetchExternalJson } from '../platform';
+import { EXTRA_FIELD_LABELS } from '../constants';
+import { formatCompactDuration } from '../time';
 
 interface AnilistMedia {
     title?: { romaji?: string; english?: string };
     description?: string;
     coverImage?: { extraLarge?: string; large?: string };
     episodes?: number;
+    duration?: number;
     volumes?: number;
     chapters?: number;
     season?: string;
@@ -57,7 +60,7 @@ export class AnilistImporter extends BaseImporter {
             title { romaji english }
             description(asHtml: false)
             coverImage { extraLarge large }
-            episodes volumes chapters season seasonYear
+            episodes duration volumes chapters season seasonYear
             startDate { year month day }
             endDate { year month day }
             averageScore source genres
@@ -85,7 +88,8 @@ export class AnilistImporter extends BaseImporter {
         }
         
         if (m.episodes) extras["Episodes"] = m.episodes.toString();
-        
+        if (m.duration) extras[EXTRA_FIELD_LABELS.EPISODE_DURATION] = formatCompactDuration(m.duration);
+
         if (m.season || m.seasonYear) {
             const seasonStr = m.season ? m.season.charAt(0).toUpperCase() + m.season.slice(1).toLowerCase() : "";
             extras["Airing Season"] = `${seasonStr} ${m.seasonYear ?? ""}`.trim();

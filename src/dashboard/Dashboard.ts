@@ -13,7 +13,8 @@ import {
 } from '../api';
 import type { DashboardGroupBy } from '../types';
 import { StatsCard } from './StatsCard';
-import { Heatmap, type HeatmapHost } from './cards/Heatmap';
+import { Heatmap, type HeatmapHost } from './cards/heatmap/Heatmap';
+import type { HeatmapSelection } from './cards/heatmap/heatmap_layout';
 import { ActivityFlow } from './cards/ActivityFlow';
 import { ActivityMix } from './cards/ActivityMix';
 import { DashboardControls } from './DashboardControls';
@@ -44,6 +45,14 @@ import {
     type DashboardCardId,
 } from './dashboard_cards';
 import { reconcileDashboardCards, type DashboardCardDescriptor } from './dashboard_layout';
+import {
+    DEFAULT_READING_REPORT_METRIC,
+    parseReadingReportMetric,
+    READING_REPORT_CACHE_SETTING_KEYS,
+    readingReportWindow,
+    type ReadingReportMetric,
+} from '../stats/reading_speed';
+import { getReadingReportService } from '../stats/reading_report_service';
 
 const RECENT_LOGS_PER_PAGE = 15;
 const SIDE_PANEL_HIDE_LABEL = 'Collapse sidebar';
@@ -69,6 +78,7 @@ interface DashboardState {
     recentPage: DashboardRecentPage | null;
     currentHeatmapYear: number;
     chartParams: ChartParams;
+    readingReportMetric: ReadingReportMetric;
     isInitialized: boolean;
 }
 
@@ -125,6 +135,7 @@ export class Dashboard extends Component<DashboardState> {
                 metric: 'minutes',
                 weekStartDay: 1,
             },
+            readingReportMetric: DEFAULT_READING_REPORT_METRIC,
             isInitialized: false,
         });
     }
@@ -144,7 +155,10 @@ export class Dashboard extends Component<DashboardState> {
 
         try {
             const today = getLocalISODate(new Date());
-            const heatmapYear = new Date().getFullYear();
+            const displayedHeatmapYear = this.heatmapComponent?.displayedYear;
+            const heatmapYear = displayedHeatmapYear !== undefined && Number.isFinite(displayedHeatmapYear)
+                ? displayedHeatmapYear
+                : new Date().getFullYear();
             const [snapshot, hiddenCardsSetting] = await Promise.all([
                 getDashboardSnapshot({
                     request_id: requestId,
@@ -152,6 +166,7 @@ export class Dashboard extends Component<DashboardState> {
                     heatmap_year: heatmapYear,
                     recent_offset: 0,
                     recent_limit: RECENT_LOGS_PER_PAGE,
+                    reading_report_cache_keys: [...READING_REPORT_CACHE_SETTING_KEYS],
                 }),
                 this.readHiddenCardsSetting(),
             ]);
@@ -159,10 +174,18 @@ export class Dashboard extends Component<DashboardState> {
                 return;
             }
 
+            const timeRangeDays = this.hasPendingSettingWrite(SETTING_KEYS.DASHBOARD_TIME_RANGE_DAYS)
+                ? this.state.chartParams.timeRangeDays
+                : snapshot.settings.time_range_days;
+            const timeRangeOffset = timeRangeDays === this.state.chartParams.timeRangeDays
+                ? this.state.chartParams.timeRangeOffset
+                : 0;
+
             if (this.visibilityRevision === hiddenCardsRevisionAtRead) {
                 this.hiddenCards = parseHiddenDashboardCards(hiddenCardsSetting);
             }
             this.controlsComponent?.refreshCardsSummary();
+            getReadingReportService().hydrateFromCache(snapshot.reading_report_cache);
 
             this.state = {
                 ...this.state,
@@ -178,14 +201,13 @@ export class Dashboard extends Component<DashboardState> {
                     chartType: snapshot.settings.chart_type,
                     groupByMode: snapshot.settings.group_by,
                     weekStartDay: snapshot.settings.week_start_day,
-                    timeRangeDays: this.hasPendingSettingWrite(SETTING_KEYS.DASHBOARD_TIME_RANGE_DAYS)
-                        ? this.state.chartParams.timeRangeDays
-                        : snapshot.settings.time_range_days,
+                    timeRangeDays,
                     metric: this.hasPendingSettingWrite(SETTING_KEYS.DASHBOARD_METRIC)
                         ? this.state.chartParams.metric
                         : snapshot.settings.metric,
-                    timeRangeOffset: 0,
+                    timeRangeOffset,
                 },
+                readingReportMetric: parseReadingReportMetric(snapshot.reading_report_cache[SETTING_KEYS.DASHBOARD_READING_REPORT_METRIC]),
                 isInitialized: true,
             };
 
@@ -355,6 +377,7 @@ export class Dashboard extends Component<DashboardState> {
                     this.requestRange().catch(error => Logger.error('Unexpected dashboard range failure', error));
                 } else {
                     this.publishControlsRequestId(this.activeSnapshotRequest);
+                    this.triggerReadingReportRecompute();
                 }
             });
         });
@@ -426,10 +449,11 @@ export class Dashboard extends Component<DashboardState> {
 
     private updateStats(): void {
         if (!this.containers.stats || !this.state.summary) return;
+        const componentState = { summary: this.state.summary, readingReportMetric: this.state.readingReportMetric };
         if (this.statsComponent) {
-            this.statsComponent.setState({ summary: this.state.summary });
+            this.statsComponent.setState(componentState);
         } else {
-            this.statsComponent = new StatsCard(this.containers.stats, { summary: this.state.summary });
+            this.statsComponent = new StatsCard(this.containers.stats, componentState);
             this.statsComponent.render();
         }
     }
@@ -454,16 +478,17 @@ export class Dashboard extends Component<DashboardState> {
     private updateHeatmap(): void {
         const host = this.cardHosts.get('heatmap');
         if (!host) return;
-        const componentState = {
+        const snapshot = {
             heatmapData: this.state.heatmapData,
             year: this.state.currentHeatmapYear,
         };
+        const selection = this.buildHeatmapSelection();
         if (this.heatmapComponent) {
-            this.heatmapComponent.setState(componentState);
+            this.heatmapComponent.applySnapshot(snapshot, selection);
         } else {
             this.heatmapComponent = new Heatmap(
                 host,
-                componentState,
+                { ...snapshot, selection },
                 this.createCardRequestHost(),
                 date => this.focusChartsOnHeatmapDate(date),
             );
@@ -535,7 +560,7 @@ export class Dashboard extends Component<DashboardState> {
         const highlightsHost = this.cardHosts.get('highlights');
         if (!this.state.rangeData || !periodStatsHost || !categoriesHost || !highlightsHost) return;
 
-        const { range, isTodayInRange, categoryTotals, timeRangeDays, timeRangeOffset, weekStartDay } = computeRangeContext({
+        const { range, elapsedPeriodDays, categoryTotals, timeRangeDays, timeRangeOffset, weekStartDay } = computeRangeContext({
             rangeData: this.state.rangeData,
             timeRangeDays: this.state.chartParams.timeRangeDays,
             timeRangeOffset: this.state.chartParams.timeRangeOffset,
@@ -544,7 +569,7 @@ export class Dashboard extends Component<DashboardState> {
 
         const periodStatsState = {
             range,
-            isTodayInRange,
+            elapsedPeriodDays,
             rangeData: this.state.rangeData,
             timeRangeDays,
             timeRangeOffset,
@@ -557,7 +582,7 @@ export class Dashboard extends Component<DashboardState> {
             this.periodStatsComponent.render();
         }
 
-        const categoriesState = { categoryTotals, isTodayInRange };
+        const categoriesState = { categoryTotals, elapsedPeriodDays };
         if (this.categoriesComponent) {
             this.categoriesComponent.setState(categoriesState);
         } else {
@@ -570,7 +595,7 @@ export class Dashboard extends Component<DashboardState> {
             categoryTotals,
             validStart: range.validStart,
             validEnd: range.validEnd,
-            isTodayInRange,
+            elapsedPeriodDays,
         };
         if (this.highlightsComponent) {
             this.highlightsComponent.setState(highlightsState);
@@ -588,6 +613,11 @@ export class Dashboard extends Component<DashboardState> {
         this.state = { ...this.state, chartParams: next };
         this.controlsComponent?.syncControlState(next);
         this.updateRangeLabel();
+        if (next.timeRangeDays !== previous.timeRangeDays
+            || next.timeRangeOffset !== previous.timeRangeOffset
+            || next.weekStartDay !== previous.weekStartDay) {
+            this.heatmapComponent?.setSelection(this.buildHeatmapSelection());
+        }
 
         if (params.chartType) {
             setSetting(SETTING_KEYS.DASHBOARD_CHART_TYPE, params.chartType)
@@ -705,8 +735,21 @@ export class Dashboard extends Component<DashboardState> {
         } finally {
             if (this.isLiveRangeRequest(generation, requestId)) {
                 for (const host of rangeHosts) host.removeAttribute('aria-busy');
+                this.triggerReadingReportRecompute();
             }
         }
+    }
+
+    private triggerReadingReportRecompute(): void {
+        const summary = this.state.summary;
+        if (!summary) return;
+        getReadingReportService().checkAndRecompute({
+            day: readingReportWindow(new Date()).today,
+            totalLogs: summary.total_logs,
+            totalMinutes: summary.total_minutes,
+            totalCharacters: summary.total_characters,
+            totalMedia: summary.total_media,
+        });
     }
 
     private publishControlsRange(range: ActivityRange): void {
@@ -731,6 +774,12 @@ export class Dashboard extends Component<DashboardState> {
             this.state.summary?.first_activity_date ?? null,
             this.state.summary?.last_activity_date ?? null,
         );
+    }
+
+    private buildHeatmapSelection(): HeatmapSelection {
+        const { timeRangeDays, timeRangeOffset, weekStartDay } = this.state.chartParams;
+        const range = getActivityRange(timeRangeDays, timeRangeOffset, this.getAllTimeRangeSeeds(), weekStartDay);
+        return { period: range.period, start: range.validStart, end: range.validEnd, weekStartDay };
     }
 
     private focusChartsOnHeatmapDate(date: string): void {

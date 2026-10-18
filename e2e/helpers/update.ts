@@ -52,12 +52,12 @@ export async function closeUpdateModal(): Promise<void> {
 }
 
 export async function waitForUpdateBanner(version: string): Promise<void> {
-  const banner = $('#update-available-badge');
-  await banner.waitForDisplayed({
+  const banner = $('#app-version-button');
+  await browser.waitUntil(async () => (await banner.getAttribute('data-update-available')) === 'true', {
     timeout: 10000,
     timeoutMsg: 'Update banner did not appear after mocking a newer upstream release',
   });
-  expect(await banner.getText()).toContain(version);
+  expect(await banner.getAttribute('aria-label')).toContain(version);
 }
 
 export async function triggerManualUpdateCheck(): Promise<void> {

@@ -18,15 +18,17 @@ import { showLogActivityModal } from './activity_modal';
 import { customAlert } from './modal_base';
 import { configureBackStack } from './back_stack';
 import { installSelectPopups } from './popups';
-import { syncAppShell } from './app_shell';
+import { NAVIGATION_BUTTON_ICON_SIZE_PX, renderNavigationIcons, syncAppShell } from './app_shell';
 import { initServices, getServices } from './services';
 import { MediaCoverLoader } from './media/cover_loader';
 import { Logger } from './logger';
-import { formatBuildBadge } from './app_version';
+import { formatShortVersion } from './app_version';
+import { openVersionModal } from './version_modal';
+import { DOWNLOAD, renderIcon } from './icons';
 import { escapeHTML } from './html';
 import { getProfileInitials, profilePictureToDataUrl } from './profile/profile_picture';
 import { STORAGE_KEYS, SETTING_KEYS, VIEW_NAMES, EVENTS, DEFAULTS } from './constants';
-import type { ProfilePicture } from './types';
+import type { ProfilePicture, ReleaseInfo, SyncStatus } from './types';
 import { UpdateManager } from './update/manager';
 import {
     attachSelectedRemoteProfile,
@@ -38,6 +40,12 @@ import {
 } from './sync_enablement';
 import {applyTheme, resolveEffectiveTheme} from "./theme.ts";
 import {applyFont, resolveEffectiveFont} from "./fonts.ts";
+import {
+    applyLibraryCardDisplay,
+    normalizeLibraryContentTypeTagMode,
+    normalizeLibraryStatusBorderMode,
+    normalizeLibraryStatusDotStyle,
+} from './media/library_card_display';
 import { renderDatabaseRecoveryScreen } from './database_recovery';
 
 // Support global date mocking for E2E tests
@@ -81,6 +89,32 @@ const APP_BOOT_STATES = {
     READY: 'ready',
 } as const;
 type AppBootState = typeof APP_BOOT_STATES[keyof typeof APP_BOOT_STATES];
+
+type SyncAttentionState = 'unconfigured' | 'idle' | 'dirty' | 'syncing' | 'conflict' | 'error';
+
+function resolveSyncAttentionState(syncStatus: SyncStatus): SyncAttentionState {
+    if (!syncStatus.sync_profile_id) return 'unconfigured';
+    if (syncStatus.conflict_count > 0 || syncStatus.state === 'conflict_pending') return 'conflict';
+    if (syncStatus.state === 'dirty') return 'dirty';
+    if (syncStatus.state === 'syncing') return 'syncing';
+    if (syncStatus.state === 'error' || !syncStatus.google_authenticated) return 'error';
+    return 'idle';
+}
+
+function describeSyncAttentionState(attentionState: SyncAttentionState, conflictCount: number): string {
+    switch (attentionState) {
+        case 'unconfigured':
+            return 'Set up cloud sync';
+        case 'conflict':
+            return `Resolve ${conflictCount} sync conflict${conflictCount === 1 ? '' : 's'}`;
+        case 'dirty':
+            return 'Sync pending changes';
+        case 'idle':
+            return 'Cloud sync';
+        default:
+            return 'Cloud sync status';
+    }
+}
 
 function startupErrorHeading(message: string): string {
     if (message.startsWith('Unable to obtain unique lock')) {
@@ -168,15 +202,11 @@ export class App {
     private readonly profileContainer: HTMLElement;
 
     private readonly navUserNameEl: HTMLElement;
-    private readonly navUserAvatarEl: HTMLElement | null;
-    private readonly navUserAvatarImgEl: HTMLImageElement | null;
-    private readonly navUserAvatarFallbackEl: HTMLElement | null;
     private readonly navProfileTabAvatarEl: HTMLElement | null;
     private readonly navProfileTabAvatarImgEl: HTMLImageElement | null;
     private readonly navProfileTabAvatarFallbackEl: HTMLElement | null;
-    private readonly devBuildBadgeEl: HTMLElement | null;
-    private readonly mobileBuildBadgeEl: HTMLElement | null;
-    private readonly updateBadgeEl: HTMLButtonElement | null;
+    private readonly versionButtonEl: HTMLButtonElement | null;
+    private readonly mobileVersionButtonEl: HTMLButtonElement | null;
     private readonly navSyncButtonEl: HTMLButtonElement | null;
     private readonly navSyncDotEl: HTMLElement | null;
     private readonly mobileSyncButtonEl: HTMLButtonElement | null;
@@ -191,15 +221,11 @@ export class App {
         this.updateManager = updateManager;
         this.viewContainer = document.getElementById('view-container')!;
         this.navUserNameEl = document.getElementById('nav-user-name')!;
-        this.navUserAvatarEl = document.getElementById('nav-user-avatar');
-        this.navUserAvatarImgEl = document.getElementById('nav-user-avatar-image') as HTMLImageElement | null;
-        this.navUserAvatarFallbackEl = document.getElementById('nav-user-avatar-fallback');
         this.navProfileTabAvatarEl = document.getElementById('nav-profile-tab-avatar');
         this.navProfileTabAvatarImgEl = document.getElementById('nav-profile-tab-avatar-image') as HTMLImageElement | null;
         this.navProfileTabAvatarFallbackEl = document.getElementById('nav-profile-tab-avatar-fallback');
-        this.devBuildBadgeEl = document.getElementById('dev-build-badge');
-        this.mobileBuildBadgeEl = document.getElementById('mobile-build-badge');
-        this.updateBadgeEl = document.getElementById('update-available-badge') as HTMLButtonElement | null;
+        this.versionButtonEl = document.getElementById('app-version-button') as HTMLButtonElement | null;
+        this.mobileVersionButtonEl = document.getElementById('mobile-app-version-button') as HTMLButtonElement | null;
         this.navSyncButtonEl = document.getElementById('nav-sync-status-btn') as HTMLButtonElement | null;
         this.navSyncDotEl = document.getElementById('nav-sync-status-dot');
         this.mobileSyncButtonEl = document.getElementById('mobile-sync-status-btn') as HTMLButtonElement | null;
@@ -231,13 +257,27 @@ export class App {
         this.profileView = new ProfileView(this.profileContainer, this.updateManager);
 
         this.updateManager.subscribe(state => {
-            if (!this.updateBadgeEl) return;
-            const isVisible = state.isSupported && state.availableRelease !== null;
-            this.updateBadgeEl.style.display = isVisible ? 'inline-flex' : 'none';
-            this.updateBadgeEl.disabled = state.availableRelease === null;
-            this.updateBadgeEl.textContent = state.availableRelease
-                ? `New update available: ${state.availableRelease.version}`
-                : 'New update available';
+            const isUpdateVisible = state.isSupported && state.availableRelease !== null;
+            this.renderVersionButtons(isUpdateVisible ? state.availableRelease : null);
+        });
+    }
+
+    private renderVersionButtons(availableRelease: ReleaseInfo | null): void {
+        const buttons = [this.versionButtonEl, this.mobileVersionButtonEl].filter(
+            (button): button is HTMLButtonElement => button !== null,
+        );
+        const isUpdateAvailable = availableRelease !== null;
+        const buttonHtml = isUpdateAvailable
+            ? `${renderIcon(DOWNLOAD, NAVIGATION_BUTTON_ICON_SIZE_PX)}Update`
+            : escapeHTML(formatShortVersion());
+        const ariaLabel = isUpdateAvailable
+            ? `Update available: ${availableRelease.version}`
+            : `Version ${formatShortVersion()}`;
+
+        buttons.forEach(button => {
+            button.innerHTML = buttonHtml;
+            button.dataset.updateAvailable = isUpdateAvailable ? 'true' : 'false';
+            button.setAttribute('aria-label', ariaLabel);
         });
     }
 
@@ -265,18 +305,11 @@ export class App {
     }
 
     private async init() {
+        renderNavigationIcons();
         this.setupWindowControls();
         this.setupNavigation();
         this.setupGlobalActions();
         this.setupEventListeners();
-
-        if (this.devBuildBadgeEl) {
-            this.devBuildBadgeEl.style.display = 'inline-flex';
-            this.devBuildBadgeEl.textContent = formatBuildBadge();
-        }
-        if (this.mobileBuildBadgeEl) {
-            this.mobileBuildBadgeEl.textContent = formatBuildBadge();
-        }
 
         const isFreshInstall = await this.initProfile();
         await this.loadAppearance();
@@ -284,7 +317,7 @@ export class App {
         await this.switchView(this.currentView);
         // Restoring Android's Google authorization can require a network call.
         // Keep the local library usable while the sync status is loading.
-        this.refreshSyncChrome();
+        this.refreshSyncChrome().catch(error => Logger.error('Failed to refresh sync status', error));
         this.setBootState(APP_BOOT_STATES.READY);
 
         try {
@@ -309,13 +342,19 @@ export class App {
         this.navLinks.forEach(link => {
             link.addEventListener('click', () => {
                 const view = link.dataset.view as ViewType;
-                if (view) this.switchView(view);
+                if (view) this.switchView(view).catch(error => Logger.error('Failed to switch view', error));
             });
         });
 
-        this.updateBadgeEl?.addEventListener('click', async () => {
-            await this.updateManager.openAvailableUpdateModal();
-        });
+        const handleVersionButtonClick = async () => {
+            if (this.updateManager.getState().availableRelease) {
+                await this.updateManager.openAvailableUpdateModal();
+            } else {
+                await openVersionModal();
+            }
+        };
+        this.versionButtonEl?.addEventListener('click', handleVersionButtonClick);
+        this.mobileVersionButtonEl?.addEventListener('click', handleVersionButtonClick);
     }
 
 
@@ -348,9 +387,9 @@ export class App {
                     this.switchView(VIEW_NAMES.MEDIA, {
                         mediaId: detail.focusMediaId,
                         source: detail.source,
-                    });
+                    }).catch(error => Logger.error('Failed to switch view', error));
                 } else if (detail.view === VIEW_NAMES.DASHBOARD) {
-                    this.switchView(VIEW_NAMES.DASHBOARD);
+                    this.switchView(VIEW_NAMES.DASHBOARD).catch(error => Logger.error('Failed to switch view', error));
                 }
             }
         });
@@ -471,38 +510,39 @@ export class App {
     }
 
     private async loadAppearance() {
-        const [syncedTheme, syncedFont] = await Promise.all([
+        const [syncedTheme, syncedFont, storedLibraryStatusBorder, storedLibraryStatusDot, storedLibraryContentTypeTag] = await Promise.all([
             getSetting(SETTING_KEYS.THEME),
             getSetting(SETTING_KEYS.FONT_FAMILY),
+            getSetting(SETTING_KEYS.LIBRARY_STATUS_BORDER),
+            getSetting(SETTING_KEYS.LIBRARY_STATUS_DOT),
+            getSetting(SETTING_KEYS.LIBRARY_CONTENT_TYPE_TAG),
         ]);
         applyTheme(resolveEffectiveTheme(syncedTheme || DEFAULTS.THEME));
         applyFont(resolveEffectiveFont(syncedFont || DEFAULTS.FONT));
+        applyLibraryCardDisplay({
+            statusBorder: normalizeLibraryStatusBorderMode(storedLibraryStatusBorder),
+            statusDot: normalizeLibraryStatusDotStyle(storedLibraryStatusDot),
+            contentTypeTag: normalizeLibraryContentTypeTagMode(storedLibraryContentTypeTag),
+        });
     }
 
     private async refreshProfileChrome() {
         this.currentProfile = await getSetting(SETTING_KEYS.PROFILE_NAME) || this.currentProfile || DEFAULTS.PROFILE;
         this.navUserNameEl.textContent = this.currentProfile;
 
-        const initials = getProfileInitials(this.currentProfile);
-        const fallbacks = [this.navUserAvatarFallbackEl, this.navProfileTabAvatarFallbackEl];
-        for (const fallback of fallbacks) {
-            if (fallback) fallback.textContent = initials;
-        }
+        const fallback = this.navProfileTabAvatarFallbackEl;
+        if (fallback) fallback.textContent = getProfileInitials(this.currentProfile);
 
         const profilePicture = await this.loadProfilePicture();
         const profilePictureSrc = profilePictureToDataUrl(profilePicture);
 
-        const updateAvatar = (img: HTMLImageElement | null, fallback: HTMLElement | null, el: HTMLElement | null) => {
-            if (img) {
-                img.src = profilePictureSrc || '';
-                img.style.display = profilePictureSrc ? 'block' : 'none';
-                if (fallback) fallback.style.display = profilePictureSrc ? 'none' : 'flex';
-            }
-            el?.setAttribute('aria-label', `${this.currentProfile} profile picture`);
-        };
-
-        updateAvatar(this.navUserAvatarImgEl, this.navUserAvatarFallbackEl, this.navUserAvatarEl);
-        updateAvatar(this.navProfileTabAvatarImgEl, this.navProfileTabAvatarFallbackEl, this.navProfileTabAvatarEl);
+        const avatarImage = this.navProfileTabAvatarImgEl;
+        if (avatarImage) {
+            avatarImage.src = profilePictureSrc || '';
+            avatarImage.style.display = profilePictureSrc ? 'block' : 'none';
+            if (fallback) fallback.style.display = profilePictureSrc ? 'none' : 'flex';
+        }
+        this.navProfileTabAvatarEl?.setAttribute('aria-label', `${this.currentProfile} profile picture`);
     }
 
     private async loadProfilePicture(): Promise<ProfilePicture | null> {
@@ -578,29 +618,8 @@ export class App {
         try {
             const syncStatus = await getSyncStatus();
 
-            let attentionState: string;
-            if (syncStatus.conflict_count > 0 || syncStatus.state === 'conflict_pending') {
-                attentionState = 'conflict';
-            } else if (syncStatus.state === 'dirty') {
-                attentionState = 'dirty';
-            } else if (syncStatus.state === 'syncing') {
-                attentionState = 'syncing';
-            } else if (syncStatus.state === 'error' || (syncStatus.sync_profile_id && !syncStatus.google_authenticated)) {
-                attentionState = 'error';
-            } else {
-                attentionState = 'idle';
-            }
-
-            let title: string;
-            if (attentionState === 'conflict') {
-                title = `Resolve ${syncStatus.conflict_count} sync conflict${syncStatus.conflict_count === 1 ? '' : 's'}`;
-            } else if (attentionState === 'dirty') {
-                title = 'Sync pending changes';
-            } else if (attentionState === 'idle') {
-                title = 'Cloud sync';
-            } else {
-                title = 'Cloud sync status';
-            }
+            const attentionState = resolveSyncAttentionState(syncStatus);
+            const title = describeSyncAttentionState(attentionState, syncStatus.conflict_count);
 
             buttons.forEach(({ button }) => {
                 button.dataset.visible = 'true';
@@ -640,6 +659,7 @@ export class App {
             }
 
             await this.switchView(VIEW_NAMES.PROFILE);
+            this.viewContainer.querySelector('#profile-sync-card')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
             return;
         } catch {
             await this.refreshSyncChrome();

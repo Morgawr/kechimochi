@@ -61,7 +61,7 @@ describe('DesktopServices', () => {
 
     it('routes bounded dashboard reads through dedicated IPC commands', async () => {
         vi.mocked(invoke).mockResolvedValue({ request_id: 17 });
-        const snapshotRequest = { request_id: 17, today: '2026-07-21', heatmap_year: 2026, recent_offset: 0, recent_limit: 15 };
+        const snapshotRequest = { request_id: 17, today: '2026-07-21', heatmap_year: 2026, recent_offset: 0, recent_limit: 15, reading_report_cache_keys: [] };
         const rangeRequest = { request_id: 18, start_date: '2026-07-20', end_date: '2026-07-26', bucket: 'day' as const, group_by: 'activity_type' as const };
         const yearRequest = { request_id: 19, year: 2025 };
         const recentRequest = { request_id: 20, offset: 15, limit: 15 };

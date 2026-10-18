@@ -123,9 +123,15 @@ describe('App update badge', () => {
 
         await App.start(manager as never);
 
-        const badge = document.getElementById('update-available-badge') as HTMLButtonElement;
-        expect(badge.style.display).toBe('inline-flex');
-        expect(badge.textContent).toContain('1.0.1');
+        const badge = document.getElementById('app-version-button') as HTMLButtonElement;
+        expect(badge.dataset.updateAvailable).toBe('true');
+        expect(badge.textContent).toBe('Update');
+        expect(badge.getAttribute('aria-label')).toContain('1.0.1');
+
+        const mobileBadge = document.getElementById('mobile-app-version-button') as HTMLButtonElement;
+        expect(mobileBadge.dataset.updateAvailable).toBe('true');
+        expect(mobileBadge.textContent).toBe('Update');
+        expect(mobileBadge.getAttribute('aria-label')).toContain('1.0.1');
 
         badge.click();
         expect(manager.openAvailableUpdateModal).toHaveBeenCalled();

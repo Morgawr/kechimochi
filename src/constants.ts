@@ -36,6 +36,12 @@ export const SETTING_KEYS = {
     STATS_NONFICTION_SPEED: 'stats_nonfiction_speed',
     STATS_MANGA_SPEED: 'stats_manga_speed',
     STATS_VN_SPEED: 'stats_vn_speed',
+    STATS_NOVEL_MINUTES: 'stats_novel_minutes',
+    STATS_WEBNOVEL_MINUTES: 'stats_webnovel_minutes',
+    STATS_NONFICTION_MINUTES: 'stats_nonfiction_minutes',
+    STATS_MANGA_MINUTES: 'stats_manga_minutes',
+    STATS_VN_MINUTES: 'stats_vn_minutes',
+    DASHBOARD_READING_REPORT_METRIC: 'dashboard_reading_report_metric',
     GRID_HIDE_ARCHIVED: 'grid_hide_archived',
     LIBRARY_LAYOUT_MODE: 'library_layout_mode',
     LIBRARY_GRID_ZOOM: 'library_grid_zoom',
@@ -55,12 +61,18 @@ export const SETTING_KEYS = {
     UPDATES_LAST_SEEN_RELEASE_VERSION: 'updates_last_seen_release_version',
     UPDATES_E2E_RELEASE_VERSION: 'updates_e2e_release_version',
     TIMELINE_ZOOM_LEVEL: 'timeline_zoom_level',
+    LIBRARY_STATUS_BORDER: 'library_status_border',
+    LIBRARY_STATUS_DOT: 'library_status_dot',
+    LIBRARY_CONTENT_TYPE_TAG: 'library_content_type_tag',
 } as const;
 
 export const DEFAULTS = {
     THEME: 'pastel-pink',
     FONT: 'inter',
     PROFILE: 'default',
+    LIBRARY_STATUS_BORDER: 'hover',
+    LIBRARY_STATUS_DOT: 'default',
+    LIBRARY_CONTENT_TYPE_TAG: 'always',
 } as const;
 
 export const THEME_MODES: Record<string, 'light' | 'dark'> = {
@@ -113,11 +125,8 @@ export const CONTENT_TYPE_TO_ACTIVITY_TYPE: Record<string, string> = {
     'Youtube Video': 'Watching',
 };
 
-export const FILTERS = {
-    ALL: 'All',
-} as const;
-
 export const EXTRA_FIELD_LABELS = {
     CHARACTER_COUNT: 'Character count',
     READING_SPEED: 'Reading speed',
+    EPISODE_DURATION: 'Episode duration',
 } as const;

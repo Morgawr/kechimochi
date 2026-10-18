@@ -9,7 +9,7 @@ import {
     waitForOverlayToDisappear,
     safeClick,
     waitForNoActiveOverlays,
-    selectActivityDate,
+    setActivityNotes,
     setDialogMockPath,
 } from './common.js';
 import { getSelectValue, pressEnter, setText, setSelect } from './form-controls.js';
@@ -556,11 +556,8 @@ export async function logActivityFromDetail(
 
 
     if (notes !== undefined && await overlay.$('#activity-notes').isExisting()) {
-        await setText('#activity-notes', notes);
+        await setActivityNotes(notes);
     }
-
-    // Pick today in the calendar
-    await selectActivityDate();
 
     await safeClick(() => overlay.$('#add-activity-form button[type="submit"]'));
 

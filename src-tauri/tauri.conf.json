@@ -18,6 +18,8 @@
         "title": "ケチモチ",
         "width": 1280,
         "height": 860,
+        "minWidth": 320,
+        "minHeight": 480,
         "center": true,
         "decorations": false,
         "transparent": true

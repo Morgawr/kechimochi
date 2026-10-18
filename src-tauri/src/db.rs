@@ -2630,6 +2630,29 @@ pub fn get_setting(conn: &Connection, key: &str) -> Result<Option<String>> {
     }
 }
 
+pub fn validate_local_setting_values(
+    values: &HashMap<String, String>,
+) -> std::result::Result<(), String> {
+    match values.keys().find(|key| crate::sync_snapshot::is_syncable_setting_key(key)) {
+        Some(key) => Err(format!(
+            "'{key}' is a syncable setting and cannot be written as a local-only value"
+        )),
+        None => Ok(()),
+    }
+}
+
+pub fn save_local_setting_values(conn: &Connection, values: &HashMap<String, String>) -> Result<()> {
+    let transaction = conn.unchecked_transaction()?;
+    for (key, value) in values {
+        let current = get_setting(&transaction, key)?;
+        if current.as_deref() != Some(value.as_str()) {
+            set_setting(&transaction, key, value)?;
+        }
+    }
+    transaction.commit()?;
+    Ok(())
+}
+
 pub fn get_profile_picture(conn: &Connection) -> Result<Option<ProfilePicture>> {
     let mut stmt = conn.prepare(
         "SELECT mime_type, base64_data, byte_size, width, height, updated_at
@@ -4517,6 +4540,69 @@ mod tests {
             get_setting(&conn, "theme").unwrap(),
             Some("light".to_string())
         );
+    }
+
+    #[test]
+    fn save_local_setting_values_leaves_updated_at_untouched_for_an_unchanged_value() {
+        let conn = setup_test_db();
+        set_setting(&conn, "stats_novel_speed", "8000").unwrap();
+
+        let changes_before = conn.total_changes();
+        let mut values = HashMap::new();
+        values.insert("stats_novel_speed".to_string(), "8000".to_string());
+        save_local_setting_values(&conn, &values).unwrap();
+
+        assert_eq!(conn.total_changes(), changes_before);
+        assert_eq!(
+            get_setting(&conn, "stats_novel_speed").unwrap(),
+            Some("8000".to_string())
+        );
+    }
+
+    #[test]
+    fn save_local_setting_values_writes_a_changed_value() {
+        let conn = setup_test_db();
+        set_setting(&conn, "stats_novel_speed", "8000").unwrap();
+
+        let mut values = HashMap::new();
+        values.insert("stats_novel_speed".to_string(), "9000".to_string());
+        save_local_setting_values(&conn, &values).unwrap();
+
+        assert_eq!(
+            get_setting(&conn, "stats_novel_speed").unwrap(),
+            Some("9000".to_string())
+        );
+    }
+
+    #[test]
+    fn save_local_setting_values_creates_a_previously_unset_key() {
+        let conn = setup_test_db();
+        let mut values = HashMap::new();
+        values.insert("stats_manga_minutes".to_string(), "120".to_string());
+        save_local_setting_values(&conn, &values).unwrap();
+
+        assert_eq!(
+            get_setting(&conn, "stats_manga_minutes").unwrap(),
+            Some("120".to_string())
+        );
+    }
+
+    #[test]
+    fn validate_local_setting_values_rejects_a_syncable_key_among_local_ones() {
+        let mut values = HashMap::new();
+        values.insert("stats_novel_speed".to_string(), "8000".to_string());
+        values.insert("theme".to_string(), "dark".to_string());
+
+        assert!(validate_local_setting_values(&values).is_err());
+    }
+
+    #[test]
+    fn validate_local_setting_values_accepts_only_local_keys() {
+        let mut values = HashMap::new();
+        values.insert("stats_novel_speed".to_string(), "8000".to_string());
+        values.insert("dashboard_reading_report_metric".to_string(), "time".to_string());
+
+        assert!(validate_local_setting_values(&values).is_ok());
     }
 
     #[test]

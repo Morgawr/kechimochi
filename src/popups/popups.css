@@ -84,7 +84,8 @@
   font-variant-numeric: tabular-nums;
 }
 
-.multi-select-trigger-chevron {
+.multi-select-trigger-chevron,
+.field-trigger-chevron {
   flex: 0 0 auto;
   width: calc(var(--chevron-tile) * 2);
   height: var(--chevron-tile);
@@ -102,17 +103,13 @@
   border-radius: var(--radius-md);
   background: var(--bg-card);
   box-shadow: var(--shadow-md);
-  z-index: 900;
-}
-
-.select-popup {
   z-index: 1100;
 }
 
 .multi-select-scrim {
   position: fixed;
   inset: 0;
-  z-index: 899;
+  z-index: 1099;
   background: var(--scrim);
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveDisplayContentType } from '../../src/media/content_type';
+import { formatContentTypeLabel, resolveDisplayContentType } from '../../src/media/content_type';
 import type { Media } from '../../src/types';
 
 function makeMedia(overrides: Partial<Media> & { id: number }): Media {
@@ -29,5 +29,21 @@ describe('resolveDisplayContentType', () => {
 
     it('should return Unknown for a whitespace-only content type', () => {
         expect(resolveDisplayContentType(makeMedia({ id: 1, content_type: '   ' }))).toBe('Unknown');
+    });
+});
+
+describe('formatContentTypeLabel', () => {
+    it('should prettify WebNovel to Web Novel', () => {
+        expect(formatContentTypeLabel('WebNovel')).toBe('Web Novel');
+    });
+
+    it('should prettify NonFiction to Non-Fiction', () => {
+        expect(formatContentTypeLabel('NonFiction')).toBe('Non-Fiction');
+    });
+
+    it('should pass every other content type through unchanged', () => {
+        for (const contentType of ['Novel', 'Manga', 'Visual Novel', 'Anime', 'Unknown']) {
+            expect(formatContentTypeLabel(contentType)).toBe(contentType);
+        }
     });
 });

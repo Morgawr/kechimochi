@@ -17,7 +17,7 @@ export const PERIOD_STATS_CARD = {
 
 interface PeriodStatsState {
     range: ActivityRange;
-    isTodayInRange: boolean;
+    elapsedPeriodDays: number | null;
     rangeData?: DashboardRangeResponse;
     logs?: ActivitySummary[];
     timeRangeDays: number;
@@ -93,7 +93,7 @@ export class PeriodStats extends Component<PeriodStatsState> {
             selectedIndex,
             currentIndex,
             selectedSubject,
-            this.state.isTodayInRange,
+            this.state.elapsedPeriodDays,
         ));
         this.setupListeners();
         const scroller = this.getRowsScroller();
@@ -122,7 +122,7 @@ export class PeriodStats extends Component<PeriodStatsState> {
         selectedIndex: number,
         currentIndex: number,
         selectedSubject: string,
-        isTodayInRange: boolean,
+        elapsedPeriodDays: number | null,
     ): string {
         const columns = getTotalsColumns(rows);
         const body = hasVisibleTotals(columns) ? `
@@ -136,7 +136,7 @@ export class PeriodStats extends Component<PeriodStatsState> {
             selectedSubject,
             columns,
         )}
-        ` : renderNoPeriodDataEmptyState(isTodayInRange);
+        ` : renderNoPeriodDataEmptyState(elapsedPeriodDays);
 
         return renderDashboardCardShell({ title: `${this.getTitle(range.period)} Stats`, body });
     }

@@ -1,8 +1,9 @@
 /**
  * Dashboard-specific helpers.
  */
-import { clickTopmostOverlayChild, confirmAction, performActivityEdit, safeClick, getTopmostVisibleOverlay, waitForNoActiveOverlays, selectActivityDate } from './common.js';
+import { clickTopmostOverlayChild, confirmAction, performActivityEdit, safeClick, getTopmostVisibleOverlay, waitForNoActiveOverlays, selectActivityDate, setActivityNotes } from './common.js';
 import { pressEnter, setText, setSelect } from './form-controls.js';
+import type { BusinessCardActionId } from '../../src/dashboard/reportcard/report_card_controls';
 
 export function dashboardCardSelector(id: string): string {
     return `[data-dashboard-card="${id}"]`;
@@ -122,7 +123,7 @@ export async function logActivity(
     }
 
     if (notes !== undefined && await overlay.$('#activity-notes').isExisting()) {
-        await setText('#activity-notes', notes);
+        await setActivityNotes(notes);
     }
 
     if (date) {
@@ -137,6 +138,23 @@ export async function logActivity(
     // handle while the dashboard rerenders can itself race with Wry and become
     // stale. A prompt or alert is also a valid submission result for callers
     // that intentionally exercise those flows.
+    await waitForActivitySubmissionResult();
+}
+
+export async function logActivityWithEpisodes(title: string, episodeCount: number, date: string): Promise<void> {
+    const overlay = await openActivityFormWithAmounts(title, '', '0');
+
+    const incrementButton = overlay.$('button[aria-label="Add one episode"]');
+    await incrementButton.waitForClickable({ timeout: 5000 });
+    for (let episodeIndex = 0; episodeIndex < episodeCount; episodeIndex++) {
+        await incrementButton.click();
+    }
+
+    await selectActivityDate(date);
+
+    const submitButton = overlay.$('#add-activity-form button[type="submit"]');
+    await submitButton.waitForClickable({ timeout: 5000 });
+    await submitButton.click();
     await waitForActivitySubmissionResult();
 }
 
@@ -405,22 +423,20 @@ export async function waitForDashboardSettled(timeout = 20000): Promise<void> {
     });
 }
 
+export const HEATMAP_SELECTOR = dashboardCardSelector('heatmap');
+const HEATMAP_DAYS_IN_SHORTEST_MONTH = 28;
+const HEATMAP_MONTH_NAVIGATION_LIMIT = 36;
+
 export async function waitForHeatmapReady(timeout = 10000): Promise<void> {
     await browser.waitUntil(async () => {
-        return browser.execute(() => {
-            const heatmap = document.querySelector<HTMLElement>('.heatmap');
-            if (!heatmap) return false;
-
-            const rect = heatmap.getBoundingClientRect();
-            const style = getComputedStyle(heatmap);
-            const calendarCells = heatmap.querySelectorAll('.heatmap-cell[title]');
-
-            return calendarCells.length >= 365
-                && rect.width > 0
-                && rect.height > 0
-                && style.display !== 'none'
-                && style.visibility !== 'hidden';
-        }).catch(() => false);
+        return browser.execute((heatmapSelector, minimumDays) => {
+            const days = Array.from(document.querySelectorAll<HTMLElement>(`${heatmapSelector} [data-date]`));
+            const visibleDays = days.filter(day => {
+                const rect = day.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0;
+            });
+            return visibleDays.length >= minimumDays;
+        }, HEATMAP_SELECTOR, HEATMAP_DAYS_IN_SHORTEST_MONTH).catch(() => false);
     }, {
         timeout,
         interval: 100,
@@ -428,12 +444,47 @@ export async function waitForHeatmapReady(timeout = 10000): Promise<void> {
     });
 }
 
+export async function isHeatmapMonthCalendarShown(): Promise<boolean> {
+    return $(`${HEATMAP_SELECTOR} button[data-heatmap-month]`).isDisplayed();
+}
+
+async function getDisplayedHeatmapMonth(): Promise<string | undefined> {
+    return browser.execute((heatmapSelector) => {
+        return document.querySelector<HTMLElement>(`${heatmapSelector} [data-heatmap-month][aria-pressed="true"]`)
+            ?.dataset.heatmapMonth;
+    }, HEATMAP_SELECTOR);
+}
+
+export async function showHeatmapCalendarMonth(monthKey: string): Promise<void> {
+    for (let step = 0; step < HEATMAP_MONTH_NAVIGATION_LIMIT; step++) {
+        const displayed = await getDisplayedHeatmapMonth();
+        if (displayed === monthKey) return;
+
+        if (displayed?.slice(0, 4) === monthKey.slice(0, 4)) {
+            await safeClick(`${HEATMAP_SELECTOR} button[data-heatmap-month="${monthKey}"]`);
+        } else {
+            const label = displayed !== undefined && displayed > monthKey ? 'Previous month' : 'Next month';
+            await safeClick(`${HEATMAP_SELECTOR} button[aria-label="${label}"]`);
+        }
+        await browser.waitUntil(async () => (await getDisplayedHeatmapMonth()) !== displayed, {
+            timeout: 5000,
+            interval: 100,
+            timeoutMsg: `Heatmap calendar did not move off ${displayed} towards ${monthKey}`,
+        });
+    }
+    throw new Error(`Heatmap calendar did not reach ${monthKey}`);
+}
+
 export async function clickHeatmapCell(date: string): Promise<void> {
     await waitForHeatmapReady();
+    let daySelector = `${HEATMAP_SELECTOR} [role="button"][data-date="${date}"]`;
+    if (await isHeatmapMonthCalendarShown()) {
+        await showHeatmapCalendarMonth(date.slice(0, 7));
+        daySelector = `${HEATMAP_SELECTOR} button[data-date="${date}"]`;
+    }
 
-    const cell = $(`.heatmap-cell[data-date="${date}"]`);
-    await cell.waitForDisplayed({ timeout: 5000 });
-    await safeClick(cell);
+    await $(daySelector).waitForDisplayed({ timeout: 5000 });
+    await safeClick(daySelector);
 }
 
 export async function selectActivityChartTimeRange(days: '0' | '7' | '30' | '365'): Promise<void> {
@@ -463,6 +514,16 @@ export async function getActivityChartRangeMetadata(): Promise<{
             timeRangeOffset: controls?.dataset.timeRangeOffset ?? ''
         };
     });
+}
+
+export async function clickBusinessCardMenuItem(actionId: BusinessCardActionId): Promise<void> {
+    const trigger = $('#dashboard-business-card-button');
+    await trigger.waitForClickable({ timeout: 10000 });
+    await trigger.click();
+
+    const item = $(`.popup-menu [data-action-id="${actionId}"]`);
+    await item.waitForClickable({ timeout: 5000 });
+    await item.click();
 }
 
 /**

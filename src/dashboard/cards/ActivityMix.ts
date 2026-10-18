@@ -2,7 +2,7 @@ import { html, rawHtml } from '../../html';
 import { ActivitySummary, DashboardRangeResponse, Media } from '../../api';
 import type { Chart as ChartInstance } from 'chart.js';
 import { formatStatsDuration } from '../../time';
-import { getActivityRange, getLocalISODate, resolveRangeLogs, type ActivityRange } from '../activity_ranges';
+import { getActivityRange, getElapsedPeriodDays, getLocalISODate, resolveRangeLogs, type ActivityRange } from '../activity_ranges';
 import { logPerformance, measureSynchronous, performanceNow } from '../../performance';
 import { loadChartConstructor, type ChartConstructor } from '../../chart_loader';
 import type { DashboardCardDescriptor } from '../dashboard_layout';
@@ -138,8 +138,7 @@ export class ActivityMix extends ChartCard<ActivityMixState> {
         const message = card?.querySelector<HTMLElement>('#pie-chart-empty-message');
         if (!message) return;
         if (pieChartEmpty) {
-            const today = getLocalISODate(new Date());
-            message.innerHTML = renderNoPeriodDataMessage(today >= timeRange.validStart && today <= timeRange.validEnd);
+            message.innerHTML = renderNoPeriodDataMessage(getElapsedPeriodDays(timeRange, getLocalISODate(new Date())));
         }
         message.classList.toggle('is-visible', pieChartEmpty);
     }

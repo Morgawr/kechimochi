@@ -10,6 +10,7 @@ pub mod library_data;
 pub mod models;
 pub mod profile_picture;
 pub mod read_performance;
+pub mod reading_report_data;
 pub mod remote_fetch;
 pub mod sync_auth;
 pub mod sync_cover_blobs;
@@ -36,8 +37,9 @@ use models::{
     ActivityLog, ActivitySummary, DailyHeatmap, DashboardHeatmapYearRequest,
     DashboardHeatmapYearResponse, DashboardRangeRequest, DashboardRangeResponse,
     DashboardRecentLogsRequest, DashboardRecentPage, DashboardSnapshot, DashboardSnapshotRequest,
-    LibrarySnapshot, LibrarySnapshotRequest, Media, Milestone, ProfilePicture, TimelineBucketPage,
-    TimelineBucketRequest, TimelineEvent, TimelinePage, TimelinePageRequest,
+    LibrarySnapshot, LibrarySnapshotRequest, Media, Milestone, ProfilePicture,
+    ReadingReportInputsRequest, ReadingReportInputsResponse, SaveLocalSettingValuesRequest,
+    TimelineBucketPage, TimelineBucketRequest, TimelineEvent, TimelinePage, TimelinePageRequest,
 };
 
 // Database state
@@ -877,6 +879,36 @@ async fn get_dashboard_recent_logs(
         dashboard_data::get_dashboard_recent_logs(conn, &request)
     })
     .await
+}
+
+#[tauri::command]
+async fn get_reading_report_inputs(
+    state: State<'_, DbState>,
+    request: ReadingReportInputsRequest,
+) -> Result<ReadingReportInputsResponse, String> {
+    reading_report_data::validate_reading_report_request(&request)?;
+    let conn = state.conn.clone();
+    run_measured_read(conn, "reading_report_inputs", move |conn| {
+        reading_report_data::get_reading_report_inputs(conn, &request)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn save_local_setting_values(
+    state: State<'_, DbState>,
+    request: SaveLocalSettingValuesRequest,
+) -> Result<(), String> {
+    db::validate_local_setting_values(&request.values)?;
+    let conn = state.conn.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = conn
+            .lock()
+            .map_err(|_| "Database lock was poisoned".to_string())?;
+        db::save_local_setting_values(&conn, &request.values).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Write task failed: {error}"))?
 }
 
 #[tauri::command]
@@ -1902,6 +1934,8 @@ pub fn run() {
             get_dashboard_range,
             get_dashboard_heatmap_year,
             get_dashboard_recent_logs,
+            get_reading_report_inputs,
+            save_local_setting_values,
             get_library_snapshot,
             import_csv,
             analyze_activity_csv,

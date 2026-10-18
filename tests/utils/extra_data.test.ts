@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getCharacterCountFromExtraData, getExtraDataValue, getReadingSpeedFromExtraData, mergeExtraData, normalizeExtraData, renameExtraDataKey, upsertExtraDataValue } from '../../src/extra_data';
+import { getCharacterCountFromExtraData, getEpisodeDurationFromExtraData, getExtraDataValue, getReadingSpeedFromExtraData, mergeExtraData, normalizeExtraData, renameExtraDataKey, upsertExtraDataValue } from '../../src/extra_data';
 
 describe('extra_data utils', () => {
     it('should find extra data values case-insensitively', () => {
@@ -26,6 +26,24 @@ describe('extra_data utils', () => {
         expect(getReadingSpeedFromExtraData({})).toBeNull();
         expect(getReadingSpeedFromExtraData({ 'Reading speed': '0' })).toBeNull();
         expect(getReadingSpeedFromExtraData({ 'Reading speed': 'fast' })).toBeNull();
+    });
+
+    it('should parse episode durations case-insensitively', () => {
+        expect(getEpisodeDurationFromExtraData({ 'EPISODE DURATION': '25m' })).toBe(25);
+    });
+
+    it('should parse episode durations in any duration notation', () => {
+        expect(getEpisodeDurationFromExtraData({ 'Episode duration': '25' })).toBe(25);
+        expect(getEpisodeDurationFromExtraData({ 'Episode duration': '1h' })).toBe(60);
+        expect(getEpisodeDurationFromExtraData({ 'Episode duration': '1h 5m' })).toBe(65);
+    });
+
+    it('should return null for missing, zero or invalid episode durations', () => {
+        expect(getEpisodeDurationFromExtraData({})).toBeNull();
+        expect(getEpisodeDurationFromExtraData({ 'Episode duration': '' })).toBeNull();
+        expect(getEpisodeDurationFromExtraData({ 'Episode duration': '0' })).toBeNull();
+        expect(getEpisodeDurationFromExtraData({ 'Episode duration': 'about 24 min' })).toBeNull();
+        expect(getEpisodeDurationFromExtraData({ 'Episode duration': '2ep' })).toBeNull();
     });
 
     it('should normalize duplicate keys case-insensitively while keeping the first casing', () => {

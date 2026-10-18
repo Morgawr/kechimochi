@@ -95,7 +95,7 @@ export class MediaList extends Component<MediaListState> {
             containerId: 'media-list-container',
             containerClassName: 'media-list-scroll-container',
             // min-width:0 is required for flex children to shrink instead of overflowing horizontally.
-            containerStyle: 'display: flex; flex-direction: column; gap: 1rem; overflow-y: auto; flex: 1; min-width: 0; padding: 0.5rem 1rem 2rem 1rem;',
+            containerStyle: 'display: flex; flex-direction: column; gap: 1rem; overflow-y: auto; flex: 1; min-width: 0;',
             emptyStateMarkup: '<div style="text-align: center; color: var(--text-secondary); padding: 4rem;">No media matches your filters.</div>',
             initialBatchSize: 18,
             batchSize: 12,

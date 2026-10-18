@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ReportCardData } from '../../../src/profile/reportcard/report_card_controls';
+import type { ReportCardData } from '../../../src/dashboard/reportcard/report_card_controls';
 import {
-    renderReportCardButtons,
+    renderBusinessCardButton,
     reportCardSubtitle,
     saveReportCard,
-    wireReportCardButtons,
-} from '../../../src/profile/reportcard/report_card_controls';
+    wireBusinessCardButton,
+} from '../../../src/dashboard/reportcard/report_card_controls';
+import type { PopupMenuItem } from '../../../src/popups';
+import { CLOCK, HIRAGANA_KE } from '../../../src/icons';
 
 const mocks = vi.hoisted(() => ({
     aggregateCategorySlices: vi.fn(),
@@ -15,13 +17,14 @@ const mocks = vi.hoisted(() => ({
     renderReportCardImage: vi.fn(),
     resolveReportCardThemeColors: vi.fn(),
     saveReportCardImage: vi.fn(),
+    openPopupMenu: vi.fn(),
 }));
 
-vi.mock('../../../src/profile/reportcard/report_card_data', () => ({
+vi.mock('../../../src/dashboard/reportcard/report_card_data', () => ({
     aggregateCategorySlices: mocks.aggregateCategorySlices,
 }));
 
-vi.mock('../../../src/profile/reportcard/report_card_image', () => ({
+vi.mock('../../../src/dashboard/reportcard/report_card_image', () => ({
     buildReportCardFileName: mocks.buildReportCardFileName,
     renderReportCardImage: mocks.renderReportCardImage,
     resolveReportCardThemeColors: mocks.resolveReportCardThemeColors,
@@ -37,6 +40,10 @@ vi.mock('../../../src/modal_base', () => ({
 
 vi.mock('../../../src/logger', () => ({
     Logger: { error: mocks.loggerError },
+}));
+
+vi.mock('../../../src/popups', () => ({
+    openPopupMenu: mocks.openPopupMenu,
 }));
 
 describe('report card controls', () => {
@@ -68,6 +75,20 @@ describe('report card controls', () => {
         };
     }
 
+    function openedMenuItems(): PopupMenuItem[] {
+        return mocks.openPopupMenu.mock.calls.at(-1)![0].items as PopupMenuItem[];
+    }
+
+    function selectMenuItem(actionId: string): void {
+        openedMenuItems().find(item => item.actionId === actionId)!.onSelect();
+    }
+
+    function containerOf(button: HTMLElement): HTMLElement {
+        const container = document.createElement('div');
+        container.appendChild(button);
+        return container;
+    }
+
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.aggregateCategorySlices.mockReturnValue(slices);
@@ -89,57 +110,18 @@ describe('report card controls', () => {
         });
     });
 
-    it('renders a Business Card panel with enabled save buttons when logged time is available', () => {
-        const root = renderReportCardButtons(true);
+    it('renders an enabled business card button when logged time is available', () => {
+        const button = renderBusinessCardButton(true);
 
-        expect(root.classList.contains('card')).toBe(true);
-        expect(root.textContent).toContain('Business Card');
-        expect(root.querySelectorAll('button.btn-primary')).toHaveLength(2);
-        expect((root.querySelector('#profile-btn-save-card-activity') as HTMLButtonElement).disabled).toBe(false);
-        expect((root.querySelector('#profile-btn-save-card-content') as HTMLButtonElement).disabled).toBe(false);
-        expect(root.textContent).toContain('Save Card: Activity');
-        expect(root.textContent).toContain('Save Card: Content');
+        expect(button.id).toBe('dashboard-business-card-button');
+        expect(button.textContent).toContain('Save business card');
+        expect((button as HTMLButtonElement).disabled).toBe(false);
     });
 
-    it('disables both save buttons when no time has been logged', () => {
-        const root = renderReportCardButtons(false);
+    it('disables the button when no time has been logged', () => {
+        const button = renderBusinessCardButton(false);
 
-        const saveButtons = root.querySelectorAll<HTMLButtonElement>('button.btn-primary');
-        expect(saveButtons).toHaveLength(2);
-        expect(Array.from(saveButtons).every(button => button.disabled)).toBe(true);
-    });
-
-    it('renders the Time/Characters metric toggle defaulting to time', () => {
-        const root = renderReportCardButtons(true);
-
-        const timeOption = root.querySelector('#report-card-metric-time') as HTMLButtonElement;
-        const charactersOption = root.querySelector('#report-card-metric-characters') as HTMLButtonElement;
-        expect(timeOption).not.toBeNull();
-        expect(charactersOption).not.toBeNull();
-        expect(timeOption.classList.contains('is-active')).toBe(true);
-        expect(charactersOption.classList.contains('is-active')).toBe(false);
-        expect(root.textContent).toContain('Time');
-        expect(root.textContent).toContain('Char');
-    });
-
-    it('activates the clicked metric option', () => {
-        const root = renderReportCardButtons(true);
-        wireReportCardButtons(root, () => buildData());
-        const timeOption = root.querySelector('#report-card-metric-time') as HTMLButtonElement;
-        const charactersOption = root.querySelector('#report-card-metric-characters') as HTMLButtonElement;
-
-        expect(timeOption.classList.contains('is-active')).toBe(true);
-        expect(charactersOption.classList.contains('is-active')).toBe(false);
-
-        charactersOption.click();
-
-        expect(timeOption.classList.contains('is-active')).toBe(false);
-        expect(charactersOption.classList.contains('is-active')).toBe(true);
-
-        timeOption.click();
-
-        expect(timeOption.classList.contains('is-active')).toBe(true);
-        expect(charactersOption.classList.contains('is-active')).toBe(false);
+        expect((button as HTMLButtonElement).disabled).toBe(true);
     });
 
     it('alerts without rendering when aggregation produces no slices', async () => {
@@ -207,21 +189,37 @@ describe('report card controls', () => {
         expect(mocks.customAlert).not.toHaveBeenCalled();
     });
 
-    it('uses fresh data for each click and restores the busy button state after saving', async () => {
+    it('opens a menu with the four dimension/metric outputs on click', () => {
+        const button = renderBusinessCardButton(true);
+        wireBusinessCardButton(containerOf(button),async () => buildData());
+
+        button.click();
+
+        expect(mocks.openPopupMenu).toHaveBeenCalledOnce();
+        const items = openedMenuItems();
+        expect(items.map(item => item.actionId)).toEqual([
+            'activity-time',
+            'activity-characters',
+            'content-time',
+            'content-characters',
+        ]);
+        expect(items.find(item => item.actionId === 'content-time')?.separatorBefore).toBe(true);
+    });
+
+    it('fetches fresh data and restores the busy button state after saving a selection', async () => {
         let resolveRender!: (blob: Blob) => void;
         mocks.renderReportCardImage.mockReturnValue(new Promise(resolve => {
             resolveRender = resolve;
         }));
-        const root = renderReportCardButtons(true);
-        const getData = vi.fn(() => buildData());
-        wireReportCardButtons(root, getData);
-        const button = root.querySelector('#profile-btn-save-card-activity') as HTMLButtonElement;
+        const button = renderBusinessCardButton(true) as HTMLButtonElement;
+        const getData = vi.fn(async () => buildData());
+        wireBusinessCardButton(containerOf(button),getData);
         const originalText = button.innerText;
 
         button.click();
-
-        expect(getData).toHaveBeenCalledOnce();
-        expect(button.disabled).toBe(true);
+        selectMenuItem('activity-time');
+        await vi.waitFor(() => expect(getData).toHaveBeenCalledOnce());
+        await vi.waitFor(() => expect(button.disabled).toBe(true));
         expect(button.innerText).toBe('Saving...');
 
         resolveRender(imageBlob);
@@ -230,34 +228,25 @@ describe('report card controls', () => {
         expect(button.innerText).toBe(originalText);
     });
 
-    it('wires the content button to the content variant', async () => {
-        const root = renderReportCardButtons(true);
-        wireReportCardButtons(root, () => buildData());
+    it('threads the selected menu entry dimension and metric into the save', async () => {
+        const button = renderBusinessCardButton(true);
+        wireBusinessCardButton(containerOf(button),async () => buildData());
 
-        (root.querySelector('#profile-btn-save-card-content') as HTMLButtonElement).click();
+        button.click();
+        selectMenuItem('content-characters');
 
-        await vi.waitFor(() => expect(mocks.aggregateCategorySlices).toHaveBeenCalledWith([], [], 'content', 'time'));
-    });
-
-    it('reads the active metric option at click time and passes it to saveReportCard', async () => {
-        const root = renderReportCardButtons(true);
-        wireReportCardButtons(root, () => buildData());
-        (root.querySelector('#report-card-metric-characters') as HTMLButtonElement).click();
-
-        (root.querySelector('#profile-btn-save-card-activity') as HTMLButtonElement).click();
-
-        await vi.waitFor(() => expect(mocks.aggregateCategorySlices).toHaveBeenCalledWith([], [], 'activity', 'characters'));
+        await vi.waitFor(() => expect(mocks.aggregateCategorySlices).toHaveBeenCalledWith([], [], 'content', 'characters'));
     });
 
     it('reports save failures and still restores the button', async () => {
         const failure = new Error('canvas failed');
         mocks.renderReportCardImage.mockRejectedValue(failure);
-        const root = renderReportCardButtons(true);
-        wireReportCardButtons(root, () => buildData());
-        const button = root.querySelector('#profile-btn-save-card-activity') as HTMLButtonElement;
+        const button = renderBusinessCardButton(true) as HTMLButtonElement;
+        wireBusinessCardButton(containerOf(button),async () => buildData());
         const originalText = button.innerText;
 
         button.click();
+        selectMenuItem('activity-time');
 
         await vi.waitFor(() => expect(mocks.customAlert).toHaveBeenCalledWith(
             'Error',
@@ -268,7 +257,65 @@ describe('report card controls', () => {
         expect(button.innerText).toBe(originalText);
     });
 
-    it('does nothing when a report-card button is absent', () => {
-        expect(() => wireReportCardButtons(document.createElement('div'), () => buildData())).not.toThrow();
+    it('does nothing when the business card button is absent', () => {
+        expect(() => wireBusinessCardButton(document.createElement('div'), async () => buildData())).not.toThrow();
+    });
+
+    it('carries the clock icon on the time entries and the hiragana-ke icon on the characters entries', () => {
+        const button = renderBusinessCardButton(true);
+        wireBusinessCardButton(containerOf(button),async () => buildData());
+
+        button.click();
+
+        const items = openedMenuItems();
+        expect(items.find(item => item.actionId === 'activity-time')?.iconMarkup).toBe(CLOCK);
+        expect(items.find(item => item.actionId === 'content-time')?.iconMarkup).toBe(CLOCK);
+        expect(items.find(item => item.actionId === 'activity-characters')?.iconMarkup).toBe(HIRAGANA_KE);
+        expect(items.find(item => item.actionId === 'content-characters')?.iconMarkup).toBe(HIRAGANA_KE);
+    });
+
+    it('opens the menu at the click point for a mouse click', () => {
+        const button = renderBusinessCardButton(true);
+        wireBusinessCardButton(containerOf(button),async () => buildData());
+
+        button.dispatchEvent(new MouseEvent('click', { detail: 1, clientX: 123, clientY: 456 }));
+
+        expect(mocks.openPopupMenu).toHaveBeenCalledWith(expect.objectContaining({
+            anchor: { kind: 'point', clientX: 123, clientY: 456 },
+        }));
+    });
+
+    it('anchors the menu to the button for a keyboard-activated click', () => {
+        const button = renderBusinessCardButton(true);
+        wireBusinessCardButton(containerOf(button),async () => buildData());
+
+        button.dispatchEvent(new MouseEvent('click', { detail: 0, clientX: 0, clientY: 0 }));
+
+        expect(mocks.openPopupMenu).toHaveBeenCalledWith(expect.objectContaining({
+            anchor: { kind: 'element', element: button, align: 'end' },
+        }));
+    });
+
+    it('swaps only the label span into "Saving..." while busy, leaving the icon svg untouched', async () => {
+        let resolveRender!: (blob: Blob) => void;
+        mocks.renderReportCardImage.mockReturnValue(new Promise(resolve => {
+            resolveRender = resolve;
+        }));
+        const button = renderBusinessCardButton(true) as HTMLButtonElement;
+        wireBusinessCardButton(containerOf(button),async () => buildData());
+        const iconBefore = button.querySelector('svg');
+        expect(iconBefore).not.toBeNull();
+
+        button.click();
+        selectMenuItem('activity-time');
+        await vi.waitFor(() => expect(button.disabled).toBe(true));
+
+        expect(button.querySelector('.dashboard-business-card-button-label')?.textContent).toBe('Saving...');
+        expect(button.querySelector('svg')).toBe(iconBefore);
+
+        resolveRender(imageBlob);
+        await vi.waitFor(() => expect(button.disabled).toBe(false));
+        expect(button.querySelector('.dashboard-business-card-button-label')?.textContent).toBe('Save business card');
+        expect(button.querySelector('svg')).toBe(iconBefore);
     });
 });

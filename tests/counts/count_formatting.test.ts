@@ -34,4 +34,18 @@ describe('count_formatting.ts', () => {
             expect(countFormatting.formatOptionalNumber(0)).toBe('');
         });
     });
+
+    describe('formatReadingSpeed', () => {
+        it('should group a whole number with no unit', () => {
+            expect(countFormatting.formatReadingSpeed(8204)).toBe('8,204');
+        });
+
+        it('should round to the nearest whole number', () => {
+            expect(countFormatting.formatReadingSpeed(6999.6)).toBe('7,000');
+        });
+
+        it('should render zero as "0"', () => {
+            expect(countFormatting.formatReadingSpeed(0)).toBe('0');
+        });
+    });
 });

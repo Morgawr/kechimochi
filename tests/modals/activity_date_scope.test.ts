@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { showLogActivityModal } from '../../src/activity_modal';
 import * as api from '../../src/api';
 import { ActivitySummary, Media } from '../../src/api';
-import * as calendar from '../../src/calendar';
+import { createCancelableOverlay } from '../../src/modal_base';
 
 vi.mock('../../src/api', () => ({
     getAllMedia: vi.fn(),
@@ -12,11 +12,6 @@ vi.mock('../../src/api', () => ({
     addMedia: vi.fn(),
     updateMedia: vi.fn(),
 }));
-
-vi.mock('../../src/calendar', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('../../src/calendar')>();
-    return { ...actual, supportsNativeMonthInput: vi.fn(() => false) };
-});
 
 vi.mock('../../src/modal_base', () => ({
     customPrompt: vi.fn(),
@@ -56,20 +51,18 @@ async function openModal(editLog?: ActivitySummary): Promise<void> {
 }
 
 function setScope(scope: 'day' | 'month' | 'year'): void {
-    const select = document.querySelector('#activity-date-scope') as HTMLSelectElement;
-    select.value = scope;
-    select.dispatchEvent(new Event('change'));
+    document.querySelector<HTMLButtonElement>(`[data-date-scope="${scope}"]`)!.click();
 }
 
 function navigatePeriods(steps: number): void {
-    const selector = steps < 0 ? '.cal-nav-prev' : '.cal-nav-next';
+    const selector = steps < 0 ? '[data-calendar-nav="previous"]' : '[data-calendar-nav="next"]';
     for (let step = 0; step < Math.abs(steps); step++) {
         document.querySelector<HTMLButtonElement>(`#activity-cal-container ${selector}`)!.click();
     }
 }
 
-function selectionSummaryText(): string {
-    return document.querySelector('#activity-date-selection')!.textContent!;
+function dateTriggerText(): string {
+    return document.querySelector('#activity-date-trigger-value')!.textContent!;
 }
 
 function pickCell(attribute: 'date' | 'month' | 'year', value: string): void {
@@ -93,11 +86,10 @@ function expectFullAnchor(saved: { date: string; date_precision: string }, date:
 }
 
 function expectScopeMarkedSelected(scope: 'day' | 'month' | 'year'): void {
-    const select = document.querySelector('#activity-date-scope') as HTMLSelectElement;
-    const selectedValues = Array.from(select.options)
-        .filter(option => option.hasAttribute('selected'))
-        .map(option => option.value);
-    expect(selectedValues).toEqual([scope]);
+    const pressedScopes = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-date-scope]'))
+        .filter(button => button.getAttribute('aria-selected') === 'true')
+        .map(button => button.dataset.dateScope);
+    expect(pressedScopes).toEqual([scope]);
 }
 
 describe('activity_modal date scope picker', () => {
@@ -168,7 +160,7 @@ describe('activity_modal date scope picker', () => {
             pickCell('date', '2021-07-05');
             setScope('month');
 
-            expect(selectionSummaryText()).toBe('Selected: July 2021');
+            expect(dateTriggerText()).toBe('July 2021');
             const saved = await submitAndGetSavedLog();
             expectFullAnchor(saved, '2021-07-01', 'month');
         });
@@ -181,7 +173,7 @@ describe('activity_modal date scope picker', () => {
             navigatePeriods(8);
             setScope('month');
 
-            expect(selectionSummaryText()).toBe('Selected: February 2027');
+            expect(dateTriggerText()).toBe('February 2027');
             const saved = await submitAndGetSavedLog();
             expectFullAnchor(saved, '2027-02-01', 'month');
         });
@@ -194,7 +186,7 @@ describe('activity_modal date scope picker', () => {
             navigatePeriods(12);
             setScope('month');
 
-            expect(selectionSummaryText()).toBe('Selected: March 2026');
+            expect(dateTriggerText()).toBe('March 2026');
             expect(document.querySelector('#activity-cal-container')!.textContent).toContain('2027');
             expect(document.querySelector('[data-month="2026-03"]')).toBeNull();
 
@@ -208,7 +200,7 @@ describe('activity_modal date scope picker', () => {
             pickCell('date', '2026-06-20');
             setScope('month');
 
-            expect(selectionSummaryText()).toBe('Selected: June 2026');
+            expect(dateTriggerText()).toBe('This month');
             expect(document.querySelector('[data-month="2026-06"]')!.getAttribute('aria-pressed')).toBe('true');
         });
     });
@@ -253,35 +245,119 @@ describe('activity_modal date scope picker', () => {
         });
     });
 
-    describe('supportsNativeMonthInput branches', () => {
-        it('should mount a native month input when supported', async () => {
-            vi.mocked(calendar.supportsNativeMonthInput).mockReturnValue(true);
-            await openModal();
-            setScope('month');
+    it('should render the month grid for the month scope', async () => {
+        await openModal();
+        setScope('month');
 
-            const nativeInput = document.querySelector('#mobile-date-input');
-            expect(nativeInput?.getAttribute('type')).toBe('month');
-        });
-
-        it('should fall back to the month grid when unsupported', async () => {
-            vi.mocked(calendar.supportsNativeMonthInput).mockReturnValue(false);
-            await openModal();
-            setScope('month');
-
-            expect(document.querySelector('#mobile-date-input')).toBeNull();
-            expect(document.querySelectorAll('#activity-cal-container .cal-month').length).toBeGreaterThan(0);
-        });
+        expect(document.querySelectorAll('#activity-cal-container .cal-month').length).toBeGreaterThan(0);
     });
 
-    it('should carry exactly one Date label, associated with the mounted control', async () => {
-        await openModal();
-        setScope('year');
+    describe('date trigger', () => {
+        const dateTrigger = () => document.querySelector<HTMLButtonElement>('#activity-date-trigger')!;
+        const datePanel = () => document.querySelector<HTMLElement>('#activity-date-panel')!;
 
-        const dateLabels = Array.from(document.querySelectorAll('label')).filter(label => label.textContent === 'Date');
-        expect(dateLabels).toHaveLength(1);
-        expect(document.querySelector('#activity-date-row-label')?.hasAttribute('for')).toBe(false);
+        it('should name the current period relatively', async () => {
+            await openModal();
+            expect(dateTriggerText()).toBe('Today');
 
-        setScope('day');
-        expect(document.querySelector('#activity-date-row-label')?.getAttribute('for')).toBe('mobile-date-input');
+            setScope('month');
+            expect(dateTriggerText()).toBe('This month');
+
+            setScope('year');
+            expect(dateTriggerText()).toBe('This year');
+        });
+
+        it('should show any other date in full', async () => {
+            await openModal();
+
+            pickCell('date', '2026-06-14');
+
+            expect(dateTriggerText()).toBe('June 14, 2026');
+        });
+
+        it('should keep the date panel hidden until the trigger is clicked', async () => {
+            await openModal();
+            expect(datePanel().hidden).toBe(true);
+            expect(dateTrigger().getAttribute('aria-expanded')).toBe('false');
+
+            dateTrigger().click();
+            expect(datePanel().hidden).toBe(false);
+            expect(dateTrigger().getAttribute('aria-expanded')).toBe('true');
+
+            dateTrigger().click();
+            expect(datePanel().hidden).toBe(true);
+        });
+
+        it('should close the whole modal on Escape at the open date trigger', async () => {
+            await openModal();
+            dateTrigger().click();
+            const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+
+            dateTrigger().dispatchEvent(escape);
+
+            expect(escape.defaultPrevented).toBe(true);
+            expect(vi.mocked(createCancelableOverlay).mock.results[0].value.dismiss).toHaveBeenCalled();
+        });
+
+        it('should keep the focus on the newly active scope tab after switching', async () => {
+            await openModal();
+            dateTrigger().click();
+
+            setScope('month');
+
+            expect(document.activeElement).toBe(document.querySelector('[data-date-scope="month"]'));
+            expectScopeMarkedSelected('month');
+        });
+
+        it('should close the date modal when the screen leaves the narrow layout', async () => {
+            let notifyLayoutChange: () => void = () => {};
+            const layoutQuery = {
+                matches: true,
+                addEventListener: vi.fn((_type: string, listener: () => void) => { notifyLayoutChange = listener; }),
+                removeEventListener: vi.fn(),
+            };
+            vi.stubGlobal('matchMedia', vi.fn(() => layoutQuery));
+            await openModal();
+            dateTrigger().click();
+
+            notifyLayoutChange();
+
+            expect(document.querySelector('#activity-date-slot')!.contains(datePanel())).toBe(true);
+            expect(datePanel().hidden).toBe(true);
+            expect(layoutQuery.removeEventListener).toHaveBeenCalledWith('change', notifyLayoutChange);
+            vi.unstubAllGlobals();
+        });
+
+        it('should keep the date panel open after picking a date', async () => {
+            await openModal();
+            dateTrigger().click();
+
+            pickCell('date', '2026-06-10');
+            setScope('month');
+
+            expect(datePanel().hidden).toBe(false);
+        });
+
+        it('should open the date panel in a modal on narrow screens and put it back on close', async () => {
+            vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })));
+            await openModal();
+
+            dateTrigger().click();
+
+            const dateModal = document.querySelector('[role="dialog"][aria-label="Date"]')!;
+            expect(dateModal.contains(datePanel())).toBe(true);
+            expect(datePanel().hidden).toBe(false);
+            pickCell('date', '2026-06-10');
+            expect(dateModal.contains(datePanel())).toBe(true);
+
+            vi.mocked(createCancelableOverlay).mock.results.at(-1)!.value.dismiss();
+
+            expect(document.querySelector('#activity-date-slot')!.contains(datePanel())).toBe(true);
+            expect(datePanel().hidden).toBe(true);
+            expect(dateTrigger().getAttribute('aria-expanded')).toBe('false');
+            expect(document.activeElement).toBe(dateTrigger());
+            expect(dateTriggerText()).toBe('June 10, 2026');
+            vi.unstubAllGlobals();
+        });
     });
 });

@@ -488,22 +488,28 @@ export async function closeModal(cancelBtnSelector: string): Promise<void> {
     await waitForOverlayToDisappear(overlay, 5000);
 }
 
-/**
- * Picks a date in the activity-log modal on any platform. Desktop shows an in-page
- * calendar (.cal-day, six fixed week rows whose adjacent-month cells carry
- * .cal-day-outside and are selectable); mobile (<750px) hides it and shows a native
- * <input type="date" id="mobile-date-input"> pre-filled with today. Pass a
- * YYYY-MM-DD date to choose one, or omit to keep the pre-filled "today".
- */
 export async function selectActivityDate(date?: string): Promise<void> {
-    const mobileDateFieldVisible = await $('#mobile-date-field').isDisplayed().catch(() => false);
-    if (mobileDateFieldVisible) {
-        if (date) {
-            await setText('#mobile-date-input', date);
-        }
-        return;
+    if (!date) return;
+
+    await safeClick('#activity-date-trigger');
+    await safeClick(`.cal-day[data-date="${date}"]`);
+
+    const dateModalSelector = '[role="dialog"][aria-label="Date"]';
+    const isDateModalOpen = await $(dateModalSelector).isExisting();
+    if (isDateModalOpen) {
+        await browser.keys('Escape');
+        await $(dateModalSelector).waitForExist({ reverse: true, timeout: 3000 });
+    } else {
+        await safeClick('#activity-date-trigger');
     }
-    await safeClick(date ? `.cal-day[data-date="${date}"]` : '.cal-day.today');
+}
+
+export async function setActivityNotes(notes: string, timeout?: number): Promise<void> {
+    const notesToggle = $('#activity-notes-toggle');
+    if (await notesToggle.isDisplayed().catch(() => false)) {
+        await safeClick(notesToggle);
+    }
+    await setText('#activity-notes', notes, timeout);
 }
 
 /**
@@ -611,7 +617,7 @@ export async function performActivityEdit(
     }
 
     if (newNotes !== undefined && await overlay.$('#activity-notes').isExisting()) {
-        await setText('#activity-notes', newNotes, 3000);
+        await setActivityNotes(newNotes, 3000);
     }
 
     if (newActivityType !== undefined && await overlay.$('#activity-type').isExisting()) {

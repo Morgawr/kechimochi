@@ -1,4 +1,4 @@
-import { HEATMAP_CARD } from './cards/Heatmap';
+import { HEATMAP_CARD } from './cards/heatmap/Heatmap';
 import { ACTIVITY_FLOW_CARD } from './cards/ActivityFlow';
 import { ACTIVITY_MIX_CARD } from './cards/ActivityMix';
 import { WEEKDAY_RHYTHM_CARD } from './cards/WeekdayRhythm';

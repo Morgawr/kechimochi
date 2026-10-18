@@ -23,17 +23,19 @@ import {getServices} from '../services';
 import {MediaCoverLoader} from './cover_loader';
 import {pushBackHandler} from '../back_stack';
 import {openPopupMenu, type PopupMenuHandle, type PopupMenuItem} from '../popups';
-import {FORK, GAUGE, TRASH_CAN} from '../icons';
+import {FORK, GAUGE, STOPWATCH, TRASH_CAN} from '../icons';
 import {
     addLogForMedia,
     addMilestoneForMedia,
     canAddMilestone,
     canMarkComplete,
+    canSetEpisodeDurationOverride,
     canSetReadingSpeedOverride,
     createMediaVariant,
     deleteMediaWithConfirmation,
     markMediaComplete,
     notifyLocalDataChanged,
+    setEpisodeDurationOverride,
     setReadingSpeedOverride,
     toggleMediaArchived,
     type MediaActionOutcome
@@ -204,9 +206,10 @@ export class MediaDetail extends Component<MediaDetailState> {
         const [logs, allMedia] = await Promise.all([getLogsForMedia(mediaId), getAllMedia()]);
         if (!this.updateLogs(mediaId, logs)) return false;
 
-        const freshStatus = allMedia.find(media => media.id === mediaId)?.status;
-        if (freshStatus !== undefined && freshStatus !== this.state.media.status) {
-            this.state.media.status = freshStatus;
+        const freshMedia = allMedia.find(media => media.id === mediaId);
+        if (freshMedia && (freshMedia.status !== this.state.media.status || freshMedia.extra_data !== this.state.media.extra_data)) {
+            this.state.media.status = freshMedia.status;
+            this.state.media.extra_data = freshMedia.extra_data;
             this.render();
         }
         return true;
@@ -738,6 +741,15 @@ export class MediaDetail extends Component<MediaDetailState> {
                 onSelect: () => { this.setReadingSpeedFromDetail().catch(e => Logger.error('Failed to set reading speed override', e)); },
             }]
             : [];
+        const episodeDurationItem: PopupMenuItem[] = canSetEpisodeDurationOverride(this.state.media)
+            ? [{
+                actionId: 'set-episode-duration',
+                elementId: 'btn-set-episode-duration',
+                label: 'Set episode duration',
+                iconMarkup: STOPWATCH,
+                onSelect: () => { this.setEpisodeDurationFromDetail().catch(e => Logger.error('Failed to set episode duration override', e)); },
+            }]
+            : [];
 
         this.overflowMenuHandle = openPopupMenu({
             label: `Actions for ${this.state.media.title}`,
@@ -752,6 +764,7 @@ export class MediaDetail extends Component<MediaDetailState> {
                     onSelect: () => { this.createVariantFromDetail().catch(e => Logger.error('Failed to create media variant', e)); },
                 },
                 ...readingSpeedItem,
+                ...episodeDurationItem,
                 {
                     actionId: 'delete',
                     elementId: 'btn-delete-media-detail',
@@ -774,6 +787,10 @@ export class MediaDetail extends Component<MediaDetailState> {
 
     private async setReadingSpeedFromDetail() {
         this.applyMediaActionOutcome(await setReadingSpeedOverride(this.state.media));
+    }
+
+    private async setEpisodeDurationFromDetail() {
+        this.applyMediaActionOutcome(await setEpisodeDurationOverride(this.state.media));
     }
 
     private async deleteMediaFromDetail() {

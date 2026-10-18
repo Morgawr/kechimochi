@@ -1,0 +1,57 @@
+{
+  "window": { "cutoff": "2024-01-01", "today": "2024-12-31" },
+  "media": [
+    { "id": 1, "title": "Parity Novel Dual", "content_type": "Novel", "tracking_status": "Ongoing", "extra_data": "{}", "default_activity_type": "Reading" },
+    { "id": 2, "title": "Parity Manga TimeOnly", "content_type": "Manga", "tracking_status": "Ongoing", "extra_data": "{}", "default_activity_type": "Reading" },
+    { "id": 3, "title": "Parity WebNovel CharsOnly", "content_type": "WebNovel", "tracking_status": "Ongoing", "extra_data": "{}", "default_activity_type": "Reading" },
+    { "id": 4, "title": "Parity NonFiction Anchor", "content_type": "NonFiction", "tracking_status": "Complete", "extra_data": "{\"Character count\":10000}", "default_activity_type": "Reading" },
+    { "id": 5, "title": "Parity Novel Anchor CharsOnly", "content_type": "Novel", "tracking_status": "Complete", "extra_data": "{\"Character count\":8000}", "default_activity_type": "Reading" },
+    { "id": 6, "title": "Parity Novel Override", "content_type": "Novel", "tracking_status": "Ongoing", "extra_data": "{\"Reading speed\":6000}", "default_activity_type": "Reading" },
+    { "id": 7, "title": "Parity Novel Zero Override", "content_type": "Novel", "tracking_status": "Ongoing", "extra_data": "{\"Reading speed\":0}", "default_activity_type": "Reading" },
+    { "id": 8, "title": "Parity Novel Blank Activity Type", "content_type": "Novel", "tracking_status": "Ongoing", "extra_data": "{}", "default_activity_type": "Reading" },
+    { "id": 9, "title": "Parity VN Playing", "content_type": "Visual Novel", "tracking_status": "Ongoing", "extra_data": "{}", "default_activity_type": "Playing" },
+    { "id": 10, "title": "Parity Anime Non-Reading", "content_type": "Anime", "tracking_status": "Ongoing", "extra_data": "{}", "default_activity_type": "Watching" },
+    { "id": 11, "title": "Parity Manga Year-Only Evidence", "content_type": "Manga", "tracking_status": "Ongoing", "extra_data": "{}", "default_activity_type": "Reading" },
+    { "id": 12, "title": "Parity Novel Month Precision", "content_type": "Novel", "tracking_status": "Ongoing", "extra_data": "{}", "default_activity_type": "Reading" }
+  ],
+  "logs": [
+    { "media_id": 1, "activity_type": "Reading", "duration_minutes": 60, "characters": 3000, "date": "2024-06-01", "date_precision": "day" },
+    { "media_id": 1, "activity_type": "Reading", "duration_minutes": 0, "characters": 0, "date": "2024-06-02", "date_precision": "day" },
+
+    { "media_id": 2, "activity_type": "Reading", "duration_minutes": 45, "characters": 0, "date": "2024-03-01", "date_precision": "day" },
+    { "media_id": 2, "activity_type": "Reading", "duration_minutes": 30, "characters": 500, "date": "2023-01-01", "date_precision": "day" },
+
+    { "media_id": 3, "activity_type": "Reading", "duration_minutes": 0, "characters": 2500, "date": "2024-07-01", "date_precision": "day" },
+
+    { "media_id": 4, "activity_type": "Reading", "duration_minutes": 90, "characters": 4000, "date": "2024-08-01", "date_precision": "day" },
+
+    { "media_id": 5, "activity_type": "Reading", "duration_minutes": 50, "characters": 0, "date": "2024-09-01", "date_precision": "day" },
+    { "media_id": 5, "activity_type": "Reading", "duration_minutes": 0, "characters": 1200, "date": "2024-09-05", "date_precision": "day" },
+
+    { "media_id": 6, "activity_type": "Reading", "duration_minutes": 60, "characters": 6000, "date": "2024-10-01", "date_precision": "day" },
+
+    { "media_id": 7, "activity_type": "Reading", "duration_minutes": 30, "characters": 1500, "date": "2024-11-01", "date_precision": "day" },
+
+    { "media_id": 8, "activity_type": "", "duration_minutes": 40, "characters": 2000, "date": "2024-06-15", "date_precision": "day" },
+
+    { "media_id": 9, "activity_type": "Playing", "duration_minutes": 70, "characters": 3500, "date": "2024-06-20", "date_precision": "day" },
+
+    { "media_id": 10, "activity_type": "Watching", "duration_minutes": 60, "characters": 5000, "date": "2024-06-20", "date_precision": "day" },
+
+    { "media_id": 11, "activity_type": "Reading", "duration_minutes": 500, "characters": 20000, "date": "2024-01-01", "date_precision": "year" },
+
+    { "media_id": 12, "activity_type": "Reading", "duration_minutes": 200, "characters": 12000, "date": "2024-05-01", "date_precision": "month" }
+  ],
+  "expected_aggregates": [
+    { "media_id": 1, "content_type": "Novel", "tracking_status": "Ongoing", "extra_data": "{}", "immersion_minutes": 60, "has_dual": true, "has_characters_only": false, "window_dual_characters": 3000, "window_dual_minutes": 60, "window_timed_minutes": 60, "window_characters_only_characters": 0 },
+    { "media_id": 2, "content_type": "Manga", "tracking_status": "Ongoing", "extra_data": "{}", "immersion_minutes": 75, "has_dual": true, "has_characters_only": false, "window_dual_characters": 0, "window_dual_minutes": 0, "window_timed_minutes": 45, "window_characters_only_characters": 0 },
+    { "media_id": 3, "content_type": "WebNovel", "tracking_status": "Ongoing", "extra_data": "{}", "immersion_minutes": 0, "has_dual": false, "has_characters_only": true, "window_dual_characters": 0, "window_dual_minutes": 0, "window_timed_minutes": 0, "window_characters_only_characters": 2500 },
+    { "media_id": 4, "content_type": "NonFiction", "tracking_status": "Complete", "extra_data": "{\"Character count\":10000}", "immersion_minutes": 90, "has_dual": true, "has_characters_only": false, "window_dual_characters": 4000, "window_dual_minutes": 90, "window_timed_minutes": 90, "window_characters_only_characters": 0 },
+    { "media_id": 5, "content_type": "Novel", "tracking_status": "Complete", "extra_data": "{\"Character count\":8000}", "immersion_minutes": 50, "has_dual": false, "has_characters_only": true, "window_dual_characters": 0, "window_dual_minutes": 0, "window_timed_minutes": 50, "window_characters_only_characters": 1200 },
+    { "media_id": 6, "content_type": "Novel", "tracking_status": "Ongoing", "extra_data": "{\"Reading speed\":6000}", "immersion_minutes": 60, "has_dual": true, "has_characters_only": false, "window_dual_characters": 6000, "window_dual_minutes": 60, "window_timed_minutes": 60, "window_characters_only_characters": 0 },
+    { "media_id": 7, "content_type": "Novel", "tracking_status": "Ongoing", "extra_data": "{\"Reading speed\":0}", "immersion_minutes": 30, "has_dual": true, "has_characters_only": false, "window_dual_characters": 1500, "window_dual_minutes": 30, "window_timed_minutes": 30, "window_characters_only_characters": 0 },
+    { "media_id": 8, "content_type": "Novel", "tracking_status": "Ongoing", "extra_data": "{}", "immersion_minutes": 40, "has_dual": true, "has_characters_only": false, "window_dual_characters": 2000, "window_dual_minutes": 40, "window_timed_minutes": 40, "window_characters_only_characters": 0 },
+    { "media_id": 9, "content_type": "Visual Novel", "tracking_status": "Ongoing", "extra_data": "{}", "immersion_minutes": 70, "has_dual": true, "has_characters_only": false, "window_dual_characters": 3500, "window_dual_minutes": 70, "window_timed_minutes": 70, "window_characters_only_characters": 0 },
+    { "media_id": 12, "content_type": "Novel", "tracking_status": "Ongoing", "extra_data": "{}", "immersion_minutes": 200, "has_dual": true, "has_characters_only": false, "window_dual_characters": 12000, "window_dual_minutes": 200, "window_timed_minutes": 200, "window_characters_only_characters": 0 }
+  ]
+}

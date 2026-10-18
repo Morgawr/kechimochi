@@ -20,3 +20,8 @@ export function formatOptionalCount(value: number, singular: string): string {
 export function formatOptionalNumber(value: number): string {
     return value > 0 ? value.toLocaleString() : '';
 }
+
+/** Formats a reading speed as a grouped whole number (`"8,204"`). */
+export function formatReadingSpeed(charactersPerHour: number): string {
+    return Math.round(charactersPerHour).toLocaleString();
+}

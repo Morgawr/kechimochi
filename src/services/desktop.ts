@@ -22,6 +22,9 @@ import type {
     DashboardRecentPage,
     DashboardSnapshot,
     DashboardSnapshotRequest,
+    ReadingReportInputsRequest,
+    ReadingReportInputsResponse,
+    SaveLocalSettingValuesRequest,
     LibrarySnapshot,
     LibrarySnapshotRequest,
     TimelineEvent,
@@ -113,6 +116,13 @@ export class DesktopServices implements AppServices {
         return measureDashboardTransport('ipc', 'dashboard_recent_logs', () =>
             invoke('get_dashboard_recent_logs', { request }));
     }
+    getReadingReportInputs(request: ReadingReportInputsRequest): Promise<ReadingReportInputsResponse> {
+        return measureDashboardTransport('ipc', 'reading_report_inputs', () =>
+            invoke('get_reading_report_inputs', { request }));
+    }
+    saveLocalSettingValues(request: SaveLocalSettingValuesRequest): Promise<void> {
+        return invoke('save_local_setting_values', { request });
+    }
     getLibrarySnapshot(request: LibrarySnapshotRequest): Promise<LibrarySnapshot> {
         return measureTransport('ipc', 'library_snapshot', () =>
             invoke('get_library_snapshot', { request }));
@@ -175,8 +185,8 @@ export class DesktopServices implements AppServices {
         return invoke('save_local_http_api_config', { config });
     }
 
-    async getAppVersion(): Promise<string> {
-        return getBuildVersion();
+    getAppVersion(): Promise<string> {
+        return Promise.resolve(getBuildVersion());
     }
 
     // ── File-based operations ─────────────────────────────────────────────────

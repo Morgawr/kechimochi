@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { waitForAppReady } from '../../helpers/setup.js';
-import { navigateTo, verifyActiveView } from '../../helpers/navigation.js';
+import { getHeaderProfileName, navigateTo, verifyActiveView } from '../../helpers/navigation.js';
 import { openProfileNameEditor, renameProfile, uploadProfilePicture } from '../../helpers/profile.js';
 import { TEST_PROFILE_NAME } from '../../config/test-constants.js';
 
@@ -23,16 +23,15 @@ describe('Single-User Profile Renaming CUJ', () => {
   });
 
   it(`should verify the initial profile is ${TEST_PROFILE_NAME} in the header`, async () => {
-    const nameHeader = $('#nav-user-name');
-    await browser.waitUntil(async () => {
-      const text = await nameHeader.getText();
-      return text === TEST_PROFILE_NAME;
-    }, { timeout: 5000, timeoutMsg: `Header profile name was not ${TEST_PROFILE_NAME}` });
-    expect(await nameHeader.getText()).toBe(TEST_PROFILE_NAME);
+    await browser.waitUntil(async () => (await getHeaderProfileName()) === TEST_PROFILE_NAME, {
+      timeout: 5000,
+      timeoutMsg: `Header profile name was not ${TEST_PROFILE_NAME}`,
+    });
+    expect(await getHeaderProfileName()).toBe(TEST_PROFILE_NAME);
   });
 
-  it(`should show ${profileInitials} as the initial missing profile picture fallback in the header`, async () => {
-    const headerFallback = $('#nav-user-avatar-fallback');
+  it(`should show ${profileInitials} in the header avatar before a profile picture is uploaded`, async () => {
+    const headerFallback = $('#nav-profile-tab-avatar-fallback');
     await headerFallback.waitForDisplayed({ timeout: 5000 });
     expect(await headerFallback.getText()).toBe(profileInitials);
   });
@@ -58,8 +57,8 @@ describe('Single-User Profile Renaming CUJ', () => {
     await uploadProfilePicture(profilePictureFixture);
 
     const heroImg = $('#profile-hero-avatar img');
-    const navImg = $('#nav-user-avatar-image');
-    const navFallback = $('#nav-user-avatar-fallback'); // Re-added for the check below
+    const navImg = $('#nav-profile-tab-avatar-image');
+    const navFallback = $('#nav-profile-tab-avatar-fallback');
 
     await heroImg.waitForDisplayed({ timeout: 5000 });
     await navImg.waitForDisplayed({ timeout: 5000 });
@@ -104,11 +103,11 @@ describe('Single-User Profile Renaming CUJ', () => {
   });
 
   it('should verify the header reflects the new name after renaming', async () => {
-    const headerName = $('#nav-user-name');
-    await browser.waitUntil(async () => {
-      return (await headerName.getText()) === 'RENAMED_PRO';
-    }, { timeout: 10000, timeoutMsg: 'Header did not update to RENAMED_PRO' });
-    expect(await headerName.getText()).toBe('RENAMED_PRO');
+    await browser.waitUntil(async () => (await getHeaderProfileName()) === 'RENAMED_PRO', {
+      timeout: 10000,
+      timeoutMsg: 'Header did not update to RENAMED_PRO',
+    });
+    expect(await getHeaderProfileName()).toBe('RENAMED_PRO');
   });
 
 });

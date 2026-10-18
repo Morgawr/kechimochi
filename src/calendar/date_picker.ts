@@ -3,6 +3,7 @@
  * `day` (7-column month grid), `month` (JAN…DEC grid) or `year` (a 12-year block grid).
  */
 import { escapeHTML, escapeAttribute } from '../html';
+import { CHEVRON_LEFT, CHEVRON_RIGHT, DOUBLE_CHEVRON_LEFT, DOUBLE_CHEVRON_RIGHT, renderIcon } from '../icons';
 import {
     formatReducedDate,
     formatUtcIsoDate,
@@ -19,14 +20,23 @@ export interface DatePicker {
     setValue(value: DateKey): void;
     getViewAnchor(): DateAnchor;
     focus(): void;
+    focusScopeTab(): void;
     destroy(): void;
 }
 
 export interface BuildCalendarOptions {
     scope?: DateScope;
+    scopes?: readonly DateScope[];
+    onScopeSelect?: (scope: DateScope) => void;
     weekStartDay?: number;
     viewAnchor?: DateAnchor;
 }
+
+const SCOPE_TABS: readonly { scope: DateScope; label: string; tooltip: string }[] = [
+    { scope: 'day', label: 'Day', tooltip: 'Pick a day' },
+    { scope: 'month', label: 'Month', tooltip: 'Pick a whole month' },
+    { scope: 'year', label: 'Year', tooltip: 'Pick a whole year' },
+];
 
 const DEFAULT_WEEK_START_DAY = 1;
 
@@ -36,12 +46,6 @@ export function normalizeWeekStartDay(value: number | string | null | undefined)
     const parsed = Number(value);
     if (!Number.isInteger(parsed) || parsed < 0 || parsed > 6) return DEFAULT_WEEK_START_DAY;
     return parsed;
-}
-
-export function supportsNativeMonthInput(): boolean {
-    const input = document.createElement('input');
-    input.type = 'month';
-    return input.type === 'month';
 }
 
 const WEEKDAY_ABBREVIATIONS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
@@ -68,9 +72,16 @@ const MONTH_ABBREVIATIONS_UPPER = [
 ];
 
 const MONTHS_PER_YEAR = 12;
-const COARSE_GRID_COLUMNS = 4;
-const COARSE_GRID_ROWS = 3;
+const COARSE_GRID_COLUMNS = 3;
+const COARSE_GRID_ROWS = 4;
 export const YEAR_BLOCK_SIZE = COARSE_GRID_COLUMNS * COARSE_GRID_ROWS;
+const COARSE_GRID_CLASS_NAME = 'calendar-grid-coarse';
+
+const LARGE_STEP_SIZES: Readonly<Record<DateScope, number | null>> = {
+    day: MONTHS_PER_YEAR,
+    month: YEAR_BLOCK_SIZE,
+    year: null,
+};
 
 interface Period {
     year: number;
@@ -80,13 +91,11 @@ interface Period {
 
 interface ScopeContent {
     cellClassName: string;
+    gridClassName?: string;
     dataAttributeName: string;
     columnHeaders?: CalendarGridColumnHeader[];
     rows: CalendarGridRow[];
     periodLabel: string;
-    gridAriaLabel: string;
-    previousLabel: string;
-    nextLabel: string;
 }
 
 function chunkIntoRows(cells: (CalendarGridCell | null)[], columns: number): CalendarGridRow[] {
@@ -150,9 +159,6 @@ function buildDayScopeContent(period: Period, weekStartDay: number): ScopeConten
         columnHeaders,
         rows: chunkIntoRows(cells, WEEK_COLUMNS),
         periodLabel: `${period.year} / ${period.month + 1}`,
-        gridAriaLabel: describeMonthYear(period.year, period.month),
-        previousLabel: `Go to ${describeMonthYear(period.year, period.month - 1)}`,
-        nextLabel: `Go to ${describeMonthYear(period.year, period.month + 1)}`,
     };
 }
 
@@ -164,12 +170,10 @@ function buildMonthScopeContent(period: Period): ScopeContent {
 
     return {
         cellClassName: 'cal-month',
+        gridClassName: COARSE_GRID_CLASS_NAME,
         dataAttributeName: 'month',
         rows: chunkIntoRows(cells, COARSE_GRID_COLUMNS),
         periodLabel: String(period.year),
-        gridAriaLabel: String(period.year),
-        previousLabel: `Go to ${period.year - 1}`,
-        nextLabel: `Go to ${period.year + 1}`,
     };
 }
 
@@ -185,16 +189,19 @@ function buildYearScopeContent(period: Period): ScopeContent {
         cells.push({ key, label: key, accessibleName: formatReducedDate(key) });
     }
 
-    const blockLabel = describeYearBlock(period.blockOrigin);
     return {
         cellClassName: 'cal-year',
+        gridClassName: COARSE_GRID_CLASS_NAME,
         dataAttributeName: 'year',
         rows: chunkIntoRows(cells, COARSE_GRID_COLUMNS),
-        periodLabel: blockLabel,
-        gridAriaLabel: blockLabel,
-        previousLabel: `Go to ${describeYearBlock(period.blockOrigin - YEAR_BLOCK_SIZE)}`,
-        nextLabel: `Go to ${describeYearBlock(period.blockOrigin + YEAR_BLOCK_SIZE)}`,
+        periodLabel: describeYearBlock(period.blockOrigin),
     };
+}
+
+function describePeriod(scope: DateScope, period: Period): string {
+    if (scope === 'day') return describeMonthYear(period.year, period.month);
+    if (scope === 'month') return String(period.year);
+    return describeYearBlock(period.blockOrigin);
 }
 
 function buildScopeContent(scope: DateScope, period: Period, weekStartDay: number): ScopeContent {
@@ -228,25 +235,52 @@ function periodFromAnchor(scope: DateScope, anchor: string): Period {
     return derivePeriod(scope, anchor.slice(0, precisionKeyLength(scope)));
 }
 
-function canStepPeriod(scope: DateScope, period: Period, direction: 1 | -1): boolean {
-    const stepped = stepPeriod(scope, period, direction);
+function canStepPeriod(scope: DateScope, period: Period, offset: number): boolean {
+    const stepped = stepPeriod(scope, period, offset);
     if (scope === 'year') {
         return stepped.blockOrigin + YEAR_BLOCK_SIZE > MINIMUM_YEAR && stepped.blockOrigin <= MAXIMUM_YEAR;
     }
     return stepped.year >= MINIMUM_YEAR && stepped.year <= MAXIMUM_YEAR;
 }
 
-function stepPeriod(scope: DateScope, period: Period, direction: 1 | -1): Period {
+function stepPeriod(scope: DateScope, period: Period, offset: number): Period {
     if (scope === 'day') {
-        const totalMonths = period.year * MONTHS_PER_YEAR + period.month + direction;
+        const totalMonths = period.year * MONTHS_PER_YEAR + period.month + offset;
         return {
             ...period,
             year: Math.floor(totalMonths / MONTHS_PER_YEAR),
             month: ((totalMonths % MONTHS_PER_YEAR) + MONTHS_PER_YEAR) % MONTHS_PER_YEAR,
         };
     }
-    if (scope === 'month') return { ...period, year: period.year + direction };
-    return { ...period, blockOrigin: period.blockOrigin + direction * YEAR_BLOCK_SIZE };
+    if (scope === 'month') return { ...period, year: period.year + offset };
+    return { ...period, blockOrigin: period.blockOrigin + offset * YEAR_BLOCK_SIZE };
+}
+
+type CalendarNavigation = 'previous-jump' | 'previous' | 'next' | 'next-jump';
+
+interface NavigationButton {
+    navigation: CalendarNavigation;
+    icon: string;
+    offset: number | null;
+}
+
+function buildNavigationButtonHtml(scope: DateScope, period: Period, button: NavigationButton): string {
+    const isEnabled = button.offset !== null && canStepPeriod(scope, period, button.offset);
+    const label = button.offset === null ? '' : `Go to ${describePeriod(scope, stepPeriod(scope, period, button.offset))}`;
+    const labelAttributes = label ? ` aria-label="${escapeAttribute(label)}" title="${escapeAttribute(label)}"` : ' aria-hidden="true"';
+    return `<button type="button" class="btn btn-outline btn-icon-small" data-calendar-nav="${button.navigation}"${labelAttributes}${isEnabled ? '' : ' disabled'}>${renderIcon(button.icon)}</button>`;
+}
+
+function buildScopeTabsHtml(scopes: readonly DateScope[], activeScope: DateScope): string {
+    const tabs = SCOPE_TABS.filter(tab => scopes.includes(tab.scope));
+    if (tabs.length < 2) return '';
+    const tabsHtml = tabs
+        .map(tab => {
+            const isActive = tab.scope === activeScope;
+            return `<button type="button" role="tab" class="calendar-scope-tab${isActive ? ' is-active' : ''}" data-date-scope="${tab.scope}" aria-selected="${isActive}" title="${escapeAttribute(tab.tooltip)}"><span class="calendar-scope-tab-label">${escapeHTML(tab.label)}</span></button>`;
+        })
+        .join('');
+    return `<div class="calendar-scope-tabs" role="tablist" aria-label="Date precision">${tabsHtml}</div>`;
 }
 
 function computeEquivalentKey(scope: DateScope, previousKey: string, previousPeriod: Period, newPeriod: Period): string {
@@ -269,7 +303,17 @@ export function buildCalendar(
     options: BuildCalendarOptions = {},
 ): DatePicker {
     const scope: DateScope = options.scope ?? 'day';
+    const scopes = options.scopes ?? [scope];
     const weekStartDay = normalizeWeekStartDay(options.weekStartDay);
+    const largeStepSize = LARGE_STEP_SIZES[scope];
+    const backwardButtons: readonly NavigationButton[] = [
+        { navigation: 'previous-jump', icon: DOUBLE_CHEVRON_LEFT, offset: largeStepSize === null ? null : -largeStepSize },
+        { navigation: 'previous', icon: CHEVRON_LEFT, offset: -1 },
+    ];
+    const forwardButtons: readonly NavigationButton[] = [
+        { navigation: 'next', icon: CHEVRON_RIGHT, offset: 1 },
+        { navigation: 'next-jump', icon: DOUBLE_CHEVRON_RIGHT, offset: largeStepSize },
+    ];
 
     let selectedKey = initialValue;
     let focusedKey: string | null = null;
@@ -289,26 +333,38 @@ export function buildCalendar(
         const content = buildScopeContent(scope, period, weekStartDay);
         container.innerHTML = `
             <div class="calendar-date-picker">
+                ${buildScopeTabsHtml(scopes, scope)}
                 <div class="calendar-date-picker-header">
-                    <button type="button" class="btn btn-ghost cal-nav-prev" aria-label="${escapeAttribute(content.previousLabel)}">&lsaquo;</button>
+                    <div class="calendar-nav-group">
+                        ${backwardButtons.map(button => buildNavigationButtonHtml(scope, period, button)).join('')}
+                    </div>
                     <span class="calendar-date-picker-label">${escapeHTML(content.periodLabel)}</span>
-                    <button type="button" class="btn btn-ghost cal-nav-next" aria-label="${escapeAttribute(content.nextLabel)}">&rsaquo;</button>
+                    <div class="calendar-nav-group">
+                        ${forwardButtons.map(button => buildNavigationButtonHtml(scope, period, button)).join('')}
+                    </div>
                 </div>
                 <div class="calendar-date-picker-grid"></div>
             </div>
         `;
 
-        const previousButton = container.querySelector<HTMLButtonElement>('.cal-nav-prev')!;
-        const nextButton = container.querySelector<HTMLButtonElement>('.cal-nav-next')!;
-        previousButton.disabled = !canStepPeriod(scope, period, -1);
-        nextButton.disabled = !canStepPeriod(scope, period, 1);
-        previousButton.addEventListener('click', () => step(-1));
-        nextButton.addEventListener('click', () => step(1));
+        for (const { navigation, offset } of [...backwardButtons, ...forwardButtons]) {
+            if (offset === null) continue;
+            container.querySelector<HTMLButtonElement>(`[data-calendar-nav="${navigation}"]`)!
+                .addEventListener('click', () => step(navigation, offset));
+        }
+
+        for (const scopeTab of container.querySelectorAll<HTMLButtonElement>('.calendar-scope-tab')) {
+            scopeTab.addEventListener('click', () => {
+                const tabScope = SCOPE_TABS.find(tab => tab.scope === scopeTab.dataset.dateScope)?.scope;
+                if (tabScope && tabScope !== scope) options.onScopeSelect?.(tabScope);
+            });
+        }
 
         const gridContainer = container.querySelector<HTMLElement>('.calendar-date-picker-grid')!;
         renderCalendarGrid(gridContainer, {
-            ariaLabel: content.gridAriaLabel,
+            ariaLabel: describePeriod(scope, period),
             cellClassName: content.cellClassName,
+            gridClassName: content.gridClassName,
             dataAttributeName: content.dataAttributeName,
             columnHeaders: content.columnHeaders,
             rows: content.rows,
@@ -319,14 +375,13 @@ export function buildCalendar(
         });
     };
 
-    const step = (direction: 1 | -1) => {
+    const step = (navigation: CalendarNavigation, offset: number) => {
         const previousPeriod = period;
         const previousKey = focusedKey ?? selectedKey;
-        period = stepPeriod(scope, period, direction);
+        period = stepPeriod(scope, period, offset);
         focusedKey = computeEquivalentKey(scope, previousKey, previousPeriod, period);
         render(false);
-        const navigationSelector = direction < 0 ? '.cal-nav-prev' : '.cal-nav-next';
-        const navigationButton = container.querySelector<HTMLButtonElement>(navigationSelector);
+        const navigationButton = container.querySelector<HTMLButtonElement>(`[data-calendar-nav="${navigation}"]`);
         if (navigationButton && !navigationButton.disabled) navigationButton.focus();
     };
 
@@ -346,6 +401,9 @@ export function buildCalendar(
             const cells = container.querySelectorAll<HTMLButtonElement>('button[data-calendar-cell]');
             const selected = container.querySelector<HTMLButtonElement>('button[data-calendar-cell][aria-pressed="true"]');
             (selected ?? cells[0])?.focus();
+        },
+        focusScopeTab() {
+            container.querySelector<HTMLButtonElement>('.calendar-scope-tab.is-active')?.focus();
         },
         destroy() {
             container.innerHTML = '';

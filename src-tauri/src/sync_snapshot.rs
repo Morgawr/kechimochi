@@ -33,6 +33,11 @@ const SYNCABLE_SETTING_KEYS: &[&str] = &[
     "dashboard_time_range_days",
     "dashboard_metric",
 ];
+
+pub fn is_syncable_setting_key(key: &str) -> bool {
+    SYNCABLE_SETTING_KEYS.contains(&key)
+}
+
 #[derive(Debug, Clone)]
 pub struct SnapshotBuildOptions<'a> {
     pub snapshot_id: &'a str,
@@ -863,6 +868,24 @@ mod tests {
     use super::*;
     use crate::db;
     use rusqlite::Connection;
+
+    #[test]
+    fn is_syncable_setting_key_accepts_every_syncable_key() {
+        for key in SYNCABLE_SETTING_KEYS {
+            assert!(is_syncable_setting_key(key));
+        }
+    }
+
+    #[test]
+    fn is_syncable_setting_key_rejects_the_reading_report_local_only_keys() {
+        for key in [
+            "stats_novel_speed",
+            "stats_manga_minutes",
+            "dashboard_reading_report_metric",
+        ] {
+            assert!(!is_syncable_setting_key(key));
+        }
+    }
 
     fn setup_test_db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();

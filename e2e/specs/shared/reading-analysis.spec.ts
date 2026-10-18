@@ -9,28 +9,29 @@ describe('CUJ: Reading Analysis (Report Card)', () => {
     await waitForAppReady();
   });
 
-  it('shows the report card and projects from a work\'s own sessions once one records time and characters', async () => {
-    await navigateTo('profile');
-    expect(await verifyActiveView('profile')).toBe(true);
+  it('shows the reading speed panel and projects from a work\'s own sessions once one records time and characters', async () => {
+    await navigateTo('dashboard');
+    expect(await verifyActiveView('dashboard')).toBe(true);
 
     // Every seeded log records time but zero characters, so no speed is derivable yet.
-    expect(await $('#profile-report-card').isExisting()).toBe(false);
+    expect(await $('#dashboard-reading-speed').isExisting()).toBe(false);
 
-    // Log from another view: the report recomputes when Profile is navigated to, and navigating to
-    // the view you are already on is a no-op.
-    await navigateTo('dashboard');
     await logActivityGlobal('呪術廻戦', 30, 3000);
 
-    await navigateTo('profile');
-    const reportCard = $('#profile-report-card');
-    await reportCard.waitForDisplayed({ timeout: 10000 });
+    const panel = $('#dashboard-reading-speed');
+    await panel.waitForDisplayed({ timeout: 10000 });
 
-    const contentText = await $('#profile-report-card-content').getText();
-    expect(contentText).toContain('Manga');
-    expect(contentText).toContain('char/hr');
+    // 3,000 characters in 30 minutes is 6,000 char/hr.
+    const expectedSpeedText = await browser.execute(() => (6000).toLocaleString());
+    const mangaRow = $('#dashboard-reading-speed [data-content-type="Manga"]');
+    await browser.waitUntil(async () => (await mangaRow.getText()).includes(expectedSpeedText), {
+      timeout: 10000, timeoutMsg: `Manga reading speed row did not reach ${expectedSpeedText}`
+    });
 
-    const windowNote = await $('#profile-report-window-note');
-    expect(await windowNote.getText()).toMatch(/Since \d{4}-\d{2}-\d{2}|Over the last year/);
+    await $('#reading-speed-toggle-time').click();
+    await browser.waitUntil(async () => (await mangaRow.getText()).includes('30m'), {
+      timeout: 5000, timeoutMsg: 'Manga reading speed row did not reach 30m after switching to the time tab'
+    });
 
     await navigateTo('media');
     await clickMediaItem('呪術廻戦');

@@ -2,6 +2,7 @@ import { waitForAppReady } from '../../helpers/setup.js';
 import { navigateTo, verifyActiveView } from '../../helpers/navigation.js';
 import {
   logActivity,
+  logActivityWithEpisodes,
   submitIncompleteActivity,
   getStatValue,
   waitForStatValue,
@@ -108,5 +109,22 @@ describe('CUJ: Log Daily Activity', () => {
 
     const dailyAverage = await getStatValue('stat-total-avg');
     expect(dailyAverage).toBeGreaterThan(0);
+  });
+
+  it('should log anime episodes as the default episode duration each', async () => {
+    await navigateTo('dashboard');
+    expect(await verifyActiveView('dashboard')).toBe(true);
+
+    const targetDate = MOCK_DATE;
+    const initialLogsCount = await getStatValue('stat-total-logs');
+    const initialCellMinutes = await getHeatmapCellMinutes(targetDate);
+
+    await logActivityWithEpisodes('葬送のフリーレン', 2, targetDate);
+
+    expect(await waitForStatValue('stat-total-logs', initialLogsCount + 1)).toBe(initialLogsCount + 1);
+    expect(await waitForHeatmapCellMinutes(targetDate, initialCellMinutes + 48)).toBe(initialCellMinutes + 48);
+
+    await deleteMostRecentLog();
+    expect(await waitForStatValue('stat-total-logs', initialLogsCount)).toBe(initialLogsCount);
   });
 });

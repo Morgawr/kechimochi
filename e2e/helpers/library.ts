@@ -249,6 +249,14 @@ async function waitForLibraryRefresh(): Promise<void> {
     await browser.pause(50);
 }
 
+/**
+ * Whether Filter/Sort panes render inline in the header (≥769px) rather than as a
+ * centred modal (≤768px). Same breakpoint as the grid/list toggle and the item layout.
+ */
+async function arePanesInline(): Promise<boolean> {
+    return await isLayoutToggleAvailable();
+}
+
 async function waitForFilterPanelState(expanded: boolean): Promise<void> {
     const panel = $('#media-grid-filter-panel');
     await panel.waitForExist({ timeout: 5000 });
@@ -271,13 +279,31 @@ async function waitForFilterPanelState(expanded: boolean): Promise<void> {
     });
 }
 
+async function waitForFilterModalState(open: boolean): Promise<void> {
+    await browser.waitUntil(async () => {
+        const isTrayInModal = await $('.modal-overlay .media-pane-modal-body #media-grid-filter-tray').isExisting();
+        return isTrayInModal === open;
+    }, {
+        timeout: 5000,
+        timeoutMsg: `Filter modal did not become ${open ? 'open' : 'closed'}`,
+    });
+}
+
+async function waitForFilterPaneState(expanded: boolean): Promise<void> {
+    if (await arePanesInline()) {
+        await waitForFilterPanelState(expanded);
+    } else {
+        await waitForFilterModalState(expanded);
+    }
+}
+
 export async function setFiltersExpanded(expanded: boolean): Promise<void> {
     const toggle = $('#btn-toggle-filters');
     await toggle.waitForDisplayed({ timeout: 5000 });
 
     const isExpanded = async () => (await toggle.getAttribute('aria-expanded')) === 'true';
     if ((await isExpanded()) === expanded) {
-        await waitForFilterPanelState(expanded);
+        await waitForFilterPaneState(expanded);
         return;
     }
 
@@ -286,26 +312,81 @@ export async function setFiltersExpanded(expanded: boolean): Promise<void> {
         timeout: 5000,
         timeoutMsg: `Filters toggle did not become ${expanded ? 'expanded' : 'collapsed'}`
     });
-    await waitForFilterPanelState(expanded);
+    await waitForFilterPaneState(expanded);
 }
 
-async function clickFilterChip(group: 'type' | 'status', value: string): Promise<void> {
-    const selector = `.media-filter-chip[data-filter-group="${group}"][data-filter-value="${value}"]`;
-    const chip = $(selector);
-    await chip.waitForDisplayed({ timeout: 5000 });
-    await safeClickBySelector(selector);
+const MULTI_SELECT_PANEL_SELECTOR = '.multi-select-panel';
+
+async function openMultiSelectPanel(triggerId: string): Promise<void> {
+    await safeClickBySelector(`#${triggerId}`);
+    await $(MULTI_SELECT_PANEL_SELECTOR).waitForDisplayed({ timeout: 5000 });
 }
 
-async function setFilterGroup(group: 'type' | 'status', values: string[]): Promise<void> {
+async function closeMultiSelectPanel(): Promise<void> {
+    const panel = $(MULTI_SELECT_PANEL_SELECTOR);
+    if (await panel.isExisting()) await browser.keys('Escape');
+    await panel.waitForExist({ timeout: 5000, reverse: true });
+}
+
+async function readMultiSelectOptionStates(triggerId: string): Promise<{ value: string; isChecked: boolean }[]> {
+    await openMultiSelectPanel(triggerId);
+    const optionStates = await browser.execute((panelSelector) => Array.from(
+        document.querySelectorAll<HTMLInputElement>(`${panelSelector} .multi-select-option input[type="checkbox"]`),
+        checkbox => ({ value: checkbox.value, isChecked: checkbox.checked }),
+    ), MULTI_SELECT_PANEL_SELECTOR);
+    await closeMultiSelectPanel();
+    return optionStates;
+}
+
+// The multiselect closes on any page scroll (including the browser clamping the scroll position
+// when a toggle shortens the library), so each toggle is its own open → click → close, and nothing
+// that scrolls runs while the panel is open: Escape closes it, and the fixed panel is never scrolled to.
+async function setMultiSelectShownValues(triggerId: string, values: string[]): Promise<void> {
+    const shouldBeShown = (value: string) => values.length === 0 || values.includes(value);
     await setFiltersExpanded(true);
 
-    await clickFilterChip(group, 'All');
-    await waitForLibraryRefresh();
+    for (const { value, isChecked } of await readMultiSelectOptionStates(triggerId)) {
+        if (isChecked === shouldBeShown(value)) continue;
 
-    for (const value of values) {
-        await clickFilterChip(group, value);
+        await openMultiSelectPanel(triggerId);
+        await safeClickBySelector(
+            `${MULTI_SELECT_PANEL_SELECTOR} input[type="checkbox"][value="${value}"]`,
+            5000,
+            { skipScrollIntoView: true },
+        );
         await waitForLibraryRefresh();
+        await closeMultiSelectPanel();
     }
+
+    const mismatchedValues = (await readMultiSelectOptionStates(triggerId))
+        .filter(({ value, isChecked }) => isChecked !== shouldBeShown(value))
+        .map(({ value }) => value);
+    if (mismatchedValues.length > 0) {
+        throw new Error(`[E2E] Multiselect options not in the requested state: ${mismatchedValues.join(', ')}`);
+    }
+}
+
+async function addFilterRuleToLastGroup(): Promise<number> {
+    const groups = await $$('.media-filter-rule-group');
+    const groupCount = await groups.length;
+    if (groupCount === 0) {
+        await safeClickBySelector('#btn-add-filter-rule-group');
+    } else {
+        const lastGroupIndex = await groups[groupCount - 1].getAttribute('data-group-index');
+        await safeClickBySelector(`.media-filter-add-and[data-group-index="${lastGroupIndex}"]`);
+    }
+
+    const rows = await $$('.media-extra-filter-rule');
+    const rowCount = await rows.length;
+    if (rowCount === 0) {
+        throw new Error('No filter rule was added');
+    }
+    const ruleIndexValue = await rows[rowCount - 1].getAttribute('data-rule-index');
+    const ruleIndex = Number(ruleIndexValue);
+    if (!Number.isInteger(ruleIndex) || ruleIndex < 0) {
+        throw new Error('No filter rule was added');
+    }
+    return ruleIndex;
 }
 
 export async function waitForListCount(count: number | ((actual: number) => boolean), options: { timeout?: number, timeoutMsg?: string } = {}): Promise<void> {
@@ -324,11 +405,11 @@ export async function waitForListCount(count: number | ((actual: number) => bool
 }
 
 export async function setMediaTypeFilters(types: string[]): Promise<void> {
-    await setFilterGroup('type', types);
+    await setMultiSelectShownValues('media-type-multiselect-trigger', types);
 }
 
 export async function setTrackingStatusFilters(statuses: string[]): Promise<void> {
-    await setFilterGroup('status', statuses);
+    await setMultiSelectShownValues('media-status-multiselect-trigger', statuses);
 }
 
 export async function setBooleanTagFilters(tags: string[]): Promise<void> {
@@ -342,7 +423,8 @@ export async function setBooleanTagFilters(tags: string[]): Promise<void> {
     }
 
     for (const tag of tags) {
-        await setSelect('#media-boolean-tag-add', { text: tag });
+        const ruleIndex = await addFilterRuleToLastGroup();
+        await setSelect(`.media-extra-filter-field[data-rule-index="${ruleIndex}"]`, { text: `#${tag}` });
         await waitForLibraryRefresh();
     }
 }
@@ -372,18 +454,7 @@ export async function addExtraFieldFilterRule({
     logic?: LibraryFilterRuleLogic;
 }): Promise<number> {
     await setFiltersExpanded(true);
-    await safeClickBySelector('#btn-add-extra-filter-rule');
-
-    const extraRuleRows = await $$('.media-extra-filter-rule[data-rule-kind="extra"]');
-    const extraRuleRowCount = await extraRuleRows.length;
-    if (extraRuleRowCount === 0) {
-        throw new Error('No extra field filter rule was added');
-    }
-    const ruleIndexValue = await extraRuleRows[extraRuleRowCount - 1].getAttribute('data-rule-index');
-    const ruleIndex = Number(ruleIndexValue);
-    if (!Number.isInteger(ruleIndex) || ruleIndex < 0) {
-        throw new Error('No extra field filter rule was added');
-    }
+    const ruleIndex = await addFilterRuleToLastGroup();
 
     await setSelect(`.media-extra-filter-field[data-rule-index="${ruleIndex}"]`, { text: fieldName });
     await setSelect(`.media-extra-filter-operator[data-rule-index="${ruleIndex}"]`, { value: operator });
@@ -397,31 +468,29 @@ export async function setLibraryFilterRuleLogic(
     ruleIndex: number,
     logic: LibraryFilterRuleLogic,
 ): Promise<void> {
-    if (ruleIndex === 0 && logic !== 'and' && logic !== 'andNot') {
+    if (ruleIndex === 0 && (logic === 'or' || logic === 'orNot')) {
         throw new Error('The first library filter rule cannot start with OR');
     }
-    let value: string = logic;
-    if (ruleIndex === 0) {
-        value = logic === 'andNot' ? 'not' : 'match';
-    }
-    await setSelect(`.media-filter-logic[data-rule-index="${ruleIndex}"]`, { value });
+
+    const negated = logic === 'andNot' || logic === 'orNot';
+    await safeClickBySelector(`.media-filter-negation-option[data-rule-index="${ruleIndex}"][data-negated="${negated}"]`);
     await waitForLibraryRefresh();
+
+    if (ruleIndex === 0) return;
+
+    const wantsOr = logic === 'or' || logic === 'orNot';
+    const isOr = await $(`.media-filter-or-divider[data-rule-index="${ruleIndex}"]`).isExisting();
+    if (isOr !== wantsOr) {
+        await safeClickBySelector(`.media-filter-join-toggle[data-rule-index="${ruleIndex}"]`);
+        await waitForLibraryRefresh();
+    }
 }
 
 /**
  * Toggle the "Hide Archived" checkbox in the library grid.
  */
 export async function setHideArchived(hide: boolean): Promise<void> {
-    // First, expand the filter panel if it's not already open
-    const filterToggle = $('#btn-toggle-filters');
-    await filterToggle.waitForDisplayed({ timeout: 5000 });
-    const isExpanded = (await filterToggle.getAttribute('aria-expanded')) === 'true';
-    if (!isExpanded) {
-        await filterToggle.click();
-        // Wait for the panel to be visible
-        const filterPanel = $('#media-grid-filter-panel');
-        await filterPanel.waitForDisplayed({ timeout: 5000 });
-    }
+    await setFiltersExpanded(true);
 
     const checkbox = $('#grid-hide-archived');
     await checkbox.waitForExist({ timeout: 5000 });

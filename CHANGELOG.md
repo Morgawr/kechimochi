@@ -6,9 +6,22 @@ The format is based on Keep a Changelog, with one section per released version.
 
 ## [Unreleased]
 
+### Added
+ - New settings in the Profile to adjust the Library's grid view in regards to border, status dot, and type label.
+ - The business card and reading report moved from the Profile to the Dashboard's Study Stats. The reading reports updates more frequently and faster.
+ - The Dashboard's "Go immerse!" prompt grows louder the longer the current period stays empty.
+ - Anime can be logged in episodes now. The default episode length is 24 minutes (and can be overridden on a per-anime basis.)
+
 ### Changed
  - Selects now match multiselects through a forced Kechimochi theme. Mobile keeps its native picker.
  - Characters fields in the log and milestone modals start empty instead of 0 and accept only digits.
+ - The desktop window can no longer be resized below 320x480.
+ - General UIUX overhaul of the Library's header, filter pane, and sort pane.
+ - General UIUX overhaul of the nav header / footer elements.
+ - General UIUX overhaul of the Timeline across all zoom levels and screen sizes.
+ - Dashboard heatmap now has a mobile version, shows month labels above the year grid, outlines the selected week or month, follows the selected period, and respects the week start day.
+ - The log activity modal is more compact.
+ - Date pickers can jump larger distances at a time.
 
 ### Fixed
  - Media details no longer show an empty stats box for media with no logged activity
@@ -18,6 +31,10 @@ The format is based on Keep a Changelog, with one section per released version.
  - Logging activity on an archived media now updates its "Archive" button (in the media's detail page) right away
  - Dashboard chart tooltips no longer list entries with 0 minutes/characters, and disappear once the cursor leaves a bar, slice or dot.
  - Activity Visualization legend color boxes are now the same size in bar and line mode.
+ - Library filter rules now group correctly: a non-ready rule starting an OR group no longer erases the group boundary.
+ - Timeline cards no longer break their left/right alternation between months, and no longer grow oversized gaps on some window resizes.
+ - Logging activity or returning to the dashboard no longer resets the dashboard's selected period and heatmap year to today.
+ - The heatmap is now actually usable on the E-ink theme instead of nigh invisible
 
 ## [0.3.3] - 2026-09-22
 
