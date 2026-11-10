@@ -695,6 +695,11 @@ a {
   animation: app-loader-spin 0.75s linear infinite;
 }
 
+/* Hidden animations can still drive WebKit redraws after startup. */
+#app[data-boot-state='ready'] .app-startup-loader__spinner {
+  animation: none;
+}
+
 @keyframes app-loader-spin {
   to {
     transform: rotate(360deg);
